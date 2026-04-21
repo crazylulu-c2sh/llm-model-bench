@@ -18,7 +18,7 @@ function baseMeta(modelId: string): BenchRunMeta {
     model_id: modelId,
     api_routes: ["chat_completions"],
     scenario_ids: ["chat_hello"],
-    scenario_bundle_version: "3",
+    scenario_bundle_version: "4",
     temperature: 0.2,
     max_tokens: 512,
     parallel: false,

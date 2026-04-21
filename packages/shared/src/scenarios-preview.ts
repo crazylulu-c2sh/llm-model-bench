@@ -11,21 +11,21 @@ export type ScenarioPromptPreviewOpts = {
 export type ScenarioId =
   | "chat_hello"
   | "chat_ping"
-  | "code_sort_js"
-  | "code_sort_py"
   | "chat_time_calendar"
   | "tool_weather"
   | "structured_action"
+  | "code_sort_js"
+  | "code_sort_py"
   | "translate_nist_fips197_pdf_tools";
 
 export const ALL_SCENARIO_IDS: ScenarioId[] = [
   "chat_hello",
   "chat_ping",
-  "code_sort_js",
-  "code_sort_py",
   "chat_time_calendar",
   "tool_weather",
   "structured_action",
+  "code_sort_js",
+  "code_sort_py",
   "translate_nist_fips197_pdf_tools",
 ];
 

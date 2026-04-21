@@ -109,7 +109,7 @@ export function makeBenchRunMeta(
     model_id: input.modelId,
     api_routes: routes,
     scenario_ids: scenarioIds,
-    scenario_bundle_version: "3",
+    scenario_bundle_version: "4",
     temperature: input.temperature ?? 0.2,
     max_tokens: input.max_tokens ?? 512,
     seed: null,
