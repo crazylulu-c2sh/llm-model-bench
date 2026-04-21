@@ -30,7 +30,7 @@
 ## 아이콘·차트
 
 - **아이콘**: `lucide-react` (outline, `currentColor` / 시맨틱 변수).
-- **차트**: `recharts`. 막대·레이더 색은 `--chart-ttft`, `--chart-tpot`, `--chart-pass`, `--chart-fail` 등 토큰 우선.
+- **차트**: `recharts`. 막대·레이더 색은 `--chart-ttft`, `--chart-tpot`, `--chart-tps`, `--chart-pass`, `--chart-fail` 등 토큰 우선.
 - **코드 하이라이트(선택)**: `prism-react-renderer` + `prismjs`는 lazy chunk로만 로드.
 
 ## 컴포넌트
