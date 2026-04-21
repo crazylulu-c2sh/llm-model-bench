@@ -47,6 +47,7 @@ import {
   type BenchStepLine,
 } from "./components/BenchProgressPanel";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
+import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
 import type { ThemeChoice } from "./useTheme";
@@ -975,6 +976,8 @@ export function App() {
             </div>
           )}
         </section>
+
+        <ScenarioGuideCards currentScenario={running ? benchCurrent?.scenario : null} />
 
         <BenchProgressPanel
           running={running}
