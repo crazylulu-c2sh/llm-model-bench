@@ -26,3 +26,8 @@ data/*.sqlite
 data/*.sqlite-journal
 data/*.sqlite-wal
 data/*.sqlite-shm
+
+apps/server/data/*.sqlite
+apps/server/data/*.sqlite-journal
+apps/server/data/*.sqlite-wal
+apps/server/data/*.sqlite-shm
