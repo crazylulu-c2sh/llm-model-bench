@@ -22,6 +22,37 @@ app.use(
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "llm-bench-server" }));
 
+/** (model_id, base_url)별 최신 finished 런 요약 — 통계 페이지 목록 */
+app.get("/api/stats/model-latest", async (c) => {
+  try {
+    const dbMod = await import("./db/database.js");
+    const db = dbMod.tryOpenProdBenchDatabase();
+    if (!db) {
+      return c.json({
+        items: [],
+        sqlite_available: false,
+        sqlite_error: dbMod.getProdBenchDatabaseOpenError(),
+      });
+    }
+    const raw = dbMod.listLatestFinishedRunSummaries(db);
+    const items = raw.map((r) => ({
+      run_id: r.run_id,
+      model_id: r.model_id,
+      base_url: r.base_url.replace(/\/+$/, ""),
+      provider: r.provider,
+      finished_at: r.finished_at,
+      created_at: r.created_at,
+      status: r.status,
+      scenario_count: r.scenario_count,
+    }));
+    return c.json({ items, sqlite_available: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[llm-bench-server] /api/stats/model-latest DB 로드 실패:", msg);
+    return c.json({ items: [], sqlite_available: false, sqlite_error: msg });
+  }
+});
+
 const RunsQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),
 });

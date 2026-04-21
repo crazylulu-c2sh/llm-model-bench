@@ -1,0 +1,89 @@
+import type { BenchRunDetailResponse } from "../api-types";
+import type { ResultRow } from "../components/ResultsTable";
+import {
+  rowsToChartData,
+  scenarioRowKey,
+  sortChartRowsForBarOrder,
+  tokensPerSecondFromRun,
+  type ChartRow,
+} from "../components/chart-types";
+
+export type MetricsAgg = {
+  scenario_id: string;
+  api_route: "chat_completions" | "messages";
+  runs: Array<{
+    ttft_ms: number | null;
+    tpot_ms: number | null;
+    total_ms: number;
+    output_text: string;
+    stream_completed: boolean;
+    quality?: { pass: boolean; score?: number; reason?: string };
+  }>;
+};
+
+/** 저장된 런 상세 여러 건을 벤치 라이브와 동일한 rows / aggregate / 프롬프트 맵으로 병합 */
+export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
+  rows: ResultRow[];
+  detailAggregate: Record<string, MetricsAgg>;
+  promptByRowKey: Record<string, string>;
+} {
+  const detailAggregate: Record<string, MetricsAgg> = {};
+  const promptByRowKey: Record<string, string> = {};
+  const rows: ResultRow[] = [];
+
+  for (const detail of details) {
+    const modelId = String(detail.meta.model_id);
+    for (const sc of detail.scenarios) {
+      const runs = sc.runs ?? [];
+      const rowKey = scenarioRowKey(sc.id, sc.api_route, modelId);
+      detailAggregate[rowKey] = {
+        scenario_id: sc.id,
+        api_route: sc.api_route,
+        runs,
+      };
+      if (sc.prompt_preview != null && sc.prompt_preview !== "") {
+        promptByRowKey[rowKey] = sc.prompt_preview;
+      }
+      const last = runs[runs.length - 1];
+      if (!last) continue;
+      const tpsRaw = tokensPerSecondFromRun(last.total_ms, last.output_text);
+      const tps = tpsRaw > 0 ? Math.round(tpsRaw * 10) / 10 : null;
+      rows.push({
+        rowKey,
+        model_id: modelId,
+        scenario: sc.id,
+        api: sc.api_route,
+        ttft_ms: last.ttft_ms ?? null,
+        tpot_ms: last.tpot_ms ?? null,
+        tps,
+        pass: last.quality?.pass,
+        reason: last.quality?.reason,
+      });
+    }
+  }
+
+  return { rows, detailAggregate, promptByRowKey };
+}
+
+export function buildChartRowsFromBenchState(
+  rows: ResultRow[],
+  detailAggregate: Record<string, MetricsAgg>,
+): ChartRow[] {
+  return sortChartRowsForBarOrder(
+    rowsToChartData(
+      rows.map((r) => {
+        const last = detailAggregate[r.rowKey]?.runs?.at(-1);
+        return {
+          scenario: r.scenario,
+          api: r.api,
+          ttft_ms: r.ttft_ms,
+          tpot_ms: r.tpot_ms,
+          pass: r.pass,
+          model_id: r.model_id,
+          total_ms: last?.total_ms,
+          output_text: last?.output_text,
+        };
+      }),
+    ),
+  );
+}

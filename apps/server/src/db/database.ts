@@ -247,3 +247,41 @@ export function latestFinishedRunsByModels(
   }
   return out;
 }
+
+/** (model_id, base_url) 조합마다 finished 런 중 최신 1건 — 통계 목록용 */
+export type LatestFinishedRunSummary = {
+  run_id: string;
+  created_at: string;
+  finished_at: string;
+  base_url: string;
+  provider: string;
+  model_id: string;
+  status: string;
+  /** 집계 JSON에 측정 런이 1개 이상 있는 시나리오 행 수 — 0이면 차트·표에 쓸 데이터 없음 */
+  scenario_count: number;
+};
+
+export function listLatestFinishedRunSummaries(db: Database.Database): LatestFinishedRunSummary[] {
+  return db
+    .prepare(
+      `SELECT ranked.run_id, ranked.created_at, ranked.finished_at, ranked.base_url, ranked.provider, ranked.model_id, ranked.status,
+         (
+           SELECT COUNT(*)
+           FROM bench_scenarios s
+           WHERE s.run_id = ranked.run_id
+             AND COALESCE(json_array_length(json_extract(s.aggregate_json, '$.runs')), 0) > 0
+         ) AS scenario_count
+       FROM (
+         SELECT run_id, created_at, finished_at, base_url, provider, model_id, status,
+           ROW_NUMBER() OVER (
+             PARTITION BY model_id, base_url
+             ORDER BY datetime(finished_at) DESC, datetime(created_at) DESC, rowid DESC
+           ) AS rn
+         FROM bench_runs
+         WHERE status IN ('ok', 'partial') AND finished_at IS NOT NULL
+       ) AS ranked
+       WHERE rn = 1
+       ORDER BY model_id, base_url`,
+    )
+    .all() as LatestFinishedRunSummary[];
+}

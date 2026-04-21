@@ -52,6 +52,7 @@ import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/S
 import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
+import { StatsPage } from "./StatsPage";
 import type { ThemeChoice } from "./useTheme";
 import { useTheme } from "./useTheme";
 
@@ -121,6 +122,7 @@ function ThemeIcon({ choice }: { choice: ThemeChoice }) {
 
 export function App() {
   const { choice: themeChoice, setChoice: setThemeChoice, resolved: themeResolved } = useTheme();
+  const [activePage, setActivePage] = useState<"bench" | "stats">("bench");
   const [boot] = useState(() => readInitialUiState());
   const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
   const [apiKey, setApiKey] = useState(boot.apiKey);
@@ -987,7 +989,11 @@ export function App() {
           </span>
           <div className="min-w-0 flex-1">
             <h1 className="text-lg font-semibold tracking-tight">LLM Model Bench</h1>
-            <p className="text-sm text-[var(--muted)]">로컬 프로바이더 감지 · 스트리밍 벤치</p>
+            {activePage === "bench" ? (
+              <p className="text-sm text-[var(--muted)]">로컬 프로바이더 감지 · 스트리밍 벤치</p>
+            ) : (
+              <p className="text-sm text-[var(--muted)]">SQLite에 저장된 최신 런 기준 메트릭·결과</p>
+            )}
             {running ? (
               <div
                 className="mt-2 flex min-w-0 items-center gap-2 rounded border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--foreground)]"
@@ -1004,6 +1010,37 @@ export function App() {
           </div>
         </div>
         <div className="flex flex-wrap items-end gap-3">
+          <div className="grid gap-1 text-sm" role="tablist" aria-label="페이지">
+            <span className="text-[var(--muted)]">페이지</span>
+            <div className="flex rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activePage === "bench"}
+                className={`rounded px-3 py-1.5 text-sm font-medium ${
+                  activePage === "bench"
+                    ? "bg-[var(--surface-2)] text-[var(--foreground)] shadow-sm"
+                    : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                }`}
+                onClick={() => setActivePage("bench")}
+              >
+                벤치
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activePage === "stats"}
+                className={`rounded px-3 py-1.5 text-sm font-medium ${
+                  activePage === "stats"
+                    ? "bg-[var(--surface-2)] text-[var(--foreground)] shadow-sm"
+                    : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                }`}
+                onClick={() => setActivePage("stats")}
+              >
+                통계
+              </button>
+            </div>
+          </div>
           <label className="grid gap-1 text-sm">
             <span className="inline-flex items-center gap-1 text-[var(--muted)]">
               <SunMoon className="size-3.5" aria-hidden />
@@ -1027,6 +1064,10 @@ export function App() {
       </header>
 
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
+        {activePage === "stats" ? (
+          <StatsPage />
+        ) : (
+          <>
         <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
           <div className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1 text-sm">
@@ -1495,6 +1536,8 @@ export function App() {
             ) : null}
           </div>
         </section>
+          </>
+        )}
       </main>
       <ScenarioDetailDrawer
         open={drawerOpen}

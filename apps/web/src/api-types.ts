@@ -49,3 +49,21 @@ export type RunSummary = {
   model_id: string;
   status: string;
 };
+
+export type StatsModelLatestItem = {
+  run_id: string;
+  model_id: string;
+  base_url: string;
+  provider: string;
+  finished_at: string;
+  created_at: string;
+  status: string;
+  /** 측정 런이 있는 시나리오 개수 — 0이면 선택 불가 */
+  scenario_count: number;
+};
+
+export type StatsModelLatestResponse = {
+  items: StatsModelLatestItem[];
+  sqlite_available?: boolean;
+  sqlite_error?: string | null;
+};
