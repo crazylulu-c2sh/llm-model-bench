@@ -40,29 +40,17 @@ function runId(): string {
   return `run_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export async function* runBench(
-  input: BenchRequest,
-  detect: DetectResult,
-  opts: { fetchImpl?: typeof fetch } = {},
-): AsyncGenerator<StreamEvent> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+/** DB/SSE와 동일한 메타 스냅샷(런 ID만 외부에서 주입). */
+export function makeBenchRunMeta(input: BenchRequest, detect: DetectResult, rid: string): BenchRunMeta {
   const base = detect.baseUrl.replace(/\/+$/, "");
-  const serial = input.serial !== false;
-  if (!serial && input.parallel) {
-    /* parallel batching left minimal: still sequential model loop in v1 */
-  }
-
   const scenarioIds =
-    input.scenarioIds?.length && input.scenarioIds.every((s) => ALL_SCENARIO_IDS.includes(s))
+    input.scenarioIds?.length && input.scenarioIds.every((s) => ALL_SCENARIO_IDS.includes(s as ScenarioId))
       ? input.scenarioIds
       : (ALL_SCENARIO_IDS as ScenarioId[]);
-
   const routes: ("chat_completions" | "messages")[] = [];
   if (detect.capabilities.openaiChat) routes.push("chat_completions");
   if (detect.capabilities.anthropicMessages) routes.push("messages");
-
-  const rid = runId();
-  const meta: BenchRunMeta = {
+  return {
     run_id: rid,
     app_version: "0.0.1",
     base_url: base,
@@ -80,10 +68,26 @@ export async function* runBench(
     unload_other_models: !!input.unloadOtherModels,
     created_at: new Date().toISOString(),
   };
+}
 
-  yield { type: "run_started", run_id: rid };
+export async function* runBench(
+  input: BenchRequest,
+  detect: DetectResult,
+  opts: { fetchImpl?: typeof fetch } = {},
+): AsyncGenerator<StreamEvent> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const base = detect.baseUrl.replace(/\/+$/, "");
+  const serial = input.serial !== false;
+  if (!serial && input.parallel) {
+    /* parallel batching left minimal: still sequential model loop in v1 */
+  }
 
-  if (!routes.length) {
+  const rid = runId();
+  const meta = makeBenchRunMeta(input, detect, rid);
+
+  yield { type: "run_started", run_id: rid, meta };
+
+  if (!meta.api_routes.length) {
     yield {
       type: "error",
       layer: "orchestrator",
@@ -116,8 +120,8 @@ export async function* runBench(
 
   yield { type: "model_loaded", model_id: input.modelId, provider: input.provider };
 
-  for (const api_route of routes) {
-    for (const scenarioId of scenarioIds) {
+  for (const api_route of meta.api_routes) {
+    for (const scenarioId of meta.scenario_ids as ScenarioId[]) {
       if (api_route === "messages" && scenarioId === "tool_weather") {
         /* Anthropic tools format differs; still attempt with converted tools in body */
       }

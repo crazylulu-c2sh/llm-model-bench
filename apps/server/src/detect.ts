@@ -56,18 +56,49 @@ export async function detectProvider(
         const first = j.models[0] as { key?: string; type?: string; display_name?: string };
         if (first && typeof first.key === "string") {
           const models = j.models
-            .map((m) => m as { key: string; type?: string; display_name?: string })
+            .map(
+              (m) =>
+                m as {
+                  key: string;
+                  type?: string;
+                  display_name?: string;
+                  size_bytes?: number;
+                  params_string?: string | null;
+                },
+            )
             .filter((m) => m.key && (m.type === "llm" || !m.type))
             .map((m) => ({
               id: m.key,
               label: m.display_name ?? m.key,
               kind: m.type,
+              size_bytes: typeof m.size_bytes === "number" && m.size_bytes > 0 ? m.size_bytes : undefined,
+              params_string:
+                typeof m.params_string === "string" && m.params_string.trim()
+                  ? m.params_string.trim()
+                  : undefined,
             }));
           const caps = await probeCapabilities(fetchImpl, baseUrl, opts.apiKey);
           return {
             provider: "lm_studio",
             baseUrl,
-            models: models.length ? models : [{ id: first.key, label: first.display_name }],
+            models: models.length
+              ? models
+              : [
+                  {
+                    id: first.key,
+                    label: first.display_name,
+                    kind: first.type,
+                    size_bytes:
+                      typeof (first as { size_bytes?: number }).size_bytes === "number"
+                        ? (first as { size_bytes: number }).size_bytes
+                        : undefined,
+                    params_string:
+                      typeof (first as { params_string?: string | null }).params_string === "string" &&
+                      (first as { params_string: string }).params_string.trim()
+                        ? (first as { params_string: string }).params_string.trim()
+                        : undefined,
+                  },
+                ],
             steps,
             capabilities: caps,
           };
@@ -89,10 +120,14 @@ export async function detectProvider(
     if (r.ok) {
       const j = (await r.json()) as { models?: { name: string; model?: string }[] };
       if (Array.isArray(j.models)) {
-        const models = j.models.map((m) => ({
-          id: m.name ?? m.model ?? "unknown",
-          label: m.name,
-        }));
+        const models = j.models.map((m) => {
+          const row = m as { name?: string; model?: string; size?: number };
+          return {
+            id: row.name ?? row.model ?? "unknown",
+            label: row.name ?? row.model,
+            size_bytes: typeof row.size === "number" && row.size > 0 ? row.size : undefined,
+          };
+        });
         const caps = await probeCapabilities(fetchImpl, baseUrl, opts.apiKey);
         return {
           provider: "ollama",
@@ -115,7 +150,14 @@ export async function detectProvider(
       const j = (await r.json()) as { data?: { id: string }[] };
       const arr = j.data;
       if (Array.isArray(arr) && arr.length > 0) {
-        const models = arr.map((m) => ({ id: m.id, label: m.id }));
+        const models = arr.map((m) => {
+          const row = m as { id: string; size?: number };
+          return {
+            id: row.id,
+            label: row.id,
+            size_bytes: typeof row.size === "number" && row.size > 0 ? row.size : undefined,
+          };
+        });
         const caps = await probeCapabilities(fetchImpl, baseUrl, opts.apiKey);
         return {
           provider: "openai_compatible",

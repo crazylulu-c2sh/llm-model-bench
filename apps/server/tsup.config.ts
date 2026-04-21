@@ -8,4 +8,5 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   noExternal: ["@llm-bench/shared"],
+  external: ["better-sqlite3"],
 });

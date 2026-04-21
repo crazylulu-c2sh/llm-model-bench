@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  ALL_SCENARIO_IDS as SHARED_ALL_SCENARIO_IDS,
+  getScenarioUserPromptPreview,
+  type ScenarioId,
+} from "@llm-bench/shared";
 import { z } from "zod";
 
 const fixturePath = path.resolve(
@@ -9,7 +14,9 @@ const fixturePath = path.resolve(
 );
 
 let excerptCache: string | null = null;
-function conxExcerpt(): string {
+
+/** 벤치/DB 프롬프트 미리보기용 — fixtures 발췌 */
+export function conxExcerpt(): string {
   if (excerptCache) return excerptCache;
   try {
     excerptCache = readFileSync(fixturePath, "utf8").trim().slice(0, 800);
@@ -20,70 +27,21 @@ function conxExcerpt(): string {
   return excerptCache;
 }
 
-export type ScenarioId =
-  | "chat_hello"
-  | "chat_ping"
-  | "code_sort_js"
-  | "code_sort_py"
-  | "translate_roundtrip_stub"
-  | "tool_weather"
-  | "structured_action";
-
-export const ALL_SCENARIO_IDS: ScenarioId[] = [
-  "chat_hello",
-  "chat_ping",
-  "code_sort_js",
-  "code_sort_py",
-  "translate_roundtrip_stub",
-  "tool_weather",
-  "structured_action",
-];
+export type { ScenarioId };
+export const ALL_SCENARIO_IDS = SHARED_ALL_SCENARIO_IDS;
 
 export function buildMessages(
   id: ScenarioId,
 ): { messages: { role: "system" | "user"; content: string }[]; tools?: unknown; tool_choice?: unknown } {
+  const userContent =
+    id === "translate_roundtrip_stub"
+      ? getScenarioUserPromptPreview(id, { translationExcerpt: conxExcerpt() })
+      : getScenarioUserPromptPreview(id);
+
   switch (id) {
-    case "chat_hello":
-      return { messages: [{ role: "user", content: "Reply with exactly: hello" }] };
-    case "chat_ping":
-      return { messages: [{ role: "user", content: 'Reply with exactly: pong (lowercase, one word)' }] };
-    case "code_sort_js":
-      return {
-        messages: [
-          {
-            role: "user",
-            content:
-              "Write a JavaScript function sortNums(arr) that returns sorted ascending numbers. Output ONLY a single fenced code block ```js ... ``` with no prose.",
-          },
-        ],
-      };
-    case "code_sort_py":
-      return {
-        messages: [
-          {
-            role: "user",
-            content:
-              "Write Python def sort_nums(arr): return sorted list. Output ONLY a single fenced code block ```python ... ``` with no prose.",
-          },
-        ],
-      };
-    case "translate_roundtrip_stub":
-      return {
-        messages: [
-          {
-            role: "user",
-            content: `Translate the following English excerpt to Korean in one short sentence (max 80 chars). Korean only, no quotes.\n\n${conxExcerpt()}`,
-          },
-        ],
-      };
     case "tool_weather":
       return {
-        messages: [
-          {
-            role: "user",
-            content: "What is the weather in Seattle? Use the provided tool.",
-          },
-        ],
+        messages: [{ role: "user", content: userContent }],
         tools: [
           {
             type: "function",
@@ -100,18 +58,8 @@ export function buildMessages(
         ],
         tool_choice: "auto",
       };
-    case "structured_action":
-      return {
-        messages: [
-          {
-            role: "user",
-            content:
-              'Reply with ONLY valid JSON (no markdown) matching: {"action":"string","confidence":number} where confidence is 0-1.',
-          },
-        ],
-      };
     default:
-      return { messages: [{ role: "user", content: "ping" }] };
+      return { messages: [{ role: "user", content: userContent }] };
   }
 }
 

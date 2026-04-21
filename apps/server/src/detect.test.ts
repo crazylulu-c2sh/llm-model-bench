@@ -25,6 +25,8 @@ describe("detectProvider", () => {
               key: "m1",
               type: "llm",
               display_name: "M1",
+              size_bytes: 4_000_000_000,
+              params_string: "7B",
               loaded_instances: [],
             },
           ],
@@ -41,6 +43,8 @@ describe("detectProvider", () => {
     const r = await detectProvider("http://localhost:1234", { fetchImpl });
     expect(r.provider).toBe("lm_studio");
     expect(r.models[0]?.id).toBe("m1");
+    expect(r.models[0]?.size_bytes).toBe(4_000_000_000);
+    expect(r.models[0]?.params_string).toBe("7B");
   });
 
   it("falls back to Ollama when LM list missing", async () => {
@@ -48,7 +52,7 @@ describe("detectProvider", () => {
       const url = requestUrl(input);
       if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
       if (url.endsWith("/api/tags")) {
-        return jsonResponse({ models: [{ name: "llama3" }] });
+        return jsonResponse({ models: [{ name: "llama3", size: 2_000_000_000 }] });
       }
       if (url.includes("/v1/chat/completions")) return jsonResponse({ error: "x" }, 400);
       if (url.includes("/v1/messages")) return jsonResponse({ error: "x" }, 400);
@@ -57,6 +61,7 @@ describe("detectProvider", () => {
     const r = await detectProvider("http://localhost:11434", { fetchImpl });
     expect(r.provider).toBe("ollama");
     expect(r.models[0]?.id).toBe("llama3");
+    expect(r.models[0]?.size_bytes).toBe(2_000_000_000);
   });
 
   it("falls back to OpenAI-compatible", async () => {
