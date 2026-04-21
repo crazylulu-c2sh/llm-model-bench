@@ -1,10 +1,12 @@
-import type { DetectResult, StreamEvent } from "@llm-bench/shared";
+import type { BenchRunMeta, DetectResult, StreamEvent } from "@llm-bench/shared";
+import { getScenarioUserPromptPreview } from "@llm-bench/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast, Toaster } from "sonner";
 import {
   Activity,
   AlertTriangle,
   Download,
+  History,
   KeyRound,
   Link2,
   Loader2,
@@ -14,17 +16,50 @@ import {
   Sun,
   SunMoon,
 } from "lucide-react";
+import type {
+  BenchRunDetailResponse,
+  LatestByModelResponse,
+  RunSummary,
+  RunsListResponse,
+} from "./api-types";
 import { BenchCharts } from "./components/BenchCharts";
+import {
+  rowsToChartData,
+  scenarioRowKey,
+  tokensPerSecondFromRun,
+  type ChartRow,
+  type CompareSeries,
+} from "./components/chart-types";
 import { HighlightToggle, JsonCodeBlock } from "./components/JsonCodeBlock";
 import { ModelTable } from "./components/ModelTable";
 import { ProviderSummary } from "./components/ProviderSummary";
 import type { ResultRow } from "./components/ResultsTable";
 import { ResultsTable } from "./components/ResultsTable";
-import { rowsToChartData } from "./components/chart-types";
+import {
+  BenchProgressPanel,
+  type BenchCompletedItem,
+  type BenchCurrent,
+  type BenchStepKind,
+  type BenchStepLine,
+} from "./components/BenchProgressPanel";
+import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
 import type { ThemeChoice } from "./useTheme";
 import { useTheme } from "./useTheme";
+
+type MetricsAgg = {
+  scenario_id: string;
+  api_route: "chat_completions" | "messages";
+  runs: Array<{
+    ttft_ms: number | null;
+    tpot_ms: number | null;
+    total_ms: number;
+    output_text: string;
+    stream_completed: boolean;
+    quality?: { pass: boolean; score?: number; reason?: string };
+  }>;
+};
 
 function consumeSseJsonLines(
   stream: ReadableStream<Uint8Array>,
@@ -80,6 +115,18 @@ export function App() {
   const [hlPreview, setHlPreview] = useState(boot.hlPreview);
   const [hlLog, setHlLog] = useState(boot.hlLog);
   const [benchConfirmOpen, setBenchConfirmOpen] = useState(false);
+  const [detailAggregate, setDetailAggregate] = useState<Record<string, MetricsAgg>>({});
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerPayload, setDrawerPayload] = useState<ScenarioDetailPayload | null>(null);
+  const [chartView, setChartView] = useState<"live" | "compare">("live");
+  const [compareSeries, setCompareSeries] = useState<CompareSeries[] | null>(null);
+  const [compareRaw, setCompareRaw] = useState<LatestByModelResponse | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [serverRuns, setServerRuns] = useState<RunSummary[]>([]);
+  const [serverRunsLoading, setServerRunsLoading] = useState(false);
+  const [benchStepLines, setBenchStepLines] = useState<BenchStepLine[]>([]);
+  const [benchCurrent, setBenchCurrent] = useState<BenchCurrent | null>(null);
+  const [benchCompleted, setBenchCompleted] = useState<BenchCompletedItem[]>([]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -100,13 +147,243 @@ export function App() {
     setLog((prev) => [...prev.slice(-400), s]);
   }, []);
 
-  const chartRows = useMemo(() => rowsToChartData(rows), [rows]);
+  const chartRows = useMemo(
+    () =>
+      rowsToChartData(
+        rows.map((r) => {
+          const last = detailAggregate[r.rowKey]?.runs?.at(-1);
+          return {
+            scenario: r.scenario,
+            api: r.api,
+            ttft_ms: r.ttft_ms,
+            tpot_ms: r.tpot_ms,
+            pass: r.pass,
+            model_id: r.model_id,
+            total_ms: last?.total_ms,
+            output_text: last?.output_text,
+          };
+        }),
+      ),
+    [rows, detailAggregate],
+  );
+
+  const openDrawerForRow = useCallback(
+    (row: ResultRow) => {
+      const agg = detailAggregate[row.rowKey];
+      const runs = agg?.runs ?? [];
+      const last = runs[runs.length - 1];
+      setDrawerPayload({
+        title: `${row.scenario} / ${row.api}`,
+        scenario: row.scenario,
+        api: row.api,
+        modelId: row.model_id,
+        ttft_ms: row.ttft_ms,
+        tpot_ms: row.tpot_ms,
+        pass: row.pass,
+        qualityReason: row.reason ?? last?.quality?.reason,
+        prompt: getScenarioUserPromptPreview(row.scenario),
+        outputText: last?.output_text ?? "",
+      });
+      setDrawerOpen(true);
+    },
+    [detailAggregate],
+  );
+
+  const openFromChartRow = useCallback(
+    (row: ChartRow) => {
+      const key = scenarioRowKey(row.scenario, row.api, row.modelId);
+      const tableRow = rows.find((r) => r.rowKey === key);
+      if (tableRow) {
+        openDrawerForRow(tableRow);
+        return;
+      }
+      const agg = detailAggregate[key];
+      const runs = agg?.runs ?? [];
+      const last = runs[runs.length - 1];
+      setDrawerPayload({
+        title: `${row.scenario} / ${row.api}`,
+        scenario: row.scenario,
+        api: row.api,
+        modelId: row.modelId,
+        ttft_ms: row.ttft > 0 ? row.ttft : null,
+        tpot_ms: row.tpot > 0 ? row.tpot : null,
+        pass: row.pass,
+        qualityReason: last?.quality?.reason,
+        prompt: getScenarioUserPromptPreview(row.scenario),
+        outputText: last?.output_text ?? "",
+      });
+      setDrawerOpen(true);
+    },
+    [detailAggregate, openDrawerForRow, rows],
+  );
+
+  const openCompareCell = useCallback(
+    (scenario: string, api: string) => {
+      if (!compareRaw) return;
+      for (const it of compareRaw.items) {
+        if (!it.run) continue;
+        const sc = it.run.scenarios.find((s) => s.id === scenario && s.api_route === api);
+        if (!sc) continue;
+        const runs = sc.runs ?? [];
+        const last = runs[runs.length - 1];
+        setDrawerPayload({
+          title: `${scenario} / ${api} · ${it.model_id}`,
+          scenario,
+          api,
+          modelId: it.model_id,
+          ttft_ms: last?.ttft_ms ?? null,
+          tpot_ms: last?.tpot_ms ?? null,
+          pass: last?.quality?.pass,
+          qualityReason: last?.quality?.reason,
+          prompt: sc.prompt_preview ?? getScenarioUserPromptPreview(scenario),
+          outputText: last?.output_text ?? "",
+        });
+        setDrawerOpen(true);
+        return;
+      }
+    },
+    [compareRaw],
+  );
+
+  const loadCompareFromServer = useCallback(async () => {
+    if (!detect) {
+      toast.error("먼저 연결 / 감지를 실행하세요.");
+      return;
+    }
+    const modelIds = detect.models.filter((m) => selected[m.id]).map((m) => m.id);
+    if (modelIds.length < 2) {
+      toast.error("비교하려면 모델을 2개 이상 선택하세요.");
+      return;
+    }
+    setCompareLoading(true);
+    try {
+      const u = new URL("/api/runs/latest-by-model", window.location.origin);
+      u.searchParams.set("baseUrl", detect.baseUrl);
+      u.searchParams.set("modelIds", modelIds.join(","));
+      const res = await fetch(u.toString());
+      if (!res.ok) {
+        toast.error(`비교 API 오류 (${res.status})`);
+        return;
+      }
+      const data = (await res.json()) as LatestByModelResponse;
+      if (data.sqlite_available === false) {
+        toast.warning(
+          `SQLite를 사용할 수 없어 저장된 런을 불러올 수 없습니다. 서버에서 Node 버전에 맞게 \`pnpm rebuild better-sqlite3\`를 실행해 보세요.`,
+        );
+        setCompareSeries(null);
+        setCompareRaw(null);
+        setChartView("live");
+        return;
+      }
+      const series: CompareSeries[] = [];
+      for (const it of data.items) {
+        if (!it.run) continue;
+        const label = detect.models.find((x) => x.id === it.model_id)?.label ?? it.model_id;
+        const chartRowsForModel: ChartRow[] = (it.run.scenarios ?? [])
+          .map((sc) => {
+            const runs = sc.runs ?? [];
+            const last = runs[runs.length - 1];
+            if (!last) return null;
+            return rowsToChartData([
+              {
+                scenario: sc.id,
+                api: sc.api_route,
+                ttft_ms: last.ttft_ms,
+                tpot_ms: last.tpot_ms,
+                pass: last.quality?.pass,
+                model_id: it.model_id,
+                total_ms: last.total_ms,
+                output_text: last.output_text,
+              },
+            ])[0];
+          })
+          .filter((x): x is ChartRow => x != null);
+        if (chartRowsForModel.length) {
+          series.push({ modelId: it.model_id, label, rows: chartRowsForModel });
+        }
+      }
+      if (series.length < 2) {
+        toast.warning("저장된 최종 런이 있는 모델이 2개 미만입니다. 동일 Base URL에서 벤치를 먼저 실행하세요.");
+        setCompareSeries(null);
+        setCompareRaw(null);
+        setChartView("live");
+        return;
+      }
+      setCompareRaw(data);
+      setCompareSeries(series);
+      setChartView("compare");
+      toast.success("저장된 마지막 런 기준 비교 차트를 불러왔습니다.");
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setCompareLoading(false);
+    }
+  }, [detect, selected]);
+
+  const refreshServerRuns = useCallback(async () => {
+    setServerRunsLoading(true);
+    try {
+      const res = await fetch("/api/runs?limit=30");
+      if (!res.ok) {
+        toast.error(`런 목록 오류 (${res.status})`);
+        return;
+      }
+      const j = (await res.json()) as RunsListResponse;
+      setServerRuns(j.runs ?? []);
+      if (j.sqlite_available === false) {
+        toast.warning("SQLite 비활성화 — 서버 런 목록을 사용할 수 없습니다.");
+      } else {
+        toast.success(`서버 런 ${j.runs?.length ?? 0}건`);
+      }
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setServerRunsLoading(false);
+    }
+  }, []);
+
+  const openServerRunDetail = useCallback(async (runId: string) => {
+    try {
+      const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`);
+      if (!res.ok) {
+        toast.error(`런 조회 실패 (${res.status})`);
+        return;
+      }
+      const detail = (await res.json()) as BenchRunDetailResponse;
+      const sc = detail.scenarios[0];
+      if (!sc) {
+        toast.error("시나리오 데이터가 없습니다.");
+        return;
+      }
+      const runs = sc.runs ?? [];
+      const last = runs[runs.length - 1];
+      setDrawerPayload({
+        title: `${sc.id} / ${sc.api_route} · ${detail.meta.model_id}`,
+        scenario: sc.id,
+        api: sc.api_route,
+        modelId: String(detail.meta.model_id),
+        ttft_ms: last?.ttft_ms ?? null,
+        tpot_ms: last?.tpot_ms ?? null,
+        pass: last?.quality?.pass,
+        qualityReason: last?.quality?.reason,
+        prompt: sc.prompt_preview ?? getScenarioUserPromptPreview(sc.id),
+        outputText: last?.output_text ?? "",
+      });
+      setDrawerOpen(true);
+    } catch (e) {
+      toast.error(String(e));
+    }
+  }, []);
 
   const runDetect = useCallback(async () => {
     setDetecting(true);
     setDetect(null);
     setRows([]);
     setLog([]);
+    setDetailAggregate({});
+    setCompareSeries(null);
+    setCompareRaw(null);
+    setChartView("live");
     try {
       const r = await fetch("/api/detect", {
         method: "POST",
@@ -171,11 +448,24 @@ export function App() {
     }
     setRunning(true);
     setRows([]);
+    setDetailAggregate({});
     setPreview("");
+    setBenchStepLines([]);
+    setBenchCurrent(null);
+    setBenchCompleted([]);
     let anyHttpFail = false;
     let streamErrorCount = 0;
+    let streamIncomplete = false;
     for (const m of models) {
       appendLog(`bench start model=${m.id}`);
+      setBenchCurrent({ modelId: m.id });
+      let sawRunFinished = false;
+      let streamMeta: BenchRunMeta | null = null;
+      let lastScenarioStart: { sid: string; api: string } | null = null;
+      let iterInScenario = 0;
+      const pushBenchLine = (kind: BenchStepKind, text: string) => {
+        setBenchStepLines((prev) => [...prev.slice(-79), { ts: Date.now(), kind, text }]);
+      };
       try {
         const r = await fetch("/api/bench/stream", {
           method: "POST",
@@ -196,38 +486,112 @@ export function App() {
         if (!r.ok || !r.body) {
           anyHttpFail = true;
           appendLog(`bench http error ${r.status}`);
+          pushBenchLine("err", `HTTP ${r.status} · ${m.id}`);
           continue;
         }
         await consumeSseJsonLines(r.body, (ev) => {
+          if (ev.type === "run_started") {
+            sawRunFinished = false;
+            streamMeta = ev.meta ?? null;
+            lastScenarioStart = null;
+            iterInScenario = 0;
+            const ridShort = ev.run_id.length > 28 ? `${ev.run_id.slice(0, 28)}…` : ev.run_id;
+            pushBenchLine("info", `런 시작 · ${ridShort}`);
+            setBenchCurrent({ modelId: m.id });
+          }
+          if (ev.type === "model_loaded") {
+            pushBenchLine("info", `모델 로드 완료 · ${ev.model_id}`);
+            setBenchCurrent({ modelId: ev.model_id });
+          }
+          if (ev.type === "scenario_start") {
+            const p = { sid: ev.scenario_id, api: ev.api_route };
+            if (!lastScenarioStart || lastScenarioStart.sid !== p.sid || lastScenarioStart.api !== p.api) {
+              iterInScenario = 1;
+              lastScenarioStart = p;
+            } else {
+              iterInScenario += 1;
+            }
+            const wr = streamMeta?.warmup_runs ?? 1;
+            const mr = streamMeta?.measured_runs ?? 3;
+            const phase: BenchCurrent["phase"] = iterInScenario <= wr ? "warmup" : "measured";
+            const iterLabel =
+              phase === "warmup" ? `워밍업 ${iterInScenario}/${wr}` : `측정 ${Math.min(iterInScenario - wr, mr)}/${mr}`;
+            setBenchCurrent({
+              modelId: m.id,
+              scenario: p.sid,
+              api: p.api,
+              phase,
+              iterLabel,
+            });
+            pushBenchLine("info", `시작 · ${p.sid} · ${p.api} (${iterLabel})`);
+          }
+          if (ev.type === "run_finished") {
+            sawRunFinished = true;
+            pushBenchLine("ok", `런 완료 · ${m.id}`);
+            setBenchCurrent({ modelId: m.id });
+          }
           if (ev.type === "token_delta") {
             setPreview((p) => (p + ev.text).slice(-8000));
           }
-          if (ev.type === "scenario_end") {
-            setRows((prev) => [
-              ...prev,
-              {
-                scenario: ev.scenario_id,
-                api: ev.api_route ?? "?",
-                ttft_ms: ev.metrics.ttft_ms ?? null,
-                tpot_ms: ev.metrics.tpot_ms ?? null,
-                pass: ev.quality?.pass,
-              },
-            ]);
+          if (ev.type === "metrics_update") {
+            const agg = ev.aggregate as MetricsAgg;
+            if (!agg?.scenario_id || !agg?.api_route || !Array.isArray(agg.runs)) return;
+            const apiLabel = agg.api_route === "chat_completions" ? "chat" : agg.api_route === "messages" ? "msg" : agg.api_route;
+            setBenchCurrent({
+              modelId: m.id,
+              scenario: agg.scenario_id,
+              api: agg.api_route,
+              phase: "aggregate",
+            });
+            pushBenchLine("ok", `집계 완료 · ${agg.scenario_id} · ${apiLabel}`);
+            const doneKey = `${m.id}|${agg.scenario_id}|${agg.api_route}`;
+            const doneLabel = `${agg.scenario_id} (${apiLabel})`;
+            setBenchCompleted((prev) => (prev.some((x) => x.key === doneKey) ? prev : [...prev, { key: doneKey, label: doneLabel }]));
+            const rowKey = scenarioRowKey(agg.scenario_id, agg.api_route, m.id);
+            setDetailAggregate((prev) => ({ ...prev, [rowKey]: agg }));
+            const runs = agg.runs;
+            const last = runs[runs.length - 1];
+            if (!last) return;
+            const tpsRaw = tokensPerSecondFromRun(last.total_ms, last.output_text);
+            const tps = tpsRaw > 0 ? Math.round(tpsRaw * 10) / 10 : null;
+            setRows((prev) => {
+              const filtered = prev.filter((x) => x.rowKey !== rowKey);
+              return [
+                ...filtered,
+                {
+                  rowKey,
+                  model_id: m.id,
+                  scenario: agg.scenario_id,
+                  api: agg.api_route,
+                  ttft_ms: last.ttft_ms ?? null,
+                  tpot_ms: last.tpot_ms ?? null,
+                  tps,
+                  pass: last.quality?.pass,
+                  reason: last.quality?.reason,
+                },
+              ];
+            });
           }
           if (ev.type === "error") {
             streamErrorCount += 1;
             appendLog(`error[${ev.layer}] ${ev.code}: ${ev.message}`);
+            pushBenchLine("err", `error[${ev.layer}] ${ev.code}: ${ev.message.slice(0, 240)}`);
           }
         });
+        if (!sawRunFinished) {
+          streamIncomplete = true;
+          appendLog(`bench incomplete: run_finished 없음 model=${m.id}`);
+        }
       } catch (e) {
         anyHttpFail = true;
         appendLog(String(e));
+        pushBenchLine("err", `요청 실패 · ${m.id}: ${String(e).slice(0, 200)}`);
       }
     }
     setRunning(false);
     appendLog("bench finished");
-    if (anyHttpFail || streamErrorCount > 0) {
-      toast.warning("벤치 종료 — 일부 오류가 있었습니다. 로그를 확인하세요.");
+    if (anyHttpFail || streamErrorCount > 0 || streamIncomplete) {
+      toast.warning("벤치 종료 — 오류·미완료 스트림이 있었습니다. 로그를 확인하세요.");
     } else {
       toast.success("벤치가 모두 완료되었습니다.");
     }
@@ -404,17 +768,6 @@ export function App() {
               {detecting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Link2 className="size-4" aria-hidden />}
               연결 / 감지
             </button>
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm shadow-sm disabled:opacity-50"
-              onClick={requestBench}
-              disabled={!detect || running}
-              aria-busy={running}
-              aria-label="선택한 모델 벤치 실행"
-            >
-              {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Play className="size-4" aria-hidden />}
-              선택 모델 벤치
-            </button>
           </div>
           {detect ? <ProviderSummary detect={detect} /> : null}
         </section>
@@ -446,57 +799,160 @@ export function App() {
           )}
         </section>
 
+        <BenchProgressPanel
+          running={running}
+          current={benchCurrent}
+          lines={benchStepLines}
+          completed={benchCompleted}
+          benchAction={
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-medium shadow-sm disabled:opacity-50"
+              onClick={requestBench}
+              disabled={!detect || running}
+              aria-busy={running}
+              aria-label="선택한 모델 벤치 실행"
+            >
+              {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Play className="size-4" aria-hidden />}
+              선택 모델 벤치
+            </button>
+          }
+        />
+
         <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
           <h2 className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
             <Activity className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
             메트릭 차트
           </h2>
-          <BenchCharts chartRows={chartRows} />
+          <div className="mb-4 flex flex-wrap items-center gap-4 text-sm">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
+              <input
+                type="radio"
+                name="chartView"
+                checked={chartView === "live"}
+                onChange={() => setChartView("live")}
+              />
+              이번 세션
+            </label>
+            <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
+              <input
+                type="radio"
+                name="chartView"
+                checked={chartView === "compare"}
+                onChange={() => setChartView("compare")}
+              />
+              저장된 마지막 런 비교
+            </label>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium shadow-sm disabled:opacity-50"
+              disabled={compareLoading || !detect || running}
+              onClick={() => void loadCompareFromServer()}
+            >
+              {compareLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+              비교 불러오기
+            </button>
+            {chartView === "compare" && (!compareSeries || compareSeries.length < 2) ? (
+              <span className="text-xs text-[var(--muted)]">선택 모델 2개 이상 · 비교 불러오기 실행</span>
+            ) : null}
+          </div>
+          {chartView === "compare" && compareSeries && compareSeries.length >= 2 ? (
+            <BenchCharts
+              chartRows={[]}
+              compareSeries={compareSeries}
+              onCompareCell={(scenario, api) => openCompareCell(scenario, api)}
+            />
+          ) : (
+            <BenchCharts chartRows={chartRows} onBarPayload={(row) => openFromChartRow(row)} />
+          )}
+        </section>
+
+        <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
+          <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">결과 테이블</h2>
+          <ResultsTable rows={rows} onRowClick={(r) => openDrawerForRow(r)} />
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
+          <div className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
               <h2 className="text-sm font-semibold text-[var(--foreground)]">토큰 프리뷰 (스트림)</h2>
               <HighlightToggle on={hlPreview} onChange={setHlPreview} />
             </div>
             <JsonCodeBlock code={preview || "—"} language="markdown" enabled={hlPreview} maxHeight={280} />
           </div>
-          <div className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
-            <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">결과 테이블</h2>
-            <ResultsTable rows={rows} />
-          </div>
-        </section>
-
-        <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
-            <h2 className="text-sm font-semibold text-[var(--foreground)]">로그</h2>
-            <div className="flex flex-wrap items-center gap-3">
-              <HighlightToggle on={hlLog} onChange={setHlLog} />
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs disabled:opacity-50"
-                disabled={!rows.length}
-                onClick={() => {
-                  const blob = new Blob([JSON.stringify({ rows, baseUrl, provider: detect?.provider }, null, 2)], {
-                    type: "application/json",
-                  });
-                  const a = document.createElement("a");
-                  a.href = URL.createObjectURL(blob);
-                  a.download = "bench-export.json";
-                  a.click();
-                  URL.revokeObjectURL(a.href);
-                }}
-                aria-label="마지막 결과 JSON 다운로드"
-              >
-                <Download className="size-3.5" aria-hidden />
-                마지막 결과 JSON보내기
-              </button>
+          <div className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
+              <h2 className="text-sm font-semibold text-[var(--foreground)]">로그</h2>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs disabled:opacity-50"
+                  disabled={serverRunsLoading}
+                  onClick={() => void refreshServerRuns()}
+                  aria-label="서버에 저장된 벤치 런 목록"
+                >
+                  {serverRunsLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <History className="size-3.5" aria-hidden />}
+                  서버 런 목록
+                </button>
+                <HighlightToggle on={hlLog} onChange={setHlLog} />
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs disabled:opacity-50"
+                  disabled={!rows.length}
+                  onClick={() => {
+                    const blob = new Blob(
+                      [JSON.stringify({ rows, detailAggregate, baseUrl, provider: detect?.provider }, null, 2)],
+                      {
+                      type: "application/json",
+                    });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = "bench-export.json";
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }}
+                  aria-label="마지막 결과 JSON 다운로드"
+                >
+                  <Download className="size-3.5" aria-hidden />
+                  마지막 결과 JSON보내기
+                </button>
+              </div>
             </div>
+            <JsonCodeBlock code={logText || "—"} language="markdown" enabled={hlLog} maxHeight={224} />
+            {serverRuns.length > 0 ? (
+              <div className="mt-4 border-t border-[var(--border)] pt-3">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  SQLite 저장 런 (클릭 시 첫 시나리오 상세)
+                </h3>
+                <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs">
+                  {serverRuns.map((run) => (
+                    <li key={run.run_id}>
+                      <button
+                        type="button"
+                        className="w-full rounded px-2 py-1 text-left hover:bg-[var(--surface)]"
+                        onClick={() => void openServerRunDetail(run.run_id)}
+                      >
+                        <span className="text-[var(--muted)]">{run.created_at.slice(0, 19)}</span>{" "}
+                        <span className="text-[var(--foreground)]">{run.model_id}</span>{" "}
+                        <span className="text-[var(--muted)]">{run.status}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
-          <JsonCodeBlock code={logText || "—"} language="markdown" enabled={hlLog} maxHeight={224} />
         </section>
       </main>
+      <ScenarioDetailDrawer
+        open={drawerOpen}
+        payload={drawerPayload}
+        hlPreview={hlPreview}
+        onClose={() => {
+          setDrawerOpen(false);
+          setDrawerPayload(null);
+        }}
+      />
     </div>
   );
 }

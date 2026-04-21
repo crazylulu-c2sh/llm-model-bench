@@ -15,8 +15,12 @@ html[data-theme="dark"] {
   --chart-tick: #8b949e;
   --chart-tooltip-bg: #161b22;
   --chart-tooltip-border: #30363d;
+  --chart-tooltip-fg: #e6edf3;
+  --chart-tooltip-label: #8b949e;
+  --chart-cursor: rgba(230, 237, 243, 0.08);
   --chart-ttft: #58a6ff;
   --chart-tpot: #3fb950;
+  --chart-tps: #d2a8ff;
   --chart-pass: #3fb950;
   --chart-fail: #f85149;
   --chart-neutral: #8b949e;
@@ -39,8 +43,12 @@ html[data-theme="light"] {
   --chart-tick: #656d76;
   --chart-tooltip-bg: #ffffff;
   --chart-tooltip-border: #d0d7de;
+  --chart-tooltip-fg: #1f2328;
+  --chart-tooltip-label: #656d76;
+  --chart-cursor: rgba(31, 35, 40, 0.07);
   --chart-ttft: #0969da;
   --chart-tpot: #1a7f37;
+  --chart-tps: #8250df;
   --chart-pass: #1a7f37;
   --chart-fail: #cf222e;
   --chart-neutral: #8c959f;

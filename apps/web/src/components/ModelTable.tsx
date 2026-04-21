@@ -7,9 +7,46 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { ArrowDownUp, CheckSquare, Square } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
-type ModelRow = { id: string; label?: string };
+const POINTER_MOVE_TOGGLE_THRESHOLD_PX = 5;
+
+function selectionWithTextAnchoredInRow(tr: HTMLTableRowElement): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  if (!sel.toString()) return false;
+  const a = sel.anchorNode;
+  const f = sel.focusNode;
+  if (a && tr.contains(a)) return true;
+  if (f && tr.contains(f)) return true;
+  return false;
+}
+
+type ModelRow = DetectResult["models"][number];
+
+function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  const rounded = i === 0 ? Math.round(v) : v >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
+  return `${rounded} ${units[i]}`;
+}
+
+function formatParamsDisplay(m: ModelRow): string {
+  const s = m.params_string?.trim();
+  return s ? s : "—";
+}
+
+function formatDiskDisplay(m: ModelRow): string {
+  if (m.size_bytes == null || m.size_bytes <= 0) return "—";
+  const b = formatBytes(m.size_bytes);
+  return b || "—";
+}
 
 const columnHelper = createColumnHelper<ModelRow>();
 
@@ -24,9 +61,10 @@ export function ModelTable({
   onToggle: (id: string) => void;
   onSelectAll: (next: boolean) => void;
 }) {
-  const data = useMemo<ModelRow[]>(() => models.map((m) => ({ id: m.id, label: m.label })), [models]);
+  const data = useMemo<ModelRow[]>(() => models.map((m) => ({ ...m })), [models]);
   const allSelected = models.length > 0 && models.every((m) => selected[m.id]);
   const someSelected = models.some((m) => selected[m.id]);
+  const rowPointerRef = useRef<{ x: number; y: number; modelId: string } | null>(null);
 
   const table = useReactTable({
     data,
@@ -82,6 +120,41 @@ export function ModelTable({
         cell: (info) => <span className="text-xs">{info.getValue() ?? ""}</span>,
         sortingFn: "alphanumeric",
       }),
+      columnHelper.accessor((row) => row.params_string?.trim() ?? "", {
+        id: "params_string",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            규모
+            <ArrowDownUp className="size-3.5 opacity-70" aria-hidden />
+          </button>
+        ),
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap text-xs text-[var(--muted)]">{formatParamsDisplay(row.original)}</span>
+        ),
+        sortingFn: "alphanumeric",
+      }),
+      columnHelper.accessor((row) => (row.size_bytes != null && row.size_bytes > 0 ? row.size_bytes : undefined), {
+        id: "size_bytes",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            디스크
+            <ArrowDownUp className="size-3.5 opacity-70" aria-hidden />
+          </button>
+        ),
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap font-mono text-xs text-[var(--muted)]">{formatDiskDisplay(row.original)}</span>
+        ),
+        sortingFn: "basic",
+        sortUndefined: "last",
+      }),
     ],
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -104,7 +177,42 @@ export function ModelTable({
         </thead>
         <tbody>
           {table.getRowModel().rows.map((row) => (
-            <tr key={row.id} className="border-t border-[var(--border)]">
+            <tr
+              key={row.id}
+              className="cursor-pointer border-t border-[var(--border)] hover:bg-[var(--surface-2)]"
+              tabIndex={0}
+              aria-label={`${row.original.id} 선택 토글`}
+              onMouseDown={(e) => {
+                const el = e.target as HTMLElement;
+                if (el.closest('input[type="checkbox"]')) return;
+                rowPointerRef.current = {
+                  x: e.clientX,
+                  y: e.clientY,
+                  modelId: row.original.id,
+                };
+              }}
+              onClick={(e) => {
+                const el = e.target as HTMLElement;
+                const start = rowPointerRef.current;
+                rowPointerRef.current = null;
+                if (el.closest('input[type="checkbox"]')) return;
+                if (!start || start.modelId !== row.original.id) return;
+                const tr = e.currentTarget;
+                if (
+                  Math.abs(e.clientX - start.x) > POINTER_MOVE_TOGGLE_THRESHOLD_PX ||
+                  Math.abs(e.clientY - start.y) > POINTER_MOVE_TOGGLE_THRESHOLD_PX
+                ) {
+                  return;
+                }
+                if (selectionWithTextAnchoredInRow(tr)) return;
+                onToggle(row.original.id);
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                onToggle(row.original.id);
+              }}
+            >
               {row.getVisibleCells().map((cell) => (
                 <td key={cell.id} className="p-2 align-middle">
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
