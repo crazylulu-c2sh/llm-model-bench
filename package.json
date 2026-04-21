@@ -1,0 +1,19 @@
+{
+  "name": "llm-model-bench",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local LLM benchmarking (LM Studio, Ollama, OpenAI-compatible)",
+  "scripts": {
+    "postinstall": "pnpm --filter @llm-bench/shared run build",
+    "dev": "node scripts/dev.mjs",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.26.0",
+  "engines": {
+    "node": ">=20"
+  }
+}
