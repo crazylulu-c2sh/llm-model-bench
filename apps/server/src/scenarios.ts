@@ -30,13 +30,17 @@ export function conxExcerpt(): string {
 export type { ScenarioId };
 export const ALL_SCENARIO_IDS = SHARED_ALL_SCENARIO_IDS;
 
+/** 벤치 요청·UI `scenario_start`와 동일한 user 텍스트(번역 시 fixtures 발췌 포함). */
+export function scenarioUserMessageContent(id: ScenarioId): string {
+  return id === "translate_roundtrip_stub"
+    ? getScenarioUserPromptPreview(id, { translationExcerpt: conxExcerpt() })
+    : getScenarioUserPromptPreview(id);
+}
+
 export function buildMessages(
   id: ScenarioId,
 ): { messages: { role: "system" | "user"; content: string }[]; tools?: unknown; tool_choice?: unknown } {
-  const userContent =
-    id === "translate_roundtrip_stub"
-      ? getScenarioUserPromptPreview(id, { translationExcerpt: conxExcerpt() })
-      : getScenarioUserPromptPreview(id);
+  const userContent = scenarioUserMessageContent(id);
 
   switch (id) {
     case "tool_weather":
@@ -68,6 +72,26 @@ const ActionSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
+function toolWeatherOutputPass(output: string): boolean {
+  if (/"name"\s*:\s*"get_weather"/.test(output) || /\bget_weather\b/.test(output)) return true;
+  const fromJson = (raw: string): boolean => {
+    try {
+      const parsed = JSON.parse(raw) as { tool_calls?: { function?: { name?: string } }[] };
+      const calls = parsed.tool_calls;
+      return Array.isArray(calls) && calls.some((c) => c.function?.name === "get_weather");
+    } catch {
+      return false;
+    }
+  };
+  const trimmed = output.trim();
+  if (fromJson(trimmed)) return true;
+  for (const line of trimmed.split(/\n+/)) {
+    const s = line.trim();
+    if (s.startsWith("{") && fromJson(s)) return true;
+  }
+  return false;
+}
+
 export function scoreScenario(id: ScenarioId, output: string): { pass: boolean; score?: number; reason?: string } {
   const t = output.trim().toLowerCase();
   switch (id) {
@@ -94,11 +118,8 @@ export function scoreScenario(id: ScenarioId, output: string): { pass: boolean; 
       return { pass: hasHangul && output.length < 120, reason: output.slice(0, 200) };
     }
     case "tool_weather": {
-      const pass =
-        /"name"\s*:\s*"get_weather"/.test(output) ||
-        /get_weather/.test(output) ||
-        /"tool_calls"/.test(output);
-      return { pass, reason: pass ? undefined : "expected tool call signal" };
+      const pass = toolWeatherOutputPass(output);
+      return { pass, score: pass ? 1 : 0, reason: pass ? undefined : "expected tool call signal" };
     }
     case "structured_action": {
       const jsonMatch = output.match(/\{[\s\S]*\}/);

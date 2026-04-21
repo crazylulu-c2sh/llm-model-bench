@@ -5,6 +5,7 @@ import {
   ALL_SCENARIO_IDS,
   anthropicMessagesForScenario,
   buildMessages,
+  scenarioUserMessageContent,
   scoreScenario,
   type ScenarioId,
 } from "./scenarios.js";
@@ -137,7 +138,12 @@ export async function* runBench(
       const totalIterations = meta.warmup_runs + meta.measured_runs;
       for (let i = 0; i < totalIterations; i++) {
         const isWarmup = i < meta.warmup_runs;
-        yield { type: "scenario_start", scenario_id: scenarioId, api_route };
+        yield {
+          type: "scenario_start",
+          scenario_id: scenarioId,
+          api_route,
+          user_prompt: scenarioUserMessageContent(scenarioId),
+        };
 
         const controller = new AbortController();
         const to = setTimeout(() => controller.abort(), 120_000);
