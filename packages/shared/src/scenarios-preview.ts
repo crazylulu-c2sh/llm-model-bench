@@ -1,3 +1,12 @@
+/** `getScenarioUserPromptPreview` 옵션 — 서버 `scenarioUserMessageContent`와 동기화 */
+export type ScenarioPromptPreviewOpts = {
+  publicAssetBaseUrl?: string;
+  /** ISO 8601 — `chat_time_calendar` 프롬프트·채점 기준 시각 */
+  referenceIso?: string;
+  /** IANA — 기본 Asia/Seoul */
+  calendarTimeZone?: string;
+};
+
 /** 시나리오 ID — 서버 `scenarios.ts`와 동기화 */
 export type ScenarioId =
   | "chat_hello"
@@ -5,6 +14,7 @@ export type ScenarioId =
   | "code_sort_js"
   | "code_sort_py"
   | "translate_bitcoin_pdf_tools"
+  | "chat_time_calendar"
   | "tool_weather"
   | "structured_action";
 
@@ -14,6 +24,7 @@ export const ALL_SCENARIO_IDS: ScenarioId[] = [
   "code_sort_js",
   "code_sort_py",
   "translate_bitcoin_pdf_tools",
+  "chat_time_calendar",
   "tool_weather",
   "structured_action",
 ];
@@ -21,16 +32,14 @@ export const ALL_SCENARIO_IDS: ScenarioId[] = [
 /**
  * 벤치 시나리오의 사용자 프롬프트 미리보기(저장·UI 표시용).
  * `translate_bitcoin_pdf_tools`는 `publicAssetBaseUrl`(예: Vite origin)이 포함된다.
+ * `chat_time_calendar`는 `referenceIso`·`calendarTimeZone`이 포함된다.
  */
-export function getScenarioUserPromptPreview(
-  id: string,
-  opts?: { publicAssetBaseUrl?: string },
-): string {
+export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPreviewOpts): string {
   switch (id as ScenarioId) {
     case "chat_hello":
-      return "Reply with exactly: hello";
+      return "hello";
     case "chat_ping":
-      return "Reply with exactly: pong (lowercase, one word)";
+      return "ping";
     case "code_sort_js":
       return "Write a JavaScript function sortNums(arr) that returns sorted ascending numbers. Output ONLY a single fenced code block ```js ... ``` with no prose.";
     case "code_sort_py":
@@ -42,6 +51,15 @@ export function getScenarioUserPromptPreview(
         "You have tools fetch_url and fetch_pdf_text (bench server executes them).",
         `1) Call fetch_pdf_text with url exactly: ${pdfUrl}`,
         "2) From the returned English text, write ONE short Korean sentence summarizing the opening idea (max 90 Korean characters). Korean only. No quotes, no English, do not paste the full PDF.",
+      ].join("\n");
+    }
+    case "chat_time_calendar": {
+      const iso = opts?.referenceIso ?? new Date().toISOString();
+      const tz = opts?.calendarTimeZone ?? "Asia/Seoul";
+      return [
+        `Reference instant (ISO 8601): ${iso}`,
+        `Interpret calendar dates in time zone: ${tz}.`,
+        "Reply briefly in Korean. Your reply must include exactly three Gregorian dates as YYYY-MM-DD substrings: yesterday, today, and tomorrow relative to that reference instant (in that time zone). Short Korean prose is allowed, but all three dates must appear.",
       ].join("\n");
     }
     case "tool_weather":

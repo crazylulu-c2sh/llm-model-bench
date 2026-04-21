@@ -5,6 +5,7 @@ export {
   getScenarioUserPromptPreview,
   isScenarioId,
   type ScenarioId,
+  type ScenarioPromptPreviewOpts,
 } from "./scenarios-preview";
 
 export { getScenarioBenchMeta, type ScenarioBenchMeta } from "./scenario-meta";

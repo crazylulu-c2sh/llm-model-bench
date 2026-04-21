@@ -101,6 +101,12 @@ function defaultScenarioPromptPreview(scenarioId: string): string {
   if (scenarioId === "translate_bitcoin_pdf_tools" && typeof window !== "undefined") {
     return getScenarioUserPromptPreview(scenarioId, { publicAssetBaseUrl: window.location.origin });
   }
+  if (scenarioId === "chat_time_calendar") {
+    return getScenarioUserPromptPreview(scenarioId, {
+      referenceIso: new Date().toISOString(),
+      calendarTimeZone: "Asia/Seoul",
+    });
+  }
   return getScenarioUserPromptPreview(scenarioId);
 }
 

@@ -66,7 +66,7 @@ export function makeBenchRunMeta(input: BenchRequest, detect: DetectResult, rid:
     model_id: input.modelId,
     api_routes: routes,
     scenario_ids: scenarioIds,
-    scenario_bundle_version: "2",
+    scenario_bundle_version: "3",
     temperature: input.temperature ?? 0.2,
     max_tokens: input.max_tokens ?? 512,
     seed: null,
@@ -147,11 +147,17 @@ export async function* runBench(
       const totalIterations = meta.warmup_runs + meta.measured_runs;
       for (let i = 0; i < totalIterations; i++) {
         const isWarmup = i < meta.warmup_runs;
+        const ref = new Date();
+        const promptCtx = {
+          publicAssetsOrigin: assetOrigin,
+          referenceAt: ref,
+          calendarTimeZone: "Asia/Seoul",
+        };
         yield {
           type: "scenario_start",
           scenario_id: scenarioId,
           api_route,
-          user_prompt: scenarioUserMessageContent(scenarioId, { publicAssetsOrigin: assetOrigin }),
+          user_prompt: scenarioUserMessageContent(scenarioId, promptCtx),
         };
 
         const controller = new AbortController();
@@ -166,7 +172,7 @@ export async function* runBench(
           const invokedBenchTools: string[] = [];
 
           if (api_route === "chat_completions" && isTranslateBitcoinPdfToolsScenario(scenarioId)) {
-            const bm = buildMessages(scenarioId, { publicAssetsOrigin: assetOrigin });
+            const bm = buildMessages(scenarioId, promptCtx);
             const messages: unknown[] = [...bm.messages];
             const tools = bm.tools;
             const tool_choice = bm.tool_choice ?? "auto";
@@ -258,7 +264,7 @@ export async function* runBench(
               if (!text) text = lastOpen.assistantText;
             }
           } else if (api_route === "messages" && isTranslateBitcoinPdfToolsScenario(scenarioId)) {
-            const am = anthropicMessagesForScenario(scenarioId, { publicAssetsOrigin: assetOrigin });
+            const am = anthropicMessagesForScenario(scenarioId, promptCtx);
             const anthropicMessages: unknown[] = am.messages.map((x) => ({ ...x }));
             const toolsAnthropic = anthropicToolsForScenario(scenarioId);
             let totalMsAcc = 0;
@@ -346,9 +352,7 @@ export async function* runBench(
               if (!text) text = lastAnth.assistantText;
             }
           } else if (api_route === "chat_completions") {
-            const { messages, tools, tool_choice } = buildMessages(scenarioId, {
-              publicAssetsOrigin: assetOrigin,
-            });
+            const { messages, tools, tool_choice } = buildMessages(scenarioId, promptCtx);
             const body: Record<string, unknown> = {
               model: input.modelId,
               messages,
@@ -399,7 +403,7 @@ export async function* runBench(
               yield { type: "token_delta", scenario_id: scenarioId, text: ch };
             }
           } else {
-            const am = anthropicMessagesForScenario(scenarioId, { publicAssetsOrigin: assetOrigin });
+            const am = anthropicMessagesForScenario(scenarioId, promptCtx);
             const toolsAnthropic = anthropicToolsForScenario(scenarioId);
             const body: Record<string, unknown> = {
               model: input.modelId,
@@ -447,7 +451,11 @@ export async function* runBench(
 
           const quality = isWarmup
             ? undefined
-            : scoreScenario(scenarioId, text, { invokedBenchTools });
+            : scoreScenario(scenarioId, text, {
+                invokedBenchTools,
+                calendarReferenceIso: ref.toISOString(),
+                calendarTimeZone: "Asia/Seoul",
+              });
           if (!isWarmup) {
             runs.push({
               ttft_ms: ttft,

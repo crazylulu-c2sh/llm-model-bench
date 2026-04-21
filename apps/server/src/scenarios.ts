@@ -110,6 +110,10 @@ export function anthropicToolsForScenario(id: ScenarioId): unknown[] | undefined
 
 export type ScenarioPromptContext = {
   publicAssetsOrigin?: string;
+  /** 벤치 루프에서 주입 — `chat_time_calendar` 프롬프트·채점에 사용 */
+  referenceAt?: Date;
+  /** IANA — 기본 Asia/Seoul */
+  calendarTimeZone?: string;
 };
 
 /** 벤치 요청·UI `scenario_start`와 동일한 user 텍스트 */
@@ -117,7 +121,13 @@ export function scenarioUserMessageContent(id: ScenarioId, ctx?: ScenarioPromptC
   const base = ctx?.publicAssetsOrigin?.trim()
     ? ctx.publicAssetsOrigin.trim()
     : resolvePublicAssetsOrigin({ publicAssetsOrigin: ctx?.publicAssetsOrigin });
-  return getScenarioUserPromptPreview(id, { publicAssetBaseUrl: base });
+  const tz = ctx?.calendarTimeZone ?? "Asia/Seoul";
+  const refIso = ctx?.referenceAt?.toISOString();
+  return getScenarioUserPromptPreview(id, {
+    publicAssetBaseUrl: base,
+    referenceIso: refIso,
+    calendarTimeZone: tz,
+  });
 }
 
 export function buildMessages(
@@ -167,21 +177,84 @@ function toolWeatherOutputPass(output: string): boolean {
   return false;
 }
 
+function ymdPartsInTimeZone(iso: string, timeZone: string): { y: number; m: number; d: number } | null {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  const d = new Date(t);
+  const s = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+  const parts = s.split("-");
+  if (parts.length !== 3) return null;
+  const [ys, ms, ds] = parts;
+  const y = Number(ys);
+  const m = Number(ms);
+  const day = Number(ds);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(day)) return null;
+  return { y, m, d: day };
+}
+
+function calendarYmdAddDays(y: number, mo: number, d: number, deltaDays: number): string {
+  const x = new Date(Date.UTC(y, mo - 1, d + deltaDays));
+  const yy = x.getUTCFullYear();
+  const mm = String(x.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(x.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+/** [yesterday, today, tomorrow] YYYY-MM-DD in `timeZone` for instant `iso` */
+export function expectedCalendarTriple(iso: string, timeZone: string): [string, string, string] | null {
+  const today = ymdPartsInTimeZone(iso, timeZone);
+  if (!today) return null;
+  const todayStr = `${String(today.y).padStart(4, "0")}-${String(today.m).padStart(2, "0")}-${String(today.d).padStart(2, "0")}`;
+  const yest = calendarYmdAddDays(today.y, today.m, today.d, -1);
+  const tom = calendarYmdAddDays(today.y, today.m, today.d, 1);
+  return [yest, todayStr, tom];
+}
+
+function scoreChatTimeCalendar(output: string, iso: string | undefined, timeZone: string | undefined): {
+  pass: boolean;
+  score?: number;
+  reason?: string;
+} {
+  const tz = timeZone ?? "Asia/Seoul";
+  const trimmed = output.trim();
+  if (!trimmed) return { pass: false, score: 0, reason: "empty output" };
+  if (!iso) return { pass: false, score: 0, reason: "missing calendar reference" };
+  const triple = expectedCalendarTriple(iso, tz);
+  if (!triple) return { pass: false, score: 0, reason: "invalid calendar reference" };
+  const norm = trimmed.toLowerCase();
+  const missing = triple.filter((ymd) => !norm.includes(ymd.toLowerCase()));
+  if (missing.length === 0) return { pass: true, score: 1 };
+  return { pass: false, score: 0, reason: `missing dates: ${missing.join(", ")}` };
+}
+
 export type ScoreContext = {
   invokedBenchTools?: string[];
+  calendarReferenceIso?: string;
+  calendarTimeZone?: string;
 };
+
+function scoreChatMinimal(output: string): { pass: boolean; reason?: string } {
+  const trimmed = output.trim();
+  if (!trimmed) return { pass: false, reason: "empty output" };
+  return { pass: true };
+}
 
 export function scoreScenario(
   id: ScenarioId,
   output: string,
   ctx?: ScoreContext,
 ): { pass: boolean; score?: number; reason?: string } {
-  const t = output.trim().toLowerCase();
   switch (id) {
     case "chat_hello":
-      return { pass: /\bhello\b/.test(t), reason: t.slice(0, 200) };
-    case "chat_ping":
-      return { pass: /\bpong\b/.test(t), reason: t.slice(0, 200) };
+    case "chat_ping": {
+      const r = scoreChatMinimal(output);
+      return r;
+    }
     case "code_sort_js": {
       const m = output.match(/```(?:js|javascript)?\s*([\s\S]*?)```/i);
       const code = m?.[1] ?? output;
@@ -206,6 +279,8 @@ export function scoreScenario(
         reason: ok ? undefined : `hangul=${hasHangul} fetch_pdf_text=${usedPdf} len=${output.length}`,
       };
     }
+    case "chat_time_calendar":
+      return scoreChatTimeCalendar(output, ctx?.calendarReferenceIso, ctx?.calendarTimeZone);
     case "tool_weather": {
       const pass = toolWeatherOutputPass(output);
       return { pass, score: pass ? 1 : 0, reason: pass ? undefined : "expected tool call signal" };

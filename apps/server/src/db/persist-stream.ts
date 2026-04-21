@@ -16,6 +16,8 @@ export class BenchRunPersistence {
   private runId: string | null = null;
   private hadError = false;
   private lastMeta: BenchRunMeta | null = null;
+  /** `scenario_id|api_route` → 마지막 `scenario_start.user_prompt` (동적 프롬프트 정합) */
+  private lastUserPromptByScenarioKey = new Map<string, string>();
 
   constructor(private readonly db: Database.Database | null) {}
 
@@ -25,6 +27,7 @@ export class BenchRunPersistence {
     this.lastMeta = meta;
     this.logSeq = 0;
     this.hadError = false;
+    this.lastUserPromptByScenarioKey.clear();
     insertRun(this.db, {
       run_id: meta.run_id,
       created_at: meta.created_at,
@@ -40,6 +43,15 @@ export class BenchRunPersistence {
   onEvent(ev: StreamEvent): void {
     if (!this.db || !this.runId) return;
     switch (ev.type) {
+      case "scenario_start": {
+        const sid = ev.scenario_id;
+        const route = ev.api_route;
+        const up = ev.user_prompt;
+        if (typeof sid === "string" && (route === "chat_completions" || route === "messages") && typeof up === "string") {
+          this.lastUserPromptByScenarioKey.set(`${sid}|${route}`, up);
+        }
+        break;
+      }
       case "metrics_update": {
         const agg = ev.aggregate as {
           scenario_id?: string;
@@ -49,12 +61,15 @@ export class BenchRunPersistence {
         const sid = agg.scenario_id;
         const route = agg.api_route;
         if (typeof sid === "string" && (route === "chat_completions" || route === "messages")) {
+          const key = `${sid}|${route}`;
+          const snapshot = this.lastUserPromptByScenarioKey.get(key);
+          const promptPreview = snapshot ?? promptPreviewForScenario(sid, this.lastMeta);
           upsertScenarioAggregate(this.db, {
             run_id: this.runId,
             scenario_id: sid,
             api_route: route,
             aggregate_json: JSON.stringify(agg),
-            prompt_preview: promptPreviewForScenario(sid, this.lastMeta),
+            prompt_preview: promptPreview,
           });
         }
         this.logLine(`metrics_update ${sid ?? "?"} ${route ?? "?"}`);
@@ -84,6 +99,7 @@ export class BenchRunPersistence {
     finishRun(this.db, this.runId, this.hadError ? "partial" : "ok");
     this.runId = null;
     this.lastMeta = null;
+    this.lastUserPromptByScenarioKey.clear();
   }
 
   private logLine(line: string): void {

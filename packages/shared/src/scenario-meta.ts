@@ -8,12 +8,12 @@ export type ScenarioBenchMeta = {
 
 const META: Record<ScenarioId, ScenarioBenchMeta> = {
   chat_hello: {
-    purposeKo: "짧은 고정 응답 지연·정확도를 확인합니다.",
-    criteriaKo: "출력에 영어 단어 hello가 포함되면 합격입니다.",
+    purposeKo: "짧은 요청에 대한 응답 지연·연결을 확인합니다.",
+    criteriaKo: "응답 본문을 품질 평가하지 않습니다. 공백만 있는 빈 응답이면 실패, 그 외는 통과입니다.",
   },
   chat_ping: {
-    purposeKo: "다른 고정 토큰 응답 규칙 준수를 확인합니다.",
-    criteriaKo: "출력에 소문자 pong이 포함되면 합격입니다.",
+    purposeKo: "추가 짧은 요청에 대한 응답 지연·연결을 확인합니다.",
+    criteriaKo: "응답 본문을 품질 평가하지 않습니다. 공백만 있는 빈 응답이면 실패, 그 외는 통과입니다.",
   },
   code_sort_js: {
     purposeKo: "코드만 출력하도록 지시했을 때 펜스 코드 블록과 함수 구현을 따르는지 봅니다.",
@@ -26,6 +26,11 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
   translate_bitcoin_pdf_tools: {
     purposeKo: "도구 호출로 PDF 텍스트를 읽고, 한국어 한 문장으로만 요약하는지 봅니다.",
     criteriaKo: "fetch_pdf_text 도구가 실제로 호출되고, 출력에 한글이 있으며 길이가 200자 미만이면 합격입니다.",
+  },
+  chat_time_calendar: {
+    purposeKo: "프롬프트에 주입된 기준 시각을 바탕으로 어제·오늘·내일 날짜를 맞게 말하는지 봅니다.",
+    criteriaKo:
+      "지정 타임존(기본 Asia/Seoul) 달력 기준 어제·오늘·내일의 YYYY-MM-DD 세 값이 모두 출력에 포함되면 합격입니다.",
   },
   tool_weather: {
     purposeKo: "날씨 질문에 대해 제공된 get_weather 도구를 호출하는지 봅니다.",

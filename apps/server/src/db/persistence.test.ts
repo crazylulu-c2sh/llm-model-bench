@@ -29,6 +29,12 @@ describe("BenchRunPersistence + sqlite", () => {
     const p = new BenchRunPersistence(db);
     const meta = makeBenchRunMeta(req("m-a"), detect, "run_test_1");
     p.start(meta);
+    p.onEvent({
+      type: "scenario_start",
+      scenario_id: "chat_ping",
+      api_route: "chat_completions",
+      user_prompt: "exact-user-prompt-snapshot",
+    });
     const ev: StreamEvent = {
       type: "metrics_update",
       aggregate: {
@@ -54,7 +60,7 @@ describe("BenchRunPersistence + sqlite", () => {
     expect(detail?.scenarios.length).toBe(1);
     expect(detail?.scenarios[0].id).toBe("chat_ping");
     expect(detail?.scenarios[0].runs[0]?.output_text).toBe("pong");
-    expect(detail?.scenarios[0].prompt_preview).toContain("pong");
+    expect(detail?.scenarios[0].prompt_preview).toBe("exact-user-prompt-snapshot");
   });
 
   it("latestFinishedRunsByModels returns newest finished run per model", async () => {
