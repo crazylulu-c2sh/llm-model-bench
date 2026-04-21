@@ -11,7 +11,7 @@ import {
   scoreScenario,
   type ScenarioId,
 } from "./scenarios.js";
-import { lmStudioLoad, lmStudioUnload } from "./lmstudio.js";
+import { lmStudioIsModelLoaded, lmStudioLoad, lmStudioUnload } from "./lmstudio.js";
 import { executeBenchTool, resolvePublicAssetsOrigin } from "./tooling/bench-tools.js";
 
 export type BenchRequest = {
@@ -115,16 +115,19 @@ export async function* runBench(
   }
 
   if (input.provider === "lm_studio" && !input.skipModelLoad) {
-    await lmStudioUnload(base, input.modelId, { fetchImpl, apiKey: input.apiKey });
-    const load = await lmStudioLoad(base, input.modelId, { fetchImpl, apiKey: input.apiKey });
-    if (!load.ok) {
-      yield {
-        type: "error",
-        layer: "orchestrator",
-        code: "load_failed",
-        message: `LM Studio load failed: ${load.status} ${load.body}`,
-      };
-      return;
+    const loaded = await lmStudioIsModelLoaded(base, input.modelId, { fetchImpl, apiKey: input.apiKey });
+    if (!loaded.ok || !loaded.loaded) {
+      await lmStudioUnload(base, input.modelId, { fetchImpl, apiKey: input.apiKey });
+      const load = await lmStudioLoad(base, input.modelId, { fetchImpl, apiKey: input.apiKey });
+      if (!load.ok) {
+        yield {
+          type: "error",
+          layer: "orchestrator",
+          code: "load_failed",
+          message: `LM Studio load failed: ${load.status} ${load.body}`,
+        };
+        return;
+      }
     }
   }
 
