@@ -87,6 +87,7 @@ describe("runBench LM Studio autoUnloadAfterBench", () => {
     }
 
     expect(events).toContain("run_finished");
+    expect(events.filter((t) => t === "model_unloaded")).toEqual(["model_unloaded"]);
     expect(postUnloadCount).toBe(2);
   });
 
@@ -119,6 +120,7 @@ describe("runBench LM Studio autoUnloadAfterBench", () => {
     }
 
     expect(events).toContain("run_finished");
+    expect(events.filter((t) => t === "model_unloaded")).toEqual([]);
     expect(postUnloadCount).toBe(0);
   });
 

@@ -370,10 +370,22 @@ export async function* runBench(
     }
   }
 
+  let lmStudioPrepare:
+    | "loaded"
+    | "already_in_memory"
+    | "load_skipped_by_request"
+    | undefined;
+  if (input.provider === "lm_studio") {
+    if (input.skipModelLoad) lmStudioPrepare = "load_skipped_by_request";
+    else if (modelLoadedByThisBench) lmStudioPrepare = "loaded";
+    else lmStudioPrepare = "already_in_memory";
+  }
+
   yield {
     type: "model_loaded",
     model_id: input.modelId,
     provider: input.provider,
+    ...(lmStudioPrepare != null ? { lm_studio_prepare: lmStudioPrepare } : {}),
   };
 
   try {
@@ -835,10 +847,17 @@ export async function* runBench(
       input.autoUnloadAfterBench &&
       modelLoadedByThisBench
     ) {
-      await lmStudioUnload(base, input.modelId, {
+      const u = await lmStudioUnload(base, input.modelId, {
         fetchImpl,
         apiKey: input.apiKey,
       });
+      yield {
+        type: "model_unloaded",
+        model_id: input.modelId,
+        phase: "after_bench",
+        ok: u.ok,
+        status: u.status,
+      };
     }
   }
 }

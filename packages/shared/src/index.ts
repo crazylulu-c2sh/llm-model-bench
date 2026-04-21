@@ -154,6 +154,18 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     type: z.literal("model_loaded"),
     model_id: z.string(),
     provider: ProviderKindSchema,
+    /** LM Studio 전용: 실제 POST load 여부 / 이미 메모리 / skipModelLoad */
+    lm_studio_prepare: z
+      .enum(["loaded", "already_in_memory", "load_skipped_by_request"])
+      .optional(),
+  }),
+  z.object({
+    type: z.literal("model_unloaded"),
+    model_id: z.string(),
+    /** 예: 벤치 종료 후 자동 언로드 */
+    phase: z.literal("after_bench").optional(),
+    ok: z.boolean(),
+    status: z.number().optional(),
   }),
   z.object({
     type: z.literal("scenario_start"),

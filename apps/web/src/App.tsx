@@ -767,6 +767,24 @@ export function App() {
             pushBenchLine("info", `모델 로드 완료 · ${ev.model_id}`);
             setBenchCurrent({ modelId: ev.model_id });
           }
+          if (ev.type === "model_unloaded") {
+            const st = ev.status != null ? String(ev.status) : "?";
+            if (ev.ok) {
+              appendLog(
+                ev.phase === "after_bench"
+                  ? `벤치 후 모델 언로드 완료 · ${ev.model_id} · HTTP ${st}`
+                  : `모델 언로드 완료 · ${ev.model_id} · HTTP ${st}`,
+              );
+              pushBenchLine("ok", `언로드 완료 · ${ev.model_id} · ${st}`);
+            } else {
+              appendLog(
+                ev.phase === "after_bench"
+                  ? `벤치 후 모델 언로드 실패 · ${ev.model_id} · HTTP ${st}`
+                  : `모델 언로드 실패 · ${ev.model_id} · HTTP ${st}`,
+              );
+              pushBenchLine("err", `언로드 실패 · ${ev.model_id} · ${st}`);
+            }
+          }
           if (ev.type === "scenario_start") {
             if (typeof ev.user_prompt === "string" && ev.user_prompt.length > 0) {
               setLiveUserPromptByRowKey((prev) => ({
