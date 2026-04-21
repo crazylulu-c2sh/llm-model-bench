@@ -11,6 +11,8 @@ export type ChartRow = {
   tps: number;
   pass?: boolean;
   modelId?: string;
+  /** 막대 차트에서 시나리오·API 그룹 사이 빈 행(멀티 모델 시에만 삽입) */
+  categorySpacer?: true;
 };
 
 export type CompareSeries = {
@@ -23,6 +25,7 @@ export type CompareSeries = {
 export function sessionChartRowsToCompareSeries(rows: ChartRow[]): CompareSeries[] {
   const byModel = new Map<string, ChartRow[]>();
   for (const r of rows) {
+    if (r.categorySpacer) continue;
     const mid = (r.modelId ?? "").trim() || "_default";
     const list = byModel.get(mid) ?? [];
     list.push(r);
@@ -198,4 +201,55 @@ export function pivotCompareSeries(series: CompareSeries[]): PivotCompareRow[] {
     });
     return { label: meta.label, scenario: meta.scenario, api: meta.api, byModel, bySeriesIndex };
   });
+}
+
+/** 비교 막대: 시나리오+API+모델 단위 행 — `sortChartRowsForBarOrder`와 동일한 정렬 키 */
+export type FlatBarDatum = {
+  barLabel: string;
+  scenario: string;
+  api: string;
+  modelId?: string;
+  /** 비교 시리즈 인덱스 — TPS 막대 색 구분 등 */
+  seriesIndex: number;
+  ttft: number;
+  tpot: number;
+  tps: number;
+  pass?: boolean;
+  /** 시나리오·API 그룹 사이 빈 Y축 카테고리(비교 멀티 모델 시 삽입) */
+  categorySpacer?: true;
+};
+
+export function comparePivotToFlatBarData(
+  pivoted: PivotCompareRow[],
+  compareSeries: CompareSeries[],
+): FlatBarDatum[] {
+  const out: FlatBarDatum[] = [];
+  for (const p of pivoted) {
+    compareSeries.forEach((s, si) => {
+      const v = p.bySeriesIndex[si];
+      const modelLabel = s.label || s.modelId || "모델";
+      out.push({
+        barLabel: `${p.scenario} (${apiShort(p.api)}) · ${modelLabel}`,
+        scenario: p.scenario,
+        api: p.api,
+        modelId: s.modelId || undefined,
+        seriesIndex: si,
+        ttft: v?.ttft ?? 0,
+        tpot: v?.tpot ?? 0,
+        tps: v?.tps ?? 0,
+        pass: v?.pass,
+      });
+    });
+  }
+  out.sort((a, b) => {
+    if (a.scenario !== b.scenario) return a.scenario.localeCompare(b.scenario);
+    const d = apiRouteRank(a.api) - apiRouteRank(b.api);
+    if (d !== 0) return d;
+    if (a.api !== b.api) return a.api.localeCompare(b.api);
+    const ma = a.modelId ?? "";
+    const mb = b.modelId ?? "";
+    if (ma !== mb) return ma.localeCompare(mb);
+    return a.barLabel.localeCompare(b.barLabel);
+  });
+  return out;
 }

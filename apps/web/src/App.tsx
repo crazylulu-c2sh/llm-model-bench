@@ -312,9 +312,10 @@ export function App() {
   );
 
   const openCompareCell = useCallback(
-    (scenario: string, api: string) => {
+    (scenario: string, api: string, modelId?: string) => {
       if (!compareRaw) return;
-      for (const it of compareRaw.items) {
+      const items = modelId ? compareRaw.items.filter((it) => it.model_id === modelId) : compareRaw.items;
+      for (const it of items) {
         if (!it.run) continue;
         const sc = it.run.scenarios.find((s) => s.id === scenario && s.api_route === api);
         if (!sc) continue;
@@ -1072,7 +1073,7 @@ export function App() {
               <BenchCharts
                 chartRows={[]}
                 compareSeries={filteredCompareSeries}
-                onCompareCell={(scenario, api) => openCompareCell(scenario, api)}
+                onCompareCell={(scenario, api, modelId) => openCompareCell(scenario, api, modelId)}
               />
             ) : (
               <p className="py-8 text-center text-sm text-[var(--muted)]">
