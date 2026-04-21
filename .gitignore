@@ -21,3 +21,8 @@ Thumbs.db
 coverage
 
 tmp/
+
+data/*.sqlite
+data/*.sqlite-journal
+data/*.sqlite-wal
+data/*.sqlite-shm
