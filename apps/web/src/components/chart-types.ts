@@ -84,6 +84,20 @@ export function scenarioRowKey(scenario: string, api: string, modelId?: string):
   return `${m}|${scenario}|${api}`;
 }
 
+/** 라이브 멀티모델 막대 Y축: scenario → API(chat/msg 순) → model → id(안정) */
+export function sortChartRowsForBarOrder(rows: ChartRow[]): ChartRow[] {
+  return [...rows].sort((a, b) => {
+    if (a.scenario !== b.scenario) return a.scenario.localeCompare(b.scenario);
+    const d = apiRouteRank(a.api) - apiRouteRank(b.api);
+    if (d !== 0) return d;
+    if (a.api !== b.api) return a.api.localeCompare(b.api);
+    const ma = a.modelId ?? "";
+    const mb = b.modelId ?? "";
+    if (ma !== mb) return ma.localeCompare(mb);
+    return a.id.localeCompare(b.id);
+  });
+}
+
 export function rowsToChartData(
   rows: {
     scenario: string;

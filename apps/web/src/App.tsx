@@ -29,6 +29,7 @@ import { BenchCharts } from "./components/BenchCharts";
 import {
   rowsToChartData,
   scenarioRowKey,
+  sortChartRowsForBarOrder,
   tokensPerSecondFromRun,
   type ChartRow,
   type CompareSeries,
@@ -205,20 +206,22 @@ export function App() {
 
   const chartRows = useMemo(
     () =>
-      rowsToChartData(
-        rows.map((r) => {
-          const last = detailAggregate[r.rowKey]?.runs?.at(-1);
-          return {
-            scenario: r.scenario,
-            api: r.api,
-            ttft_ms: r.ttft_ms,
-            tpot_ms: r.tpot_ms,
-            pass: r.pass,
-            model_id: r.model_id,
-            total_ms: last?.total_ms,
-            output_text: last?.output_text,
-          };
-        }),
+      sortChartRowsForBarOrder(
+        rowsToChartData(
+          rows.map((r) => {
+            const last = detailAggregate[r.rowKey]?.runs?.at(-1);
+            return {
+              scenario: r.scenario,
+              api: r.api,
+              ttft_ms: r.ttft_ms,
+              tpot_ms: r.tpot_ms,
+              pass: r.pass,
+              model_id: r.model_id,
+              total_ms: last?.total_ms,
+              output_text: last?.output_text,
+            };
+          }),
+        ),
       ),
     [rows, detailAggregate],
   );
