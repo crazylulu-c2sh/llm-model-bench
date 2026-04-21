@@ -277,6 +277,8 @@ function hasAnyPositiveMetricPivot(pivoted: PivotCompareRow[], metric: RadarMetr
   return false;
 }
 
+/** 레이더 축(시나리오·API) 최소 개수 — 2축은 시각적으로 선분에 가까워 3부터 표시 */
+const MIN_RADAR_AXIS_COUNT = 3;
 const RADAR_DENSE_THRESHOLD = 10;
 /** 각 레이더 차트 범례 높이(px) — ResponsiveContainer height에 포함 */
 const RADAR_LEGEND_HEIGHT_PX = 28;
@@ -829,7 +831,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
           <MetricChartLegend variant="compare" />
         </div>
         <div className="min-h-72 min-w-0">
-          {pivoted.length >= 2 ? (
+          {pivoted.length >= MIN_RADAR_AXIS_COUNT ? (
             <RadarPanelsColumn
               axisCount={pivoted.length}
               compareSeries={compareSeries}
@@ -839,7 +841,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
             />
           ) : (
             <p className="flex h-64 items-center justify-center text-sm text-[var(--muted)]">
-              비교 레이더는 시나리오가 2개 이상일 때 표시됩니다.
+              비교 레이더는 시나리오가 3개 이상일 때 표시됩니다.
             </p>
           )}
         </div>
@@ -1035,7 +1037,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
         ) : null}
       </div>
       <div className="min-h-72 min-w-0">
-        {useSessionMultiRadar && pivotedSession.length >= 2 ? (
+        {useSessionMultiRadar && pivotedSession.length >= MIN_RADAR_AXIS_COUNT ? (
           <RadarPanelsColumn
             axisCount={pivotedSession.length}
             compareSeries={sessionSeries}
@@ -1043,7 +1045,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
             pivoted={pivotedSession}
             mode="compare"
           />
-        ) : radarAxisCount >= 2 ? (
+        ) : radarAxisCount >= MIN_RADAR_AXIS_COUNT ? (
           <RadarPanelsColumn
             axisCount={radarAxisCount}
             compareSeries={[]}
@@ -1053,11 +1055,11 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
           />
         ) : useSessionMultiRadar ? (
           <p className="flex h-full min-h-64 items-center justify-center text-center text-sm text-[var(--muted)]">
-            모델 간 레이더 비교는 시나리오가 2개 이상일 때 표시됩니다.
+            모델 간 레이더 비교는 시나리오가 3개 이상일 때 표시됩니다.
           </p>
         ) : (
           <p className="flex h-full min-h-64 items-center justify-center text-center text-sm text-[var(--muted)]">
-            레이더 차트는 시나리오가 2개 이상일 때 표시됩니다.
+            레이더 차트는 시나리오가 3개 이상일 때 표시됩니다.
           </p>
         )}
       </div>
