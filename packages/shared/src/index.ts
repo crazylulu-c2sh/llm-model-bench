@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+export {
+  ALL_SCENARIO_IDS,
+  getScenarioUserPromptPreview,
+  isScenarioId,
+  type ScenarioId,
+} from "./scenarios-preview";
+
 export const ProviderKindSchema = z.enum([
   "lm_studio",
   "ollama",
@@ -32,6 +39,10 @@ export const DetectResultSchema = z.object({
       id: z.string(),
       label: z.string().optional(),
       kind: z.string().optional(),
+      /** 디스크/가중치 용량 등 (바이트) — LM Studio·Ollama 등에서 제공 시 */
+      size_bytes: z.number().optional(),
+      /** 파라미터 규모 힌트 (예: 7B) — LM Studio `params_string` 등 */
+      params_string: z.string().optional(),
     }),
   ),
   steps: z.array(DetectStepSchema),
@@ -65,7 +76,12 @@ export const BenchRunMetaSchema = z.object({
 export type BenchRunMeta = z.infer<typeof BenchRunMetaSchema>;
 
 export const StreamEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("run_started"), run_id: z.string() }),
+  z.object({
+    type: z.literal("run_started"),
+    run_id: z.string(),
+    /** 있으면 DB/클라이언트가 동일 스냅샷으로 사용 */
+    meta: BenchRunMetaSchema.optional(),
+  }),
   z.object({
     type: z.literal("model_loaded"),
     model_id: z.string(),
