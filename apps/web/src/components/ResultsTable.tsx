@@ -232,7 +232,7 @@ export function ResultsTable({
       ) : (
         <div className="max-h-[min(60vh,32rem)] overflow-auto rounded border border-[var(--border)]">
           <table className="w-full min-w-[36rem] text-left text-sm">
-            <thead className="sticky top-0 z-10 bg-[var(--surface)] text-[var(--muted)]">
+            <thead className="sticky top-0 z-[1] bg-[var(--surface)] text-[var(--muted)]">
               {table.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
                   {hg.headers.map((h) => (

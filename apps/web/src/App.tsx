@@ -980,7 +980,7 @@ export function App() {
           </>
         ) : null}
       </ConfirmDialog>
-      <header className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface-2)] px-6 py-4 shadow-sm">
+      <header className="sticky top-0 z-20 flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface-2)] px-6 py-4 shadow-sm">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <span className="mt-0.5 shrink-0 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-[var(--accent)]">
             <Activity className="size-6" aria-hidden />

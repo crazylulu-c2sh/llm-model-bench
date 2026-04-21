@@ -231,7 +231,7 @@ export function ModelTable({
   return (
     <div className="max-h-64 overflow-auto rounded border border-[var(--border)]">
       <table className="w-full text-left text-sm">
-        <thead className="sticky top-0 z-10 bg-[var(--surface)] text-[var(--muted)]">
+        <thead className="sticky top-0 z-[1] bg-[var(--surface)] text-[var(--muted)]">
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id}>
               {hg.headers.map((h) => (
