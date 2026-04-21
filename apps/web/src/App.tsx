@@ -127,6 +127,7 @@ export function App() {
   const [persistApiKeyToDisk, setPersistApiKeyToDisk] = useState(boot.persistApiKeyToDisk);
   const [parallel, setParallel] = useState(boot.parallel);
   const [unloadOtherModels, setUnloadOtherModels] = useState(boot.unloadOtherModels);
+  const [autoUnloadAfterBench, setAutoUnloadAfterBench] = useState(boot.autoUnloadAfterBench);
   const [profileId, setProfileId] = useState<"auto" | LlmProfileFamily>(boot.profileId);
   const [profileMaxTokens, setProfileMaxTokens] = useState(boot.profileMaxTokens);
   const [thinkingIntent, setThinkingIntent] = useState<ThinkingIntent>(boot.thinkingIntent);
@@ -214,6 +215,7 @@ export function App() {
         baseUrl,
         parallel,
         unloadOtherModels,
+        autoUnloadAfterBench,
         hlPreview,
         hlLog,
         persistApiKeyToDisk,
@@ -237,6 +239,7 @@ export function App() {
     parallel,
     persistApiKeyToDisk,
     unloadOtherModels,
+    autoUnloadAfterBench,
     profileId,
     profileMaxTokens,
     thinkingIntent,
@@ -638,6 +641,7 @@ export function App() {
         baseUrl: d.baseUrl,
         parallel,
         unloadOtherModels,
+        autoUnloadAfterBench,
         hlPreview,
         hlLog,
         persistApiKeyToDisk,
@@ -666,6 +670,7 @@ export function App() {
     parallel,
     persistApiKeyToDisk,
     unloadOtherModels,
+    autoUnloadAfterBench,
     profileId,
     profileMaxTokens,
     thinkingIntent,
@@ -736,6 +741,7 @@ export function App() {
               parallel,
               skipModelLoad: detect.provider !== "lm_studio",
               unloadOtherModels,
+              autoUnloadAfterBench,
               publicAssetsOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
               ...buildBenchProfilePayload(m.id),
             },
@@ -859,7 +865,7 @@ export function App() {
     } else {
       toast.success("벤치가 모두 완료되었습니다.");
     }
-  }, [apiKey, appendLog, buildBenchProfilePayload, detect, parallel, unloadOtherModels]);
+  }, [apiKey, appendLog, autoUnloadAfterBench, buildBenchProfilePayload, detect, parallel, unloadOtherModels]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
@@ -948,6 +954,9 @@ export function App() {
               ) : null}
               {unloadOtherModels && detect.provider === "lm_studio" ? (
                 <li>벤치 대상 외 모델 언로드가 켜져 있습니다(감지 목록 기준).</li>
+              ) : null}
+              {autoUnloadAfterBench && detect.provider === "lm_studio" ? (
+                <li>이번 벤치에서 로드한 대상 모델만 끝날 때 자동 언로드합니다(이미 로드된 모델은 유지).</li>
               ) : null}
             </ul>
           </>
@@ -1065,8 +1074,32 @@ export function App() {
             />
             <span>
               <span className="font-medium text-[var(--foreground)]">벤치 대상 외 모델 언로드 (LM Studio)</span>
-              <span className="mt-0.5 block text-xs leading-snug">
+              <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
                 켜면 각 벤치 시작 전 감지된 다른 모델 키에 대해 unload를 베스트 에포트로 호출합니다. 실패해도 벤치는 계속됩니다.
+                {detect && detect.provider !== "lm_studio" ? " 현재 프로바이더에서는 비활성입니다." : ""}
+              </span>
+            </span>
+          </label>
+          <label
+            className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
+            title={
+              detect?.provider === "lm_studio"
+                ? "시작 시점에 이미 VRAM에 있던 모델은 언로드하지 않고, 이번 실행이 load로 올린 경우에만 끝날 때 unload를 시도합니다."
+                : "LM Studio에서만 적용됩니다."
+            }
+          >
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={autoUnloadAfterBench}
+              disabled={detect?.provider !== "lm_studio"}
+              onChange={(e) => setAutoUnloadAfterBench(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium text-[var(--foreground)]">벤치 후 대상 모델 자동 언로드 (LM Studio)</span>
+              <span className="mt-0.5 block text-xs leading-snug">
+                이미 로드되어 있던 모델은 그대로 두고, 이번 벤치에서 로드한 경우에만 런 종료 시 unload를 베스트 에포트로 호출합니다.
                 {detect && detect.provider !== "lm_studio" ? " 현재 프로바이더에서는 비활성입니다." : ""}
               </span>
             </span>

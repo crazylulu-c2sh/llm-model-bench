@@ -12,6 +12,7 @@ const PrefsSchema = z
     baseUrl: z.string().min(1).optional(),
     parallel: z.boolean().optional(),
     unloadOtherModels: z.boolean().optional(),
+    autoUnloadAfterBench: z.boolean().optional(),
     hlPreview: z.boolean().optional(),
     hlLog: z.boolean().optional(),
     persistApiKeyToDisk: z.boolean().optional(),
@@ -51,6 +52,8 @@ function safeParsePrefs(raw: string | null): Partial<UiPrefs> {
         baseUrl: typeof legacy.baseUrl === "string" ? legacy.baseUrl : undefined,
         parallel: typeof legacy.parallel === "boolean" ? legacy.parallel : undefined,
         unloadOtherModels: typeof legacy.unloadOtherModels === "boolean" ? legacy.unloadOtherModels : undefined,
+        autoUnloadAfterBench:
+          typeof legacy.autoUnloadAfterBench === "boolean" ? legacy.autoUnloadAfterBench : undefined,
         hlPreview: typeof legacy.hlPreview === "boolean" ? legacy.hlPreview : undefined,
         hlLog: typeof legacy.hlLog === "boolean" ? legacy.hlLog : undefined,
         persistApiKeyToDisk: typeof legacy.persistApiKeyToDisk === "boolean" ? legacy.persistApiKeyToDisk : undefined,
@@ -91,6 +94,7 @@ export function readInitialUiState() {
       baseUrl: DEFAULT_BASE,
       parallel: false,
       unloadOtherModels: false,
+      autoUnloadAfterBench: false,
       hlPreview: false,
       hlLog: false,
       persistApiKeyToDisk: false,
@@ -112,6 +116,7 @@ export function readInitialUiState() {
     baseUrl: typeof p.baseUrl === "string" && p.baseUrl.length ? p.baseUrl : DEFAULT_BASE,
     parallel: p.parallel ?? false,
     unloadOtherModels: p.unloadOtherModels ?? false,
+    autoUnloadAfterBench: p.autoUnloadAfterBench ?? false,
     hlPreview: p.hlPreview ?? false,
     hlLog: p.hlLog ?? false,
     persistApiKeyToDisk: persist,
@@ -132,6 +137,7 @@ export type SaveUiSnapshot = {
   baseUrl: string;
   parallel: boolean;
   unloadOtherModels: boolean;
+  autoUnloadAfterBench: boolean;
   hlPreview: boolean;
   hlLog: boolean;
   persistApiKeyToDisk: boolean;
@@ -155,6 +161,7 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
     baseUrl: s.baseUrl,
     parallel: s.parallel,
     unloadOtherModels: s.unloadOtherModels,
+    autoUnloadAfterBench: s.autoUnloadAfterBench,
     hlPreview: s.hlPreview,
     hlLog: s.hlLog,
     persistApiKeyToDisk: s.persistApiKeyToDisk,

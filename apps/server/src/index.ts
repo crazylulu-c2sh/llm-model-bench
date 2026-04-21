@@ -159,6 +159,7 @@ const BenchStreamBody = z.object({
     measuredRuns: z.number().optional(),
     skipModelLoad: z.boolean().optional(),
     unloadOtherModels: z.boolean().optional(),
+    autoUnloadAfterBench: z.boolean().optional(),
     publicAssetsOrigin: z.string().url().optional(),
     profileId: z.enum(["auto", "unknown", "gemma4", "qwen35", "qwen36", "gpt_oss", "minimax_m27", "nemotron3", "qwen3_coder_next", "glm47_flash"]).optional(),
     profileMaxTokens: z.number().int().positive().optional(),
@@ -191,6 +192,7 @@ app.post("/api/bench/stream", async (c) => {
     measuredRuns: bench.measuredRuns,
     skipModelLoad: bench.skipModelLoad,
     unloadOtherModels: bench.unloadOtherModels,
+    autoUnloadAfterBench: bench.autoUnloadAfterBench,
     publicAssetsOrigin: bench.publicAssetsOrigin,
     profileMaxTokens: bench.profileMaxTokens,
     profile: {
