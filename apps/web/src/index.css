@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/* GitHub Primer–inspired semantic tokens (dark default on :root + data-theme="dark"). */
+:root,
+html[data-theme="dark"] {
+  --surface: #0d1117;
+  --surface-2: #161b22;
+  --foreground: #e6edf3;
+  --muted: #8b949e;
+  --accent: #238636;
+  --accent-2: #3fb950;
+  --danger: #f85149;
+  --border: #30363d;
+  --chart-grid: #30363d;
+  --chart-tick: #8b949e;
+  --chart-tooltip-bg: #161b22;
+  --chart-tooltip-border: #30363d;
+  --chart-ttft: #58a6ff;
+  --chart-tpot: #3fb950;
+  --chart-pass: #3fb950;
+  --chart-fail: #f85149;
+  --chart-neutral: #8b949e;
+  --chart-ref-line: #6e7681;
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+html[data-theme="light"] {
+  --surface: #f6f8fa;
+  --surface-2: #ffffff;
+  --foreground: #1f2328;
+  --muted: #656d76;
+  --accent: #2da44e;
+  --accent-2: #1a7f37;
+  --danger: #cf222e;
+  --border: #d0d7de;
+  --chart-grid: #d0d7de;
+  --chart-tick: #656d76;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-border: #d0d7de;
+  --chart-ttft: #0969da;
+  --chart-tpot: #1a7f37;
+  --chart-pass: #1a7f37;
+  --chart-fail: #cf222e;
+  --chart-neutral: #8c959f;
+  --chart-ref-line: #656d76;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: var(--surface);
+  color: var(--foreground);
+}
