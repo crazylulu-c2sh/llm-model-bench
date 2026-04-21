@@ -6,7 +6,51 @@ export type OpenAiStreamMetrics = {
   approxOutputTokens: number;
 };
 
-/** Parse OpenAI chat completions SSE stream; measure TTFT on first content delta. */
+type DeltaToolCall = {
+  index?: number;
+  id?: string;
+  type?: string;
+  function?: { name?: string; arguments?: string };
+};
+
+type MergedToolCall = {
+  id?: string;
+  callType?: string;
+  name: string;
+  arguments: string;
+};
+
+function mergeToolCallDeltas(deltas: DeltaToolCall[] | undefined, byIndex: Map<number, MergedToolCall>) {
+  if (!deltas?.length) return;
+  for (const p of deltas) {
+    const idx = typeof p.index === "number" ? p.index : 0;
+    let cur = byIndex.get(idx);
+    if (!cur) {
+      cur = { name: "", arguments: "" };
+      byIndex.set(idx, cur);
+    }
+    if (p.id) cur.id = p.id;
+    if (p.type) cur.callType = p.type;
+    if (p.function?.name) cur.name = p.function.name;
+    if (p.function?.arguments) cur.arguments += p.function.arguments;
+  }
+}
+
+function serializeMergedToolCalls(byIndex: Map<number, MergedToolCall>): string {
+  const entries = [...byIndex.entries()].sort((a, b) => a[0] - b[0]);
+  const tool_calls = entries.map(([index, tc]) => ({
+    index,
+    id: tc.id,
+    type: tc.callType ?? "function",
+    function: {
+      name: tc.name,
+      arguments: tc.arguments,
+    },
+  }));
+  return JSON.stringify({ tool_calls });
+}
+
+/** Parse OpenAI chat completions SSE stream; measure TTFT on first content or tool-call delta. */
 export async function consumeOpenAiChatStream(
   body: ReadableStream<Uint8Array> | null,
   signal?: AbortSignal,
@@ -24,9 +68,14 @@ export async function consumeOpenAiChatStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let text = "";
+  const toolByIndex = new Map<number, MergedToolCall>();
   const t0 = performance.now();
   let ttft: number | null = null;
   let streamCompleted = false;
+
+  const markTtft = () => {
+    if (ttft === null) ttft = performance.now() - t0;
+  };
 
   const handleLine = (line: string) => {
     const s = line.trim();
@@ -38,12 +87,23 @@ export async function consumeOpenAiChatStream(
     }
     try {
       const j = JSON.parse(data) as {
-        choices?: { delta?: { content?: string } }[];
+        choices?: {
+          delta?: {
+            content?: string;
+            tool_calls?: DeltaToolCall[];
+          };
+        }[];
       };
-      const c = j.choices?.[0]?.delta?.content;
+      const delta = j.choices?.[0]?.delta;
+      const c = delta?.content;
       if (c) {
-        if (ttft === null) ttft = performance.now() - t0;
+        markTtft();
         text += c;
+      }
+      const tc = delta?.tool_calls;
+      if (tc?.length) {
+        markTtft();
+        mergeToolCallDeltas(tc, toolByIndex);
       }
     } catch {
       /* ignore parse errors for partial chunks */
@@ -60,11 +120,17 @@ export async function consumeOpenAiChatStream(
     for (const line of lines) handleLine(line);
   }
   const totalMs = performance.now() - t0;
-  const approxOutputTokens = Math.max(0, Math.ceil(text.length / 4));
+  let outText = text;
+  if (toolByIndex.size > 0) {
+    const serialized = serializeMergedToolCalls(toolByIndex);
+    if (outText) outText = `${outText}\n${serialized}`;
+    else outText = serialized;
+  }
+  const approxOutputTokens = Math.max(0, Math.ceil(outText.length / 4));
   return {
     ttftMs: ttft,
     totalMs,
-    text,
+    text: outText,
     streamCompleted,
     approxOutputTokens,
   };

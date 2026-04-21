@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { scoreScenario } from "./scenarios.js";
 import { consumeOpenAiChatStream, tpotFromOpenAi } from "./openai-stream.js";
 
 function sse(chunks: string[]) {
@@ -24,5 +25,59 @@ describe("consumeOpenAiChatStream", () => {
     expect(m.streamCompleted).toBe(true);
     const tpot = tpotFromOpenAi(m);
     expect(tpot).not.toBeNull();
+  });
+
+  it("merges streaming tool_calls into JSON and sets TTFT without content", async () => {
+    const line = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`;
+    const stream = sse([
+      line({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, id: "call_1", type: "function", function: { name: "get_weather", arguments: "" } },
+              ],
+            },
+          },
+        ],
+      }),
+      line({
+        choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"city":"' } }] } }],
+      }),
+      line({
+        choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'Seattle"}' } }] } }],
+      }),
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.ttftMs).not.toBeNull();
+    expect(m.streamCompleted).toBe(true);
+    expect(m.text).toContain('"tool_calls"');
+    expect(m.text).toContain("get_weather");
+    expect(m.text).toContain("Seattle");
+    const parsed = JSON.parse(m.text) as { tool_calls: { function: { name: string; arguments: string } }[] };
+    expect(parsed.tool_calls[0].function.name).toBe("get_weather");
+    expect(parsed.tool_calls[0].function.arguments).toBe('{"city":"Seattle"}');
+  });
+
+  it("appends tool_calls JSON after text when both present", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"Calling tool."}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"x","type":"function","function":{"name":"get_weather","arguments":"{}"}}]}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.text.startsWith("Calling tool.")).toBe(true);
+    expect(m.text).toContain("\n");
+    expect(m.text).toContain("get_weather");
+  });
+
+  it("captures standard content deltas for translate scoring (baseline when upstream is OpenAI-shaped)", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"네트워크는 짧게 연결됩니다."}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(scoreScenario("translate_roundtrip_stub", m.text).pass).toBe(true);
   });
 });
