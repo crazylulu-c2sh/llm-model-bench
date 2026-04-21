@@ -4,10 +4,15 @@ import {
   flexRender,
   getCoreRowModel,
   getSortedRowModel,
+  type OnChangeFn,
+  type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
 import { ArrowDownUp, CheckSquare, Square } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+
+/** 테이블과 App의 기본 정렬(id 오름차순)을 맞춥니다. */
+export const DEFAULT_MODEL_TABLE_SORTING: SortingState = [{ id: "id", desc: false }];
 
 const POINTER_MOVE_TOGGLE_THRESHOLD_PX = 5;
 
@@ -55,29 +60,42 @@ export function ModelTable({
   selected,
   onToggle,
   onSelectAll,
+  sorting,
+  onSortingChange,
+  onSortedModelIdsChange,
+  selectionDisabled = false,
 }: {
   models: DetectResult["models"];
   selected: Record<string, boolean>;
   onToggle: (id: string) => void;
   onSelectAll: (next: boolean) => void;
+  sorting: SortingState;
+  onSortingChange: OnChangeFn<SortingState>;
+  /** 현재 정렬 기준으로 표에 보이는 모델 id 순서(전체 행). */
+  onSortedModelIdsChange?: (ids: string[]) => void;
+  /** true이면 체크·행 토글·전체 선택을 막습니다(예: 벤치 실행 중). */
+  selectionDisabled?: boolean;
 }) {
   const data = useMemo<ModelRow[]>(() => models.map((m) => ({ ...m })), [models]);
   const allSelected = models.length > 0 && models.every((m) => selected[m.id]);
   const someSelected = models.some((m) => selected[m.id]);
   const rowPointerRef = useRef<{ x: number; y: number; modelId: string } | null>(null);
 
-  const table = useReactTable({
-    data,
-    columns: [
+  const columns = useMemo(
+    () => [
       columnHelper.display({
         id: "select",
         header: () => (
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded p-1 text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+            className="inline-flex items-center gap-1 rounded p-1 text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-50"
             aria-label={allSelected ? "전체 해제" : "전체 선택"}
             title={allSelected ? "전체 해제" : "전체 선택"}
-            onClick={() => onSelectAll(!allSelected)}
+            disabled={selectionDisabled}
+            onClick={() => {
+              if (selectionDisabled) return;
+              onSelectAll(!allSelected);
+            }}
           >
             {allSelected ? <CheckSquare className="size-4" /> : <Square className="size-4" />}
           </button>
@@ -86,7 +104,11 @@ export function ModelTable({
           <input
             type="checkbox"
             checked={!!selected[ctx.row.original.id]}
-            onChange={() => onToggle(ctx.row.original.id)}
+            disabled={selectionDisabled}
+            onChange={() => {
+              if (selectionDisabled) return;
+              onToggle(ctx.row.original.id);
+            }}
             aria-label={`${ctx.row.original.id} 선택`}
           />
         ),
@@ -156,10 +178,21 @@ export function ModelTable({
         sortUndefined: "last",
       }),
     ],
+    [allSelected, onSelectAll, onToggle, selected, selectionDisabled],
+  );
+
+  const table = useReactTable({
+    data,
+    columns,
+    state: { sorting },
+    onSortingChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    initialState: { sorting: [{ id: "id", desc: false }] },
   });
+
+  useEffect(() => {
+    onSortedModelIdsChange?.(table.getRowModel().rows.map((r) => r.original.id));
+  }, [data, onSortedModelIdsChange, sorting, table]);
 
   return (
     <div className="max-h-64 overflow-auto rounded border border-[var(--border)]">
@@ -179,10 +212,16 @@ export function ModelTable({
           {table.getRowModel().rows.map((row) => (
             <tr
               key={row.id}
-              className="cursor-pointer border-t border-[var(--border)] hover:bg-[var(--surface-2)]"
-              tabIndex={0}
+              className={
+                selectionDisabled
+                  ? "border-t border-[var(--border)] opacity-80"
+                  : "cursor-pointer border-t border-[var(--border)] hover:bg-[var(--surface-2)]"
+              }
+              tabIndex={selectionDisabled ? -1 : 0}
+              aria-disabled={selectionDisabled || undefined}
               aria-label={`${row.original.id} 선택 토글`}
               onMouseDown={(e) => {
+                if (selectionDisabled) return;
                 const el = e.target as HTMLElement;
                 if (el.closest('input[type="checkbox"]')) return;
                 rowPointerRef.current = {
@@ -192,6 +231,7 @@ export function ModelTable({
                 };
               }}
               onClick={(e) => {
+                if (selectionDisabled) return;
                 const el = e.target as HTMLElement;
                 const start = rowPointerRef.current;
                 rowPointerRef.current = null;
@@ -208,6 +248,7 @@ export function ModelTable({
                 onToggle(row.original.id);
               }}
               onKeyDown={(e) => {
+                if (selectionDisabled) return;
                 if (e.key !== "Enter" && e.key !== " ") return;
                 e.preventDefault();
                 onToggle(row.original.id);
@@ -225,6 +266,7 @@ export function ModelTable({
       <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
         선택 {models.filter((m) => selected[m.id]).length} / {models.length}
         {someSelected && !allSelected ? " · 일부 선택됨" : null}
+        {selectionDisabled ? " · 벤치 실행 중에는 선택을 바꿀 수 없습니다." : null}
       </p>
     </div>
   );

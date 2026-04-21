@@ -2,9 +2,12 @@ import type { BenchRunMeta, DetectResult, StreamEvent } from "@llm-bench/shared"
 import { getScenarioUserPromptPreview } from "@llm-bench/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast, Toaster } from "sonner";
+import type { SortingState } from "@tanstack/react-table";
 import {
   Activity,
   AlertTriangle,
+  ChevronDown,
+  ChevronUp,
   Download,
   History,
   KeyRound,
@@ -31,12 +34,13 @@ import {
   type CompareSeries,
 } from "./components/chart-types";
 import { HighlightToggle, JsonCodeBlock } from "./components/JsonCodeBlock";
-import { ModelTable } from "./components/ModelTable";
+import { DEFAULT_MODEL_TABLE_SORTING, ModelTable } from "./components/ModelTable";
 import { ProviderSummary } from "./components/ProviderSummary";
 import type { ResultRow } from "./components/ResultsTable";
 import { ResultsTable } from "./components/ResultsTable";
 import {
   BenchProgressPanel,
+  formatBenchRunningLine,
   type BenchCompletedItem,
   type BenchCurrent,
   type BenchStepKind,
@@ -47,6 +51,8 @@ import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
 import type { ThemeChoice } from "./useTheme";
 import { useTheme } from "./useTheme";
+
+type DetectModel = DetectResult["models"][number];
 
 type MetricsAgg = {
   scenario_id: string;
@@ -115,7 +121,12 @@ export function App() {
   const [hlPreview, setHlPreview] = useState(boot.hlPreview);
   const [hlLog, setHlLog] = useState(boot.hlLog);
   const [benchConfirmOpen, setBenchConfirmOpen] = useState(false);
+  const [modelTableSorting, setModelTableSorting] = useState<SortingState>(() => DEFAULT_MODEL_TABLE_SORTING);
+  const [modelOrderIds, setModelOrderIds] = useState<string[]>([]);
+  const [benchQueueDraft, setBenchQueueDraft] = useState<DetectModel[]>([]);
   const [detailAggregate, setDetailAggregate] = useState<Record<string, MetricsAgg>>({});
+  /** 라이브 SSE `scenario_start.user_prompt` — 번역 발췌 등 실제 user 메시지 */
+  const [liveUserPromptByRowKey, setLiveUserPromptByRowKey] = useState<Record<string, string>>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerPayload, setDrawerPayload] = useState<ScenarioDetailPayload | null>(null);
   const [chartView, setChartView] = useState<"live" | "compare">("live");
@@ -146,6 +157,36 @@ export function App() {
   const appendLog = useCallback((s: string) => {
     setLog((prev) => [...prev.slice(-400), s]);
   }, []);
+
+  useEffect(() => {
+    if (!detect) {
+      setModelOrderIds([]);
+      setModelTableSorting(DEFAULT_MODEL_TABLE_SORTING);
+      return;
+    }
+    setModelTableSorting(DEFAULT_MODEL_TABLE_SORTING);
+    setModelOrderIds([]);
+  }, [detect]);
+
+  const handleSortedModelIdsChange = useCallback((ids: string[]) => {
+    setModelOrderIds((prev) => {
+      if (prev.length === ids.length && prev.every((id, i) => id === ids[i])) return prev;
+      return ids;
+    });
+  }, []);
+
+  const orderedSelectedModels = useMemo(() => {
+    if (!detect) return [];
+    const byId = new Map(detect.models.map((m) => [m.id, m]));
+    const order = modelOrderIds.length > 0 ? modelOrderIds : detect.models.map((m) => m.id);
+    const out: DetectModel[] = [];
+    for (const id of order) {
+      if (!selected[id]) continue;
+      const m = byId.get(id);
+      if (m) out.push(m);
+    }
+    return out;
+  }, [detect, modelOrderIds, selected]);
 
   const chartRows = useMemo(
     () =>
@@ -181,12 +222,12 @@ export function App() {
         tpot_ms: row.tpot_ms,
         pass: row.pass,
         qualityReason: row.reason ?? last?.quality?.reason,
-        prompt: getScenarioUserPromptPreview(row.scenario),
+        prompt: liveUserPromptByRowKey[row.rowKey] ?? getScenarioUserPromptPreview(row.scenario),
         outputText: last?.output_text ?? "",
       });
       setDrawerOpen(true);
     },
-    [detailAggregate],
+    [detailAggregate, liveUserPromptByRowKey],
   );
 
   const openFromChartRow = useCallback(
@@ -209,12 +250,12 @@ export function App() {
         tpot_ms: row.tpot > 0 ? row.tpot : null,
         pass: row.pass,
         qualityReason: last?.quality?.reason,
-        prompt: getScenarioUserPromptPreview(row.scenario),
+        prompt: liveUserPromptByRowKey[key] ?? getScenarioUserPromptPreview(row.scenario),
         outputText: last?.output_text ?? "",
       });
       setDrawerOpen(true);
     },
-    [detailAggregate, openDrawerForRow, rows],
+    [detailAggregate, liveUserPromptByRowKey, openDrawerForRow, rows],
   );
 
   const openCompareCell = useCallback(
@@ -250,7 +291,7 @@ export function App() {
       toast.error("먼저 연결 / 감지를 실행하세요.");
       return;
     }
-    const modelIds = detect.models.filter((m) => selected[m.id]).map((m) => m.id);
+    const modelIds = orderedSelectedModels.map((m) => m.id);
     if (modelIds.length < 2) {
       toast.error("비교하려면 모델을 2개 이상 선택하세요.");
       return;
@@ -318,7 +359,7 @@ export function App() {
     } finally {
       setCompareLoading(false);
     }
-  }, [detect, selected]);
+  }, [detect, orderedSelectedModels]);
 
   const refreshServerRuns = useCallback(async () => {
     setServerRunsLoading(true);
@@ -381,6 +422,7 @@ export function App() {
     setRows([]);
     setLog([]);
     setDetailAggregate({});
+    setLiveUserPromptByRowKey({});
     setCompareSeries(null);
     setCompareRaw(null);
     setChartView("live");
@@ -396,16 +438,33 @@ export function App() {
         toast.error("프로바이더 감지에 실패했습니다.");
         return;
       }
-      setDetect(j as DetectResult);
+      const d = j as DetectResult;
+      setDetect(d);
+      setBaseUrl(d.baseUrl);
       const sel: Record<string, boolean> = {};
-      for (const m of (j as DetectResult).models) sel[m.id] = false;
+      for (const m of d.models) sel[m.id] = false;
       setSelected(sel);
-      appendLog(`provider=${(j as DetectResult).provider} models=${(j as DetectResult).models.length}`);
-      toast.success(
-        `감지 완료 · ${(j as DetectResult).provider} · 모델 ${(j as DetectResult).models.length}개`,
-      );
+      appendLog(`provider=${d.provider} models=${d.models.length} reachability=${d.reachability?.state ?? "n/a"}`);
+      const rch = d.reachability;
+      if (rch?.state === "unreachable") {
+        toast.error(
+          rch.reason ?? "Base URL에 연결할 수 없습니다. 서버가 켜져 있는지·주소·방화벽을 확인하세요.",
+        );
+      } else if (rch?.state === "partial") {
+        toast.warning(
+          rch.reason ?? "모델 목록 경로 일부만 응답했습니다. 네트워크 또는 프록시 설정을 확인하세요.",
+        );
+      } else if (d.models.length === 0) {
+        const hint =
+          d.provider === "lm_studio"
+            ? "LM Studio에서 모델을 로드한 뒤 다시 시도하세요."
+            : "모델 목록이 비어 있습니다. Base URL·API 키를 확인하세요.";
+        toast.warning(`감지됐지만 모델이 없습니다. ${hint}`);
+      } else {
+        toast.success(`감지 완료 · ${d.provider} · 모델 ${d.models.length}개`);
+      }
       saveUiSnapshot({
-        baseUrl,
+        baseUrl: d.baseUrl,
         parallel,
         unloadOtherModels,
         hlPreview,
@@ -435,9 +494,9 @@ export function App() {
     [detect],
   );
 
-  const runBench = useCallback(async () => {
+  const runBench = useCallback(async (modelsToRun: DetectModel[]) => {
     if (!detect) return;
-    const models = detect.models.filter((m) => selected[m.id]);
+    const models = modelsToRun;
     if (!models.length) {
       appendLog("모델을 하나 이상 선택하세요.");
       toast.error("벤치할 모델을 하나 이상 선택하세요.");
@@ -449,6 +508,7 @@ export function App() {
     setRunning(true);
     setRows([]);
     setDetailAggregate({});
+    setLiveUserPromptByRowKey({});
     setPreview("");
     setBenchStepLines([]);
     setBenchCurrent(null);
@@ -504,6 +564,12 @@ export function App() {
             setBenchCurrent({ modelId: ev.model_id });
           }
           if (ev.type === "scenario_start") {
+            if (typeof ev.user_prompt === "string" && ev.user_prompt.length > 0) {
+              setLiveUserPromptByRowKey((prev) => ({
+                ...prev,
+                [scenarioRowKey(ev.scenario_id, ev.api_route, m.id)]: ev.user_prompt as string,
+              }));
+            }
             const p = { sid: ev.scenario_id, api: ev.api_route };
             if (!lastScenarioStart || lastScenarioStart.sid !== p.sid || lastScenarioStart.api !== p.api) {
               iterInScenario = 1;
@@ -595,29 +661,36 @@ export function App() {
     } else {
       toast.success("벤치가 모두 완료되었습니다.");
     }
-  }, [apiKey, appendLog, detect, parallel, selected, unloadOtherModels]);
+  }, [apiKey, appendLog, detect, parallel, unloadOtherModels]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
-    const models = detect.models.filter((m) => selected[m.id]);
+    const models = orderedSelectedModels;
     if (!models.length) {
       toast.error("벤치할 모델을 하나 이상 선택하세요.");
       return;
     }
+    setBenchQueueDraft([...models]);
     setBenchConfirmOpen(true);
-  }, [detect, selected]);
+  }, [detect, orderedSelectedModels]);
 
   const handleConfirmBench = useCallback(() => {
     setBenchConfirmOpen(false);
-    void runBench();
-  }, [runBench]);
+    void runBench(benchQueueDraft);
+  }, [benchQueueDraft, runBench]);
 
-  const benchSelectedModels = useMemo(() => {
-    if (!detect) return [];
-    return detect.models.filter((m) => selected[m.id]);
-  }, [detect, selected]);
+  const moveBenchQueueDraft = useCallback((index: number, delta: -1 | 1) => {
+    setBenchQueueDraft((prev) => {
+      const j = index + delta;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[j]] = [next[j], next[index]];
+      return next;
+    });
+  }, []);
 
   const logText = log.join("\n");
+  const benchHeaderLine = useMemo(() => formatBenchRunningLine(benchCurrent), [benchCurrent]);
 
   return (
     <div className="min-h-screen bg-[var(--surface)] text-[var(--foreground)]">
@@ -632,14 +705,45 @@ export function App() {
         {detect ? (
           <>
             <p>
-              선택된 모델 <strong className="text-[var(--foreground)]">{benchSelectedModels.length}</strong>개
+              실행 순서 · 모델 <strong className="text-[var(--foreground)]">{benchQueueDraft.length}</strong>개
               {detect.provider === "lm_studio" ? " · LM Studio에서 로드/언로드가 동작할 수 있습니다." : ""}
             </p>
-            <ul className="mt-2 max-h-32 list-inside list-disc overflow-y-auto font-mono text-xs text-[var(--foreground)]">
-              {benchSelectedModels.map((m) => (
-                <li key={m.id}>{m.label ?? m.id}</li>
+            <p className="mt-1 text-xs text-[var(--muted)]">위/아래로 직렬 실행 순서를 바꿀 수 있습니다.</p>
+            <ol className="mt-2 max-h-48 list-decimal space-y-1.5 overflow-y-auto pl-5 text-[var(--foreground)]">
+              {benchQueueDraft.map((m, i) => (
+                <li key={m.id} className="font-mono text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate">{m.label ?? m.id}</span>
+                    <span className="flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        className="rounded border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40"
+                        aria-label={`${m.label ?? m.id} 위로 이동`}
+                        disabled={i === 0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          moveBenchQueueDraft(i, -1);
+                        }}
+                      >
+                        <ChevronUp className="size-4" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40"
+                        aria-label={`${m.label ?? m.id} 아래로 이동`}
+                        disabled={i === benchQueueDraft.length - 1}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          moveBenchQueueDraft(i, 1);
+                        }}
+                      >
+                        <ChevronDown className="size-4" aria-hidden />
+                      </button>
+                    </span>
+                  </div>
+                </li>
               ))}
-            </ul>
+            </ol>
             <ul className="mt-2 space-y-1 text-xs">
               {parallel ? (
                 <li className="text-[var(--danger)]">병렬 실행이 켜져 있습니다. GPU 부하에 유의하세요.</li>
@@ -651,14 +755,27 @@ export function App() {
           </>
         ) : null}
       </ConfirmDialog>
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface-2)] px-6 py-4 shadow-sm">
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-[var(--accent)]">
+      <header className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface-2)] px-6 py-4 shadow-sm">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <span className="mt-0.5 shrink-0 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-[var(--accent)]">
             <Activity className="size-6" aria-hidden />
           </span>
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="text-lg font-semibold tracking-tight">LLM Model Bench</h1>
             <p className="text-sm text-[var(--muted)]">로컬 프로바이더 감지 · 스트리밍 벤치</p>
+            {running ? (
+              <div
+                className="mt-2 flex min-w-0 items-center gap-2 rounded border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--foreground)]"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                <Loader2 className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" aria-hidden />
+                <span className="min-w-0 truncate">
+                  벤치 실행 중 · {benchHeaderLine}
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="flex flex-wrap items-end gap-3">
@@ -783,7 +900,16 @@ export function App() {
               프로바이더 감지 중…
             </p>
           ) : detect && detect.models.length > 0 ? (
-            <ModelTable models={detect.models} selected={selected} onToggle={toggle} onSelectAll={selectAllModels} />
+            <ModelTable
+              models={detect.models}
+              selected={selected}
+              onToggle={toggle}
+              onSelectAll={selectAllModels}
+              sorting={modelTableSorting}
+              onSortingChange={setModelTableSorting}
+              onSortedModelIdsChange={handleSortedModelIdsChange}
+              selectionDisabled={running}
+            />
           ) : detect && detect.models.length === 0 ? (
             <p className="py-8 text-center text-sm text-[var(--muted)]">
               감지된 모델이 없습니다. Base URL·API 키를 확인한 뒤 다시 <strong className="text-[var(--foreground)]">연결 / 감지</strong>를 실행하세요.
@@ -878,7 +1004,13 @@ export function App() {
               <h2 className="text-sm font-semibold text-[var(--foreground)]">토큰 프리뷰 (스트림)</h2>
               <HighlightToggle on={hlPreview} onChange={setHlPreview} />
             </div>
-            <JsonCodeBlock code={preview || "—"} language="markdown" enabled={hlPreview} maxHeight={280} />
+            <JsonCodeBlock
+              code={preview || "—"}
+              language="markdown"
+              enabled={hlPreview}
+              maxHeight={280}
+              stickToBottom={running}
+            />
           </div>
           <div className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">

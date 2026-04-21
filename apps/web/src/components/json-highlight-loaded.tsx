@@ -1,3 +1,4 @@
+import { forwardRef } from "react";
 import { Highlight, themes } from "prism-react-renderer";
 import Prism from "prismjs";
 import "prismjs/components/prism-json";
@@ -7,20 +8,20 @@ function pickTheme() {
   return document.documentElement.dataset.theme === "light" ? themes.oneLight : themes.oneDark;
 }
 
-export function HighlightCode({
-  code,
-  language,
-  maxHeight = 256,
-}: {
-  code: string;
-  language: string;
-  maxHeight?: number;
-}) {
+export const HighlightCode = forwardRef<
+  HTMLPreElement,
+  {
+    code: string;
+    language: string;
+    maxHeight?: number;
+  }
+>(function HighlightCode({ code, language, maxHeight = 256 }, ref) {
   const theme = pickTheme();
   return (
     <Highlight prism={Prism} theme={theme} code={code} language={language}>
       {({ className, style, tokens, getLineProps, getTokenProps }) => (
         <pre
+          ref={ref}
           className={`${className} overflow-auto rounded border border-[var(--border)] font-mono text-xs leading-relaxed`}
           style={{
             ...style,
@@ -42,4 +43,4 @@ export function HighlightCode({
       )}
     </Highlight>
   );
-}
+});

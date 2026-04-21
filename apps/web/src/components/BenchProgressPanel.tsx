@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { Activity, Loader2 } from "lucide-react";
 
 export type BenchStepKind = "info" | "ok" | "err";
@@ -22,6 +23,34 @@ function apiShort(api: string): string {
   return api;
 }
 
+/** 벤치 실행 중 헤더·요약에 쓰는 한 줄(실행 중 전용 톤). */
+export function formatBenchRunningLine(current: BenchCurrent | null): string {
+  const parts = [
+    current?.modelId,
+    current?.api ? apiShort(current.api) : undefined,
+    current?.scenario,
+    current?.iterLabel,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "스트림 연결 중…";
+}
+
+export function formatBenchProgressSummary({
+  running,
+  current,
+}: {
+  running: boolean;
+  current: BenchCurrent | null;
+}): string {
+  if (running) return formatBenchRunningLine(current);
+  const parts = [
+    current?.modelId,
+    current?.api ? apiShort(current.api) : undefined,
+    current?.scenario,
+    current?.iterLabel,
+  ].filter(Boolean);
+  return parts.length ? `마지막 상태 · ${parts.join(" · ")}` : "벤치 대기 중. 모델을 선택한 뒤 실행하세요.";
+}
+
 function lineClass(kind: BenchStepKind): string {
   if (kind === "err") return "text-[var(--danger)]";
   if (kind === "ok") return "text-[var(--chart-pass)]";
@@ -41,19 +70,15 @@ export function BenchProgressPanel({
   completed: BenchCompletedItem[];
   benchAction?: ReactNode;
 }) {
-  const summaryParts = [
-    current?.modelId,
-    current?.api ? apiShort(current.api) : undefined,
-    current?.scenario,
-    current?.iterLabel,
-  ].filter(Boolean);
-  const summary = running
-    ? summaryParts.length
-      ? summaryParts.join(" · ")
-      : "스트림 연결 중…"
-    : summaryParts.length
-      ? `마지막 상태 · ${summaryParts.join(" · ")}`
-      : "벤치 대기 중. 모델을 선택한 뒤 실행하세요.";
+  const summary = formatBenchProgressSummary({ running, current });
+  const logScrollRef = useRef<HTMLUListElement>(null);
+
+  useLayoutEffect(() => {
+    if (!running) return;
+    const el = logScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [running, lines]);
 
   return (
     <section
@@ -72,11 +97,7 @@ export function BenchProgressPanel({
         {benchAction ? <div className="flex shrink-0 flex-wrap items-center gap-2">{benchAction}</div> : null}
       </div>
 
-      <div
-        className="mb-3 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-xs text-[var(--foreground)]"
-        aria-live="polite"
-        aria-atomic="true"
-      >
+      <div className="mb-3 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-xs text-[var(--foreground)]">
         {summary}
       </div>
 
@@ -99,6 +120,7 @@ export function BenchProgressPanel({
       <div>
         <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">이벤트 로그</h3>
         <ul
+          ref={logScrollRef}
           className="max-h-40 overflow-y-auto rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 font-mono text-[11px] leading-relaxed"
           aria-label="벤치 스트림 이벤트 로그"
         >
