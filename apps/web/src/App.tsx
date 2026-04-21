@@ -1143,41 +1143,55 @@ export function App() {
             <Monitor className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
             모델 선택
           </h2>
-          <div className="mb-4 grid gap-3 rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="grid gap-1">
-                <span className="text-xs font-medium text-[var(--muted)]">프로파일</span>
+          <div className="mb-3 grid grid-cols-1 gap-2 rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            <label className="grid min-w-0 gap-1">
+              <span className="text-xs font-medium text-[var(--muted)]">프로파일</span>
+              <select
+                className="min-w-0 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs text-[var(--foreground)]"
+                value={profileId}
+                onChange={(e) => setProfileId(e.target.value as "auto" | LlmProfileFamily)}
+                aria-label="벤치 프로파일"
+              >
+                <option value="auto">자동(모델 id로 추론)</option>
+                <option value="gemma4">Gemma 4</option>
+                <option value="qwen35">Qwen 3.5</option>
+                <option value="qwen36">Qwen 3.6</option>
+                <option value="gpt_oss">gpt-oss</option>
+                <option value="minimax_m27">MiniMax M2.7</option>
+                <option value="nemotron3">Nemotron 3</option>
+                <option value="qwen3_coder_next">Qwen3-Coder-Next</option>
+                <option value="glm47_flash">GLM-4.7-Flash</option>
+                <option value="unknown">unknown (기본 샘플링)</option>
+              </select>
+            </label>
+            <label className="grid min-w-0 gap-1">
+              <span className="text-xs font-medium text-[var(--muted)]">사고(thinking) 의도</span>
+              <select
+                className="min-w-0 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)]"
+                value={thinkingIntent}
+                onChange={(e) => setThinkingIntent(e.target.value as ThinkingIntent)}
+              >
+                <option value="on">켜기 (기본)</option>
+                <option value="off">끄기 (Qwen: enable_thinking=false)</option>
+              </select>
+            </label>
+            {profileId === "auto" || profileId === "gpt_oss" ? (
+              <label className="grid min-w-0 gap-1">
+                <span className="text-xs font-medium text-[var(--muted)]">gpt-oss reasoning_effort</span>
                 <select
-                  className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs text-[var(--foreground)]"
-                  value={profileId}
-                  onChange={(e) => setProfileId(e.target.value as "auto" | LlmProfileFamily)}
-                  aria-label="벤치 프로파일"
+                  className="min-w-0 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)] disabled:opacity-50"
+                  value={reasoningEffort}
+                  disabled={profileId !== "auto" && profileId !== "gpt_oss"}
+                  onChange={(e) => setReasoningEffort(e.target.value as typeof reasoningEffort)}
                 >
-                  <option value="auto">자동(모델 id로 추론)</option>
-                  <option value="gemma4">Gemma 4</option>
-                  <option value="qwen35">Qwen 3.5</option>
-                  <option value="qwen36">Qwen 3.6</option>
-                  <option value="gpt_oss">gpt-oss</option>
-                  <option value="minimax_m27">MiniMax M2.7</option>
-                  <option value="nemotron3">Nemotron 3</option>
-                  <option value="qwen3_coder_next">Qwen3-Coder-Next</option>
-                  <option value="glm47_flash">GLM-4.7-Flash</option>
-                  <option value="unknown">unknown (기본 샘플링)</option>
+                  <option value="minimal">minimal</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
                 </select>
               </label>
-              <label className="grid gap-1">
-                <span className="text-xs font-medium text-[var(--muted)]">사고(thinking) 의도</span>
-                <select
-                  className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)]"
-                  value={thinkingIntent}
-                  onChange={(e) => setThinkingIntent(e.target.value as ThinkingIntent)}
-                >
-                  <option value="on">켜기 (기본)</option>
-                  <option value="off">끄기 (Qwen: enable_thinking=false)</option>
-                </select>
-              </label>
-            </div>
-            <label className="grid gap-1 md:col-span-2">
+            ) : null}
+            <label className="grid min-w-0 gap-1 sm:col-span-2 lg:col-span-3">
               <span className="text-xs font-medium text-[var(--muted)]">max_tokens (비워두면 모델 카드 권장값)</span>
               <input
                 className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs"
@@ -1187,36 +1201,24 @@ export function App() {
                 placeholder="예: 32768"
               />
             </label>
-            <label className="flex cursor-pointer items-start gap-2 text-xs text-[var(--muted)]">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={preserveThinking}
-                disabled={profileId !== "auto" && profileId !== "qwen36"}
-                onChange={(e) => setPreserveThinking(e.target.checked)}
-              />
-              <span>
-                <span className="font-medium text-[var(--foreground)]">Qwen3.6: preserve_thinking</span>
-                <span className="mt-0.5 block leading-snug">에이전트형 멀티턴에서만 켜는 것을 권장합니다.</span>
-              </span>
-            </label>
-            <label className="grid gap-1 md:col-span-2">
-              <span className="text-xs font-medium text-[var(--muted)]">gpt-oss reasoning_effort</span>
-              <select
-                className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)] disabled:opacity-50"
-                value={reasoningEffort}
-                disabled={profileId !== "auto" && profileId !== "gpt_oss"}
-                onChange={(e) => setReasoningEffort(e.target.value as typeof reasoningEffort)}
-              >
-                <option value="minimal">minimal</option>
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-              </select>
-            </label>
+            {profileId === "auto" || profileId === "qwen36" ? (
+              <label className="flex min-w-0 cursor-pointer items-start gap-2 text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 shrink-0"
+                  checked={preserveThinking}
+                  disabled={profileId !== "auto" && profileId !== "qwen36"}
+                  onChange={(e) => setPreserveThinking(e.target.checked)}
+                />
+                <span className="min-w-0">
+                  <span className="font-medium text-[var(--foreground)]">Qwen3.6: preserve_thinking</span>
+                  <span className="mt-0.5 block leading-snug">에이전트형 멀티턴에서만 켜는 것을 권장합니다.</span>
+                </span>
+              </label>
+            ) : null}
             <details
               ref={profileDetailsRef}
-              className="md:col-span-2"
+              className="sm:col-span-2 lg:col-span-3"
               open={profileAdvancedOpen}
               onToggle={(e) => setProfileAdvancedOpen((e.target as HTMLDetailsElement).open)}
             >

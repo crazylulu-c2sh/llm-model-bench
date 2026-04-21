@@ -1,4 +1,4 @@
-import { getScenarioBenchMeta } from "@llm-bench/shared";
+import { getScenarioBenchMeta, partitionThinkingBlocks } from "@llm-bench/shared";
 import { X } from "lucide-react";
 import { JsonCodeBlock } from "./JsonCodeBlock";
 
@@ -29,6 +29,8 @@ export function ScenarioDetailDrawer({
   if (!open || !payload) return null;
 
   const benchMeta = getScenarioBenchMeta(payload.scenario);
+  const { thinking, response } = partitionThinkingBlocks(payload.outputText ?? "");
+  const showThinkingSplit = thinking.length > 0;
 
   return (
     <div
@@ -115,10 +117,23 @@ export function ScenarioDetailDrawer({
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">프롬프트</h3>
             <JsonCodeBlock code={payload.prompt || "—"} language="markdown" enabled={hlPreview} maxHeight={200} />
           </div>
-          <div>
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">모델 출력 (마지막 측정 런)</h3>
-            <JsonCodeBlock code={payload.outputText || "—"} language="markdown" enabled={hlPreview} maxHeight={320} />
-          </div>
+          {showThinkingSplit ? (
+            <>
+              <div>
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">사고 블록</h3>
+                <JsonCodeBlock code={thinking || "—"} language="markdown" enabled={hlPreview} maxHeight={240} />
+              </div>
+              <div>
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">최종 응답</h3>
+                <JsonCodeBlock code={response || "—"} language="markdown" enabled={hlPreview} maxHeight={320} />
+              </div>
+            </>
+          ) : (
+            <div>
+              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">모델 출력 (마지막 측정 런)</h3>
+              <JsonCodeBlock code={payload.outputText || "—"} language="markdown" enabled={hlPreview} maxHeight={320} />
+            </div>
+          )}
         </div>
       </div>
     </div>

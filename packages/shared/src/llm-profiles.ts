@@ -55,12 +55,43 @@ export type LlmProfileDefinition = {
   promptRules: PromptRules;
 };
 
-const THINK_BLOCK_RE =
-  /<think>[\s\S]*?<\/think>|<\|think\|>[\s\S]*?(?:<\|end_of_thought\|>|<\|end\|>|<\|start_header_id\|>|<\|im_end\|>|$)/gi;
+/**
+ * Single source for thinking-block detection (strip + UI partition).
+ * - Qwen-style redacted / think tokens
+ * - LM Studio "channel" thought wrappers (see partition tests for samples)
+ */
+const REDACTED_THINK_BLOCK =
+  "<" + "redacted" + "_" + "thinking" + ">" + "[\\s\\S]*?" + "</" + "think" + ">";
+
+export const THINK_BLOCK_PATTERN_SOURCE =
+  REDACTED_THINK_BLOCK +
+  "|<\\|think\\|>[\\s\\S]*?(?:<\\|end_of_thought\\|>|<\\|end\\|>|<\\|start_header_id\\|>|<\\|im_end\\|>|$)" +
+  "|<\\|channel\\|>thought[\\s\\S]*?<channel\\|>" +
+  "|<\\|channel>thought[\\s\\S]*?<channel\\|>";
+
+export const THINK_BLOCK_RE = new RegExp(THINK_BLOCK_PATTERN_SOURCE, "gi");
+
+function thinkBlockMatcher(): RegExp {
+  return new RegExp(THINK_BLOCK_PATTERN_SOURCE, "gi");
+}
 
 export function stripThinkingBlocks(text: string): string {
   if (!text) return text;
-  return text.replace(THINK_BLOCK_RE, "").trim();
+  return text.replace(thinkBlockMatcher(), "").trim();
+}
+
+/** Extracts thinking spans vs remainder for UI (e.g. scenario detail). */
+export function partitionThinkingBlocks(text: string): { thinking: string; response: string } {
+  if (!text) return { thinking: "", response: "" };
+  const re = thinkBlockMatcher();
+  const spans: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) spans.push(m[0]);
+  const response = text.replace(thinkBlockMatcher(), "").trim();
+  return {
+    thinking: spans.join("\n\n").trim(),
+    response,
+  };
 }
 
 export const LLM_PROFILE_DEFINITIONS: LlmProfileDefinition[] = [
