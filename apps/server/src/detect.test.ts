@@ -32,12 +32,6 @@ describe("detectProvider", () => {
           ],
         });
       }
-      if (url.includes("/v1/chat/completions")) {
-        return jsonResponse({ error: "bad model" }, 400);
-      }
-      if (url.includes("/v1/messages")) {
-        return jsonResponse({ error: "bad model" }, 400);
-      }
       return jsonResponse({}, 404);
     });
     const r = await detectProvider("http://localhost:1234", { fetchImpl });
@@ -45,6 +39,32 @@ describe("detectProvider", () => {
     expect(r.models[0]?.id).toBe("m1");
     expect(r.models[0]?.size_bytes).toBe(4_000_000_000);
     expect(r.models[0]?.params_string).toBe("7B");
+    expect(r.capabilities.openaiChat).toBe(true);
+    expect(r.capabilities.anthropicMessages).toBe(true);
+    expect(r.reachability?.state).toBe("ok");
+  });
+
+  it("normalizes trailing /v1 on base URL and still detects LM Studio", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({
+          models: [
+            {
+              key: "m1",
+              type: "llm",
+              display_name: "M1",
+              loaded_instances: [],
+            },
+          ],
+        });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:1234/v1/", { fetchImpl });
+    expect(r.baseUrl).toBe("http://localhost:1234");
+    expect(r.provider).toBe("lm_studio");
+    expect(r.models[0]?.id).toBe("m1");
   });
 
   it("falls back to Ollama when LM list missing", async () => {
@@ -62,6 +82,7 @@ describe("detectProvider", () => {
     expect(r.provider).toBe("ollama");
     expect(r.models[0]?.id).toBe("llama3");
     expect(r.models[0]?.size_bytes).toBe(2_000_000_000);
+    expect(r.reachability?.state).toBe("ok");
   });
 
   it("falls back to OpenAI-compatible", async () => {
@@ -79,5 +100,46 @@ describe("detectProvider", () => {
     const r = await detectProvider("http://localhost:8000", { fetchImpl });
     expect(r.provider).toBe("openai_compatible");
     expect(r.models[0]?.id).toBe("gpt-test");
+    expect(r.reachability?.state).toBe("ok");
+  });
+
+  it("treats empty LM Studio /api/v1/models as lm_studio with zero models", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({ models: [] });
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:1234", { fetchImpl });
+    expect(r.provider).toBe("lm_studio");
+    expect(r.models).toEqual([]);
+    expect(r.steps.find((s) => s.name === "lm_studio_list")?.detail).toBe("empty_model_list");
+    expect(r.capabilities.openaiChat).toBe(true);
+    expect(r.capabilities.anthropicMessages).toBe(true);
+    expect(r.reachability?.state).toBe("ok");
+  });
+
+  it("reports unreachable when all model list requests fail at network layer", async () => {
+    const fetchImpl = vi.fn(async () => Promise.reject(new TypeError("fetch failed")));
+    const r = await detectProvider("http://localhost:59999", { fetchImpl });
+    expect(r.reachability?.ok).toBe(false);
+    expect(r.reachability?.state).toBe("unreachable");
+    expect(r.provider).toBe("manual");
+    expect(r.models).toEqual([]);
+  });
+
+  it("reports partial reachability when one list path throws and others respond", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return Promise.reject(new TypeError("fetch failed"));
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/v1/models")) return jsonResponse({ data: [] }, 200);
+      if (url.includes("/v1/chat/completions")) return jsonResponse({ error: "x" }, 400);
+      if (url.includes("/v1/messages")) return jsonResponse({ error: "x" }, 400);
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:8000", { fetchImpl });
+    expect(r.reachability?.state).toBe("partial");
+    expect(r.provider).toBe("manual");
+    expect(r.models).toEqual([]);
   });
 });

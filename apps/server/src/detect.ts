@@ -1,11 +1,30 @@
-import type { DetectResult, DetectStep, ProviderKind } from "@llm-bench/shared";
+import type { DetectResult, DetectStep, ProviderKind, Reachability } from "@llm-bench/shared";
 
 export type FetchLike = typeof fetch;
 
+const LIST_STEP_NAMES = ["lm_studio_list", "ollama_tags", "openai_models"] as const;
+
+/** OpenAI 문서식 `…/v1` 베이스를 서버 루트로 맞춤 — 이 앱은 `base + /v1/...`로 조합합니다. */
+function stripOpenAiStyleV1Suffix(u: string): string {
+  try {
+    const url = new URL(u);
+    let path = url.pathname.replace(/\/+/g, "/").replace(/\/+$/, "") || "/";
+    const pl = path.toLowerCase();
+    if (pl === "/v1" || pl.endsWith("/v1")) {
+      path = path.slice(0, -3) || "/";
+      url.pathname = path === "/" ? "/" : path;
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return u.replace(/\/v1$/i, "");
+  }
+}
+
 function normalizeBaseUrl(raw: string): string {
-  const u = raw.trim().replace(/\/+$/, "");
-  if (!u.startsWith("http")) return `http://${u}`;
-  return u;
+  let u = raw.trim().replace(/\/+$/, "");
+  if (!u.startsWith("http")) u = `http://${u}`;
+  u = stripOpenAiStyleV1Suffix(u);
+  return u.replace(/\/+$/, "");
 }
 
 function headers(apiKey?: string): HeadersInit {
@@ -13,6 +32,33 @@ function headers(apiKey?: string): HeadersInit {
   if (apiKey) h.Authorization = `Bearer ${apiKey}`;
   return h;
 }
+
+function computeReachability(steps: DetectStep[]): Reachability {
+  const list = steps.filter((s) => (LIST_STEP_NAMES as readonly string[]).includes(s.name));
+  if (list.length === 0) return { ok: true, state: "ok" };
+
+  const withoutStatus = list.filter((s) => s.status === undefined);
+  if (withoutStatus.length === list.length) {
+    return {
+      ok: false,
+      state: "unreachable",
+      reason: withoutStatus[0]?.detail ?? "네트워크 연결에 실패했습니다.",
+    };
+  }
+  if (withoutStatus.length > 0) {
+    return {
+      ok: false,
+      state: "partial",
+      reason: "모델 목록 일부 경로에만 응답했습니다.",
+    };
+  }
+  return { ok: true, state: "ok" };
+}
+
+const reachOk: Reachability = { ok: true, state: "ok" };
+
+/** `/api/v1/models`로 식별된 LM Studio는 OpenAI·Anthropic 호환 POST를 제공합니다. 가짜 모델명 프로브는 400이 나와 역능력 판별과 맞지 않으므로 고정합니다. */
+const LM_STUDIO_COMPAT_CAPS = { openaiChat: true, anthropicMessages: true } as const;
 
 export async function detectProvider(
   rawBaseUrl: string,
@@ -30,13 +76,17 @@ export async function detectProvider(
     const models = opts.manual.models?.length
       ? opts.manual.models
       : [{ id: "manual-model", label: "manual-model" }];
-    const caps = await probeCapabilities(fetchImpl, baseUrl, opts.apiKey);
+    const caps =
+      opts.manual.provider === "lm_studio"
+        ? LM_STUDIO_COMPAT_CAPS
+        : await probeCapabilities(fetchImpl, baseUrl, opts.apiKey);
     return {
       provider: opts.manual.provider,
       baseUrl,
       models,
       steps: [{ name: "manual", ok: true, detail: opts.manual.provider }],
       capabilities: caps,
+      reachability: reachOk,
     };
   }
 
@@ -52,10 +102,11 @@ export async function detectProvider(
     });
     if (r.ok) {
       const j = (await r.json()) as { models?: unknown[] };
-      if (Array.isArray(j.models) && j.models.length > 0) {
-        const first = j.models[0] as { key?: string; type?: string; display_name?: string };
+      const modelsArr = Array.isArray(j.models) ? j.models : [];
+      if (modelsArr.length > 0) {
+        const first = modelsArr[0] as { key?: string; type?: string; display_name?: string };
         if (first && typeof first.key === "string") {
-          const models = j.models
+          const models = modelsArr
             .map(
               (m) =>
                 m as {
@@ -77,7 +128,6 @@ export async function detectProvider(
                   ? m.params_string.trim()
                   : undefined,
             }));
-          const caps = await probeCapabilities(fetchImpl, baseUrl, opts.apiKey);
           return {
             provider: "lm_studio",
             baseUrl,
@@ -100,10 +150,23 @@ export async function detectProvider(
                   },
                 ],
             steps,
-            capabilities: caps,
+            capabilities: LM_STUDIO_COMPAT_CAPS,
+            reachability: reachOk,
           };
         }
       }
+      const lmIdx = steps.length - 1;
+      const detail =
+        modelsArr.length === 0 ? "empty_model_list" : "unrecognized_model_shape";
+      steps[lmIdx] = { ...steps[lmIdx], detail };
+      return {
+        provider: "lm_studio",
+        baseUrl,
+        models: [],
+        steps,
+        capabilities: LM_STUDIO_COMPAT_CAPS,
+        reachability: reachOk,
+      };
     }
   } catch (e) {
     steps.push({
@@ -135,6 +198,7 @@ export async function detectProvider(
           models,
           steps,
           capabilities: caps,
+          reachability: reachOk,
         };
       }
     }
@@ -165,6 +229,7 @@ export async function detectProvider(
           models,
           steps,
           capabilities: caps,
+          reachability: reachOk,
         };
       }
     }
@@ -173,15 +238,18 @@ export async function detectProvider(
   }
 
   const caps = await probeCapabilities(fetchImpl, baseUrl, opts.apiKey);
+  const reachability = computeReachability(steps);
   return {
     provider: "manual",
     baseUrl,
     models: [],
     steps,
     capabilities: caps,
+    reachability,
   };
 }
 
+/** Ollama·OpenAI 호환·manual 프로바이더용. LM Studio는 네이티브 목록으로 식별 시 `LM_STUDIO_COMPAT_CAPS`를 씁니다. */
 async function probeCapabilities(
   fetchImpl: FetchLike,
   baseUrl: string,
@@ -202,7 +270,7 @@ async function probeCapabilities(
         stream: false,
       }),
     });
-    openaiChat = r.status !== 404 && r.status !== 405;
+    openaiChat = r.ok;
   } catch {
     openaiChat = false;
   }
@@ -221,7 +289,7 @@ async function probeCapabilities(
         messages: [{ role: "user", content: "ping" }],
       }),
     });
-    anthropicMessages = r.status !== 404 && r.status !== 405;
+    anthropicMessages = r.ok;
   } catch {
     anthropicMessages = false;
   }
