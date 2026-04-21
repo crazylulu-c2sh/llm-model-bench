@@ -41,6 +41,31 @@ export function apiShort(api: string): string {
   return api;
 }
 
+/** 피벗·레이더 축 정렬: chat_completions → messages → 기타(사전순) */
+export function apiRouteRank(api: string): number {
+  if (api === "chat_completions") return 0;
+  if (api === "messages") return 1;
+  return 2;
+}
+
+/** 비교 시리즈마다 (시나리오·API) 키 집합이 동일한지 — 다르면 레이더에서 모델별로 축이 비는 현상이 난다. */
+export function compareSeriesHaveIdenticalScenarioApiKeys(series: CompareSeries[]): boolean {
+  if (series.length < 2) return true;
+  const keySet = (rows: ChartRow[]) => new Set(rows.map((r) => `${r.scenario}\t${r.api}`));
+  const base = keySet(series[0]!.rows);
+  for (let i = 1; i < series.length; i++) {
+    const cur = keySet(series[i]!.rows);
+    if (base.size !== cur.size) return false;
+    for (const k of base) {
+      if (!cur.has(k)) return false;
+    }
+    for (const k of cur) {
+      if (!base.has(k)) return false;
+    }
+  }
+  return true;
+}
+
 /** 서버 scenario_end와 동일 계열: ceil(chars/4) */
 export function approxOutputTokens(outputText: string): number {
   return Math.max(0, Math.ceil((outputText ?? "").length / 4));
@@ -96,6 +121,14 @@ export function avg(nums: number[]): number | undefined {
   return v.reduce((a, b) => a + b, 0) / v.length;
 }
 
+/** 양의 값만 사용해 오름차순 정렬 후 ≈95백분위(레이더 분모 캡). 비어 있으면 1. */
+export function percentile95Cap(values: number[]): number {
+  const v = values.filter((n) => Number.isFinite(n) && n > 0).sort((a, b) => a - b);
+  if (!v.length) return 1;
+  const idx = Math.min(v.length - 1, Math.max(0, Math.ceil(0.95 * v.length) - 1));
+  return Math.max(1, v[idx] ?? 1);
+}
+
 export type PivotCompareRow = {
   label: string;
   scenario: string;
@@ -131,11 +164,19 @@ export function pivotCompareSeries(series: CompareSeries[]): PivotCompareRow[] {
       }
     }
   }
+  keyOrder.sort((ka, kb) => {
+    const a = keyMeta.get(ka)!;
+    const b = keyMeta.get(kb)!;
+    if (a.scenario !== b.scenario) return a.scenario.localeCompare(b.scenario);
+    const d = apiRouteRank(a.api) - apiRouteRank(b.api);
+    if (d !== 0) return d;
+    return a.api.localeCompare(b.api);
+  });
   return keyOrder.map((k) => {
     const meta = keyMeta.get(k)!;
     const byModel: Record<string, { ttft: number; tpot: number; tps: number; pass?: boolean }> = {};
     const bySeriesIndex: PivotCompareRow["bySeriesIndex"] = series.map((s) => {
-      const row = s.rows.find((r) => `${r.scenario}\t${r.api}` === k);
+      const row = s.rows.find((r) => r.scenario === meta.scenario && r.api === meta.api);
       if (!row) return undefined;
       const m = rowMetrics(row);
       byModel[s.modelId] = m;
