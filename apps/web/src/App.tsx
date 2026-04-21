@@ -141,6 +141,7 @@ export function App() {
   const [compareRaw, setCompareRaw] = useState<LatestByModelResponse | null>(null);
   const [compareLoading, setCompareLoading] = useState(false);
   const [serverRuns, setServerRuns] = useState<RunSummary[]>([]);
+  const [serverRunsPanelOpen, setServerRunsPanelOpen] = useState(false);
   const [serverRunsLoading, setServerRunsLoading] = useState(false);
   const [benchStepLines, setBenchStepLines] = useState<BenchStepLine[]>([]);
   const [benchCurrent, setBenchCurrent] = useState<BenchCurrent | null>(null);
@@ -214,6 +215,41 @@ export function App() {
       ),
     [rows, detailAggregate],
   );
+
+  const chartModelIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of chartRows) {
+      if (r.modelId) s.add(r.modelId);
+    }
+    if (compareSeries) {
+      for (const c of compareSeries) {
+        if (c.modelId) s.add(c.modelId);
+      }
+    }
+    return [...s].sort();
+  }, [chartRows, compareSeries]);
+
+  const [chartModelFilter, setChartModelFilter] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setChartModelFilter((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const id of chartModelIds) {
+        next[id] = prev[id] === false ? false : true;
+      }
+      return next;
+    });
+  }, [chartModelIds.join("\0")]);
+
+  const filteredChartRows = useMemo(
+    () => chartRows.filter((r) => !r.modelId || chartModelFilter[r.modelId] !== false),
+    [chartRows, chartModelFilter],
+  );
+
+  const filteredCompareSeries = useMemo(() => {
+    if (!compareSeries) return null;
+    return compareSeries.filter((s) => chartModelFilter[s.modelId] !== false);
+  }, [compareSeries, chartModelFilter]);
 
   const openDrawerForRow = useCallback(
     (row: ResultRow) => {
@@ -378,6 +414,7 @@ export function App() {
       }
       const j = (await res.json()) as RunsListResponse;
       setServerRuns(j.runs ?? []);
+      setServerRunsPanelOpen(true);
       if (j.sqlite_available === false) {
         toast.warning("SQLite 비활성화 — 서버 런 목록을 사용할 수 없습니다.");
       } else {
@@ -990,14 +1027,50 @@ export function App() {
               <span className="text-xs text-[var(--muted)]">선택 모델 2개 이상 · 비교 불러오기 실행</span>
             ) : null}
           </div>
+          {chartModelIds.length > 0 ? (
+            <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
+              <span className="text-xs font-medium text-[var(--muted)]">차트 모델</span>
+              {chartModelIds.map((id) => {
+                const label = detect?.models.find((m) => m.id === id)?.label ?? id;
+                return (
+                  <label
+                    key={id}
+                    className="inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={chartModelFilter[id] !== false}
+                      onChange={() =>
+                        setChartModelFilter((prev) => ({
+                          ...prev,
+                          [id]: !(prev[id] !== false),
+                        }))
+                      }
+                    />
+                    <span className="truncate font-mono" title={id}>
+                      {label}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          ) : null}
           {chartView === "compare" && compareSeries && compareSeries.length >= 2 ? (
-            <BenchCharts
-              chartRows={[]}
-              compareSeries={compareSeries}
-              onCompareCell={(scenario, api) => openCompareCell(scenario, api)}
-            />
+            filteredCompareSeries && filteredCompareSeries.length >= 2 ? (
+              <BenchCharts
+                chartRows={[]}
+                compareSeries={filteredCompareSeries}
+                onCompareCell={(scenario, api) => openCompareCell(scenario, api)}
+              />
+            ) : (
+              <p className="py-8 text-center text-sm text-[var(--muted)]">
+                비교 차트를 보려면 위에서 모델을 2개 이상 선택하세요.
+              </p>
+            )
+          ) : chartRows.length > 0 && filteredChartRows.length === 0 ? (
+            <p className="py-8 text-center text-sm text-[var(--muted)]">표시할 모델을 하나 이상 선택하세요.</p>
           ) : (
-            <BenchCharts chartRows={chartRows} onBarPayload={(row) => openFromChartRow(row)} />
+            <BenchCharts chartRows={filteredChartRows} onBarPayload={(row) => openFromChartRow(row)} />
           )}
         </section>
 
@@ -1028,11 +1101,25 @@ export function App() {
                   type="button"
                   className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs disabled:opacity-50"
                   disabled={serverRunsLoading}
-                  onClick={() => void refreshServerRuns()}
-                  aria-label="서버에 저장된 벤치 런 목록"
+                  onClick={() => {
+                    if (serverRunsPanelOpen && !serverRunsLoading) {
+                      setServerRunsPanelOpen(false);
+                      return;
+                    }
+                    if (serverRuns.length > 0 && !serverRunsLoading) {
+                      setServerRunsPanelOpen(true);
+                      return;
+                    }
+                    void refreshServerRuns();
+                  }}
+                  aria-label={
+                    serverRunsPanelOpen && serverRuns.length > 0
+                      ? "서버 런 목록 접기"
+                      : "서버에 저장된 벤치 런 목록 불러오기"
+                  }
                 >
                   {serverRunsLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <History className="size-3.5" aria-hidden />}
-                  서버 런 목록
+                  {serverRunsPanelOpen && serverRuns.length > 0 ? "목록 접기" : "서버 런 목록"}
                 </button>
                 <HighlightToggle on={hlLog} onChange={setHlLog} />
                 <button
@@ -1059,12 +1146,21 @@ export function App() {
               </div>
             </div>
             <JsonCodeBlock code={logText || "—"} language="markdown" enabled={hlLog} maxHeight={224} />
-            {serverRuns.length > 0 ? (
+            {serverRuns.length > 0 && serverRunsPanelOpen ? (
               <div className="mt-4 border-t border-[var(--border)] pt-3">
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  SQLite 저장 런 (클릭 시 첫 시나리오 상세)
-                </h3>
-                <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                    SQLite 저장 런 (클릭 시 첫 시나리오 상세)
+                  </h3>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-2)]"
+                    onClick={() => setServerRunsPanelOpen(false)}
+                  >
+                    목록 닫기
+                  </button>
+                </div>
+                <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs break-all">
                   {serverRuns.map((run) => (
                     <li key={run.run_id}>
                       <button

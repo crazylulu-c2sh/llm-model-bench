@@ -3,10 +3,12 @@ import {
   flexRender,
   getCoreRowModel,
   getSortedRowModel,
+  type Column,
+  type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowDownUp, CircleCheck, CircleX, HelpCircle } from "lucide-react";
-import { useMemo } from "react";
+import { ArrowDown, ArrowDownUp, ArrowUp, CircleCheck, CircleX, HelpCircle } from "lucide-react";
+import { useMemo, useState } from "react";
 import { MetricTableIntro } from "./MetricChartLegend";
 
 export type ResultRow = {
@@ -30,6 +32,30 @@ function apiHeaderTitle(api: string): string {
   return `API: ${api}`;
 }
 
+function sortDirIcon(column: Column<ResultRow, unknown>) {
+  const s = column.getIsSorted();
+  if (s === "asc") return <ArrowUp className="size-3.5 shrink-0 opacity-90" aria-hidden />;
+  if (s === "desc") return <ArrowDown className="size-3.5 shrink-0 opacity-90" aria-hidden />;
+  return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
+}
+
+const RESULT_SORT_LABELS: Record<string, string> = {
+  model_id: "모델",
+  scenario: "시나리오",
+  api: "API",
+  ttft_ms: "TTFT (ms)",
+  tpot_ms: "TPOT (ms)",
+  tps: "TPS (tok/s)",
+};
+
+function resultsSortLine(sorting: SortingState): string {
+  const first = sorting[0];
+  if (!first) return "현재 정렬: 없음";
+  const name = RESULT_SORT_LABELS[first.id] ?? first.id;
+  const dir = first.desc ? "내림차순" : "오름차순";
+  return `현재 정렬: ${name} · ${dir}`;
+}
+
 export function ResultsTable({
   rows,
   onRowClick,
@@ -38,15 +64,27 @@ export function ResultsTable({
   onRowClick?: (row: ResultRow) => void;
 }) {
   const data = useMemo(() => rows, [rows]);
+  const [sorting, setSorting] = useState<SortingState>([{ id: "scenario", desc: false }]);
 
   const table = useReactTable({
     data,
+    state: { sorting },
+    onSortingChange: setSorting,
     columns: [
       columnHelper.accessor("model_id", {
-        header: () => (
-          <span title="이 행 벤치에 사용된 모델 ID">모델</span>
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
+            title="이 행 벤치에 사용된 모델 ID"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            모델
+            {sortDirIcon(column)}
+          </button>
         ),
         cell: (info) => <span className="whitespace-nowrap font-mono text-xs">{info.getValue()}</span>,
+        sortingFn: "alphanumeric",
       }),
       columnHelper.accessor("scenario", {
         header: ({ column }) => (
@@ -57,7 +95,7 @@ export function ResultsTable({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             시나리오
-            <ArrowDownUp className="size-3.5 opacity-70" aria-hidden />
+            {sortDirIcon(column)}
           </button>
         ),
         cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span>,
@@ -71,7 +109,7 @@ export function ResultsTable({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             API
-            <ArrowDownUp className="size-3.5 opacity-70" aria-hidden />
+            {sortDirIcon(column)}
           </button>
         ),
         cell: (info) => {
@@ -92,7 +130,7 @@ export function ResultsTable({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             TTFT (ms)
-            <ArrowDownUp className="size-3.5 opacity-70" aria-hidden />
+            {sortDirIcon(column)}
           </button>
         ),
         cell: (info) => {
@@ -114,7 +152,7 @@ export function ResultsTable({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             TPOT (ms)
-            <ArrowDownUp className="size-3.5 opacity-70" aria-hidden />
+            {sortDirIcon(column)}
           </button>
         ),
         cell: (info) => {
@@ -136,7 +174,7 @@ export function ResultsTable({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             TPS (tok/s)
-            <ArrowDownUp className="size-3.5 opacity-70" aria-hidden />
+            {sortDirIcon(column)}
           </button>
         ),
         cell: (info) => {
@@ -183,12 +221,12 @@ export function ResultsTable({
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getRowId: (r) => r.rowKey,
-    initialState: { sorting: [{ id: "scenario", desc: false }] },
   });
 
   return (
     <div>
       <MetricTableIntro />
+      {rows.length > 0 ? <p className="mb-2 text-xs text-[var(--muted)]">{resultsSortLine(sorting)}</p> : null}
       {!rows.length ? (
         <p className="text-sm text-[var(--muted)]">결과 행이 없습니다.</p>
       ) : (

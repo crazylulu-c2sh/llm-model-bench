@@ -22,7 +22,7 @@ export const HighlightCode = forwardRef<
       {({ className, style, tokens, getLineProps, getTokenProps }) => (
         <pre
           ref={ref}
-          className={`${className} overflow-auto rounded border border-[var(--border)] font-mono text-xs leading-relaxed`}
+          className={`${className} max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded border border-[var(--border)] font-mono text-xs leading-relaxed`}
           style={{
             ...style,
             margin: 0,

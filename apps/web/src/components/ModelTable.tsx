@@ -4,11 +4,12 @@ import {
   flexRender,
   getCoreRowModel,
   getSortedRowModel,
+  type Column,
   type OnChangeFn,
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowDownUp, CheckSquare, Square } from "lucide-react";
+import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Square } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 /** 테이블과 App의 기본 정렬(id 오름차순)을 맞춥니다. */
@@ -54,6 +55,27 @@ function formatDiskDisplay(m: ModelRow): string {
 }
 
 const columnHelper = createColumnHelper<ModelRow>();
+
+function sortDirIcon(column: Column<ModelRow, unknown>) {
+  const s = column.getIsSorted();
+  if (s === "asc") return <ArrowUp className="size-3.5 shrink-0 opacity-90" aria-hidden />;
+  if (s === "desc") return <ArrowDown className="size-3.5 shrink-0 opacity-90" aria-hidden />;
+  return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
+}
+
+function modelTableSortLine(sorting: SortingState): string {
+  const first = sorting[0];
+  if (!first) return "정렬: 없음";
+  const labels: Record<string, string> = {
+    id: "모델 id",
+    label: "label",
+    params_string: "규모",
+    size_bytes: "디스크",
+  };
+  const name = labels[first.id] ?? first.id;
+  const dir = first.desc ? "내림차순" : "오름차순";
+  return `정렬: ${name} · ${dir}`;
+}
 
 export function ModelTable({
   models,
@@ -122,7 +144,7 @@ export function ModelTable({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             id
-            <ArrowDownUp className="size-3.5 opacity-70" aria-hidden />
+            {sortDirIcon(column)}
           </button>
         ),
         cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span>,
@@ -136,7 +158,7 @@ export function ModelTable({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             label
-            <ArrowDownUp className="size-3.5 opacity-70" aria-hidden />
+            {sortDirIcon(column)}
           </button>
         ),
         cell: (info) => <span className="text-xs">{info.getValue() ?? ""}</span>,
@@ -151,7 +173,7 @@ export function ModelTable({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             규모
-            <ArrowDownUp className="size-3.5 opacity-70" aria-hidden />
+            {sortDirIcon(column)}
           </button>
         ),
         cell: ({ row }) => (
@@ -168,7 +190,7 @@ export function ModelTable({
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
             디스크
-            <ArrowDownUp className="size-3.5 opacity-70" aria-hidden />
+            {sortDirIcon(column)}
           </button>
         ),
         cell: ({ row }) => (
@@ -264,6 +286,8 @@ export function ModelTable({
         </tbody>
       </table>
       <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
+        {modelTableSortLine(sorting)}
+        {" · "}
         선택 {models.filter((m) => selected[m.id]).length} / {models.length}
         {someSelected && !allSelected ? " · 일부 선택됨" : null}
         {selectionDisabled ? " · 벤치 실행 중에는 선택을 바꿀 수 없습니다." : null}

@@ -7,6 +7,8 @@ export {
   type ScenarioId,
 } from "./scenarios-preview";
 
+export { getScenarioBenchMeta, type ScenarioBenchMeta } from "./scenario-meta";
+
 export const ProviderKindSchema = z.enum([
   "lm_studio",
   "ollama",

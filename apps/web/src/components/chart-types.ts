@@ -19,7 +19,23 @@ export type CompareSeries = {
   rows: ChartRow[];
 };
 
-function apiShort(api: string): string {
+/** 라이브 세션 `ChartRow`를 모델별 시리즈로 묶어 비교 레이더·피벗에 재사용합니다. */
+export function sessionChartRowsToCompareSeries(rows: ChartRow[]): CompareSeries[] {
+  const byModel = new Map<string, ChartRow[]>();
+  for (const r of rows) {
+    const mid = (r.modelId ?? "").trim() || "_default";
+    const list = byModel.get(mid) ?? [];
+    list.push(r);
+    byModel.set(mid, list);
+  }
+  return [...byModel.entries()].map(([key, rrows]) => ({
+    modelId: key === "_default" ? "" : key,
+    label: key === "_default" ? "모델 미지정" : key,
+    rows: rrows,
+  }));
+}
+
+export function apiShort(api: string): string {
   if (api === "chat_completions") return "chat";
   if (api === "messages") return "msg";
   return api;
@@ -69,7 +85,7 @@ export function rowsToChartData(
       tpot: r.tpot_ms ?? 0,
       tps,
       pass: r.pass,
-      modelId: r.model_id,
+      modelId: r.model_id?.trim() || undefined,
     };
   });
 }
@@ -80,13 +96,26 @@ export function avg(nums: number[]): number | undefined {
   return v.reduce((a, b) => a + b, 0) / v.length;
 }
 
-/** 비교 모드: 동일 시나리오·API 키로 피벗 */
-export function pivotCompareSeries(series: CompareSeries[]): {
+export type PivotCompareRow = {
   label: string;
   scenario: string;
   api: string;
   byModel: Record<string, { ttft: number; tpot: number; tps: number; pass?: boolean }>;
-}[] {
+  /** `compareSeries` 배열 인덱스와 동일 순서 — 모델 id 문자열 불일치 시에도 레이더·막대가 안정적으로 조회됨 */
+  bySeriesIndex: Array<{ ttft: number; tpot: number; tps: number; pass?: boolean } | undefined>;
+};
+
+function rowMetrics(row: ChartRow): { ttft: number; tpot: number; tps: number; pass?: boolean } {
+  return {
+    ttft: Number(row.ttft) || 0,
+    tpot: Number(row.tpot) || 0,
+    tps: Number(row.tps) || 0,
+    pass: row.pass,
+  };
+}
+
+/** 비교 모드: 동일 시나리오·API 키로 피벗 */
+export function pivotCompareSeries(series: CompareSeries[]): PivotCompareRow[] {
   const keyOrder: string[] = [];
   const keyMeta = new Map<string, { scenario: string; api: string; label: string }>();
   for (const s of series) {
@@ -105,12 +134,13 @@ export function pivotCompareSeries(series: CompareSeries[]): {
   return keyOrder.map((k) => {
     const meta = keyMeta.get(k)!;
     const byModel: Record<string, { ttft: number; tpot: number; tps: number; pass?: boolean }> = {};
-    for (const s of series) {
+    const bySeriesIndex: PivotCompareRow["bySeriesIndex"] = series.map((s) => {
       const row = s.rows.find((r) => `${r.scenario}\t${r.api}` === k);
-      if (row) {
-        byModel[s.modelId] = { ttft: row.ttft, tpot: row.tpot, tps: row.tps, pass: row.pass };
-      }
-    }
-    return { label: meta.label, scenario: meta.scenario, api: meta.api, byModel };
+      if (!row) return undefined;
+      const m = rowMetrics(row);
+      byModel[s.modelId] = m;
+      return m;
+    });
+    return { label: meta.label, scenario: meta.scenario, api: meta.api, byModel, bySeriesIndex };
   });
 }

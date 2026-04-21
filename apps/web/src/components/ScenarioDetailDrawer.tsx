@@ -1,3 +1,4 @@
+import { getScenarioBenchMeta } from "@llm-bench/shared";
 import { X } from "lucide-react";
 import { JsonCodeBlock } from "./JsonCodeBlock";
 
@@ -26,6 +27,8 @@ export function ScenarioDetailDrawer({
   onClose: () => void;
 }) {
   if (!open || !payload) return null;
+
+  const benchMeta = getScenarioBenchMeta(payload.scenario);
 
   return (
     <div
@@ -91,6 +94,22 @@ export function ScenarioDetailDrawer({
                 ) : null}
               </p>
             </div>
+            {benchMeta ? (
+              <div className="sm:col-span-2 space-y-2 rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-xs">
+                <div>
+                  <span className="font-semibold text-[var(--foreground)]">시나리오 목적</span>
+                  <p className="mt-0.5 leading-relaxed text-[var(--muted)]">{benchMeta.purposeKo}</p>
+                </div>
+                <div>
+                  <span className="font-semibold text-[var(--foreground)]">합격 / 불합격 기준</span>
+                  <p className="mt-0.5 leading-relaxed text-[var(--muted)]">{benchMeta.criteriaKo}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="sm:col-span-2 text-xs text-[var(--muted)]">
+                등록되지 않은 시나리오라 목적·기준 설명을 불러올 수 없습니다.
+              </p>
+            )}
           </div>
           <div>
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">프롬프트</h3>

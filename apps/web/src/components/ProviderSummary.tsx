@@ -91,8 +91,8 @@ export function ProviderSummary({ detect }: { detect: DetectResult }) {
           <span className="font-mono">{detect.provider}</span>
         </span>
         <span className="text-[var(--muted)]">·</span>
-        <Badge ok={detect.capabilities.openaiChat} label="/v1/chat/completions" icon={MessageSquare} />
-        <Badge ok={detect.capabilities.anthropicMessages} label="/v1/messages" icon={Bot} />
+        <Badge ok={detect.capabilities.openaiChat} label="OpenAI /v1/chat/completions" icon={MessageSquare} />
+        <Badge ok={detect.capabilities.anthropicMessages} label="Anthropic /v1/messages" icon={Bot} />
         <span className="ml-auto text-xs text-[var(--muted)]">모델 {detect.models.length}개</span>
       </div>
     </div>

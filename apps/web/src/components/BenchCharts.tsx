@@ -15,7 +15,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { avg, pivotCompareSeries, type ChartRow, type CompareSeries } from "./chart-types";
+import {
+  apiShort,
+  avg,
+  pivotCompareSeries,
+  sessionChartRowsToCompareSeries,
+  type ChartRow,
+  type CompareSeries,
+} from "./chart-types";
 import { MetricChartLegend } from "./MetricChartLegend";
 
 /** Recharts 기본 스타일이 툴팁 자식에 검정 텍스트를 남기지 않도록 공통 지정 */
@@ -59,18 +66,22 @@ function tooltipMetricFormatter(value: number, name: string): [string, string] {
   return [`${Math.round(value)} ms`, name];
 }
 
-function buildRadarByScenario(rows: ChartRow[]) {
+/** 단일 모델(또는 혼합 평균 불필요) 시나리오+API 축 레이더 — 시나리오당 TTFT를 전역 max로 정규화 */
+function buildRadarSingleSeries(rows: ChartRow[]) {
   const m = new Map<string, number[]>();
   for (const r of rows) {
     if (r.ttft <= 0) continue;
-    const arr = m.get(r.scenario) ?? [];
+    const k = `${r.scenario}\t${r.api}`;
+    const arr = m.get(k) ?? [];
     arr.push(r.ttft);
-    m.set(r.scenario, arr);
+    m.set(k, arr);
   }
   const maxMs = Math.max(1, ...[...m.values()].flat());
-  return [...m.entries()].map(([subject, vals]) => {
+  return [...m.entries()].map(([k, vals]) => {
     const v = vals.reduce((a, b) => a + b, 0) / vals.length;
-    const short = subject.length > 14 ? `${subject.slice(0, 14)}…` : subject;
+    const [scenario, api] = k.split("\t");
+    const raw = `${scenario} (${apiShort(api)})`;
+    const short = raw.length > 18 ? `${raw.slice(0, 18)}…` : raw;
     return {
       subject: short,
       score: Math.round((v / maxMs) * 100),
@@ -89,10 +100,36 @@ type BenchChartsProps = {
   onCompareCell?: (scenario: string, api: string) => void;
 };
 
+const BAR_CHART_MAX_PX = 3200;
+/** Legend `height={…}` 과 동일 — ResponsiveContainer 높이에 포함해야 함 */
+const BAR_CHART_LEGEND_HEIGHT_PX = 36;
+/** 카테고리(Y축 한 행)당 플롯에 확보할 최소 픽셀(범례·마진 제외) */
+const BAR_CATEGORY_MIN_PX = 48;
+/** 소량 행일 때도 전체 차트가 지나치게 납작하지 않게 하는 하한 */
+const BAR_CHART_MIN_TOTAL_PX = 320;
+
+/** 라이브 막대: 상단 ReferenceLine·이중 X축 라벨 여유 */
+const LIVE_BAR_MARGIN = { top: 52, right: 16, left: 8, bottom: 28 } as const;
+/** 비교 막대: 동일 범례·기준선 구조 */
+const COMPARE_BAR_MARGIN = { top: 52, right: 24, left: 8, bottom: 28 } as const;
+
+/**
+ * Recharts는 전달한 height 안에 margin + Legend를 모두 그린 뒤 남은 영역에 카테고리를 나눕니다.
+ * `rowCount * BAR_CATEGORY_MIN_PX`만 플롯에 쓰이도록 전체 높이를 역산합니다.
+ */
+function computeVerticalBarChartHeight(rowCount: number, marginTop: number, marginBottom: number): number {
+  const rows = Math.max(1, rowCount);
+  const plotMin = rows * BAR_CATEGORY_MIN_PX;
+  const total = marginTop + marginBottom + BAR_CHART_LEGEND_HEIGHT_PX + plotMin;
+  return Math.min(BAR_CHART_MAX_PX, Math.max(BAR_CHART_MIN_TOTAL_PX, total));
+}
+
 export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareCell }: BenchChartsProps) {
   const compareMode = compareSeries && compareSeries.length >= 2;
   const pivoted = compareMode ? pivotCompareSeries(compareSeries) : [];
-  const compareChartHeight = compareMode ? Math.min(620, Math.max(440, pivoted.length * 42)) : 400;
+  const compareChartHeight = compareMode
+    ? computeVerticalBarChartHeight(pivoted.length, COMPARE_BAR_MARGIN.top, COMPARE_BAR_MARGIN.bottom)
+    : 400;
 
   if (compareMode) {
     const rows = pivoted.map((p) => {
@@ -117,12 +154,12 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
 
     return (
       <div className="grid gap-8 lg:grid-cols-2">
-        <div style={{ minHeight: compareChartHeight }}>
+        <div className="min-w-0 overflow-x-hidden">
           <ResponsiveContainer width="100%" height={compareChartHeight}>
             <BarChart
               layout="vertical"
               data={rows}
-              margin={{ top: 36, right: 24, left: 8, bottom: 28 }}
+              margin={{ ...COMPARE_BAR_MARGIN }}
               onClick={(e) => {
                 const p = e?.activePayload?.[0]?.payload as Record<string, unknown> | undefined;
                 if (p?.scenario && p?.api) onCompareCell?.(String(p.scenario), String(p.api));
@@ -142,12 +179,16 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
               <YAxis
                 type="category"
                 dataKey="label"
-                width={200}
+                width={248}
                 tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
                 interval={0}
               />
               <Tooltip {...rechartsTooltipShell} formatter={tooltipMetricFormatter} />
-              <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: 11, color: "var(--chart-tick)" }} />
+              <Legend
+                verticalAlign="bottom"
+                height={BAR_CHART_LEGEND_HEIGHT_PX}
+                wrapperStyle={{ fontSize: 11, color: "var(--chart-tick)" }}
+              />
               {compareSeries.map((s, si) => {
                 const slug = slugifyModelId(s.modelId);
                 return (
@@ -259,17 +300,24 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
   const avgTtft = avg(ttfts);
   const avgTpot = avg(tpots);
   const avgTps = avg(tpss);
-  const radarData = buildRadarByScenario(chartRows);
-  const barHeight = Math.min(560, Math.max(420, chartRows.length * 40));
+  const sessionSeries = sessionChartRowsToCompareSeries(chartRows);
+  const useSessionMultiRadar = sessionSeries.length >= 2;
+  const pivotedSession = useSessionMultiRadar ? pivotCompareSeries(sessionSeries) : [];
+  const radarDataSingle = buildRadarSingleSeries(chartRows);
+  const barHeight = computeVerticalBarChartHeight(
+    chartRows.length,
+    LIVE_BAR_MARGIN.top,
+    LIVE_BAR_MARGIN.bottom,
+  );
 
   return (
     <div className="grid gap-8 lg:grid-cols-2">
-      <div style={{ minHeight: barHeight }}>
+      <div className="min-w-0 overflow-x-hidden">
         <ResponsiveContainer width="100%" height={barHeight}>
           <BarChart
             layout="vertical"
             data={chartRows}
-            margin={{ top: 36, right: 16, left: 8, bottom: 28 }}
+            margin={{ ...LIVE_BAR_MARGIN }}
             onClick={(e) => {
               const raw = e?.activePayload?.[0]?.payload as ChartRow | undefined;
               if (raw?.scenario && onBarPayload) onBarPayload(raw);
@@ -301,7 +349,11 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
                 return r ? `${r.scenario} · ${r.api}` : "";
               }}
             />
-            <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: 11, color: "var(--chart-tick)" }} />
+            <Legend
+              verticalAlign="bottom"
+              height={BAR_CHART_LEGEND_HEIGHT_PX}
+              wrapperStyle={{ fontSize: 11, color: "var(--chart-tick)" }}
+            />
             {avgTtft !== undefined ? (
               <ReferenceLine
                 xAxisId="ms"
@@ -355,9 +407,11 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
         ) : null}
       </div>
       <div className="min-h-72">
-        {radarData.length >= 2 ? (
+        {useSessionMultiRadar && pivotedSession.length >= 2 ? (
+          <CompareRadar compareSeries={sessionSeries} pivoted={pivotedSession} />
+        ) : radarDataSingle.length >= 2 ? (
           <ResponsiveContainer width="100%" height={420}>
-            <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="72%">
+            <RadarChart data={radarDataSingle} cx="50%" cy="50%" outerRadius="72%">
               <PolarGrid stroke="var(--chart-grid)" />
               <PolarAngleAxis dataKey="subject" tick={{ fill: "var(--chart-tick)", fontSize: 10 }} />
               <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: "var(--chart-tick)", fontSize: 9 }} />
@@ -367,11 +421,18 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
                 stroke="var(--chart-ttft)"
                 fill="var(--chart-ttft)"
                 fillOpacity={0.35}
+                strokeWidth={2}
+                isAnimationActive={false}
+                dot={{ r: 2, fillOpacity: 1 }}
               />
               <Tooltip {...rechartsTooltipShell} formatter={(v: number) => [`${v} / 100`, "정규화 TTFT"]} />
               <Legend wrapperStyle={{ color: "var(--chart-tick)", fontSize: 11 }} />
             </RadarChart>
           </ResponsiveContainer>
+        ) : useSessionMultiRadar ? (
+          <p className="flex h-full min-h-64 items-center justify-center text-center text-sm text-[var(--muted)]">
+            모델 간 레이더 비교는 시나리오가 2개 이상일 때 표시됩니다.
+          </p>
         ) : (
           <p className="flex h-full min-h-64 items-center justify-center text-center text-sm text-[var(--muted)]">
             레이더 차트는 시나리오가 2개 이상일 때 표시됩니다.
@@ -392,8 +453,7 @@ function CompareRadar({
   const maxByScenario = new Map<string, number>();
   for (const p of pivoted) {
     let max = 1;
-    for (const s of compareSeries) {
-      const v = p.byModel[s.modelId];
+    for (const v of p.bySeriesIndex) {
       if (v && v.ttft > 0) max = Math.max(max, v.ttft);
     }
     maxByScenario.set(`${p.scenario}\t${p.api}`, max);
@@ -402,9 +462,11 @@ function CompareRadar({
   const radarRows = pivoted.map((p) => {
     const k = `${p.scenario}\t${p.api}`;
     const maxMs = maxByScenario.get(k) ?? 1;
-    const o: Record<string, string | number> = { subject: p.label.slice(0, 16) + (p.label.length > 16 ? "…" : "") };
-    compareSeries.forEach((s, i) => {
-      const v = p.byModel[s.modelId];
+    const subject =
+      p.label.length > 22 ? `${p.label.slice(0, 20)}…` : p.label;
+    const o: Record<string, string | number> = { subject };
+    compareSeries.forEach((_s, i) => {
+      const v = p.bySeriesIndex[i];
       const ttft = v?.ttft ?? 0;
       o[`m${i}`] = ttft > 0 ? Math.round((ttft / maxMs) * 100) : 0;
     });
@@ -421,12 +483,15 @@ function CompareRadar({
         <Legend wrapperStyle={{ color: "var(--chart-tick)", fontSize: 11 }} />
         {compareSeries.map((s, i) => (
           <Radar
-            key={s.modelId}
-            name={s.label || s.modelId}
+            key={`radar-series-${i}-${s.modelId || "unknown"}`}
+            name={s.label || s.modelId || `model_${i}`}
             dataKey={`m${i}`}
             stroke={modelColor(i, "ttft")}
             fill={modelColor(i, "ttft")}
-            fillOpacity={0.2}
+            fillOpacity={0.35}
+            strokeWidth={2}
+            isAnimationActive={false}
+            dot={{ r: 2, fillOpacity: 1 }}
           />
         ))}
       </RadarChart>
