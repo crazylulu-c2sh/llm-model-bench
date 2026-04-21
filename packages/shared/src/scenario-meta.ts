@@ -16,16 +16,14 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     criteriaKo: "응답 본문을 품질 평가하지 않습니다. 공백만 있는 빈 응답이면 실패, 그 외는 통과입니다.",
   },
   code_sort_js: {
-    purposeKo: "코드만 출력하도록 지시했을 때 펜스 코드 블록과 함수 구현을 따르는지 봅니다.",
-    criteriaKo: "마크다운 ```js … ``` 안에 sortNums(또는 동등)와 정렬(sort) 로직이 있으면 합격입니다.",
+    purposeKo: "코드만 출력하도록 지시했을 때 펜스 코드 블록과 퀵소트 구현을 따르는지 봅니다.",
+    criteriaKo:
+      "마크다운 ```js … ``` 안에 sortNums(또는 동등), 퀵소트 단서(partition·pivot·quicksort 등)가 있고 `.sort(` 가 없으면 합격입니다.",
   },
   code_sort_py: {
-    purposeKo: "Python 코드만 펜스 블록으로 내도록 할 때 형식·구현을 봅니다.",
-    criteriaKo: "```python … ``` 안에 def sort_nums와 sorted/ sort 사용이 있으면 합격입니다.",
-  },
-  translate_nist_fips197_pdf_tools: {
-    purposeKo: "도구 호출로 NIST FIPS 197 PDF 텍스트를 읽고, 한국어 요약을 생성하는지 봅니다.",
-    criteriaKo: "fetch_pdf_text 도구가 실제로 호출되고, 출력에 한글이 있으며 길이가 1000자 미만이면 합격입니다.",
+    purposeKo: "Python 코드만 펜스 블록으로 내도록 할 때 형식·퀵소트 구현을 봅니다.",
+    criteriaKo:
+      "```python … ``` 안에 def sort_nums, 퀵소트 단서(partition·pivot·quicksort 등)가 있고 `sorted(`·`.sort(` 가 없으면 합격입니다.",
   },
   chat_time_calendar: {
     purposeKo: "프롬프트에 주입된 기준 시각을 바탕으로 어제·오늘·내일 날짜를 맞게 말하는지 봅니다.",
@@ -39,6 +37,10 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
   structured_action: {
     purposeKo: "프로즈 없이 유효한 JSON 한 객체만 내도록 할 때 스키마 준수를 봅니다.",
     criteriaKo: '{"action":"문자열","confidence":0~1 숫자} 형태의 JSON이 파싱·검증되면 합격입니다.',
+  },
+  translate_nist_fips197_pdf_tools: {
+    purposeKo: "도구 호출로 NIST FIPS 197 PDF 텍스트를 읽고, 한국어 요약을 생성하는지 봅니다.",
+    criteriaKo: "fetch_pdf_text 도구가 실제로 호출되고, 출력에 한글이 있으며 길이가 1000자 미만이면 합격입니다.",
   },
 };
 

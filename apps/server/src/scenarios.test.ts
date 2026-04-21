@@ -69,3 +69,64 @@ describe("expectedCalendarTriple", () => {
     expect(t).toEqual(["2024-01-15", "2024-01-16", "2024-01-17"]);
   });
 });
+
+describe("scoreScenario code_sort_js", () => {
+  const okJs = [
+    "```js",
+    "function partition(a, lo, hi) { return lo; }",
+    "function sortNums(arr) { return quicksort(arr); }",
+    "function quicksort(a) { return a; }",
+    "```",
+  ].join("\n");
+
+  it("passes fenced quicksort with sortNums and no .sort(", () => {
+    const r = scoreScenario("code_sort_js", okJs);
+    expect(r.pass).toBe(true);
+    expect(r.score).toBe(1);
+  });
+
+  it("fails when .sort( is used", () => {
+    const bad = "```js\nfunction sortNums(a){ return [...a].sort((x,y)=>x-y); }\n```";
+    const r = scoreScenario("code_sort_js", bad);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toBe("builtin sort not allowed");
+  });
+
+  it("fails when quicksort cues are missing", () => {
+    const bad = "```js\nfunction sortNums(a){ const b=[]; for(const x of a)b.push(x); return b;}\n```";
+    const r = scoreScenario("code_sort_js", bad);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toBe("missing quicksort cues");
+  });
+});
+
+describe("scoreScenario code_sort_py", () => {
+  const okPy = [
+    "```python",
+    "def partition(arr, lo, hi):",
+    "    return lo",
+    "def sort_nums(arr):",
+    "    return arr",
+    "```",
+  ].join("\n");
+
+  it("passes fenced quicksort skeleton with def sort_nums", () => {
+    const r = scoreScenario("code_sort_py", okPy);
+    expect(r.pass).toBe(true);
+    expect(r.score).toBe(1);
+  });
+
+  it("fails when sorted() is used", () => {
+    const bad = "```python\ndef sort_nums(arr):\n    return sorted(arr)\n```";
+    const r = scoreScenario("code_sort_py", bad);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toBe("builtin sort not allowed");
+  });
+
+  it("fails when quicksort cues are missing", () => {
+    const bad = "```python\ndef sort_nums(arr):\n    return list(arr)\n```";
+    const r = scoreScenario("code_sort_py", bad);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toBe("missing quicksort cues");
+  });
+});

@@ -13,20 +13,20 @@ export type ScenarioId =
   | "chat_ping"
   | "code_sort_js"
   | "code_sort_py"
-  | "translate_nist_fips197_pdf_tools"
   | "chat_time_calendar"
   | "tool_weather"
-  | "structured_action";
+  | "structured_action"
+  | "translate_nist_fips197_pdf_tools";
 
 export const ALL_SCENARIO_IDS: ScenarioId[] = [
   "chat_hello",
   "chat_ping",
   "code_sort_js",
   "code_sort_py",
-  "translate_nist_fips197_pdf_tools",
   "chat_time_calendar",
   "tool_weather",
   "structured_action",
+  "translate_nist_fips197_pdf_tools",
 ];
 
 /**
@@ -41,18 +41,17 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
     case "chat_ping":
       return "ping";
     case "code_sort_js":
-      return "Write a JavaScript function sortNums(arr) that returns sorted ascending numbers. Output ONLY a single fenced code block ```js ... ``` with no prose.";
-    case "code_sort_py":
-      return "Write Python def sort_nums(arr): return sorted list. Output ONLY a single fenced code block ```python ... ``` with no prose.";
-    case "translate_nist_fips197_pdf_tools": {
-      const base = opts?.publicAssetBaseUrl?.replace(/\/+$/, "") ?? "<PUBLIC_ASSET_BASE>";
-      const pdfUrl = `${base}/nist.fips.197.pdf`;
       return [
-        "You have tools fetch_url and fetch_pdf_text (bench server executes them).",
-        `1) Call fetch_pdf_text with url exactly: ${pdfUrl}`,
-        "2) From the returned English text, write a concise Korean summary within 1000 characters. Korean only. No quotes, no English, do not paste the full PDF.",
-      ].join("\n");
-    }
+        "Write a JavaScript function sortNums(arr) that returns a new array of numbers sorted in ascending order using quicksort that you implement yourself.",
+        "Do not use Array.prototype.sort, .sort(, or any other built-in sort.",
+        "Output ONLY a single fenced code block ```js ... ``` with no prose.",
+      ].join(" ");
+    case "code_sort_py":
+      return [
+        "Write Python def sort_nums(arr) that returns a new list of numbers sorted in ascending order using quicksort that you implement yourself.",
+        "Do not use sorted(), list.sort(), or any other built-in sort.",
+        "Output ONLY a single fenced code block ```python ... ``` with no prose.",
+      ].join(" ");
     case "chat_time_calendar": {
       const iso = opts?.referenceIso ?? new Date().toISOString();
       const tz = opts?.calendarTimeZone ?? "Asia/Seoul";
@@ -66,6 +65,15 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
       return "What is the weather in Seattle? Use the provided tool.";
     case "structured_action":
       return 'Reply with ONLY valid JSON (no markdown) matching: {"action":"string","confidence":number} where confidence is 0-1.';
+    case "translate_nist_fips197_pdf_tools": {
+      const base = opts?.publicAssetBaseUrl?.replace(/\/+$/, "") ?? "<PUBLIC_ASSET_BASE>";
+      const pdfUrl = `${base}/nist.fips.197.pdf`;
+      return [
+        "You have tools fetch_url and fetch_pdf_text (bench server executes them).",
+        `1) Call fetch_pdf_text with url exactly: ${pdfUrl}`,
+        "2) From the returned English text, write a concise Korean summary within 1000 characters. Korean only. No quotes, no English, do not paste the full PDF.",
+      ].join("\n");
+    }
     default:
       return `Unknown scenario: ${id}`;
   }

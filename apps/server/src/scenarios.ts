@@ -244,6 +244,28 @@ function scoreChatMinimal(output: string): { pass: boolean; reason?: string } {
   return { pass: true };
 }
 
+/** Heuristic: quicksort-style implementation cues (not a correctness proof). */
+const CODE_SORT_QUICKSORT_CUE_RE =
+  /partition|pivot|quicksort|quick_sort|quick\s*sort|lomuto|hoare/i;
+
+function scoreCodeSortJs(code: string): { pass: boolean; score: number; reason?: string } {
+  const hasEntry = /function\s+sortNums|const\s+sortNums|sortNums\s*=/.test(code);
+  if (!hasEntry) return { pass: false, score: 0, reason: "missing sortNums" };
+  if (/\.sort\s*\(/.test(code)) return { pass: false, score: 0, reason: "builtin sort not allowed" };
+  if (!CODE_SORT_QUICKSORT_CUE_RE.test(code))
+    return { pass: false, score: 0, reason: "missing quicksort cues" };
+  return { pass: true, score: 1 };
+}
+
+function scoreCodeSortPy(code: string): { pass: boolean; score: number; reason?: string } {
+  if (!/def\s+sort_nums/.test(code)) return { pass: false, score: 0, reason: "missing def sort_nums" };
+  if (/\bsorted\s*\(/.test(code)) return { pass: false, score: 0, reason: "builtin sort not allowed" };
+  if (/\.sort\s*\(/.test(code)) return { pass: false, score: 0, reason: "builtin sort not allowed" };
+  if (!CODE_SORT_QUICKSORT_CUE_RE.test(code))
+    return { pass: false, score: 0, reason: "missing quicksort cues" };
+  return { pass: true, score: 1 };
+}
+
 export function scoreScenario(
   id: ScenarioId,
   output: string,
@@ -258,16 +280,12 @@ export function scoreScenario(
     case "code_sort_js": {
       const m = output.match(/```(?:js|javascript)?\s*([\s\S]*?)```/i);
       const code = m?.[1] ?? output;
-      const ok =
-        /function\s+sortNums|const\s+sortNums|sortNums\s*=/.test(code) &&
-        /sort|\.sort\(/.test(code);
-      return { pass: ok, score: ok ? 1 : 0, reason: ok ? undefined : "missing sortNums or sort" };
+      return scoreCodeSortJs(code);
     }
     case "code_sort_py": {
       const m = output.match(/```(?:python|py)?\s*([\s\S]*?)```/i);
       const code = m?.[1] ?? output;
-      const ok = /def\s+sort_nums/.test(code) && /sorted|\.sort/.test(code);
-      return { pass: ok, score: ok ? 1 : 0, reason: ok ? undefined : "missing def sort_nums" };
+      return scoreCodeSortPy(code);
     }
     case "translate_nist_fips197_pdf_tools": {
       const hasHangul = /[\u3131-\u318E\uAC00-\uD7A3]/.test(output);

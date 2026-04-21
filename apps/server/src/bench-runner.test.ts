@@ -1,6 +1,7 @@
 import type { DetectResult } from "@llm-bench/shared";
 import { describe, expect, it, vi } from "vitest";
-import { runBench, type BenchRequest } from "./bench-runner.js";
+import { normalizeScenarioIdsForBench, runBench, type BenchRequest } from "./bench-runner.js";
+import type { ScenarioId } from "./scenarios.js";
 
 function jsonResponse(obj: unknown, status = 200) {
   return Promise.resolve(
@@ -53,6 +54,38 @@ function baseBenchRequest(overrides: Partial<BenchRequest> = {}): BenchRequest {
     ...overrides,
   };
 }
+
+describe("normalizeScenarioIdsForBench", () => {
+  it("moves translate_nist_fips197_pdf_tools to the end while preserving other order", () => {
+    const input: ScenarioId[] = [
+      "translate_nist_fips197_pdf_tools",
+      "chat_ping",
+      "code_sort_js",
+    ];
+    expect(normalizeScenarioIdsForBench(input)).toEqual([
+      "chat_ping",
+      "code_sort_js",
+      "translate_nist_fips197_pdf_tools",
+    ]);
+  });
+
+  it("is a no-op when translate is absent", () => {
+    const input: ScenarioId[] = ["chat_hello", "chat_ping"];
+    expect(normalizeScenarioIdsForBench(input)).toEqual(input);
+  });
+
+  it("dedupes multiple translate entries to a single trailing id", () => {
+    const input: ScenarioId[] = [
+      "translate_nist_fips197_pdf_tools",
+      "chat_ping",
+      "translate_nist_fips197_pdf_tools",
+    ];
+    expect(normalizeScenarioIdsForBench(input)).toEqual([
+      "chat_ping",
+      "translate_nist_fips197_pdf_tools",
+    ]);
+  });
+});
 
 describe("runBench LM Studio autoUnloadAfterBench", () => {
   it("calls unload after run only when this bench performed a successful load", async () => {
