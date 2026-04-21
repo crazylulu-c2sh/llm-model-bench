@@ -19,7 +19,7 @@ pnpm dev
 - UI는 Vite 프록시로 `/api`를 로컬 서버에 전달합니다.
 - 벤치 UI 설정(Base URL, 병렬/하이라이트 등)은 브라우저 `localStorage`에 저장되며, API 키는 기본적으로 `sessionStorage`만 쓰고 디스크(`localStorage`) 저장은 체크박스로 명시 동의할 때만 합니다.
 - 「벤치 대상 외 모델 언로드」는 **LM Studio**에서만 동작하며, 감지 API로 알려진 모델 ID에 한해 unload를 시도합니다(목록 밖에 로드된 모델은 제어하지 못함).
-- `translate_bitcoin_pdf_tools` 시나리오는 [`apps/web/public/bitcoin.pdf`](apps/web/public/bitcoin.pdf)를 브라우저 origin 기준 URL로 가져오도록 설계되어 있습니다. 벤치 실행 시 UI가 `publicAssetsOrigin`을 함께 보냅니다.
+- `translate_nist_fips197_pdf_tools` 시나리오는 [`apps/web/public/nist.fips.197.pdf`](apps/web/public/nist.fips.197.pdf)를 브라우저 origin 기준 URL로 가져오도록 설계되어 있습니다. 벤치 실행 시 UI가 `publicAssetsOrigin`을 함께 보냅니다.
 
 ## 테스트
 
@@ -32,3 +32,8 @@ pnpm test
 - `PORT`: API 서버 포트 (기본 `20080` 단독 실행 시).
 
 API 키는 UI에서 세션 동안만 전달하거나, 서버 실행 환경의 표준 헤더 규칙에 맞춰 확장할 수 있습니다.
+
+## 라이선스
+
+- 본 프로젝트 코드는 [MIT](LICENSE) 라이선스를 따릅니다.
+- 번역 시나리오에 포함된 PDF 등 제3자 리소스는 각 원저작물의 권리/배포 조건을 따를 수 있으므로, 배포 시 별도 확인이 필요합니다.

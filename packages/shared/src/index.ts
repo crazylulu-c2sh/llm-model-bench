@@ -83,7 +83,7 @@ export const BenchRunMetaSchema = z.object({
   measured_runs: z.number(),
   /** LM Studio: 벤치 대상 외 감지 모델에 unload 시도 여부 */
   unload_other_models: z.boolean().optional(),
-  /** Vite 등에서 서빙하는 public 자산 베이스 (예: http://127.0.0.1:21104) — bitcoin.pdf URL 허용용 */
+  /** Vite 등에서 서빙하는 public 자산 베이스 (예: http://127.0.0.1:21104) — nist.fips.197.pdf URL 허용용 */
   public_assets_origin: z.string().optional(),
   created_at: z.string(),
 });

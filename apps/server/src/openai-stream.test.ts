@@ -81,7 +81,7 @@ describe("consumeOpenAiChatStream", () => {
     ]);
     const m = await consumeOpenAiChatStream(stream);
     expect(
-      scoreScenario("translate_bitcoin_pdf_tools", m.assistantText, {
+      scoreScenario("translate_nist_fips197_pdf_tools", m.assistantText, {
         invokedBenchTools: ["fetch_pdf_text"],
       }).pass,
     ).toBe(true);

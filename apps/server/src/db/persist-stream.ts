@@ -4,7 +4,7 @@ import type Database from "better-sqlite3";
 import { appendTextLog, finishRun, insertRun, markRunErrorPartial, upsertScenarioAggregate } from "./database.js";
 
 function promptPreviewForScenario(scenarioId: string, meta: BenchRunMeta | null): string {
-  if (scenarioId === "translate_bitcoin_pdf_tools") {
+  if (scenarioId === "translate_nist_fips197_pdf_tools") {
     const base = meta?.public_assets_origin;
     return getScenarioUserPromptPreview(scenarioId, { publicAssetBaseUrl: base });
   }

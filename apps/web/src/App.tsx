@@ -100,7 +100,7 @@ function consumeSseJsonLines(
 }
 
 function defaultScenarioPromptPreview(scenarioId: string): string {
-  if (scenarioId === "translate_bitcoin_pdf_tools" && typeof window !== "undefined") {
+  if (scenarioId === "translate_nist_fips197_pdf_tools" && typeof window !== "undefined") {
     return getScenarioUserPromptPreview(scenarioId, { publicAssetBaseUrl: window.location.origin });
   }
   if (scenarioId === "chat_time_calendar") {

@@ -23,9 +23,9 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     purposeKo: "Python 코드만 펜스 블록으로 내도록 할 때 형식·구현을 봅니다.",
     criteriaKo: "```python … ``` 안에 def sort_nums와 sorted/ sort 사용이 있으면 합격입니다.",
   },
-  translate_bitcoin_pdf_tools: {
-    purposeKo: "도구 호출로 PDF 텍스트를 읽고, 한국어 한 문장으로만 요약하는지 봅니다.",
-    criteriaKo: "fetch_pdf_text 도구가 실제로 호출되고, 출력에 한글이 있으며 길이가 200자 미만이면 합격입니다.",
+  translate_nist_fips197_pdf_tools: {
+    purposeKo: "도구 호출로 NIST FIPS 197 PDF 텍스트를 읽고, 한국어 요약을 생성하는지 봅니다.",
+    criteriaKo: "fetch_pdf_text 도구가 실제로 호출되고, 출력에 한글이 있으며 길이가 1000자 미만이면 합격입니다.",
   },
   chat_time_calendar: {
     purposeKo: "프롬프트에 주입된 기준 시각을 바탕으로 어제·오늘·내일 날짜를 맞게 말하는지 봅니다.",

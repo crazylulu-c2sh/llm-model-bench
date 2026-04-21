@@ -13,7 +13,7 @@ export type ScenarioId =
   | "chat_ping"
   | "code_sort_js"
   | "code_sort_py"
-  | "translate_bitcoin_pdf_tools"
+  | "translate_nist_fips197_pdf_tools"
   | "chat_time_calendar"
   | "tool_weather"
   | "structured_action";
@@ -23,7 +23,7 @@ export const ALL_SCENARIO_IDS: ScenarioId[] = [
   "chat_ping",
   "code_sort_js",
   "code_sort_py",
-  "translate_bitcoin_pdf_tools",
+  "translate_nist_fips197_pdf_tools",
   "chat_time_calendar",
   "tool_weather",
   "structured_action",
@@ -31,7 +31,7 @@ export const ALL_SCENARIO_IDS: ScenarioId[] = [
 
 /**
  * 벤치 시나리오의 사용자 프롬프트 미리보기(저장·UI 표시용).
- * `translate_bitcoin_pdf_tools`는 `publicAssetBaseUrl`(예: Vite origin)이 포함된다.
+ * `translate_nist_fips197_pdf_tools`는 `publicAssetBaseUrl`(예: Vite origin)이 포함된다.
  * `chat_time_calendar`는 `referenceIso`·`calendarTimeZone`이 포함된다.
  */
 export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPreviewOpts): string {
@@ -44,13 +44,13 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
       return "Write a JavaScript function sortNums(arr) that returns sorted ascending numbers. Output ONLY a single fenced code block ```js ... ``` with no prose.";
     case "code_sort_py":
       return "Write Python def sort_nums(arr): return sorted list. Output ONLY a single fenced code block ```python ... ``` with no prose.";
-    case "translate_bitcoin_pdf_tools": {
+    case "translate_nist_fips197_pdf_tools": {
       const base = opts?.publicAssetBaseUrl?.replace(/\/+$/, "") ?? "<PUBLIC_ASSET_BASE>";
-      const pdfUrl = `${base}/bitcoin.pdf`;
+      const pdfUrl = `${base}/nist.fips.197.pdf`;
       return [
         "You have tools fetch_url and fetch_pdf_text (bench server executes them).",
         `1) Call fetch_pdf_text with url exactly: ${pdfUrl}`,
-        "2) From the returned English text, write ONE short Korean sentence summarizing the opening idea (max 90 Korean characters). Korean only. No quotes, no English, do not paste the full PDF.",
+        "2) From the returned English text, write a concise Korean summary within 1000 characters. Korean only. No quotes, no English, do not paste the full PDF.",
       ].join("\n");
     }
     case "chat_time_calendar": {

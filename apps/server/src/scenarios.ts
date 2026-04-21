@@ -28,7 +28,7 @@ const translateToolsOpenAi = [
     function: {
       name: "fetch_pdf_text",
       description:
-        "HTTP GET a PDF document and return extracted plain text (truncated). Required to read the Bitcoin whitepaper PDF.",
+        "HTTP GET a PDF document and return extracted plain text (truncated). Required to read the NIST FIPS 197 PDF.",
       parameters: {
         type: "object",
         properties: { url: { type: "string", description: "Absolute http(s) URL to a .pdf" } },
@@ -52,7 +52,7 @@ const translateToolsAnthropic = [
   {
     name: "fetch_pdf_text",
     description:
-      "HTTP GET a PDF document and return extracted plain text (truncated). Required to read the Bitcoin whitepaper PDF.",
+      "HTTP GET a PDF document and return extracted plain text (truncated). Required to read the NIST FIPS 197 PDF.",
     input_schema: {
       type: "object",
       properties: { url: { type: "string" } },
@@ -61,8 +61,8 @@ const translateToolsAnthropic = [
   },
 ] as const;
 
-export function isTranslateBitcoinPdfToolsScenario(id: ScenarioId): boolean {
-  return id === "translate_bitcoin_pdf_tools";
+export function isTranslateNistFips197PdfToolsScenario(id: ScenarioId): boolean {
+  return id === "translate_nist_fips197_pdf_tools";
 }
 
 export function openAiToolsForScenario(id: ScenarioId): unknown[] | undefined {
@@ -82,7 +82,7 @@ export function openAiToolsForScenario(id: ScenarioId): unknown[] | undefined {
       },
     ];
   }
-  if (isTranslateBitcoinPdfToolsScenario(id)) {
+  if (isTranslateNistFips197PdfToolsScenario(id)) {
     return [...translateToolsOpenAi];
   }
   return undefined;
@@ -102,7 +102,7 @@ export function anthropicToolsForScenario(id: ScenarioId): unknown[] | undefined
       },
     ];
   }
-  if (isTranslateBitcoinPdfToolsScenario(id)) {
+  if (isTranslateNistFips197PdfToolsScenario(id)) {
     return [...translateToolsAnthropic];
   }
   return undefined;
@@ -269,10 +269,10 @@ export function scoreScenario(
       const ok = /def\s+sort_nums/.test(code) && /sorted|\.sort/.test(code);
       return { pass: ok, score: ok ? 1 : 0, reason: ok ? undefined : "missing def sort_nums" };
     }
-    case "translate_bitcoin_pdf_tools": {
+    case "translate_nist_fips197_pdf_tools": {
       const hasHangul = /[\u3131-\u318E\uAC00-\uD7A3]/.test(output);
       const usedPdf = ctx?.invokedBenchTools?.includes("fetch_pdf_text") === true;
-      const ok = hasHangul && usedPdf && output.length < 200;
+      const ok = hasHangul && usedPdf && output.length < 1000;
       return {
         pass: ok,
         score: ok ? 1 : 0,

@@ -9,7 +9,7 @@ const pdfParseCore = require("pdf-parse/lib/pdf-parse.js") as (
   buf: Buffer,
 ) => Promise<{ text: string }>;
 
-const WHITELIST_PATH = "/bitcoin.pdf";
+const WHITELIST_PATH = "/nist.fips.197.pdf";
 const MAX_URL_TEXT = 8_000;
 const MAX_PDF_CHARS = 6_000;
 const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
@@ -39,12 +39,12 @@ export function resolvePublicAssetsOrigin(input: { publicAssetsOrigin?: string |
   }
 }
 
-export function bitcoinWhitepaperUrl(publicAssetsOrigin: string): string {
+export function nistFips197PdfUrl(publicAssetsOrigin: string): string {
   const base = publicAssetsOrigin.replace(/\/+$/, "");
   return `${base}${WHITELIST_PATH}`;
 }
 
-/** SSRF 방지: `publicAssetsOrigin` 과 동일한 origin 이며 `/bitcoin.pdf` 만 허용 */
+/** SSRF 방지: `publicAssetsOrigin` 과 동일한 origin 이며 `/nist.fips.197.pdf` 만 허용 */
 export function assertUrlAllowed(publicAssetsOrigin: string, urlStr: string): void {
   const base = new URL(`${publicAssetsOrigin.replace(/\/+$/, "")}/`);
   const u = new URL(urlStr);

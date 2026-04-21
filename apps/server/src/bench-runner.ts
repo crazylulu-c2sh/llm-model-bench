@@ -6,7 +6,7 @@ import {
   anthropicMessagesForScenario,
   anthropicToolsForScenario,
   buildMessages,
-  isTranslateBitcoinPdfToolsScenario,
+  isTranslateNistFips197PdfToolsScenario,
   scenarioUserMessageContent,
   scoreScenario,
   type ScenarioId,
@@ -32,7 +32,7 @@ export type BenchRequest = {
   skipModelLoad?: boolean;
   /** LM Studio: detect 목록에서 벤치 대상 외 모델 unload (베스트 에포트) */
   unloadOtherModels?: boolean;
-  /** Vite `public/` 베이스 URL (예: window.location.origin) — bitcoin.pdf 툴 fetch 허용 */
+  /** Vite `public/` 베이스 URL (예: window.location.origin) — nist.fips.197.pdf 툴 fetch 허용 */
   publicAssetsOrigin?: string;
 };
 
@@ -174,7 +174,7 @@ export async function* runBench(
           let tpot: number | null = null;
           const invokedBenchTools: string[] = [];
 
-          if (api_route === "chat_completions" && isTranslateBitcoinPdfToolsScenario(scenarioId)) {
+          if (api_route === "chat_completions" && isTranslateNistFips197PdfToolsScenario(scenarioId)) {
             const bm = buildMessages(scenarioId, promptCtx);
             const messages: unknown[] = [...bm.messages];
             const tools = bm.tools;
@@ -266,7 +266,7 @@ export async function* runBench(
               tpot = tpotFromOpenAi(lastOpen);
               if (!text) text = lastOpen.assistantText;
             }
-          } else if (api_route === "messages" && isTranslateBitcoinPdfToolsScenario(scenarioId)) {
+          } else if (api_route === "messages" && isTranslateNistFips197PdfToolsScenario(scenarioId)) {
             const am = anthropicMessagesForScenario(scenarioId, promptCtx);
             const anthropicMessages: unknown[] = am.messages.map((x) => ({ ...x }));
             const toolsAnthropic = anthropicToolsForScenario(scenarioId);
