@@ -87,6 +87,7 @@ export function ModelTable({
   onSortedModelIdsChange,
   selectionDisabled = false,
   profileHintByModelId,
+  benchActiveModelId = null,
 }: {
   models: DetectResult["models"];
   selected: Record<string, boolean>;
@@ -99,6 +100,8 @@ export function ModelTable({
   /** true이면 체크·행 토글·전체 선택을 막습니다(예: 벤치 실행 중). */
   selectionDisabled?: boolean;
   profileHintByModelId?: Record<string, string>;
+  /** 벤치 스트림에서 현재 다루는 모델 id(행 테두리 강조). */
+  benchActiveModelId?: string | null;
 }) {
   const data = useMemo<ModelRow[]>(() => models.map((m) => ({ ...m })), [models]);
   const allSelected = models.length > 0 && models.every((m) => selected[m.id]);
@@ -246,11 +249,14 @@ export function ModelTable({
           {table.getRowModel().rows.map((row) => (
             <tr
               key={row.id}
-              className={
+              className={[
                 selectionDisabled
                   ? "border-t border-[var(--border)] opacity-80"
-                  : "cursor-pointer border-t border-[var(--border)] hover:bg-[var(--surface-2)]"
-              }
+                  : "cursor-pointer border-t border-[var(--border)] hover:bg-[var(--surface-2)]",
+                benchActiveModelId != null && row.original.id === benchActiveModelId ? "bench-model-row--active" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
               tabIndex={selectionDisabled ? -1 : 0}
               aria-disabled={selectionDisabled || undefined}
               aria-label={`${row.original.id} 선택 토글`}

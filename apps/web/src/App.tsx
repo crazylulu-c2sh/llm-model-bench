@@ -210,6 +210,8 @@ export function App() {
   const [benchStepLines, setBenchStepLines] = useState<BenchStepLine[]>([]);
   const [benchCurrent, setBenchCurrent] = useState<BenchCurrent | null>(null);
   const [benchCompleted, setBenchCompleted] = useState<BenchCompletedItem[]>([]);
+  /** 이번 벤치 런에서 `scenario_start`가 있었던 시나리오 id */
+  const [touchedScenarioIds, setTouchedScenarioIds] = useState<string[]>([]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -716,6 +718,7 @@ export function App() {
     setBenchStepLines([]);
     setBenchCurrent(null);
     setBenchCompleted([]);
+    setTouchedScenarioIds([]);
     let anyHttpFail = false;
     let streamErrorCount = 0;
     let streamIncomplete = false;
@@ -813,6 +816,7 @@ export function App() {
               phase,
               iterLabel,
             });
+            setTouchedScenarioIds((prev) => (prev.includes(p.sid) ? prev : [...prev, p.sid]));
             pushBenchLine("info", `시작 · ${p.sid} · ${p.api} (${iterLabel})`);
           }
           if (ev.type === "run_finished") {
@@ -915,6 +919,10 @@ export function App() {
 
   const logText = log.join("\n");
   const benchHeaderLine = useMemo(() => formatBenchRunningLine(benchCurrent), [benchCurrent]);
+  const benchLiveSoft = "bench-live-panel--soft";
+  const benchMetricsPanelsClass = running && rows.length > 0 ? benchLiveSoft : "";
+  const benchPreviewPanelClass = running && preview.length > 0 ? benchLiveSoft : "";
+  const benchProgressClass = running ? benchLiveSoft : "";
 
   return (
     <div className="min-h-screen bg-[var(--surface)] text-[var(--foreground)]">
@@ -996,7 +1004,10 @@ export function App() {
             )}
             {running ? (
               <div
-                className="mt-2 flex min-w-0 items-center gap-2 rounded border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--foreground)]"
+                className={[
+                  "mt-2 flex min-w-0 items-center gap-2 rounded border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--foreground)]",
+                  benchLiveSoft,
+                ].join(" ")}
                 role="status"
                 aria-live="polite"
                 aria-atomic="true"
@@ -1309,6 +1320,7 @@ export function App() {
               onSortedModelIdsChange={handleSortedModelIdsChange}
               selectionDisabled={running}
               profileHintByModelId={profileHintByModelId}
+              benchActiveModelId={running ? benchCurrent?.modelId ?? null : null}
             />
           ) : detect && detect.models.length === 0 ? (
             <p className="py-8 text-center text-sm text-[var(--muted)]">
@@ -1325,9 +1337,14 @@ export function App() {
           )}
         </section>
 
-        <ScenarioGuideCards currentScenario={running ? benchCurrent?.scenario : null} />
+        <ScenarioGuideCards
+          currentScenario={running ? benchCurrent?.scenario : null}
+          running={running}
+          touchedScenarioIds={touchedScenarioIds}
+        />
 
         <BenchProgressPanel
+          className={benchProgressClass}
           running={running}
           current={benchCurrent}
           lines={benchStepLines}
@@ -1347,7 +1364,9 @@ export function App() {
           }
         />
 
-        <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
+        <section
+          className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchMetricsPanelsClass].filter(Boolean).join(" ")}
+        >
           <h2 className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
             <Activity className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
             메트릭 차트
@@ -1431,13 +1450,19 @@ export function App() {
           )}
         </section>
 
-        <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
+        <section
+          className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchMetricsPanelsClass].filter(Boolean).join(" ")}
+        >
           <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">결과 테이블</h2>
           <ResultsTable rows={rows} onRowClick={(r) => openDrawerForRow(r)} />
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">
-          <div className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
+          <div
+            className={["min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchPreviewPanelClass].filter(Boolean).join(
+              " ",
+            )}
+          >
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
               <h2 className="text-sm font-semibold text-[var(--foreground)]">토큰 프리뷰 (스트림)</h2>
               <HighlightToggle on={hlPreview} onChange={setHlPreview} />

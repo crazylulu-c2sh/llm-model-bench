@@ -63,12 +63,15 @@ export function BenchProgressPanel({
   lines,
   completed,
   benchAction,
+  className,
 }: {
   running: boolean;
   current: BenchCurrent | null;
   lines: BenchStepLine[];
   completed: BenchCompletedItem[];
   benchAction?: ReactNode;
+  /** 부모에서 벤치 라이브 테두리 등 유틸 클래스 주입 */
+  className?: string;
 }) {
   const summary = formatBenchProgressSummary({ running, current });
   const logScrollRef = useRef<HTMLUListElement>(null);
@@ -82,7 +85,7 @@ export function BenchProgressPanel({
 
   return (
     <section
-      className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4"
+      className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", className].filter(Boolean).join(" ")}
       aria-labelledby="bench-progress-heading"
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-2">

@@ -1,7 +1,16 @@
 import { ALL_SCENARIO_IDS, getScenarioBenchMeta } from "@llm-bench/shared";
 import { Layers } from "lucide-react";
 
-export function ScenarioGuideCards({ currentScenario }: { currentScenario?: string | null }) {
+export function ScenarioGuideCards({
+  currentScenario,
+  running = false,
+  touchedScenarioIds,
+}: {
+  currentScenario?: string | null;
+  running?: boolean;
+  touchedScenarioIds?: readonly string[];
+}) {
+  const touched = touchedScenarioIds ?? [];
   return (
     <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
       <h2 className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
@@ -15,15 +24,19 @@ export function ScenarioGuideCards({ currentScenario }: { currentScenario?: stri
         {ALL_SCENARIO_IDS.map((id) => {
           const meta = getScenarioBenchMeta(id);
           const active = Boolean(currentScenario && currentScenario === id);
+          const wasTouched = running && touched.includes(id);
+          const cardBench =
+            running && active
+              ? "scenario-guide-card--bench-active"
+              : running && wasTouched && !active
+                ? "scenario-guide-card--bench-touched border-[var(--border)]"
+                : "border-[var(--border)]";
           return (
             <article
               key={id}
-              className={[
-                "rounded-md border bg-[var(--surface)] p-3 text-xs shadow-sm transition-[box-shadow,border-color]",
-                active
-                  ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/35 ring-offset-2 ring-offset-[var(--surface-2)]"
-                  : "border-[var(--border)]",
-              ].join(" ")}
+              className={["rounded-md border bg-[var(--surface)] p-3 text-xs shadow-sm transition-[box-shadow,border-color]", cardBench].join(
+                " ",
+              )}
               aria-current={active ? "true" : undefined}
             >
               <h3 className="font-mono text-[11px] font-medium text-[var(--foreground)]">{id}</h3>
