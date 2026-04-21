@@ -1,12 +1,12 @@
 import type { BenchRunMeta, StreamEvent } from "@llm-bench/shared";
 import { getScenarioUserPromptPreview } from "@llm-bench/shared";
 import type Database from "better-sqlite3";
-import { conxExcerpt } from "../scenarios.js";
 import { appendTextLog, finishRun, insertRun, markRunErrorPartial, upsertScenarioAggregate } from "./database.js";
 
-function promptPreviewForScenario(scenarioId: string): string {
-  if (scenarioId === "translate_roundtrip_stub") {
-    return getScenarioUserPromptPreview(scenarioId, { translationExcerpt: conxExcerpt() });
+function promptPreviewForScenario(scenarioId: string, meta: BenchRunMeta | null): string {
+  if (scenarioId === "translate_bitcoin_pdf_tools") {
+    const base = meta?.public_assets_origin;
+    return getScenarioUserPromptPreview(scenarioId, { publicAssetBaseUrl: base });
   }
   return getScenarioUserPromptPreview(scenarioId);
 }
@@ -15,12 +15,14 @@ export class BenchRunPersistence {
   private logSeq = 0;
   private runId: string | null = null;
   private hadError = false;
+  private lastMeta: BenchRunMeta | null = null;
 
   constructor(private readonly db: Database.Database | null) {}
 
   start(meta: BenchRunMeta): void {
     if (!this.db) return;
     this.runId = meta.run_id;
+    this.lastMeta = meta;
     this.logSeq = 0;
     this.hadError = false;
     insertRun(this.db, {
@@ -52,7 +54,7 @@ export class BenchRunPersistence {
             scenario_id: sid,
             api_route: route,
             aggregate_json: JSON.stringify(agg),
-            prompt_preview: promptPreviewForScenario(sid),
+            prompt_preview: promptPreviewForScenario(sid, this.lastMeta),
           });
         }
         this.logLine(`metrics_update ${sid ?? "?"} ${route ?? "?"}`);
@@ -81,6 +83,7 @@ export class BenchRunPersistence {
     if (!this.db || !this.runId) return;
     finishRun(this.db, this.runId, this.hadError ? "partial" : "ok");
     this.runId = null;
+    this.lastMeta = null;
   }
 
   private logLine(line: string): void {

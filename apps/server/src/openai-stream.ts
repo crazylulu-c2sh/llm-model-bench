@@ -1,7 +1,17 @@
+export type OpenAiToolCallOut = {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+};
+
 export type OpenAiStreamMetrics = {
   ttftMs: number | null;
   totalMs: number;
+  /** 모델 텍스트 + (있으면) 줄바꿈 후 직렬화된 tool_calls JSON — 기존 스코어링 호환 */
   text: string;
+  /** content 델타만 (tool_calls 직렬화 제외) */
+  assistantText: string;
+  toolCalls: OpenAiToolCallOut[] | null;
   streamCompleted: boolean;
   approxOutputTokens: number;
 };
@@ -60,6 +70,8 @@ export async function consumeOpenAiChatStream(
       ttftMs: null,
       totalMs: 0,
       text: "",
+      assistantText: "",
+      toolCalls: null,
       streamCompleted: false,
       approxOutputTokens: 0,
     };
@@ -120,6 +132,13 @@ export async function consumeOpenAiChatStream(
     for (const line of lines) handleLine(line);
   }
   const totalMs = performance.now() - t0;
+  const toolCallsForApi: OpenAiToolCallOut[] = [...toolByIndex.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([index, tc]) => ({
+      id: tc.id || `bench_tool_${index}`,
+      type: "function" as const,
+      function: { name: tc.name, arguments: tc.arguments },
+    }));
   let outText = text;
   if (toolByIndex.size > 0) {
     const serialized = serializeMergedToolCalls(toolByIndex);
@@ -131,6 +150,8 @@ export async function consumeOpenAiChatStream(
     ttftMs: ttft,
     totalMs,
     text: outText,
+    assistantText: text,
+    toolCalls: toolCallsForApi.length ? toolCallsForApi : null,
     streamCompleted,
     approxOutputTokens,
   };

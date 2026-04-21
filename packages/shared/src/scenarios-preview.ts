@@ -4,7 +4,7 @@ export type ScenarioId =
   | "chat_ping"
   | "code_sort_js"
   | "code_sort_py"
-  | "translate_roundtrip_stub"
+  | "translate_bitcoin_pdf_tools"
   | "tool_weather"
   | "structured_action";
 
@@ -13,22 +13,19 @@ export const ALL_SCENARIO_IDS: ScenarioId[] = [
   "chat_ping",
   "code_sort_js",
   "code_sort_py",
-  "translate_roundtrip_stub",
+  "translate_bitcoin_pdf_tools",
   "tool_weather",
   "structured_action",
 ];
 
 /**
  * 벤치 시나리오의 사용자 프롬프트 미리보기(저장·UI 표시용).
- * `translate_roundtrip_stub`은 서버에서 발췌문을 넘기면 그대로 포함한다.
+ * `translate_bitcoin_pdf_tools`는 `publicAssetBaseUrl`(예: Vite origin)이 포함된다.
  */
 export function getScenarioUserPromptPreview(
   id: string,
-  opts?: { translationExcerpt?: string },
+  opts?: { publicAssetBaseUrl?: string },
 ): string {
-  const excerpt =
-    opts?.translationExcerpt?.trim() ||
-    "(영문 발췌는 서버 실행 시 fixtures에서 로드됩니다. 히스토리에는 저장 시점 문자열이 들어갑니다.)";
   switch (id as ScenarioId) {
     case "chat_hello":
       return "Reply with exactly: hello";
@@ -38,8 +35,15 @@ export function getScenarioUserPromptPreview(
       return "Write a JavaScript function sortNums(arr) that returns sorted ascending numbers. Output ONLY a single fenced code block ```js ... ``` with no prose.";
     case "code_sort_py":
       return "Write Python def sort_nums(arr): return sorted list. Output ONLY a single fenced code block ```python ... ``` with no prose.";
-    case "translate_roundtrip_stub":
-      return `Translate the following English excerpt to Korean in one short sentence (max 80 chars). Korean only, no quotes.\n\n${excerpt}`;
+    case "translate_bitcoin_pdf_tools": {
+      const base = opts?.publicAssetBaseUrl?.replace(/\/+$/, "") ?? "<PUBLIC_ASSET_BASE>";
+      const pdfUrl = `${base}/bitcoin.pdf`;
+      return [
+        "You have tools fetch_url and fetch_pdf_text (bench server executes them).",
+        `1) Call fetch_pdf_text with url exactly: ${pdfUrl}`,
+        "2) From the returned English text, write ONE short Korean sentence summarizing the opening idea (max 90 Korean characters). Korean only. No quotes, no English, do not paste the full PDF.",
+      ].join("\n");
+    }
     case "tool_weather":
       return "What is the weather in Seattle? Use the provided tool.";
     case "structured_action":

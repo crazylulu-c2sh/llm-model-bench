@@ -4,12 +4,15 @@ import { consumeOpenAiChatStream, tpotFromOpenAi } from "./openai-stream.js";
 import {
   ALL_SCENARIO_IDS,
   anthropicMessagesForScenario,
+  anthropicToolsForScenario,
   buildMessages,
+  isTranslateBitcoinPdfToolsScenario,
   scenarioUserMessageContent,
   scoreScenario,
   type ScenarioId,
 } from "./scenarios.js";
 import { lmStudioLoad, lmStudioUnload } from "./lmstudio.js";
+import { executeBenchTool, resolvePublicAssetsOrigin } from "./tooling/bench-tools.js";
 
 export type BenchRequest = {
   baseUrl: string;
@@ -29,7 +32,11 @@ export type BenchRequest = {
   skipModelLoad?: boolean;
   /** LM Studio: detect 목록에서 벤치 대상 외 모델 unload (베스트 에포트) */
   unloadOtherModels?: boolean;
+  /** Vite `public/` 베이스 URL (예: window.location.origin) — bitcoin.pdf 툴 fetch 허용 */
+  publicAssetsOrigin?: string;
 };
+
+const MAX_BENCH_TOOL_ROUNDS = 8;
 
 function headers(apiKey?: string, extra?: Record<string, string>): HeadersInit {
   const h: Record<string, string> = { "content-type": "application/json", ...extra };
@@ -59,7 +66,7 @@ export function makeBenchRunMeta(input: BenchRequest, detect: DetectResult, rid:
     model_id: input.modelId,
     api_routes: routes,
     scenario_ids: scenarioIds,
-    scenario_bundle_version: "1",
+    scenario_bundle_version: "2",
     temperature: input.temperature ?? 0.2,
     max_tokens: input.max_tokens ?? 512,
     seed: null,
@@ -67,6 +74,7 @@ export function makeBenchRunMeta(input: BenchRequest, detect: DetectResult, rid:
     warmup_runs: input.warmupRuns ?? 1,
     measured_runs: input.measuredRuns ?? 3,
     unload_other_models: !!input.unloadOtherModels,
+    public_assets_origin: resolvePublicAssetsOrigin(input),
     created_at: new Date().toISOString(),
   };
 }
@@ -84,6 +92,7 @@ export async function* runBench(
   }
 
   const rid = runId();
+  const assetOrigin = resolvePublicAssetsOrigin(input);
   const meta = makeBenchRunMeta(input, detect, rid);
 
   yield { type: "run_started", run_id: rid, meta };
@@ -142,7 +151,7 @@ export async function* runBench(
           type: "scenario_start",
           scenario_id: scenarioId,
           api_route,
-          user_prompt: scenarioUserMessageContent(scenarioId),
+          user_prompt: scenarioUserMessageContent(scenarioId, { publicAssetsOrigin: assetOrigin }),
         };
 
         const controller = new AbortController();
@@ -154,9 +163,192 @@ export async function* runBench(
           let totalMs = 0;
           let streamCompleted = false;
           let tpot: number | null = null;
+          const invokedBenchTools: string[] = [];
 
-          if (api_route === "chat_completions") {
-            const { messages, tools, tool_choice } = buildMessages(scenarioId);
+          if (api_route === "chat_completions" && isTranslateBitcoinPdfToolsScenario(scenarioId)) {
+            const bm = buildMessages(scenarioId, { publicAssetsOrigin: assetOrigin });
+            const messages: unknown[] = [...bm.messages];
+            const tools = bm.tools;
+            const tool_choice = bm.tool_choice ?? "auto";
+            let totalMsAcc = 0;
+            let lastOpen: Awaited<ReturnType<typeof consumeOpenAiChatStream>> | null = null;
+            for (let round = 0; round < MAX_BENCH_TOOL_ROUNDS; round++) {
+              const body: Record<string, unknown> = {
+                model: input.modelId,
+                messages,
+                temperature: meta.temperature,
+                max_tokens: meta.max_tokens,
+                stream: true,
+              };
+              if (tools) {
+                body.tools = tools;
+                body.tool_choice = tool_choice;
+              }
+              const r = await fetchImpl(`${base}/v1/chat/completions`, {
+                method: "POST",
+                headers: headers(input.apiKey),
+                body: JSON.stringify(body),
+                signal: controller.signal,
+              });
+              if (r.status === 429) {
+                yield {
+                  type: "error",
+                  layer: "upstream",
+                  code: "429",
+                  message: "Rate limited",
+                  partial: { scenarioId, api_route },
+                };
+                clearTimeout(to);
+                return;
+              }
+              if (!r.ok || !r.body) {
+                const errText = await r.text().catch(() => "");
+                yield {
+                  type: "error",
+                  layer: "upstream",
+                  code: String(r.status),
+                  message: errText.slice(0, 500),
+                  partial: { scenarioId, api_route },
+                };
+                clearTimeout(to);
+                return;
+              }
+              const m = await consumeOpenAiChatStream(r.body, controller.signal);
+              lastOpen = m;
+              totalMsAcc += m.totalMs;
+              if (ttft === null) ttft = m.ttftMs;
+              streamCompleted = m.streamCompleted;
+              for (const ch of chunkTextForUi(m.assistantText, 24)) {
+                yield { type: "token_delta", scenario_id: scenarioId, text: ch };
+              }
+              if (m.toolCalls?.length) {
+                messages.push({
+                  role: "assistant",
+                  content: m.assistantText.trim() ? m.assistantText : null,
+                  tool_calls: m.toolCalls.map((tc) => ({
+                    id: tc.id,
+                    type: "function",
+                    function: { name: tc.function.name, arguments: tc.function.arguments },
+                  })),
+                });
+                for (const tc of m.toolCalls) {
+                  const toolContent = await executeBenchTool(
+                    tc.function.name,
+                    tc.function.arguments,
+                    fetchImpl,
+                    assetOrigin,
+                  );
+                  if (!invokedBenchTools.includes(tc.function.name)) {
+                    invokedBenchTools.push(tc.function.name);
+                  }
+                  messages.push({
+                    role: "tool",
+                    tool_call_id: tc.id,
+                    content: toolContent,
+                  });
+                }
+                continue;
+              }
+              text = m.assistantText;
+              break;
+            }
+            totalMs = totalMsAcc;
+            if (lastOpen) {
+              tpot = tpotFromOpenAi(lastOpen);
+              if (!text) text = lastOpen.assistantText;
+            }
+          } else if (api_route === "messages" && isTranslateBitcoinPdfToolsScenario(scenarioId)) {
+            const am = anthropicMessagesForScenario(scenarioId, { publicAssetsOrigin: assetOrigin });
+            const anthropicMessages: unknown[] = am.messages.map((x) => ({ ...x }));
+            const toolsAnthropic = anthropicToolsForScenario(scenarioId);
+            let totalMsAcc = 0;
+            let lastAnth: Awaited<ReturnType<typeof consumeAnthropicMessagesStream>> | null = null;
+            for (let round = 0; round < MAX_BENCH_TOOL_ROUNDS; round++) {
+              const body: Record<string, unknown> = {
+                model: input.modelId,
+                max_tokens: meta.max_tokens,
+                temperature: meta.temperature,
+                messages: anthropicMessages,
+                stream: true,
+              };
+              if (am.system) body.system = am.system;
+              if (toolsAnthropic) body.tools = toolsAnthropic;
+              const r = await fetchImpl(`${base}/v1/messages`, {
+                method: "POST",
+                headers: headers(input.apiKey, {
+                  "anthropic-version": "2023-06-01",
+                }),
+                body: JSON.stringify(body),
+                signal: controller.signal,
+              });
+              if (!r.ok || !r.body) {
+                const errText = await r.text().catch(() => "");
+                yield {
+                  type: "error",
+                  layer: "upstream",
+                  code: String(r.status),
+                  message: errText.slice(0, 500),
+                  partial: { scenarioId, api_route },
+                };
+                clearTimeout(to);
+                return;
+              }
+              const m = await consumeAnthropicMessagesStream(r.body, controller.signal);
+              lastAnth = m;
+              totalMsAcc += m.totalMs;
+              if (ttft === null) ttft = m.ttftMs;
+              streamCompleted = m.streamCompleted;
+              for (const ch of chunkTextForUi(m.assistantText, 24)) {
+                yield { type: "token_delta", scenario_id: scenarioId, text: ch };
+              }
+              if (m.toolUses?.length) {
+                anthropicMessages.push({
+                  role: "assistant",
+                  content: [
+                    ...(m.assistantText.trim() ? [{ type: "text", text: m.assistantText }] : []),
+                    ...m.toolUses.map((tu) => ({
+                      type: "tool_use",
+                      id: tu.id,
+                      name: tu.name,
+                      input: tu.input,
+                    })),
+                  ],
+                });
+                const toolResults = [];
+                for (const tu of m.toolUses) {
+                  const toolContent = await executeBenchTool(
+                    tu.name,
+                    JSON.stringify(tu.input ?? {}),
+                    fetchImpl,
+                    assetOrigin,
+                  );
+                  if (!invokedBenchTools.includes(tu.name)) {
+                    invokedBenchTools.push(tu.name);
+                  }
+                  toolResults.push({
+                    type: "tool_result",
+                    tool_use_id: tu.id,
+                    content: toolContent,
+                  });
+                }
+                anthropicMessages.push({ role: "user", content: toolResults });
+                continue;
+              }
+              text = m.assistantText;
+              break;
+            }
+            totalMs = totalMsAcc;
+            if (lastAnth) {
+              tpot =
+                lastAnth.ttftMs !== null && lastAnth.approxOutputTokens > 1
+                  ? (lastAnth.totalMs - lastAnth.ttftMs) / (lastAnth.approxOutputTokens - 1)
+                  : null;
+              if (!text) text = lastAnth.assistantText;
+            }
+          } else if (api_route === "chat_completions") {
+            const { messages, tools, tool_choice } = buildMessages(scenarioId, {
+              publicAssetsOrigin: assetOrigin,
+            });
             const body: Record<string, unknown> = {
               model: input.modelId,
               messages,
@@ -207,21 +399,8 @@ export async function* runBench(
               yield { type: "token_delta", scenario_id: scenarioId, text: ch };
             }
           } else {
-            const am = anthropicMessagesForScenario(scenarioId);
-            const toolsAnthropic =
-              scenarioId === "tool_weather"
-                ? [
-                    {
-                      name: "get_weather",
-                      description: "Get weather for a city",
-                      input_schema: {
-                        type: "object",
-                        properties: { city: { type: "string" } },
-                        required: ["city"],
-                      },
-                    },
-                  ]
-                : undefined;
+            const am = anthropicMessagesForScenario(scenarioId, { publicAssetsOrigin: assetOrigin });
+            const toolsAnthropic = anthropicToolsForScenario(scenarioId);
             const body: Record<string, unknown> = {
               model: input.modelId,
               max_tokens: meta.max_tokens,
@@ -266,7 +445,9 @@ export async function* runBench(
             }
           }
 
-          const quality = isWarmup ? undefined : scoreScenario(scenarioId, text);
+          const quality = isWarmup
+            ? undefined
+            : scoreScenario(scenarioId, text, { invokedBenchTools });
           if (!isWarmup) {
             runs.push({
               ttft_ms: ttft,

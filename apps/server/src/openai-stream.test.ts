@@ -21,6 +21,8 @@ describe("consumeOpenAiChatStream", () => {
     ]);
     const m = await consumeOpenAiChatStream(stream);
     expect(m.text).toBe("Hello world from stream");
+    expect(m.assistantText).toBe("Hello world from stream");
+    expect(m.toolCalls).toBeNull();
     expect(m.ttftMs).not.toBeNull();
     expect(m.streamCompleted).toBe(true);
     const tpot = tpotFromOpenAi(m);
@@ -74,10 +76,14 @@ describe("consumeOpenAiChatStream", () => {
 
   it("captures standard content deltas for translate scoring (baseline when upstream is OpenAI-shaped)", async () => {
     const stream = sse([
-      'data: {"choices":[{"delta":{"content":"네트워크는 짧게 연결됩니다."}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"비트코인은 디지털 화폐입니다."}}]}\n\n',
       "data: [DONE]\n\n",
     ]);
     const m = await consumeOpenAiChatStream(stream);
-    expect(scoreScenario("translate_roundtrip_stub", m.text).pass).toBe(true);
+    expect(
+      scoreScenario("translate_bitcoin_pdf_tools", m.assistantText, {
+        invokedBenchTools: ["fetch_pdf_text"],
+      }).pass,
+    ).toBe(true);
   });
 });

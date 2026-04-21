@@ -1,7 +1,15 @@
+export type AnthropicToolUseOut = {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+};
+
 export type AnthropicStreamMetrics = {
   ttftMs: number | null;
   totalMs: number;
   text: string;
+  assistantText: string;
+  toolUses: AnthropicToolUseOut[] | null;
   streamCompleted: boolean;
   approxOutputTokens: number;
 };
@@ -18,6 +26,8 @@ export async function consumeAnthropicMessagesStream(
       ttftMs: null,
       totalMs: 0,
       text: "",
+      assistantText: "",
+      toolUses: null,
       streamCompleted: false,
       approxOutputTokens: 0,
     };
@@ -100,6 +110,21 @@ export async function consumeAnthropicMessagesStream(
   if (carry.trim()) flushEventBlock(carry);
 
   const totalMs = performance.now() - t0;
+  const toolUses: AnthropicToolUseOut[] = [...toolUseByIndex.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([index, tu]) => {
+      let input: Record<string, unknown> = {};
+      try {
+        input = JSON.parse(tu.inputJson || "{}") as Record<string, unknown>;
+      } catch {
+        input = {};
+      }
+      return {
+        id: tu.id || `toolu_bench_${index}`,
+        name: tu.name,
+        input,
+      };
+    });
   let outText = text;
   if (toolUseByIndex.size > 0) {
     const tool_calls = [...toolUseByIndex.entries()]
@@ -119,6 +144,8 @@ export async function consumeAnthropicMessagesStream(
     ttftMs: ttft,
     totalMs,
     text: outText,
+    assistantText: text,
+    toolUses: toolUses.length ? toolUses : null,
     streamCompleted: sawMessageDelta || outText.length > 0,
     approxOutputTokens,
   };

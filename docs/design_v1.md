@@ -31,9 +31,10 @@ https://github.com/ollama/ollama/blob/main/docs/api.md
 - 코딩 테스트
   - 언어는 ts/js 와 파이썬 한정
   - 정렬 알고리즘 작성
-- 번역 테스트
-  - 원본: 영어로 작성된 [CONX 백서](docs/CONX_Whitepaper_v2.0.1.pdf)
-  - 한국어, 일본어, 중국어-간체, 중국어-번체로 각각 번역 후 다시 영어로 번역
+- 번역·툴 통합 테스트 (`translate_bitcoin_pdf_tools`)
+  - 원본: 웹 UI `public`에 둔 [비트코인 백서 PDF](apps/web/public/bitcoin.pdf)를 Vite가 `/bitcoin.pdf`로 서빙
+  - 벤치 서버가 `fetch_url` / `fetch_pdf_text` 도구를 실행(SSRF 방지로 해당 origin의 `/bitcoin.pdf`만 허용)하고, UI는 `publicAssetsOrigin`(보통 `window.location.origin`)을 벤치 API에 전달
+  - 모델은 PDF 본문을 툴로 읽은 뒤 **한국어 한 문장**으로만 요약·번역
 
 ## UI / UX
 

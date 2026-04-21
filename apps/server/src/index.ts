@@ -158,6 +158,7 @@ const BenchStreamBody = z.object({
     measuredRuns: z.number().optional(),
     skipModelLoad: z.boolean().optional(),
     unloadOtherModels: z.boolean().optional(),
+    publicAssetsOrigin: z.string().url().optional(),
   }),
 });
 
@@ -179,6 +180,7 @@ app.post("/api/bench/stream", async (c) => {
     measuredRuns: bench.measuredRuns,
     skipModelLoad: bench.skipModelLoad,
     unloadOtherModels: bench.unloadOtherModels,
+    publicAssetsOrigin: bench.publicAssetsOrigin,
   };
 
   type Persister = { start(meta: BenchRunMeta): void; onEvent(ev: StreamEvent): void; finalize(): void };

@@ -97,6 +97,13 @@ function consumeSseJsonLines(
   })();
 }
 
+function defaultScenarioPromptPreview(scenarioId: string): string {
+  if (scenarioId === "translate_bitcoin_pdf_tools" && typeof window !== "undefined") {
+    return getScenarioUserPromptPreview(scenarioId, { publicAssetBaseUrl: window.location.origin });
+  }
+  return getScenarioUserPromptPreview(scenarioId);
+}
+
 function ThemeIcon({ choice }: { choice: ThemeChoice }) {
   if (choice === "dark") return <Moon className="size-4 text-[var(--muted)]" aria-hidden />;
   if (choice === "light") return <Sun className="size-4 text-[var(--muted)]" aria-hidden />;
@@ -222,7 +229,7 @@ export function App() {
         tpot_ms: row.tpot_ms,
         pass: row.pass,
         qualityReason: row.reason ?? last?.quality?.reason,
-        prompt: liveUserPromptByRowKey[row.rowKey] ?? getScenarioUserPromptPreview(row.scenario),
+        prompt: liveUserPromptByRowKey[row.rowKey] ?? defaultScenarioPromptPreview(row.scenario),
         outputText: last?.output_text ?? "",
       });
       setDrawerOpen(true);
@@ -250,7 +257,7 @@ export function App() {
         tpot_ms: row.tpot > 0 ? row.tpot : null,
         pass: row.pass,
         qualityReason: last?.quality?.reason,
-        prompt: liveUserPromptByRowKey[key] ?? getScenarioUserPromptPreview(row.scenario),
+        prompt: liveUserPromptByRowKey[key] ?? defaultScenarioPromptPreview(row.scenario),
         outputText: last?.output_text ?? "",
       });
       setDrawerOpen(true);
@@ -276,7 +283,7 @@ export function App() {
           tpot_ms: last?.tpot_ms ?? null,
           pass: last?.quality?.pass,
           qualityReason: last?.quality?.reason,
-          prompt: sc.prompt_preview ?? getScenarioUserPromptPreview(scenario),
+          prompt: sc.prompt_preview ?? defaultScenarioPromptPreview(scenario),
           outputText: last?.output_text ?? "",
         });
         setDrawerOpen(true);
@@ -407,7 +414,7 @@ export function App() {
         tpot_ms: last?.tpot_ms ?? null,
         pass: last?.quality?.pass,
         qualityReason: last?.quality?.reason,
-        prompt: sc.prompt_preview ?? getScenarioUserPromptPreview(sc.id),
+        prompt: sc.prompt_preview ?? defaultScenarioPromptPreview(sc.id),
         outputText: last?.output_text ?? "",
       });
       setDrawerOpen(true);
@@ -540,6 +547,7 @@ export function App() {
               parallel,
               skipModelLoad: detect.provider !== "lm_studio",
               unloadOtherModels,
+              publicAssetsOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
             },
           }),
         });

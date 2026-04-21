@@ -80,6 +80,8 @@ export const BenchRunMetaSchema = z.object({
   measured_runs: z.number(),
   /** LM Studio: 벤치 대상 외 감지 모델에 unload 시도 여부 */
   unload_other_models: z.boolean().optional(),
+  /** Vite 등에서 서빙하는 public 자산 베이스 (예: http://127.0.0.1:21104) — bitcoin.pdf URL 허용용 */
+  public_assets_origin: z.string().optional(),
   created_at: z.string(),
 });
 export type BenchRunMeta = z.infer<typeof BenchRunMetaSchema>;
@@ -100,7 +102,7 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     type: z.literal("scenario_start"),
     scenario_id: z.string(),
     api_route: z.enum(["chat_completions", "messages"]),
-    /** 실제 user 메시지(번역 fixtures 발췌 등) — 라이브 UI 상세와 요청 정합용 */
+    /** 실제 user 메시지 — 라이브 UI 상세와 요청 정합용 */
     user_prompt: z.string().optional(),
   }),
   z.object({

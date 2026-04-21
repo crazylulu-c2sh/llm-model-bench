@@ -1,1 +1,0 @@
-This is a short excerpt placeholder for internal benchmarking. The network connects systems and enables coordination across distributed components. Replace with text extracted from CONX whitepaper if needed for production runs.
