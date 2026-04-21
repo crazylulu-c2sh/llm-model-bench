@@ -60,6 +60,41 @@ describe("scoreScenario chat_time_calendar", () => {
       }).pass,
     ).toBe(false);
   });
+
+  it("passes when YYYY-MM-DD uses fullwidth digits (NFKC)", () => {
+    const iso = "2024-01-15T15:00:00.000Z";
+    const triple = expectedCalendarTriple(iso, "Asia/Seoul");
+    expect(triple).not.toBeNull();
+    const [y, td, tm] = triple!;
+    const toFull = (ascii: string) =>
+      ascii.replace(/[-0-9]/g, (ch) => {
+        if (ch === "-") return "\uFF0D";
+        const d = ch.charCodeAt(0) - 0x30;
+        return String.fromCharCode(0xff10 + d);
+      });
+    const out = `어제 ${toFull(y)}, 오늘 ${toFull(td)}, 내일 ${toFull(tm)}`;
+    expect(
+      scoreScenario("chat_time_calendar", out, {
+        calendarReferenceIso: iso,
+        calendarTimeZone: "Asia/Seoul",
+      }).pass,
+    ).toBe(true);
+  });
+
+  it("passes when zero-width spaces sit inside date tokens", () => {
+    const iso = "2024-01-15T15:00:00.000Z";
+    const triple = expectedCalendarTriple(iso, "Asia/Seoul");
+    expect(triple).not.toBeNull();
+    const [y, td, tm] = triple!;
+    const z = "\u200B";
+    const out = `어제 ${y.slice(0, 4)}${z}${y.slice(4)}, 오늘 ${td}, 내일 ${tm}`;
+    expect(
+      scoreScenario("chat_time_calendar", out, {
+        calendarReferenceIso: iso,
+        calendarTimeZone: "Asia/Seoul",
+      }).pass,
+    ).toBe(true);
+  });
 });
 
 describe("expectedCalendarTriple", () => {

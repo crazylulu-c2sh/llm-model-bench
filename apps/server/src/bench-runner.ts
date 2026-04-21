@@ -413,6 +413,8 @@ export async function* runBench(
         }[] = [];
 
         const totalIterations = meta.warmup_runs + meta.measured_runs;
+        /** 집계 `runs`의 마지막 측정 런과 동일한 참조를 쓴 user 프롬프트 스냅샷 */
+        let lastUserPromptForAggregate = "";
         for (let i = 0; i < totalIterations; i++) {
           const isWarmup = i < meta.warmup_runs;
           const ref = new Date();
@@ -430,11 +432,13 @@ export async function* runBench(
           const stripThinkHistory =
             scenarioMeta.prompt_rules_applied
               ?.stripThinkingFromAssistantHistory === true;
+          const userPromptThisRun = scenarioUserMessageContent(scenarioId, promptCtx);
+          lastUserPromptForAggregate = userPromptThisRun;
           yield {
             type: "scenario_start",
             scenario_id: scenarioId,
             api_route,
-            user_prompt: scenarioUserMessageContent(scenarioId, promptCtx),
+            user_prompt: userPromptThisRun,
           };
 
           const controller = new AbortController();
@@ -842,6 +846,7 @@ export async function* runBench(
           aggregate: {
             scenario_id: scenarioId,
             api_route,
+            user_prompt: lastUserPromptForAggregate,
             runs,
           },
         };

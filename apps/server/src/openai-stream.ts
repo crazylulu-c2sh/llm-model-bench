@@ -7,9 +7,12 @@ export type OpenAiToolCallOut = {
 export type OpenAiStreamMetrics = {
   ttftMs: number | null;
   totalMs: number;
-  /** 모델 텍스트 + (있으면) 줄바꿈 후 직렬화된 tool_calls JSON — 기존 스코어링 호환 */
+  /**
+   * reasoning_content / reasoning(문자열) 델타 + content 델타 순으로 누적한 전체 텍스트 +
+   * (있으면) 줄바꿈 후 직렬화된 tool_calls JSON — 벤치 채점·output_text·토큰 델타 UI
+   */
   text: string;
-  /** content 델타만 (tool_calls 직렬화 제외) */
+  /** `delta.content`만 (tool_calls·추론 채널 제외) — 도구 라운드 히스토리 등 */
   assistantText: string;
   toolCalls: OpenAiToolCallOut[] | null;
   streamCompleted: boolean;
@@ -79,7 +82,10 @@ export async function consumeOpenAiChatStream(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let text = "";
+  /** reasoning + content (채점·저장용) */
+  let combined = "";
+  /** delta.content 만 */
+  let contentOnly = "";
   const toolByIndex = new Map<number, MergedToolCall>();
   const t0 = performance.now();
   let ttft: number | null = null;
@@ -102,15 +108,28 @@ export async function consumeOpenAiChatStream(
         choices?: {
           delta?: {
             content?: string;
+            reasoning_content?: string;
+            reasoning?: unknown;
             tool_calls?: DeltaToolCall[];
           };
         }[];
       };
       const delta = j.choices?.[0]?.delta;
+      const rc = delta?.reasoning_content;
+      if (typeof rc === "string" && rc.length > 0) {
+        markTtft();
+        combined += rc;
+      }
+      const rsn = delta?.reasoning;
+      if (typeof rsn === "string" && rsn.length > 0) {
+        markTtft();
+        combined += rsn;
+      }
       const c = delta?.content;
       if (c) {
         markTtft();
-        text += c;
+        combined += c;
+        contentOnly += c;
       }
       const tc = delta?.tool_calls;
       if (tc?.length) {
@@ -139,7 +158,7 @@ export async function consumeOpenAiChatStream(
       type: "function" as const,
       function: { name: tc.name, arguments: tc.arguments },
     }));
-  let outText = text;
+  let outText = combined;
   if (toolByIndex.size > 0) {
     const serialized = serializeMergedToolCalls(toolByIndex);
     if (outText) outText = `${outText}\n${serialized}`;
@@ -150,7 +169,7 @@ export async function consumeOpenAiChatStream(
     ttftMs: ttft,
     totalMs,
     text: outText,
-    assistantText: text,
+    assistantText: contentOnly,
     toolCalls: toolCallsForApi.length ? toolCallsForApi : null,
     streamCompleted,
     approxOutputTokens,

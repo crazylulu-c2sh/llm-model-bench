@@ -215,6 +215,14 @@ export function expectedCalendarTriple(iso: string, timeZone: string): [string, 
   return [yest, todayStr, tom];
 }
 
+/** NFKC + zero-width 제거 후 소문자 — 복제 유니코드 날짜와 ASCII `YYYY-MM-DD` 채점 정합 */
+function normalizeForCalendarDateMatch(s: string): string {
+  return s
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .toLowerCase();
+}
+
 function scoreChatTimeCalendar(output: string, iso: string | undefined, timeZone: string | undefined): {
   pass: boolean;
   score?: number;
@@ -226,7 +234,7 @@ function scoreChatTimeCalendar(output: string, iso: string | undefined, timeZone
   if (!iso) return { pass: false, score: 0, reason: "missing calendar reference" };
   const triple = expectedCalendarTriple(iso, tz);
   if (!triple) return { pass: false, score: 0, reason: "invalid calendar reference" };
-  const norm = trimmed.toLowerCase();
+  const norm = normalizeForCalendarDateMatch(trimmed);
   const missing = triple.filter((ymd) => !norm.includes(ymd.toLowerCase()));
   if (missing.length === 0) return { pass: true, score: 1 };
   return { pass: false, score: 0, reason: `missing dates: ${missing.join(", ")}` };

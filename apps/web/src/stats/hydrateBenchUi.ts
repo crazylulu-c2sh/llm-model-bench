@@ -11,6 +11,8 @@ import {
 export type MetricsAgg = {
   scenario_id: string;
   api_route: "chat_completions" | "messages";
+  /** 마지막 측정 런과 동일한 user 프롬프트(라이브 aggregate 또는 DB prompt_preview) */
+  user_prompt?: string;
   runs: Array<{
     ttft_ms: number | null;
     tpot_ms: number | null;
@@ -39,6 +41,9 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
       detailAggregate[rowKey] = {
         scenario_id: sc.id,
         api_route: sc.api_route,
+        ...(sc.prompt_preview != null && sc.prompt_preview !== ""
+          ? { user_prompt: sc.prompt_preview }
+          : {}),
         runs,
       };
       if (sc.prompt_preview != null && sc.prompt_preview !== "") {

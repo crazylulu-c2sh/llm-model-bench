@@ -13,6 +13,9 @@ export type ScenarioDetailPayload = {
   qualityReason?: string;
   prompt: string;
   outputText: string;
+  /** 마지막으로 표시 중인 측정 런(1-based) / 총 측정 런 수 */
+  measuredRunIndex?: number;
+  measuredRunTotal?: number;
 };
 
 export function ScenarioDetailDrawer({
@@ -119,6 +122,11 @@ export function ScenarioDetailDrawer({
           </div>
           {showThinkingSplit ? (
             <>
+              {payload.measuredRunIndex != null && payload.measuredRunTotal != null ? (
+                <p className="text-xs text-[var(--muted)]">
+                  표시 중: 측정 런 {payload.measuredRunIndex}/{payload.measuredRunTotal} (집계의 마지막 런)
+                </p>
+              ) : null}
               <div>
                 <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">사고 블록</h3>
                 <JsonCodeBlock code={thinking || "—"} language="markdown" enabled={hlPreview} maxHeight={240} />
@@ -130,7 +138,12 @@ export function ScenarioDetailDrawer({
             </>
           ) : (
             <div>
-              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">모델 출력 (마지막 측정 런)</h3>
+              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                모델 출력
+                {payload.measuredRunIndex != null && payload.measuredRunTotal != null
+                  ? ` (측정 ${payload.measuredRunIndex}/${payload.measuredRunTotal})`
+                  : " (마지막 측정 런)"}
+              </h3>
               <JsonCodeBlock code={payload.outputText || "—"} language="markdown" enabled={hlPreview} maxHeight={320} />
             </div>
           )}

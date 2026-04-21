@@ -86,4 +86,38 @@ describe("consumeOpenAiChatStream", () => {
       }).pass,
     ).toBe(true);
   });
+
+  it("accumulates reasoning_content-only streams into text (assistantText stays content-only)", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"reasoning_content":"think "}}]}\n\n',
+      'data: {"choices":[{"delta":{"reasoning_content":"2026-04-20 2026-04-21"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.assistantText).toBe("");
+    expect(m.text).toBe("think 2026-04-20 2026-04-21");
+    expect(m.ttftMs).not.toBeNull();
+  });
+
+  it("interleaves reasoning_content then content in text", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"reasoning_content":"[r]"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":" visible"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.text).toBe("[r] visible");
+    expect(m.assistantText).toBe(" visible");
+  });
+
+  it("appends string delta.reasoning when present", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"reasoning":"alt "}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"tail"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.text).toBe("alt tail");
+    expect(m.assistantText).toBe("tail");
+  });
 });

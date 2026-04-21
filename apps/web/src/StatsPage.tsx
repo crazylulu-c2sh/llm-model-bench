@@ -172,6 +172,7 @@ export function StatsPage() {
       const agg = detailAggregate[row.rowKey];
       const runs = agg?.runs ?? [];
       const last = runs[runs.length - 1];
+      const n = runs.length;
       setDrawerPayload({
         title: `${row.scenario} / ${row.api}`,
         scenario: row.scenario,
@@ -181,8 +182,13 @@ export function StatsPage() {
         tpot_ms: row.tpot_ms,
         pass: row.pass,
         qualityReason: row.reason ?? last?.quality?.reason,
-        prompt: promptByRowKey[row.rowKey] ?? defaultScenarioPromptPreview(row.scenario),
+        prompt:
+          agg?.user_prompt ??
+          promptByRowKey[row.rowKey] ??
+          defaultScenarioPromptPreview(row.scenario),
         outputText: last?.output_text ?? "",
+        measuredRunIndex: n > 0 ? n : undefined,
+        measuredRunTotal: n > 0 ? n : undefined,
       });
       setDrawerOpen(true);
     },
@@ -200,6 +206,7 @@ export function StatsPage() {
       const agg = detailAggregate[key];
       const runs = agg?.runs ?? [];
       const last = runs[runs.length - 1];
+      const n = runs.length;
       setDrawerPayload({
         title: `${row.scenario} / ${row.api}`,
         scenario: row.scenario,
@@ -209,8 +216,13 @@ export function StatsPage() {
         tpot_ms: row.tpot > 0 ? row.tpot : null,
         pass: row.pass,
         qualityReason: last?.quality?.reason,
-        prompt: promptByRowKey[key] ?? defaultScenarioPromptPreview(row.scenario),
+        prompt:
+          agg?.user_prompt ??
+          promptByRowKey[key] ??
+          defaultScenarioPromptPreview(row.scenario),
         outputText: last?.output_text ?? "",
+        measuredRunIndex: n > 0 ? n : undefined,
+        measuredRunTotal: n > 0 ? n : undefined,
       });
       setDrawerOpen(true);
     },

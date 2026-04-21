@@ -61,6 +61,7 @@ type DetectModel = DetectResult["models"][number];
 type MetricsAgg = {
   scenario_id: string;
   api_route: "chat_completions" | "messages";
+  user_prompt?: string;
   runs: Array<{
     ttft_ms: number | null;
     tpot_ms: number | null;
@@ -389,6 +390,7 @@ export function App() {
       const agg = detailAggregate[row.rowKey];
       const runs = agg?.runs ?? [];
       const last = runs[runs.length - 1];
+      const n = runs.length;
       setDrawerPayload({
         title: `${row.scenario} / ${row.api}`,
         scenario: row.scenario,
@@ -398,8 +400,13 @@ export function App() {
         tpot_ms: row.tpot_ms,
         pass: row.pass,
         qualityReason: row.reason ?? last?.quality?.reason,
-        prompt: liveUserPromptByRowKey[row.rowKey] ?? defaultScenarioPromptPreview(row.scenario),
+        prompt:
+          agg?.user_prompt ??
+          liveUserPromptByRowKey[row.rowKey] ??
+          defaultScenarioPromptPreview(row.scenario),
         outputText: last?.output_text ?? "",
+        measuredRunIndex: n > 0 ? n : undefined,
+        measuredRunTotal: n > 0 ? n : undefined,
       });
       setDrawerOpen(true);
     },
@@ -417,6 +424,7 @@ export function App() {
       const agg = detailAggregate[key];
       const runs = agg?.runs ?? [];
       const last = runs[runs.length - 1];
+      const n = runs.length;
       setDrawerPayload({
         title: `${row.scenario} / ${row.api}`,
         scenario: row.scenario,
@@ -426,8 +434,13 @@ export function App() {
         tpot_ms: row.tpot > 0 ? row.tpot : null,
         pass: row.pass,
         qualityReason: last?.quality?.reason,
-        prompt: liveUserPromptByRowKey[key] ?? defaultScenarioPromptPreview(row.scenario),
+        prompt:
+          agg?.user_prompt ??
+          liveUserPromptByRowKey[key] ??
+          defaultScenarioPromptPreview(row.scenario),
         outputText: last?.output_text ?? "",
+        measuredRunIndex: n > 0 ? n : undefined,
+        measuredRunTotal: n > 0 ? n : undefined,
       });
       setDrawerOpen(true);
     },
@@ -444,6 +457,7 @@ export function App() {
         if (!sc) continue;
         const runs = sc.runs ?? [];
         const last = runs[runs.length - 1];
+        const n = runs.length;
         setDrawerPayload({
           title: `${scenario} / ${api} · ${it.model_id}`,
           scenario,
@@ -455,6 +469,8 @@ export function App() {
           qualityReason: last?.quality?.reason,
           prompt: sc.prompt_preview ?? defaultScenarioPromptPreview(scenario),
           outputText: last?.output_text ?? "",
+          measuredRunIndex: n > 0 ? n : undefined,
+          measuredRunTotal: n > 0 ? n : undefined,
         });
         setDrawerOpen(true);
         return;
@@ -576,6 +592,7 @@ export function App() {
       }
       const runs = sc.runs ?? [];
       const last = runs[runs.length - 1];
+      const n = runs.length;
       setDrawerPayload({
         title: `${sc.id} / ${sc.api_route} · ${detail.meta.model_id}`,
         scenario: sc.id,
@@ -587,6 +604,8 @@ export function App() {
         qualityReason: last?.quality?.reason,
         prompt: sc.prompt_preview ?? defaultScenarioPromptPreview(sc.id),
         outputText: last?.output_text ?? "",
+        measuredRunIndex: n > 0 ? n : undefined,
+        measuredRunTotal: n > 0 ? n : undefined,
       });
       setDrawerOpen(true);
     } catch (e) {
