@@ -1,4 +1,5 @@
-import type { BenchRunMeta, DetectResult, StreamEvent } from "@llm-bench/shared";
+import type { BenchRunMeta, BenchTaskMode, DetectResult, StreamEvent, ThinkingIntent } from "@llm-bench/shared";
+import { stripThinkingBlocks } from "@llm-bench/shared";
 import { consumeAnthropicMessagesStream } from "./anthropic-stream.js";
 import { consumeOpenAiChatStream, tpotFromOpenAi } from "./openai-stream.js";
 import {
@@ -12,6 +13,7 @@ import {
   type ScenarioId,
 } from "./scenarios.js";
 import { lmStudioIsModelLoaded, lmStudioLoad, lmStudioUnload } from "./lmstudio.js";
+import { buildProfileAugmentedMeta, openAiExtrasFromMeta, type BenchProfileRequestFields } from "./profile.js";
 import { executeBenchTool, resolvePublicAssetsOrigin } from "./tooling/bench-tools.js";
 
 export type BenchRequest = {
@@ -34,6 +36,10 @@ export type BenchRequest = {
   unloadOtherModels?: boolean;
   /** Vite `public/` 베이스 URL (예: window.location.origin) — nist.fips.197.pdf 툴 fetch 허용 */
   publicAssetsOrigin?: string;
+  /** 모델 카드 기반 샘플링/사고 모드 프로파일 */
+  profile?: BenchProfileRequestFields;
+  /** 프로파일 전용 max_tokens (UI). 일반 `max_tokens`와 분리해 시나리오별 권장값과 충돌하지 않게 함 */
+  profileMaxTokens?: number;
 };
 
 const MAX_BENCH_TOOL_ROUNDS = 8;
@@ -49,7 +55,12 @@ function runId(): string {
 }
 
 /** DB/SSE와 동일한 메타 스냅샷(런 ID만 외부에서 주입). */
-export function makeBenchRunMeta(input: BenchRequest, detect: DetectResult, rid: string): BenchRunMeta {
+export function makeBenchRunMeta(
+  input: BenchRequest,
+  detect: DetectResult,
+  rid: string,
+  opts?: { profileMaxTokensOverride?: number | null },
+): BenchRunMeta {
   const base = detect.baseUrl.replace(/\/+$/, "");
   const scenarioIds =
     input.scenarioIds?.length && input.scenarioIds.every((s) => ALL_SCENARIO_IDS.includes(s as ScenarioId))
@@ -58,7 +69,7 @@ export function makeBenchRunMeta(input: BenchRequest, detect: DetectResult, rid:
   const routes: ("chat_completions" | "messages")[] = [];
   if (detect.capabilities.openaiChat) routes.push("chat_completions");
   if (detect.capabilities.anthropicMessages) routes.push("messages");
-  return {
+  const baseMeta: BenchRunMeta = {
     run_id: rid,
     app_version: "0.0.1",
     base_url: base,
@@ -77,6 +88,140 @@ export function makeBenchRunMeta(input: BenchRequest, detect: DetectResult, rid:
     public_assets_origin: resolvePublicAssetsOrigin(input),
     created_at: new Date().toISOString(),
   };
+  if (!input.profile) return baseMeta;
+  return buildProfileAugmentedMeta(baseMeta, {
+    modelId: input.modelId,
+    profile: input.profile,
+    profileMaxTokens: opts?.profileMaxTokensOverride ?? input.profileMaxTokens ?? null,
+  });
+}
+
+function taskModeForScenario(scenarioId: ScenarioId): BenchTaskMode {
+  if (scenarioId === "tool_weather" || isTranslateNistFips197PdfToolsScenario(scenarioId)) return "tool";
+  if (scenarioId.startsWith("code_")) return "coding";
+  return "general";
+}
+
+function thinkingIntentForScenario(scenarioId: ScenarioId, globalIntent: ThinkingIntent): ThinkingIntent {
+  if (scenarioId === "structured_action") return "off";
+  return globalIntent;
+}
+
+function sanitizeOpenAiAssistantContent(
+  content: unknown,
+  stripThinking: boolean,
+): string | null | Array<Record<string, unknown>> {
+  if (content == null) return null;
+  if (typeof content === "string") {
+    const t = stripThinking ? stripThinkingBlocks(content) : content;
+    return t.trim() ? t : null;
+  }
+  if (Array.isArray(content)) {
+    const next = content
+      .map((part) => {
+        if (!part || typeof part !== "object") return part;
+        const p = part as { type?: string; text?: string };
+        if (p.type === "text" && typeof p.text === "string") {
+          const t = stripThinking ? stripThinkingBlocks(p.text) : p.text;
+          return { ...p, text: t };
+        }
+        return part;
+      })
+      .filter((part) => {
+        if (!part || typeof part !== "object") return true;
+        const p = part as { type?: string; text?: string };
+        if (p.type === "text" && typeof p.text === "string") return p.text.trim().length > 0;
+        return true;
+      });
+    return next as Array<Record<string, unknown>>;
+  }
+  return content as Array<Record<string, unknown>>;
+}
+
+function mergeOpenAiBody(meta: BenchRunMeta, base: Record<string, unknown>): Record<string, unknown> {
+  const extras = openAiExtrasFromMeta(meta);
+  return { ...base, ...extras };
+}
+
+function makeScenarioBenchRunMeta(
+  input: BenchRequest,
+  detect: DetectResult,
+  rid: string,
+  scenarioId: ScenarioId,
+): BenchRunMeta {
+  const taskMode = taskModeForScenario(scenarioId);
+  const thinkingIntent = thinkingIntentForScenario(scenarioId, input.profile?.thinkingIntent ?? "on");
+  const merged: BenchRequest = {
+    ...input,
+    profile: input.profile
+      ? { ...input.profile, taskMode, thinkingIntent }
+      : { taskMode, thinkingIntent },
+  };
+  return makeBenchRunMeta(merged, detect, rid, { profileMaxTokensOverride: null });
+}
+
+function applyGemmaThinkTokenToOpenAiMessages(
+  messages: { role: string; content?: unknown; tool_calls?: unknown; tool_call_id?: string }[],
+): void {
+  const sysIdx = messages.findIndex((m) => m.role === "system");
+  const token = "<|think|>";
+  if (sysIdx >= 0) {
+    const c = messages[sysIdx].content;
+    if (typeof c === "string") {
+      if (!c.includes(token)) messages[sysIdx].content = `${token}${c}`;
+    } else {
+      messages.unshift({ role: "system", content: token });
+    }
+    return;
+  }
+  messages.unshift({ role: "system", content: token });
+}
+
+function sanitizeOpenAiMessagesForHistory(
+  messages: { role: string; content?: unknown; tool_calls?: unknown; tool_call_id?: string }[],
+  strip: boolean,
+): void {
+  if (!strip) return;
+  for (const m of messages) {
+    if (m.role === "assistant") {
+      m.content = sanitizeOpenAiAssistantContent(m.content, true);
+    }
+  }
+}
+
+function prepareOpenAiMessages(
+  scenarioId: ScenarioId,
+  promptCtx: { publicAssetsOrigin?: string; referenceAt: Date; calendarTimeZone: string },
+  scenarioMeta: BenchRunMeta,
+): { messages: { role: string; content?: unknown; tool_calls?: unknown; tool_call_id?: string }[]; tools?: unknown; tool_choice?: unknown } {
+  const built = buildMessages(scenarioId, promptCtx);
+  const messages = built.messages.map((m) => ({ ...m })) as {
+    role: string;
+    content?: unknown;
+    tool_calls?: unknown;
+    tool_call_id?: string;
+  }[];
+  if (scenarioMeta.prompt_rules_applied?.gemmaThinkToken && scenarioMeta.profile_thinking_intent !== "off") {
+    applyGemmaThinkTokenToOpenAiMessages(messages);
+  }
+  return { messages, tools: built.tools, tool_choice: built.tool_choice };
+}
+
+function prepareAnthropicScenario(
+  scenarioId: ScenarioId,
+  promptCtx: { publicAssetsOrigin?: string; referenceAt: Date; calendarTimeZone: string },
+  scenarioMeta: BenchRunMeta,
+): {
+  system?: string;
+  messages: { role: "user" | "assistant"; content: string }[];
+} {
+  const am = anthropicMessagesForScenario(scenarioId, promptCtx);
+  let system = am.system;
+  if (scenarioMeta.prompt_rules_applied?.gemmaThinkToken && scenarioMeta.profile_thinking_intent !== "off") {
+    const token = "<|think|>";
+    system = system && system.length ? `${token}${system}` : token;
+  }
+  return { system, messages: am.messages.map((m) => ({ ...m })) };
 }
 
 export async function* runBench(
@@ -93,7 +238,7 @@ export async function* runBench(
 
   const rid = runId();
   const assetOrigin = resolvePublicAssetsOrigin(input);
-  const meta = makeBenchRunMeta(input, detect, rid);
+  const meta = makeBenchRunMeta(input, detect, rid, { profileMaxTokensOverride: input.profileMaxTokens ?? null });
 
   yield { type: "run_started", run_id: rid, meta };
 
@@ -156,6 +301,8 @@ export async function* runBench(
           referenceAt: ref,
           calendarTimeZone: "Asia/Seoul",
         };
+        const scenarioMeta = makeScenarioBenchRunMeta(input, detect, meta.run_id, scenarioId);
+        const stripThinkHistory = scenarioMeta.prompt_rules_applied?.stripThinkingFromAssistantHistory === true;
         yield {
           type: "scenario_start",
           scenario_id: scenarioId,
@@ -175,24 +322,21 @@ export async function* runBench(
           const invokedBenchTools: string[] = [];
 
           if (api_route === "chat_completions" && isTranslateNistFips197PdfToolsScenario(scenarioId)) {
-            const bm = buildMessages(scenarioId, promptCtx);
+            const bm = prepareOpenAiMessages(scenarioId, promptCtx, scenarioMeta);
             const messages: unknown[] = [...bm.messages];
             const tools = bm.tools;
             const tool_choice = bm.tool_choice ?? "auto";
             let totalMsAcc = 0;
             let lastOpen: Awaited<ReturnType<typeof consumeOpenAiChatStream>> | null = null;
             for (let round = 0; round < MAX_BENCH_TOOL_ROUNDS; round++) {
-              const body: Record<string, unknown> = {
+              const body = mergeOpenAiBody(scenarioMeta, {
                 model: input.modelId,
                 messages,
-                temperature: meta.temperature,
-                max_tokens: meta.max_tokens,
+                temperature: scenarioMeta.temperature,
+                max_tokens: scenarioMeta.max_tokens,
                 stream: true,
-              };
-              if (tools) {
-                body.tools = tools;
-                body.tool_choice = tool_choice;
-              }
+                ...(tools ? { tools, tool_choice } : {}),
+              });
               const r = await fetchImpl(`${base}/v1/chat/completions`, {
                 method: "POST",
                 headers: headers(input.apiKey),
@@ -231,9 +375,13 @@ export async function* runBench(
                 yield { type: "token_delta", scenario_id: scenarioId, text: ch };
               }
               if (m.toolCalls?.length) {
+                const assistantContent = sanitizeOpenAiAssistantContent(
+                  m.assistantText.trim() ? m.assistantText : null,
+                  stripThinkHistory,
+                );
                 messages.push({
                   role: "assistant",
-                  content: m.assistantText.trim() ? m.assistantText : null,
+                  content: assistantContent,
                   tool_calls: m.toolCalls.map((tc) => ({
                     id: tc.id,
                     type: "function",
@@ -267,7 +415,7 @@ export async function* runBench(
               if (!text) text = lastOpen.assistantText;
             }
           } else if (api_route === "messages" && isTranslateNistFips197PdfToolsScenario(scenarioId)) {
-            const am = anthropicMessagesForScenario(scenarioId, promptCtx);
+            const am = prepareAnthropicScenario(scenarioId, promptCtx, scenarioMeta);
             const anthropicMessages: unknown[] = am.messages.map((x) => ({ ...x }));
             const toolsAnthropic = anthropicToolsForScenario(scenarioId);
             let totalMsAcc = 0;
@@ -275,8 +423,8 @@ export async function* runBench(
             for (let round = 0; round < MAX_BENCH_TOOL_ROUNDS; round++) {
               const body: Record<string, unknown> = {
                 model: input.modelId,
-                max_tokens: meta.max_tokens,
-                temperature: meta.temperature,
+                max_tokens: scenarioMeta.max_tokens,
+                temperature: scenarioMeta.temperature,
                 messages: anthropicMessages,
                 stream: true,
               };
@@ -311,10 +459,11 @@ export async function* runBench(
                 yield { type: "token_delta", scenario_id: scenarioId, text: ch };
               }
               if (m.toolUses?.length) {
+                const atext = stripThinkHistory ? stripThinkingBlocks(m.assistantText) : m.assistantText;
                 anthropicMessages.push({
                   role: "assistant",
                   content: [
-                    ...(m.assistantText.trim() ? [{ type: "text", text: m.assistantText }] : []),
+                    ...(atext.trim() ? [{ type: "text", text: atext }] : []),
                     ...m.toolUses.map((tu) => ({
                       type: "tool_use",
                       id: tu.id,
@@ -355,18 +504,15 @@ export async function* runBench(
               if (!text) text = lastAnth.assistantText;
             }
           } else if (api_route === "chat_completions") {
-            const { messages, tools, tool_choice } = buildMessages(scenarioId, promptCtx);
-            const body: Record<string, unknown> = {
+            const { messages, tools, tool_choice } = prepareOpenAiMessages(scenarioId, promptCtx, scenarioMeta);
+            const body = mergeOpenAiBody(scenarioMeta, {
               model: input.modelId,
               messages,
-              temperature: meta.temperature,
-              max_tokens: meta.max_tokens,
+              temperature: scenarioMeta.temperature,
+              max_tokens: scenarioMeta.max_tokens,
               stream: true,
-            };
-            if (tools) {
-              body.tools = tools;
-              body.tool_choice = tool_choice ?? "auto";
-            }
+              ...(tools ? { tools, tool_choice: tool_choice ?? "auto" } : {}),
+            });
             const r = await fetchImpl(`${base}/v1/chat/completions`, {
               method: "POST",
               headers: headers(input.apiKey),
@@ -406,12 +552,12 @@ export async function* runBench(
               yield { type: "token_delta", scenario_id: scenarioId, text: ch };
             }
           } else {
-            const am = anthropicMessagesForScenario(scenarioId, promptCtx);
+            const am = prepareAnthropicScenario(scenarioId, promptCtx, scenarioMeta);
             const toolsAnthropic = anthropicToolsForScenario(scenarioId);
             const body: Record<string, unknown> = {
               model: input.modelId,
-              max_tokens: meta.max_tokens,
-              temperature: meta.temperature,
+              max_tokens: scenarioMeta.max_tokens,
+              temperature: scenarioMeta.temperature,
               messages: am.messages,
               stream: true,
             };

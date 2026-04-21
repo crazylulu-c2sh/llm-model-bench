@@ -10,6 +10,30 @@ export {
 
 export { getScenarioBenchMeta, type ScenarioBenchMeta } from "./scenario-meta";
 
+export {
+  inferLlmProfileFamily,
+  resolveBenchProfile,
+  stripThinkingBlocks,
+  LLM_PROFILE_DEFINITIONS,
+  type BenchTaskMode,
+  type LlmProfileFamily,
+  type LlmProfileDefinition,
+  type PromptRules,
+  type ResolvedBenchProfile,
+  type SamplingParams,
+  type SamplingPresetName,
+  type ThinkingIntent,
+} from "./llm-profiles";
+
+export const SamplingParamsSchema = z.object({
+  temperature: z.number().optional(),
+  top_p: z.number().optional(),
+  top_k: z.number().optional(),
+  min_p: z.number().optional(),
+  presence_penalty: z.number().optional(),
+  repetition_penalty: z.number().optional(),
+});
+
 export const ProviderKindSchema = z.enum([
   "lm_studio",
   "ollama",
@@ -77,6 +101,34 @@ export const BenchRunMetaSchema = z.object({
   scenario_bundle_version: z.string(),
   temperature: z.number(),
   max_tokens: z.number(),
+  /** Applied sampling (subset sent upstream depending on route) */
+  effective_sampling: z
+    .object({
+      temperature: z.number().optional(),
+      top_p: z.number().optional(),
+      top_k: z.number().optional(),
+      min_p: z.number().optional(),
+      presence_penalty: z.number().optional(),
+      frequency_penalty: z.number().optional(),
+      repetition_penalty: z.number().optional(),
+    })
+    .optional(),
+  /** OpenAI-compatible servers: merged into request JSON */
+  extra_body: z.record(z.unknown()).optional(),
+  /** gpt-oss style deployments */
+  reasoning_effort: z.enum(["minimal", "low", "medium", "high"]).optional(),
+  profile_id: z.string().optional(),
+  profile_version: z.number().optional(),
+  profile_preset: z.string().optional(),
+  profile_task_mode: z.enum(["general", "coding", "tool"]).optional(),
+  profile_thinking_intent: z.enum(["on", "off"]).optional(),
+  profile_preserve_thinking: z.boolean().optional(),
+  prompt_rules_applied: z
+    .object({
+      gemmaThinkToken: z.boolean().optional(),
+      stripThinkingFromAssistantHistory: z.boolean().optional(),
+    })
+    .optional(),
   seed: z.number().nullable().optional(),
   parallel: z.boolean(),
   warmup_runs: z.number(),

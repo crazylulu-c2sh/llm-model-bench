@@ -86,6 +86,7 @@ export function ModelTable({
   onSortingChange,
   onSortedModelIdsChange,
   selectionDisabled = false,
+  profileHintByModelId,
 }: {
   models: DetectResult["models"];
   selected: Record<string, boolean>;
@@ -97,6 +98,7 @@ export function ModelTable({
   onSortedModelIdsChange?: (ids: string[]) => void;
   /** true이면 체크·행 토글·전체 선택을 막습니다(예: 벤치 실행 중). */
   selectionDisabled?: boolean;
+  profileHintByModelId?: Record<string, string>;
 }) {
   const data = useMemo<ModelRow[]>(() => models.map((m) => ({ ...m })), [models]);
   const allSelected = models.length > 0 && models.every((m) => selected[m.id]);
@@ -199,8 +201,18 @@ export function ModelTable({
         sortingFn: "basic",
         sortUndefined: "last",
       }),
+      columnHelper.display({
+        id: "profile_hint",
+        header: () => <span className="font-medium text-[var(--muted)]">프로파일</span>,
+        cell: ({ row }) => (
+          <span className="block max-w-[14rem] truncate font-mono text-[10px] leading-tight text-[var(--muted)]" title={profileHintByModelId?.[row.original.id]}>
+            {profileHintByModelId?.[row.original.id] ?? "—"}
+          </span>
+        ),
+        enableSorting: false,
+      }),
     ],
-    [allSelected, onSelectAll, onToggle, selected, selectionDisabled],
+    [allSelected, onSelectAll, onToggle, profileHintByModelId, selected, selectionDisabled],
   );
 
   const table = useReactTable({

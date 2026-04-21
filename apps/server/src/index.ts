@@ -2,7 +2,8 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
-import type { BenchRunMeta, DetectResult, StreamEvent } from "@llm-bench/shared";
+import type { BenchRunMeta, DetectResult, StreamEvent, LlmProfileFamily, SamplingPresetName } from "@llm-bench/shared";
+import { SamplingParamsSchema } from "@llm-bench/shared";
 import { makeBenchRunMeta, runBench, type BenchRequest } from "./bench-runner.js";
 import { detectProvider } from "./detect.js";
 
@@ -159,6 +160,16 @@ const BenchStreamBody = z.object({
     skipModelLoad: z.boolean().optional(),
     unloadOtherModels: z.boolean().optional(),
     publicAssetsOrigin: z.string().url().optional(),
+    profileId: z.enum(["auto", "unknown", "gemma4", "qwen35", "qwen36", "gpt_oss", "minimax_m27", "nemotron3", "qwen3_coder_next", "glm47_flash"]).optional(),
+    profileMaxTokens: z.number().int().positive().optional(),
+    taskMode: z.enum(["general", "coding", "tool"]).optional(),
+    thinkingIntent: z.enum(["on", "off"]).optional(),
+    preserveThinking: z.boolean().optional(),
+    presetOverride: z
+      .enum(["default", "thinking_general", "thinking_coding", "nonthinking_general", "tool_call"])
+      .optional(),
+    samplingOverrides: SamplingParamsSchema.optional(),
+    reasoningEffort: z.enum(["minimal", "low", "medium", "high"]).optional(),
   }),
 });
 
@@ -181,6 +192,16 @@ app.post("/api/bench/stream", async (c) => {
     skipModelLoad: bench.skipModelLoad,
     unloadOtherModels: bench.unloadOtherModels,
     publicAssetsOrigin: bench.publicAssetsOrigin,
+    profileMaxTokens: bench.profileMaxTokens,
+    profile: {
+      profileId: bench.profileId as LlmProfileFamily | "auto" | undefined,
+      taskMode: bench.taskMode,
+      thinkingIntent: bench.thinkingIntent,
+      preserveThinking: bench.preserveThinking,
+      presetOverride: bench.presetOverride as SamplingPresetName | undefined,
+      samplingOverrides: bench.samplingOverrides,
+      reasoningEffort: bench.reasoningEffort,
+    },
   };
 
   type Persister = { start(meta: BenchRunMeta): void; onEvent(ev: StreamEvent): void; finalize(): void };

@@ -15,6 +15,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@llm-bench/shared": ["../../packages/shared/src/index.ts"],
+      "@llm-bench/shared/*": ["../../packages/shared/src/*"]
+    }
   },
   "include": ["src"]
 }

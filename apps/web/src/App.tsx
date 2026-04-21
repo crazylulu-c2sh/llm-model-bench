@@ -1,6 +1,7 @@
-import type { BenchRunMeta, DetectResult, StreamEvent } from "@llm-bench/shared";
+import type { BenchRunMeta, DetectResult, LlmProfileFamily, SamplingPresetName, StreamEvent, ThinkingIntent } from "@llm-bench/shared";
+import { inferLlmProfileFamily, resolveBenchProfile } from "@llm-bench/shared";
 import { getScenarioUserPromptPreview } from "@llm-bench/shared";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast, Toaster } from "sonner";
 import type { SortingState } from "@tanstack/react-table";
 import {
@@ -126,6 +127,58 @@ export function App() {
   const [persistApiKeyToDisk, setPersistApiKeyToDisk] = useState(boot.persistApiKeyToDisk);
   const [parallel, setParallel] = useState(boot.parallel);
   const [unloadOtherModels, setUnloadOtherModels] = useState(boot.unloadOtherModels);
+  const [profileId, setProfileId] = useState<"auto" | LlmProfileFamily>(boot.profileId);
+  const [profileMaxTokens, setProfileMaxTokens] = useState(boot.profileMaxTokens);
+  const [thinkingIntent, setThinkingIntent] = useState<ThinkingIntent>(boot.thinkingIntent);
+  const [preserveThinking, setPreserveThinking] = useState(boot.preserveThinking);
+  const [reasoningEffort, setReasoningEffort] = useState<"minimal" | "low" | "medium" | "high">(boot.reasoningEffort);
+  const [presetOverride, setPresetOverride] = useState<SamplingPresetName | "">(boot.presetOverride);
+  const [samplingOverridesText, setSamplingOverridesText] = useState(boot.samplingOverridesText);
+  const [profileAdvancedOpen, setProfileAdvancedOpen] = useState(boot.profileAdvancedOpen);
+  const profileDetailsRef = useRef<HTMLDetailsElement>(null);
+  const parseSamplingOverridesJson = useCallback((raw: string): Record<string, number> | null => {
+    const t = raw.trim();
+    if (!t) return null;
+    try {
+      const j = JSON.parse(t) as unknown;
+      if (typeof j !== "object" || j === null || Array.isArray(j)) return null;
+      const out: Record<string, number> = {};
+      for (const [k, v] of Object.entries(j as Record<string, unknown>)) {
+        if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+      }
+      return Object.keys(out).length ? out : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const buildBenchProfilePayload = useCallback(
+    (modelId: string) => {
+      const samplingOverrides = parseSamplingOverridesJson(samplingOverridesText);
+      const maxTok = profileMaxTokens.trim() ? Number(profileMaxTokens) : NaN;
+      const profileMaxTokensNum = Number.isFinite(maxTok) && maxTok > 0 ? Math.floor(maxTok) : undefined;
+      const fam = profileId === "auto" ? inferLlmProfileFamily(modelId) : profileId;
+      return {
+        profileId,
+        profileMaxTokens: profileMaxTokensNum,
+        thinkingIntent,
+        preserveThinking: fam === "qwen36" ? preserveThinking : false,
+        reasoningEffort: fam === "gpt_oss" ? reasoningEffort : undefined,
+        presetOverride: presetOverride || undefined,
+        samplingOverrides: samplingOverrides ?? undefined,
+      };
+    },
+    [
+      parseSamplingOverridesJson,
+      presetOverride,
+      preserveThinking,
+      profileId,
+      profileMaxTokens,
+      reasoningEffort,
+      samplingOverridesText,
+      thinkingIntent,
+    ],
+  );
   const [detect, setDetect] = useState<DetectResult | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -165,10 +218,39 @@ export function App() {
         hlLog,
         persistApiKeyToDisk,
         apiKey,
+        profileId,
+        profileMaxTokens,
+        thinkingIntent,
+        preserveThinking,
+        reasoningEffort,
+        presetOverride,
+        samplingOverridesText,
+        profileAdvancedOpen,
       });
     }, 350);
     return () => window.clearTimeout(t);
-  }, [apiKey, baseUrl, hlLog, hlPreview, parallel, persistApiKeyToDisk, unloadOtherModels]);
+  }, [
+    apiKey,
+    baseUrl,
+    hlLog,
+    hlPreview,
+    parallel,
+    persistApiKeyToDisk,
+    unloadOtherModels,
+    profileId,
+    profileMaxTokens,
+    thinkingIntent,
+    preserveThinking,
+    reasoningEffort,
+    presetOverride,
+    samplingOverridesText,
+    profileAdvancedOpen,
+  ]);
+
+  useEffect(() => {
+    const el = profileDetailsRef.current;
+    if (el) el.open = profileAdvancedOpen;
+  }, [profileAdvancedOpen]);
 
   const appendLog = useCallback((s: string) => {
     setLog((prev) => [...prev.slice(-400), s]);
@@ -193,8 +275,8 @@ export function App() {
 
   const orderedSelectedModels = useMemo(() => {
     if (!detect) return [];
-    const byId = new Map(detect.models.map((m) => [m.id, m]));
-    const order = modelOrderIds.length > 0 ? modelOrderIds : detect.models.map((m) => m.id);
+    const byId = new Map(detect.models.map((m: DetectModel) => [m.id, m]));
+    const order = modelOrderIds.length > 0 ? modelOrderIds : detect.models.map((m: DetectModel) => m.id);
     const out: DetectModel[] = [];
     for (const id of order) {
       if (!selected[id]) continue;
@@ -203,6 +285,40 @@ export function App() {
     }
     return out;
   }, [detect, modelOrderIds, selected]);
+
+  const profileHintByModelId = useMemo(() => {
+    if (!detect) return {} as Record<string, string>;
+    const out: Record<string, string> = {};
+    for (const m of detect.models) {
+      const fam = inferLlmProfileFamily(m.id);
+      const resolved = resolveBenchProfile({
+        modelId: m.id,
+        taskMode: "general",
+        thinkingIntent: thinkingIntent,
+        preserveThinking: fam === "qwen36" ? preserveThinking : false,
+        presetOverride: presetOverride || null,
+        samplingOverrides: parseSamplingOverridesJson(samplingOverridesText),
+        maxTokensOverride: profileMaxTokens.trim() ? Number(profileMaxTokens) : null,
+        reasoningEffort: fam === "gpt_oss" ? reasoningEffort : null,
+      });
+      const label =
+        profileId === "auto"
+          ? `${fam} · ${resolved.preset}`
+          : `${profileId} · ${resolved.preset}`;
+      out[m.id] = label;
+    }
+    return out;
+  }, [
+    detect,
+    parseSamplingOverridesJson,
+    presetOverride,
+    preserveThinking,
+    profileId,
+    profileMaxTokens,
+    reasoningEffort,
+    samplingOverridesText,
+    thinkingIntent,
+  ]);
 
   const chartRows = useMemo(
     () =>
@@ -373,7 +489,7 @@ export function App() {
       const series: CompareSeries[] = [];
       for (const it of data.items) {
         if (!it.run) continue;
-        const label = detect.models.find((x) => x.id === it.model_id)?.label ?? it.model_id;
+        const label = detect.models.find((x: DetectModel) => x.id === it.model_id)?.label ?? it.model_id;
         const chartRowsForModel: ChartRow[] = (it.run.scenarios ?? [])
           .map((sc) => {
             const runs = sc.runs ?? [];
@@ -526,6 +642,14 @@ export function App() {
         hlLog,
         persistApiKeyToDisk,
         apiKey,
+        profileId,
+        profileMaxTokens,
+        thinkingIntent,
+        preserveThinking,
+        reasoningEffort,
+        presetOverride,
+        samplingOverridesText,
+        profileAdvancedOpen,
       });
     } catch (e) {
       appendLog(String(e));
@@ -533,7 +657,24 @@ export function App() {
     } finally {
       setDetecting(false);
     }
-  }, [apiKey, appendLog, baseUrl, hlLog, hlPreview, parallel, persistApiKeyToDisk, unloadOtherModels]);
+  }, [
+    apiKey,
+    appendLog,
+    baseUrl,
+    hlLog,
+    hlPreview,
+    parallel,
+    persistApiKeyToDisk,
+    unloadOtherModels,
+    profileId,
+    profileMaxTokens,
+    thinkingIntent,
+    preserveThinking,
+    reasoningEffort,
+    presetOverride,
+    samplingOverridesText,
+    profileAdvancedOpen,
+  ]);
 
   const toggle = (id: string) => setSelected((s) => ({ ...s, [id]: !s[id] }));
 
@@ -596,6 +737,7 @@ export function App() {
               skipModelLoad: detect.provider !== "lm_studio",
               unloadOtherModels,
               publicAssetsOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
+              ...buildBenchProfilePayload(m.id),
             },
           }),
         });
@@ -717,7 +859,7 @@ export function App() {
     } else {
       toast.success("벤치가 모두 완료되었습니다.");
     }
-  }, [apiKey, appendLog, detect, parallel, unloadOtherModels]);
+  }, [apiKey, appendLog, buildBenchProfilePayload, detect, parallel, unloadOtherModels]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
@@ -950,6 +1092,113 @@ export function App() {
             <Monitor className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
             모델 선택
           </h2>
+          <div className="mb-4 grid gap-3 rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="grid gap-1">
+                <span className="text-xs font-medium text-[var(--muted)]">프로파일</span>
+                <select
+                  className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs text-[var(--foreground)]"
+                  value={profileId}
+                  onChange={(e) => setProfileId(e.target.value as "auto" | LlmProfileFamily)}
+                  aria-label="벤치 프로파일"
+                >
+                  <option value="auto">자동(모델 id로 추론)</option>
+                  <option value="gemma4">Gemma 4</option>
+                  <option value="qwen35">Qwen 3.5</option>
+                  <option value="qwen36">Qwen 3.6</option>
+                  <option value="gpt_oss">gpt-oss</option>
+                  <option value="minimax_m27">MiniMax M2.7</option>
+                  <option value="nemotron3">Nemotron 3</option>
+                  <option value="qwen3_coder_next">Qwen3-Coder-Next</option>
+                  <option value="glm47_flash">GLM-4.7-Flash</option>
+                  <option value="unknown">unknown (기본 샘플링)</option>
+                </select>
+              </label>
+              <label className="grid gap-1">
+                <span className="text-xs font-medium text-[var(--muted)]">사고(thinking) 의도</span>
+                <select
+                  className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)]"
+                  value={thinkingIntent}
+                  onChange={(e) => setThinkingIntent(e.target.value as ThinkingIntent)}
+                >
+                  <option value="on">켜기 (기본)</option>
+                  <option value="off">끄기 (Qwen: enable_thinking=false)</option>
+                </select>
+              </label>
+            </div>
+            <label className="grid gap-1 md:col-span-2">
+              <span className="text-xs font-medium text-[var(--muted)]">max_tokens (비워두면 모델 카드 권장값)</span>
+              <input
+                className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs"
+                inputMode="numeric"
+                value={profileMaxTokens}
+                onChange={(e) => setProfileMaxTokens(e.target.value.replace(/[^\d]/g, ""))}
+                placeholder="예: 32768"
+              />
+            </label>
+            <label className="flex cursor-pointer items-start gap-2 text-xs text-[var(--muted)]">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={preserveThinking}
+                disabled={profileId !== "auto" && profileId !== "qwen36"}
+                onChange={(e) => setPreserveThinking(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium text-[var(--foreground)]">Qwen3.6: preserve_thinking</span>
+                <span className="mt-0.5 block leading-snug">에이전트형 멀티턴에서만 켜는 것을 권장합니다.</span>
+              </span>
+            </label>
+            <label className="grid gap-1 md:col-span-2">
+              <span className="text-xs font-medium text-[var(--muted)]">gpt-oss reasoning_effort</span>
+              <select
+                className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)] disabled:opacity-50"
+                value={reasoningEffort}
+                disabled={profileId !== "auto" && profileId !== "gpt_oss"}
+                onChange={(e) => setReasoningEffort(e.target.value as typeof reasoningEffort)}
+              >
+                <option value="minimal">minimal</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+            </label>
+            <details
+              ref={profileDetailsRef}
+              className="md:col-span-2"
+              open={profileAdvancedOpen}
+              onToggle={(e) => setProfileAdvancedOpen((e.target as HTMLDetailsElement).open)}
+            >
+              <summary className="cursor-pointer text-xs font-medium text-[var(--foreground)]">고급: 프리셋·샘플링 JSON 오버라이드</summary>
+              <div className="mt-2 grid gap-2">
+                <label className="grid gap-1">
+                  <span className="text-xs text-[var(--muted)]">preset 강제 (비우면 자동)</span>
+                  <select
+                    className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs"
+                    value={presetOverride}
+                    onChange={(e) => setPresetOverride((e.target.value || "") as SamplingPresetName | "")}
+                  >
+                    <option value="">자동</option>
+                    <option value="default">default</option>
+                    <option value="thinking_general">thinking_general</option>
+                    <option value="thinking_coding">thinking_coding</option>
+                    <option value="nonthinking_general">nonthinking_general</option>
+                    <option value="tool_call">tool_call</option>
+                  </select>
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-xs text-[var(--muted)]">samplingOverrides (JSON 객체)</span>
+                  <textarea
+                    className="min-h-[4.5rem] rounded border border-[var(--border)] bg-[var(--surface-2)] p-2 font-mono text-[11px] leading-snug text-[var(--foreground)]"
+                    value={samplingOverridesText}
+                    onChange={(e) => setSamplingOverridesText(e.target.value)}
+                    placeholder='{"temperature":0.8,"top_p":0.9}'
+                    spellCheck={false}
+                  />
+                </label>
+              </div>
+            </details>
+          </div>
           {detecting ? (
             <p className="flex items-center justify-center gap-2 py-10 text-sm text-[var(--muted)]">
               <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
@@ -965,6 +1214,7 @@ export function App() {
               onSortingChange={setModelTableSorting}
               onSortedModelIdsChange={handleSortedModelIdsChange}
               selectionDisabled={running}
+              profileHintByModelId={profileHintByModelId}
             />
           ) : detect && detect.models.length === 0 ? (
             <p className="py-8 text-center text-sm text-[var(--muted)]">
@@ -1044,7 +1294,7 @@ export function App() {
             <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
               <span className="text-xs font-medium text-[var(--muted)]">차트 모델</span>
               {chartModelIds.map((id) => {
-                const label = detect?.models.find((m) => m.id === id)?.label ?? id;
+                const label = detect?.models.find((m: DetectModel) => m.id === id)?.label ?? id;
                 return (
                   <label
                     key={id}
