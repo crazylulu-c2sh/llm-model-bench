@@ -23,6 +23,14 @@ export const DetectStepSchema = z.object({
 });
 export type DetectStep = z.infer<typeof DetectStepSchema>;
 
+/** 목록 API·네트워크 도달 여부(선택 — 구버전 응답에는 없을 수 있음) */
+export const ReachabilitySchema = z.object({
+  ok: z.boolean(),
+  state: z.enum(["ok", "unreachable", "partial"]),
+  reason: z.string().optional(),
+});
+export type Reachability = z.infer<typeof ReachabilitySchema>;
+
 export const LmStudioModelSchema = z.object({
   key: z.string(),
   type: z.enum(["llm", "embedding"]).optional(),
@@ -50,6 +58,7 @@ export const DetectResultSchema = z.object({
     openaiChat: z.boolean(),
     anthropicMessages: z.boolean(),
   }),
+  reachability: ReachabilitySchema.optional(),
 });
 export type DetectResult = z.infer<typeof DetectResultSchema>;
 
@@ -91,6 +100,8 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     type: z.literal("scenario_start"),
     scenario_id: z.string(),
     api_route: z.enum(["chat_completions", "messages"]),
+    /** 실제 user 메시지(번역 fixtures 발췌 등) — 라이브 UI 상세와 요청 정합용 */
+    user_prompt: z.string().optional(),
   }),
   z.object({
     type: z.literal("token_delta"),
