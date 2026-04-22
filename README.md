@@ -42,6 +42,56 @@ pnpm build
 - API: `pnpm --filter @llm-bench/server start` — `PORT`는 미지정 시 **20080**입니다(`pnpm dev`는 `dev-ports.json`의 값으로 `PORT`를 넣음).
 - UI: `pnpm --filter @llm-bench/web build` 후 `dist/`를 정적 호스팅하거나, 개발 서버와 동일하게 API를 쓰려면 `VITE_API_URL`을 API 베이스로 맞춘 뒤 `vite preview` 등으로 띄웁니다.
 
+## 배포 (Docker Compose)
+
+저장소 루트의 [`docker-compose.yml`](docker-compose.yml)은 **API(Node)** 와 **UI(nginx)** 두 서비스를 올립니다. UI는 빌드 시점의 정적 파일을 이미지에 넣고, 브라우저가 쓰는 `/api/*`는 nginx가 같은 Compose 네트워크의 API 컨테이너(`PORT=20080`)로 넘깁니다. 벤치 SSE를 위해 nginx에서 `proxy_buffering` 등을 끈 설정은 [`docker/nginx/default.conf`](docker/nginx/default.conf)를 참고하면 됩니다.
+
+```bash
+docker-compose up -d --build
+```
+
+- 기본 접속: **http://localhost:8080** (웹). API는 호스트에 직접 노출하지 않고, 웹과 동일 오리진의 `/api`로만 쓰는 구성입니다.
+- SQLite: 볼륨 `bench_data`가 API 컨테이너의 `/data`에 마운트되며, 기본 `BENCH_DB_PATH=/data/bench.sqlite`입니다.
+- 포트·환경을 바꾸려면 `docker-compose.yml`의 `web.ports`·`api.environment`를 수정합니다.
+- 이미지 빌드는 루트 [`Dockerfile`](Dockerfile)의 멀티 스테이지(`target: api` / `target: web`)를 사용합니다.
+
+### Docker Compose: 배포 후 업데이트
+
+저장소를 갱신한 뒤 이미지를 다시 빌드하고 컨테이너를 재기동합니다.
+
+```bash
+git pull
+docker-compose build
+docker-compose up -d
+```
+
+의존성·네이티브 모듈 문제를 의심할 때만 `--no-cache`를 붙여 전체 재빌드합니다. 오래된 로컬 이미지를 정리하려면 `docker image prune`(필요 시 `-a`)를 사용합니다. DB 볼륨은 기본 설정에서 유지되므로 `docker-compose down`만으로는 named volume `bench_data`가 삭제되지 않습니다(볼륨까지 지우려면 `docker-compose down -v`).
+
+## 배포 (PM2)
+
+[`ecosystem.config.cjs`](ecosystem.config.cjs)는 **앱 하나(`llm-bench`)** 만 켭니다. 서버가 `WEB_DIST_PATH`로 지정한 Vite `dist`를 같은 포트에서 함께 서빙하므로, Nginx 없이 **http://호스트:PORT/** 로 UI·`/api`가 모두 동작합니다.
+
+1. 서버에 Node 20+·pnpm·PM2 설치 후 저장소 클론.
+2. `pnpm install` → `pnpm build`(**웹 `dist`가 반드시 있어야** UI가 열립니다).
+3. 루트에서:
+
+```bash
+pm2 start ecosystem.config.cjs
+```
+
+기본 포트는 **20080**이며, DB는 `apps/server/data/bench.sqlite`입니다. `WEB_DIST_PATH`를 비우면 API만 제공(루트는 404)하므로, 그때는 Nginx 등으로 `dist`와 `/api`를 나눠 서빙하면 됩니다.
+
+### PM2: 배포 후 업데이트
+
+```bash
+git pull
+pnpm install
+pnpm build
+pm2 reload ecosystem.config.cjs
+```
+
+`reload`는 무중단에 가깝게 프로세스를 교체합니다. 환경을 바꿨다면 `pm2 delete llm-bench` 후 다시 `pm2 start ecosystem.config.cjs`를 쓰거나 `pm2 reload ecosystem.config.cjs --update-env`로 반영합니다. 부팅 시 자동 기동은 `pm2 startup` + `pm2 save`입니다.
+
 ## 서버 API 요약
 
 | 메서드 | 경로 | 설명 |
@@ -68,8 +118,9 @@ pnpm test
 
 | 변수 | 설명 |
 |------|------|
-| `PORT` | API 리스닝 포트(기본 **20080**, `pnpm dev`에서는 `dev-ports.json`/`DEV_SERVER_PORT`가 우선) |
+| `PORT` | API·(설정 시) 정적 UI 리스닝 포트(기본 **20080**, `pnpm dev`에서는 `dev-ports.json`/`DEV_SERVER_PORT`가 우선) |
 | `BENCH_DB_PATH` | SQLite 파일 경로(미지정 시 `data/bench.sqlite`, **프로세스 cwd** 기준) |
+| `WEB_DIST_PATH` | Vite 빌드 출력 디렉터리(`index.html` 포함). 설정 시 같은 프로세스에서 `/`·`/assets/*` 등을 서빙하고, 그 외 GET은 SPA용으로 `index.html`을 돌려줍니다(**프로세스 cwd** 기준 상대 경로 가능) |
 
 API 키는 UI에서 세션 동안만 전달하거나, 서버 실행 환경의 표준 헤더 규칙에 맞춰 확장할 수 있습니다.
 

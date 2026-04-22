@@ -1,4 +1,7 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
@@ -292,6 +295,37 @@ app.post("/api/bench/stream", async (c) => {
     },
   });
 });
+
+/** `WEB_DIST_PATH`가 있으면 Vite `dist`를 같은 포트에서 서빙(단일 PM2/Node 프로세스). */
+const webDistEnv = process.env.WEB_DIST_PATH?.trim();
+if (webDistEnv) {
+  const webDist = path.resolve(process.cwd(), webDistEnv);
+  if (existsSync(webDist)) {
+    app.use(
+      "/*",
+      serveStatic({
+        root: webDist,
+        rewriteRequestPath: (p) => {
+          const rel = p.startsWith("/") ? p.slice(1) : p;
+          return rel || "index.html";
+        },
+      }),
+    );
+    app.get("*", (c) => {
+      if (c.req.path.startsWith("/api")) {
+        return c.json({ error: "not_found" }, 404);
+      }
+      const indexPath = path.join(webDist, "index.html");
+      if (!existsSync(indexPath)) {
+        return c.text("index.html not found", 404);
+      }
+      return c.html(readFileSync(indexPath, "utf-8"));
+    });
+    console.log(`[llm-bench-server] serving web dist from ${webDist}`);
+  } else {
+    console.warn(`[llm-bench-server] WEB_DIST_PATH set but missing: ${webDist}`);
+  }
+}
 
 const port = Number(process.env.PORT ?? 20080);
 
