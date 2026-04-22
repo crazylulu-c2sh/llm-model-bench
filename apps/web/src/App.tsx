@@ -54,6 +54,7 @@ import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
 import { StatsPage } from "./StatsPage";
+import { formatTimeWithMs } from "./lib/time-format";
 import type { ThemeChoice } from "./useTheme";
 import { useTheme } from "./useTheme";
 
@@ -72,6 +73,14 @@ type MetricsAgg = {
     quality?: { pass: boolean; score?: number; reason?: string };
   }>;
 };
+
+function benchErrorHint(code: string): string | null {
+  if (code === "request_timeout") return "요청 시간 초과";
+  if (code === "upstream_exception") return "업스트림 처리 예외";
+  if (code === "provider_or_model_unavailable")
+    return "프로바이더/모델 준비 상태 불가";
+  return null;
+}
 
 function consumeSseJsonLines(
   stream: ReadableStream<Uint8Array>,
@@ -263,7 +272,8 @@ export function App() {
   }, [profileAdvancedOpen]);
 
   const appendLog = useCallback((s: string) => {
-    setLog((prev) => [...prev.slice(-400), s]);
+    const stamped = `${formatTimeWithMs(Date.now())} ${s}`;
+    setLog((prev) => [...prev.slice(-400), stamped]);
   }, []);
 
   useEffect(() => {
@@ -890,7 +900,14 @@ export function App() {
           if (ev.type === "error") {
             streamErrorCount += 1;
             appendLog(`error[${ev.layer}] ${ev.code}: ${ev.message}`);
-            pushBenchLine("err", `error[${ev.layer}] ${ev.code}: ${ev.message.slice(0, 240)}`);
+            const hint = benchErrorHint(ev.code);
+            const lineMessage = hint
+              ? `${hint} · ${ev.message}`
+              : ev.message;
+            pushBenchLine(
+              "err",
+              `error[${ev.layer}] ${ev.code} — ${lineMessage.slice(0, 220)}`,
+            );
           }
         });
         if (!sawRunFinished) {

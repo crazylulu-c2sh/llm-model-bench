@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useLayoutEffect, useRef } from "react";
 import { Activity, Loader2 } from "lucide-react";
+import { formatTimeWithMs } from "../lib/time-format";
 
 export type BenchStepKind = "info" | "ok" | "err";
 
@@ -132,7 +133,7 @@ export function BenchProgressPanel({
           ) : (
             lines.map((ln, i) => (
               <li key={`${ln.ts}-${i}`} className={lineClass(ln.kind)}>
-                {ln.text}
+                {formatTimeWithMs(ln.ts)} {ln.text}
               </li>
             ))
           )}

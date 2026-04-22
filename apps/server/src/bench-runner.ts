@@ -47,6 +47,8 @@ export type BenchRequest = {
   max_tokens?: number;
   warmupRuns?: number;
   measuredRuns?: number;
+  /** per-request timeout (ms). default: 15m */
+  requestTimeoutMs?: number;
   /** skip LM load/unload */
   skipModelLoad?: boolean;
   /** LM Studio: detect 목록에서 벤치 대상 외 모델 unload (베스트 에포트) */
@@ -62,6 +64,23 @@ export type BenchRequest = {
 };
 
 const MAX_BENCH_TOOL_ROUNDS = 8;
+const DEFAULT_REQUEST_TIMEOUT_MS = 900_000;
+const MIN_REQUEST_TIMEOUT_MS = 60_000;
+const MAX_REQUEST_TIMEOUT_MS = 3_600_000;
+
+function clampRequestTimeoutMs(ms?: number): number {
+  if (!Number.isFinite(ms)) return DEFAULT_REQUEST_TIMEOUT_MS;
+  const n = Math.floor(ms as number);
+  if (n < MIN_REQUEST_TIMEOUT_MS) return MIN_REQUEST_TIMEOUT_MS;
+  if (n > MAX_REQUEST_TIMEOUT_MS) return MAX_REQUEST_TIMEOUT_MS;
+  return n;
+}
+
+function isAbortLikeError(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const err = e as { name?: string; code?: string | number };
+  return err.name === "AbortError" || err.code === 20;
+}
 
 function headers(apiKey?: string, extra?: Record<string, string>): HeadersInit {
   const h: Record<string, string> = {
@@ -210,6 +229,19 @@ function makeScenarioBenchRunMeta(
   });
 }
 
+async function canProceedAfterIterationError(
+  base: string,
+  input: BenchRequest,
+  fetchImpl: typeof fetch,
+): Promise<boolean> {
+  if (input.provider !== "lm_studio") return true;
+  const loaded = await lmStudioIsModelLoaded(base, input.modelId, {
+    fetchImpl,
+    apiKey: input.apiKey,
+  });
+  return loaded.ok && loaded.loaded;
+}
+
 function applyGemmaThinkTokenToOpenAiMessages(
   messages: {
     role: string;
@@ -324,6 +356,7 @@ export async function* runBench(
   const meta = makeBenchRunMeta(input, detect, rid, {
     profileMaxTokensOverride: input.profileMaxTokens ?? null,
   });
+  const requestTimeoutMs = clampRequestTimeoutMs(input.requestTimeoutMs);
 
   yield { type: "run_started", run_id: rid, meta };
 
@@ -398,8 +431,11 @@ export async function* runBench(
   };
 
   try {
+    let fatalStop = false;
     for (const api_route of meta.api_routes) {
+      if (fatalStop) break;
       for (const scenarioId of meta.scenario_ids as ScenarioId[]) {
+        if (fatalStop) break;
         if (api_route === "messages" && scenarioId === "tool_weather") {
           /* Anthropic tools format differs; still attempt with converted tools in body */
         }
@@ -441,8 +477,9 @@ export async function* runBench(
             user_prompt: userPromptThisRun,
           };
 
+          let iterationFailed = false;
           const controller = new AbortController();
-          const to = setTimeout(() => controller.abort(), 120_000);
+          const to = setTimeout(() => controller.abort(), requestTimeoutMs);
 
           try {
             let text = "";
@@ -491,8 +528,8 @@ export async function* runBench(
                     message: "Rate limited",
                     partial: { scenarioId, api_route },
                   };
-                  clearTimeout(to);
-                  return;
+                  iterationFailed = true;
+                  break;
                 }
                 if (!r.ok || !r.body) {
                   const errText = await r.text().catch(() => "");
@@ -503,8 +540,8 @@ export async function* runBench(
                     message: errText.slice(0, 500),
                     partial: { scenarioId, api_route },
                   };
-                  clearTimeout(to);
-                  return;
+                  iterationFailed = true;
+                  break;
                 }
                 const m = await consumeOpenAiChatStream(
                   r.body,
@@ -559,10 +596,12 @@ export async function* runBench(
                 text = m.assistantText;
                 break;
               }
-              totalMs = totalMsAcc;
-              if (lastOpen) {
-                tpot = tpotFromOpenAi(lastOpen);
-                if (!text) text = lastOpen.assistantText;
+              if (!iterationFailed) {
+                totalMs = totalMsAcc;
+                if (lastOpen) {
+                  tpot = tpotFromOpenAi(lastOpen);
+                  if (!text) text = lastOpen.assistantText;
+                }
               }
             } else if (
               api_route === "messages" &&
@@ -608,8 +647,8 @@ export async function* runBench(
                     message: errText.slice(0, 500),
                     partial: { scenarioId, api_route },
                   };
-                  clearTimeout(to);
-                  return;
+                  iterationFailed = true;
+                  break;
                 }
                 const m = await consumeAnthropicMessagesStream(
                   r.body,
@@ -668,14 +707,16 @@ export async function* runBench(
                 text = m.assistantText;
                 break;
               }
-              totalMs = totalMsAcc;
-              if (lastAnth) {
-                tpot =
-                  lastAnth.ttftMs !== null && lastAnth.approxOutputTokens > 1
-                    ? (lastAnth.totalMs - lastAnth.ttftMs) /
-                      (lastAnth.approxOutputTokens - 1)
-                    : null;
-                if (!text) text = lastAnth.assistantText;
+              if (!iterationFailed) {
+                totalMs = totalMsAcc;
+                if (lastAnth) {
+                  tpot =
+                    lastAnth.ttftMs !== null && lastAnth.approxOutputTokens > 1
+                      ? (lastAnth.totalMs - lastAnth.ttftMs) /
+                        (lastAnth.approxOutputTokens - 1)
+                      : null;
+                  if (!text) text = lastAnth.assistantText;
+                }
               }
             } else if (api_route === "chat_completions") {
               const { messages, tools, tool_choice } = prepareOpenAiMessages(
@@ -705,10 +746,9 @@ export async function* runBench(
                   message: "Rate limited",
                   partial: { scenarioId, api_route },
                 };
-                clearTimeout(to);
-                return;
+                iterationFailed = true;
               }
-              if (!r.ok || !r.body) {
+              if (!iterationFailed && (!r.ok || !r.body)) {
                 const errText = await r.text().catch(() => "");
                 yield {
                   type: "error",
@@ -717,24 +757,25 @@ export async function* runBench(
                   message: errText.slice(0, 500),
                   partial: { scenarioId, api_route },
                 };
-                clearTimeout(to);
-                return;
+                iterationFailed = true;
               }
-              const m = await consumeOpenAiChatStream(
-                r.body,
-                controller.signal,
-              );
-              text = m.text;
-              ttft = m.ttftMs;
-              totalMs = m.totalMs;
-              streamCompleted = m.streamCompleted;
-              tpot = tpotFromOpenAi(m);
-              for (const ch of chunkTextForUi(text, 24)) {
-                yield {
-                  type: "token_delta",
-                  scenario_id: scenarioId,
-                  text: ch,
-                };
+              if (!iterationFailed) {
+                const m = await consumeOpenAiChatStream(
+                  r.body,
+                  controller.signal,
+                );
+                text = m.text;
+                ttft = m.ttftMs;
+                totalMs = m.totalMs;
+                streamCompleted = m.streamCompleted;
+                tpot = tpotFromOpenAi(m);
+                for (const ch of chunkTextForUi(text, 24)) {
+                  yield {
+                    type: "token_delta",
+                    scenario_id: scenarioId,
+                    text: ch,
+                  };
+                }
               }
             } else {
               const am = prepareAnthropicScenario(
@@ -770,27 +811,28 @@ export async function* runBench(
                   message: errText.slice(0, 500),
                   partial: { scenarioId, api_route },
                 };
-                clearTimeout(to);
-                return;
+                iterationFailed = true;
               }
-              const m = await consumeAnthropicMessagesStream(
-                r.body,
-                controller.signal,
-              );
-              text = m.text;
-              ttft = m.ttftMs;
-              totalMs = m.totalMs;
-              streamCompleted = m.streamCompleted;
-              tpot =
-                ttft !== null && m.approxOutputTokens > 1
-                  ? (totalMs - ttft) / (m.approxOutputTokens - 1)
-                  : null;
-              for (const ch of chunkTextForUi(text, 24)) {
-                yield {
-                  type: "token_delta",
-                  scenario_id: scenarioId,
-                  text: ch,
-                };
+              if (!iterationFailed) {
+                const m = await consumeAnthropicMessagesStream(
+                  r.body,
+                  controller.signal,
+                );
+                text = m.text;
+                ttft = m.ttftMs;
+                totalMs = m.totalMs;
+                streamCompleted = m.streamCompleted;
+                tpot =
+                  ttft !== null && m.approxOutputTokens > 1
+                    ? (totalMs - ttft) / (m.approxOutputTokens - 1)
+                    : null;
+                for (const ch of chunkTextForUi(text, 24)) {
+                  yield {
+                    type: "token_delta",
+                    scenario_id: scenarioId,
+                    text: ch,
+                  };
+                }
               }
             }
 
@@ -827,29 +869,57 @@ export async function* runBench(
               quality,
             };
           } catch (e) {
+            const code = isAbortLikeError(e)
+              ? "request_timeout"
+              : "upstream_exception";
+            const message = isAbortLikeError(e)
+              ? `요청이 ${Math.floor(requestTimeoutMs / 1000)}초 제한을 넘어 중단되었습니다 (${String(e)})`
+              : String(e);
             yield {
               type: "error",
               layer: "upstream",
-              code: "aborted_or_error",
-              message: String(e),
+              code,
+              message,
               partial: { scenarioId, api_route },
             };
-            clearTimeout(to);
-            return;
+            iterationFailed = true;
           } finally {
             clearTimeout(to);
           }
+
+          if (iterationFailed) {
+            const canProceed = await canProceedAfterIterationError(
+              base,
+              input,
+              fetchImpl,
+            );
+            if (!canProceed) {
+              yield {
+                type: "error",
+                layer: "orchestrator",
+                code: "provider_or_model_unavailable",
+                message:
+                  "오류 발생 후 상태를 점검했지만 프로바이더 또는 모델이 준비되지 않아 벤치를 중단합니다.",
+                partial: { scenarioId, api_route },
+              };
+              fatalStop = true;
+              break;
+            }
+            continue;
+          }
         }
 
-        yield {
-          type: "metrics_update",
-          aggregate: {
-            scenario_id: scenarioId,
-            api_route,
-            user_prompt: lastUserPromptForAggregate,
-            runs,
-          },
-        };
+        if (runs.length > 0) {
+          yield {
+            type: "metrics_update",
+            aggregate: {
+              scenario_id: scenarioId,
+              api_route,
+              user_prompt: lastUserPromptForAggregate,
+              runs,
+            },
+          };
+        }
       }
     }
 
