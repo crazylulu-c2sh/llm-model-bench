@@ -2,6 +2,7 @@ import type { BenchRunMeta, DetectResult, LlmProfileFamily, SamplingPresetName, 
 import { inferLlmProfileFamily, resolveBenchProfile } from "@llm-bench/shared";
 import { getScenarioUserPromptPreview } from "@llm-bench/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { toast, Toaster } from "sonner";
 import type { SortingState } from "@tanstack/react-table";
 import {
@@ -123,7 +124,8 @@ function ThemeIcon({ choice }: { choice: ThemeChoice }) {
 
 export function App() {
   const { choice: themeChoice, setChoice: setThemeChoice, resolved: themeResolved } = useTheme();
-  const [activePage, setActivePage] = useState<"bench" | "stats">("bench");
+  const { pathname } = useLocation();
+  const onStatsPage = pathname === "/stats";
   const [boot] = useState(() => readInitialUiState());
   const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
   const [apiKey, setApiKey] = useState(boot.apiKey);
@@ -1009,14 +1011,14 @@ export function App() {
           </>
         ) : null}
       </ConfirmDialog>
-      <header className="sticky top-0 z-20 flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface-2)] px-6 py-4 shadow-sm">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
+      <header className="sticky top-0 z-20 grid grid-cols-1 items-center gap-y-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 shadow-sm sm:grid-cols-[1fr_auto_1fr] sm:gap-x-4 sm:gap-y-0 sm:px-6">
+        <div className="flex min-w-0 items-start gap-3 justify-self-start sm:min-w-0">
           <span className="mt-0.5 shrink-0 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-[var(--accent)]">
             <Activity className="size-6" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
             <h1 className="text-lg font-semibold tracking-tight">LLM Model Bench</h1>
-            {activePage === "bench" ? (
+            {!onStatsPage ? (
               <p className="text-sm text-[var(--muted)]">로컬 프로바이더 감지 · 스트리밍 벤치</p>
             ) : (
               <p className="text-sm text-[var(--muted)]">SQLite에 저장된 최신 런 기준 메트릭·결과</p>
@@ -1039,65 +1041,67 @@ export function App() {
             ) : null}
           </div>
         </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="grid gap-1 text-sm" role="tablist" aria-label="페이지">
-            <span className="text-[var(--muted)]">페이지</span>
-            <div className="flex rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activePage === "bench"}
-                className={`rounded px-3 py-1.5 text-sm font-medium ${
-                  activePage === "bench"
-                    ? "bg-[var(--surface-2)] text-[var(--foreground)] shadow-sm"
-                    : "text-[var(--muted)] hover:text-[var(--foreground)]"
-                }`}
-                onClick={() => setActivePage("bench")}
-              >
-                벤치
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activePage === "stats"}
-                className={`rounded px-3 py-1.5 text-sm font-medium ${
-                  activePage === "stats"
-                    ? "bg-[var(--surface-2)] text-[var(--foreground)] shadow-sm"
-                    : "text-[var(--muted)] hover:text-[var(--foreground)]"
-                }`}
-                onClick={() => setActivePage("stats")}
-              >
-                통계
-              </button>
-            </div>
+        <div className="justify-self-center sm:px-2" role="tablist" aria-label="페이지">
+          <span className="sr-only">페이지</span>
+          <div className="flex rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] p-1 shadow-sm">
+            <NavLink
+              to="/"
+              end
+              role="tab"
+              aria-selected={!onStatsPage}
+              className={({ isActive }) =>
+                `min-w-[5.5rem] rounded-md px-5 py-2.5 text-center text-base font-semibold tracking-tight no-underline transition-colors ${
+                  isActive
+                    ? "bg-[var(--accent)] text-white shadow-md"
+                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+                }`
+              }
+            >
+              벤치
+            </NavLink>
+            <NavLink
+              to="/stats"
+              role="tab"
+              aria-selected={onStatsPage}
+              className={({ isActive }) =>
+                `min-w-[5.5rem] rounded-md px-5 py-2.5 text-center text-base font-semibold tracking-tight no-underline transition-colors ${
+                  isActive
+                    ? "bg-[var(--accent)] text-white shadow-md"
+                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+                }`
+              }
+            >
+              통계
+            </NavLink>
           </div>
-          <label className="grid gap-1 text-sm">
-            <span className="inline-flex items-center gap-1 text-[var(--muted)]">
-              <SunMoon className="size-3.5" aria-hidden />
-              테마
-            </span>
-            <div className="flex items-center gap-2">
-              <ThemeIcon choice={themeChoice} />
-              <select
-                className="min-w-[10rem] rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
-                value={themeChoice}
-                onChange={(e) => setThemeChoice(e.target.value as ThemeChoice)}
-                aria-label="테마 선택"
-              >
-                <option value="dark">다크</option>
-                <option value="light">라이트</option>
-                <option value="system">시스템</option>
-              </select>
-            </div>
-          </label>
         </div>
+        <label className="grid justify-self-end gap-1 text-sm">
+          <span className="inline-flex items-center gap-1 text-[var(--muted)]">
+            <SunMoon className="size-3.5" aria-hidden />
+            테마
+          </span>
+          <div className="flex items-center gap-2">
+            <ThemeIcon choice={themeChoice} />
+            <select
+              className="min-w-[10rem] rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
+              value={themeChoice}
+              onChange={(e) => setThemeChoice(e.target.value as ThemeChoice)}
+              aria-label="테마 선택"
+            >
+              <option value="dark">다크</option>
+              <option value="light">라이트</option>
+              <option value="system">시스템</option>
+            </select>
+          </div>
+        </label>
       </header>
 
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
-        {activePage === "stats" ? (
-          <StatsPage />
-        ) : (
-          <>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <>
         <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
           <div className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1 text-sm">
@@ -1580,8 +1584,12 @@ export function App() {
             ) : null}
           </div>
         </section>
-          </>
-        )}
+              </>
+            }
+          />
+          <Route path="/stats" element={<StatsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </main>
       <ScenarioDetailDrawer
         open={drawerOpen}
