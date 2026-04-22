@@ -133,6 +133,23 @@ describe("scoreScenario code_sort_js", () => {
     expect(r.pass).toBe(false);
     expect(r.reason).toBe("missing quicksort cues");
   });
+
+  it("passes when thinking mentions .sort( but fenced code does not", () => {
+    const think = "<|channel|>thought\nuse arr.sort((a,b)=>a-b)\n<channel|>\n";
+    const r = scoreScenario("code_sort_js", think + okJs);
+    expect(r.pass).toBe(true);
+  });
+
+  it("passes unfenced code when thinking contains .sort( but stripped body does not", () => {
+    const think = "<|channel|>thought\narr.sort() is easy\n<channel|>\n";
+    const unfenced = [
+      "function partition(a, lo, hi) { return lo; }",
+      "function sortNums(arr) { return quicksort(arr); }",
+      "function quicksort(a) { return a; }",
+    ].join("\n");
+    const r = scoreScenario("code_sort_js", think + unfenced);
+    expect(r.pass).toBe(true);
+  });
 });
 
 describe("scoreScenario code_sort_py", () => {
@@ -163,5 +180,61 @@ describe("scoreScenario code_sort_py", () => {
     const r = scoreScenario("code_sort_py", bad);
     expect(r.pass).toBe(false);
     expect(r.reason).toBe("missing quicksort cues");
+  });
+
+  it("passes when thinking mentions sorted() but fenced code does not", () => {
+    const think = "<|channel|>thought\njust use sorted(arr)\n<channel|>\n";
+    const r = scoreScenario("code_sort_py", think + okPy);
+    expect(r.pass).toBe(true);
+  });
+});
+
+describe("scoreScenario structured_action", () => {
+  it("passes valid JSON after stripped thinking that contained brace text", () => {
+    const think = '<|channel|>thought\n{"action":"wrong","confidence":99}\n<channel|>\n';
+    const out = think + '{"action":"submit","confidence":0.75}';
+    const r = scoreScenario("structured_action", out);
+    expect(r.pass).toBe(true);
+    expect(r.score).toBe(1);
+  });
+
+  it("passes without thinking markers", () => {
+    expect(scoreScenario("structured_action", '{"action":"x","confidence":0}').pass).toBe(true);
+  });
+});
+
+describe("scoreScenario translate_nist_fips197_pdf_tools", () => {
+  const ctx = { invokedBenchTools: ["fetch_pdf_text"] };
+
+  it("passes when raw output is long but stripped final response is short Korean under 1000", () => {
+    const think = `<|channel|>thought\n${"x".repeat(980)}\n<channel|>`;
+    const resp = "한국어 요약입니다.";
+    const raw = think + resp;
+    expect(raw.length).toBeGreaterThanOrEqual(1000);
+    const r = scoreScenario("translate_nist_fips197_pdf_tools", raw, ctx);
+    expect(r.pass).toBe(true);
+    expect(r.score).toBe(1);
+  });
+
+  it("fails when stripped response has no Hangul", () => {
+    const think = "<|channel|>thought\nreasoning\n<channel|>";
+    const raw = think + "English only summary.";
+    const r = scoreScenario("translate_nist_fips197_pdf_tools", raw, ctx);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toMatch(/hangul=false/);
+  });
+
+  it("fails when stripped response is 1000+ characters", () => {
+    const think = "<|channel|>thought\nx\n<channel|>";
+    const raw = think + "가".repeat(1000);
+    const r = scoreScenario("translate_nist_fips197_pdf_tools", raw, ctx);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toMatch(/len=1000/);
+  });
+
+  it("fails when fetch_pdf_text was not invoked", () => {
+    const r = scoreScenario("translate_nist_fips197_pdf_tools", "한글", {});
+    expect(r.pass).toBe(false);
+    expect(r.reason).toMatch(/fetch_pdf_text=false/);
   });
 });

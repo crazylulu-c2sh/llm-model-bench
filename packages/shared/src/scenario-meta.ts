@@ -40,7 +40,8 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
   },
   translate_nist_fips197_pdf_tools: {
     purposeKo: "도구 호출로 NIST FIPS 197 PDF 텍스트를 읽고, 한국어 요약을 생성하는지 봅니다.",
-    criteriaKo: "fetch_pdf_text 도구가 실제로 호출되고, 출력에 한글이 있으며 길이가 1000자 미만이면 합격입니다.",
+    criteriaKo:
+      "fetch_pdf_text 도구가 실제로 호출되고, 사고 블록을 제외한 최종 응답에 한글이 있으며 그 길이가 1000자 미만이면 합격입니다.",
   },
 };
 

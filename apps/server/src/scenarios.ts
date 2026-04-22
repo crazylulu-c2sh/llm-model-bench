@@ -1,6 +1,7 @@
 import {
   ALL_SCENARIO_IDS as SHARED_ALL_SCENARIO_IDS,
   getScenarioUserPromptPreview,
+  stripThinkingBlocks,
   type ScenarioId,
 } from "@llm-bench/shared";
 import { z } from "zod";
@@ -286,23 +287,28 @@ export function scoreScenario(
       return r;
     }
     case "code_sort_js": {
-      const m = output.match(/```(?:js|javascript)?\s*([\s\S]*?)```/i);
-      const code = m?.[1] ?? output;
+      const base = stripThinkingBlocks(output);
+      const m = base.match(/```(?:js|javascript)?\s*([\s\S]*?)```/i);
+      const code = m?.[1] ?? base;
       return scoreCodeSortJs(code);
     }
     case "code_sort_py": {
-      const m = output.match(/```(?:python|py)?\s*([\s\S]*?)```/i);
-      const code = m?.[1] ?? output;
+      const base = stripThinkingBlocks(output);
+      const m = base.match(/```(?:python|py)?\s*([\s\S]*?)```/i);
+      const code = m?.[1] ?? base;
       return scoreCodeSortPy(code);
     }
     case "translate_nist_fips197_pdf_tools": {
-      const hasHangul = /[\u3131-\u318E\uAC00-\uD7A3]/.test(output);
+      const response = stripThinkingBlocks(output);
+      const hasHangul = /[\u3131-\u318E\uAC00-\uD7A3]/.test(response);
       const usedPdf = ctx?.invokedBenchTools?.includes("fetch_pdf_text") === true;
-      const ok = hasHangul && usedPdf && output.length < 1000;
+      const ok = hasHangul && usedPdf && response.length < 1000;
       return {
         pass: ok,
         score: ok ? 1 : 0,
-        reason: ok ? undefined : `hangul=${hasHangul} fetch_pdf_text=${usedPdf} len=${output.length}`,
+        reason: ok
+          ? undefined
+          : `hangul=${hasHangul} fetch_pdf_text=${usedPdf} len=${response.length} rawLen=${output.length}`,
       };
     }
     case "chat_time_calendar":
@@ -312,7 +318,7 @@ export function scoreScenario(
       return { pass, score: pass ? 1 : 0, reason: pass ? undefined : "expected tool call signal" };
     }
     case "structured_action": {
-      const jsonMatch = output.match(/\{[\s\S]*\}/);
+      const jsonMatch = stripThinkingBlocks(output).match(/\{[\s\S]*\}/);
       if (!jsonMatch) return { pass: false, reason: "no json object" };
       try {
         const parsed = JSON.parse(jsonMatch[0]) as unknown;
