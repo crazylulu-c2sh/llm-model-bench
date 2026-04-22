@@ -1,14 +1,17 @@
 import { getScenarioUserPromptPreview } from "@llm-bench/shared";
+import type { SortingState } from "@tanstack/react-table";
 import { Activity, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { BenchRunDetailResponse, StatsModelLatestItem, StatsModelLatestResponse } from "./api-types";
 import { BenchCharts } from "./components/BenchCharts";
+import { DEFAULT_STATS_MODEL_SORTING, StatsModelTable } from "./components/StatsModelTable";
 import { scenarioRowKey, type ChartRow } from "./components/chart-types";
 import { HighlightToggle } from "./components/JsonCodeBlock";
 import type { ResultRow } from "./components/ResultsTable";
 import { ResultsTable } from "./components/ResultsTable";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
+import { compareModelIdAlphanumeric, compareModelKey, normalizeBaseUrl } from "./lib/model-sort";
 import { buildChartRowsFromBenchState, mergeBenchDetailsToState, type MetricsAgg } from "./stats/hydrateBenchUi";
 
 function statsItemHasResults(it: StatsModelLatestItem): boolean {
@@ -33,12 +36,12 @@ export function StatsPage() {
   const [listLoading, setListLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [rows, setRows] = useState<ResultRow[]>([]);
-  const [detailAggregate, setDetailAggregate] = useState<Record<string, MetricsAgg>>({});
-  const [promptByRowKey, setPromptByRowKey] = useState<Record<string, string>>({});
+  const [benchDetailsOk, setBenchDetailsOk] = useState<BenchRunDetailResponse[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerPayload, setDrawerPayload] = useState<ScenarioDetailPayload | null>(null);
   const [hlPreview, setHlPreview] = useState(false);
+  const [statsListSorting, setStatsListSorting] = useState<SortingState>(() => DEFAULT_STATS_MODEL_SORTING);
+  const [sortedRunIdsFromTable, setSortedRunIdsFromTable] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,13 +78,15 @@ export function StatsPage() {
     );
   }, [listItems]);
 
+  useEffect(() => {
+    setStatsListSorting(DEFAULT_STATS_MODEL_SORTING);
+  }, [listItems]);
+
   const selectionKey = selectedIds.slice().sort().join("\0");
 
   useEffect(() => {
     if (!selectionKey) {
-      setRows([]);
-      setDetailAggregate({});
-      setPromptByRowKey({});
+      setBenchDetailsOk([]);
       setDetailLoading(false);
       return;
     }
@@ -103,10 +108,7 @@ export function StatsPage() {
           toast.warning(`일부 런(${failed}건)을 불러오지 못했습니다.`);
         }
         const ok = results.filter((r): r is BenchRunDetailResponse => r != null && Array.isArray(r.scenarios));
-        const merged = mergeBenchDetailsToState(ok);
-        setRows(merged.rows);
-        setDetailAggregate(merged.detailAggregate);
-        setPromptByRowKey(merged.promptByRowKey);
+        setBenchDetailsOk(ok);
       } catch (e) {
         if (!cancelled) toast.error(String(e));
       } finally {
@@ -118,6 +120,31 @@ export function StatsPage() {
     };
   }, [selectionKey]);
 
+  const sortedBenchDetails = useMemo(() => {
+    if (benchDetailsOk.length === 0) return [];
+    const orderIndex = new Map(sortedRunIdsFromTable.map((id, i) => [id, i]));
+    return [...benchDetailsOk].sort((a, b) => {
+      const ra = String(a.meta.run_id);
+      const rb = String(b.meta.run_id);
+      const ia = orderIndex.get(ra);
+      const ib = orderIndex.get(rb);
+      if (ia != null && ib != null) return ia - ib;
+      if (ia != null) return -1;
+      if (ib != null) return 1;
+      return compareModelKey(
+        { model_id: String(a.meta.model_id), base_url: normalizeBaseUrl(String(a.meta.base_url)) },
+        { model_id: String(b.meta.model_id), base_url: normalizeBaseUrl(String(b.meta.base_url)) },
+      );
+    });
+  }, [benchDetailsOk, sortedRunIdsFromTable]);
+
+  const { rows, detailAggregate, promptByRowKey } = useMemo(() => {
+    if (sortedBenchDetails.length === 0) {
+      return { rows: [] as ResultRow[], detailAggregate: {} as Record<string, MetricsAgg>, promptByRowKey: {} as Record<string, string> };
+    }
+    return mergeBenchDetailsToState(sortedBenchDetails);
+  }, [sortedBenchDetails]);
+
   const chartRows = useMemo(
     () => buildChartRowsFromBenchState(rows, detailAggregate),
     [rows, detailAggregate],
@@ -128,7 +155,7 @@ export function StatsPage() {
     for (const r of chartRows) {
       if (r.modelId) s.add(r.modelId);
     }
-    return [...s].sort();
+    return [...s].sort(compareModelIdAlphanumeric);
   }, [chartRows]);
 
   const [chartModelFilter, setChartModelFilter] = useState<Record<string, boolean>>({});
@@ -148,6 +175,12 @@ export function StatsPage() {
     [chartRows, chartModelFilter],
   );
 
+  const selectedMap = useMemo(() => Object.fromEntries(selectedIds.map((id) => [id, true])), [selectedIds]);
+
+  const selectableCount = useMemo(() => listItems.filter(statsItemHasResults).length, [listItems]);
+
+  const canSelectStatsRow = useCallback((row: StatsModelLatestItem) => statsItemHasResults(row), []);
+
   const toggleRun = useCallback((runId: string) => {
     setSelectedIds((prev) => {
       if (prev.includes(runId)) return prev.filter((x) => x !== runId);
@@ -157,15 +190,24 @@ export function StatsPage() {
     });
   }, [listItems]);
 
-  const selectableItems = useMemo(() => listItems.filter(statsItemHasResults), [listItems]);
-
-  const selectAll = useCallback(() => {
-    setSelectedIds(selectableItems.map((i) => i.run_id));
-  }, [selectableItems]);
-
-  const selectNone = useCallback(() => {
-    setSelectedIds([]);
-  }, []);
+  const handleSelectAllStats = useCallback(
+    (next: boolean) => {
+      if (!next) {
+        setSelectedIds([]);
+        return;
+      }
+      const ordered =
+        sortedRunIdsFromTable.length > 0
+          ? sortedRunIdsFromTable
+          : [...listItems].sort((a, b) => compareModelKey(a, b)).map((i) => i.run_id);
+      const ids = ordered.filter((id) => {
+        const it = listItems.find((x) => x.run_id === id);
+        return it != null && statsItemHasResults(it);
+      });
+      setSelectedIds(ids);
+    },
+    [listItems, sortedRunIdsFromTable],
+  );
 
   const openDrawerForRow = useCallback(
     (row: ResultRow) => {
@@ -245,7 +287,7 @@ export function StatsPage() {
           <p className="text-sm text-[var(--muted)]">표시할 완료 런이 없습니다. 벤치를 먼저 실행하세요.</p>
         ) : (
           <>
-            {selectableItems.length === 0 ? (
+            {selectableCount === 0 ? (
               <p className="mb-3 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--muted)]">
                 아래 런에는 시나리오 측정 집계가 없어 선택할 수 없습니다. 벤치가 중단되었거나 저장 전 오류가 있었을 수 있습니다.
               </p>
@@ -253,16 +295,8 @@ export function StatsPage() {
             <div className="mb-3 flex flex-wrap gap-2">
               <button
                 type="button"
-                className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={selectableItems.length === 0}
-                onClick={selectAll}
-              >
-                전체 선택
-              </button>
-              <button
-                type="button"
                 className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium shadow-sm"
-                onClick={selectNone}
+                onClick={() => setSelectedIds([])}
               >
                 선택 해제
               </button>
@@ -273,42 +307,16 @@ export function StatsPage() {
                 </span>
               ) : null}
             </div>
-            <ul className="max-h-64 space-y-1 overflow-y-auto rounded border border-[var(--border)] bg-[var(--surface)] p-2 text-xs">
-              {listItems.map((it) => {
-                const checked = selectedIds.includes(it.run_id);
-                const canSelect = statsItemHasResults(it);
-                return (
-                  <li key={it.run_id}>
-                    <label
-                      className={`flex items-start gap-2 rounded px-2 py-1 ${
-                        canSelect ? "cursor-pointer hover:bg-[var(--surface-2)]" : "cursor-not-allowed opacity-55"
-                      }`}
-                      title={
-                        canSelect
-                          ? undefined
-                          : "시나리오 측정 집계가 없어 차트·표에 쓸 데이터가 없습니다. 선택할 수 없습니다."
-                      }
-                    >
-                      <input
-                        type="checkbox"
-                        className="mt-0.5"
-                        disabled={!canSelect}
-                        checked={checked}
-                        onChange={() => toggleRun(it.run_id)}
-                      />
-                      <span className="min-w-0 flex-1 font-mono">
-                        <span className="text-[var(--foreground)]">{it.model_id}</span>
-                        <span className="block break-all text-[var(--muted)]">{it.base_url}</span>
-                        <span className="text-[var(--muted)]">
-                          {it.provider} · {it.status} · {it.finished_at.slice(0, 19)}
-                          {!canSelect ? " · 집계 없음" : null}
-                        </span>
-                      </span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
+            <StatsModelTable
+              models={listItems}
+              selected={selectedMap}
+              onToggle={toggleRun}
+              onSelectAll={handleSelectAllStats}
+              sorting={statsListSorting}
+              onSortingChange={setStatsListSorting}
+              onSortedRunIdsChange={setSortedRunIdsFromTable}
+              canSelectRow={canSelectStatsRow}
+            />
           </>
         )}
       </section>
