@@ -31,3 +31,10 @@ apps/server/data/*.sqlite
 apps/server/data/*.sqlite-journal
 apps/server/data/*.sqlite-wal
 apps/server/data/*.sqlite-shm
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

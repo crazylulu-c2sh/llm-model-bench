@@ -1,6 +1,5 @@
 import type { BenchRunMeta, DetectResult, LlmProfileFamily, SamplingPresetName, StreamEvent, ThinkingIntent } from "@llm-bench/shared";
 import { inferLlmProfileFamily, resolveBenchProfile } from "@llm-bench/shared";
-import { getScenarioUserPromptPreview } from "@llm-bench/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { toast, Toaster } from "sonner";
@@ -53,6 +52,9 @@ import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/S
 import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
+import { defaultScenarioPromptPreview } from "./lib/scenario-prompt-preview";
+import { ProfileDocPage } from "./ProfileDocPage";
+import { ScenariosDocPage } from "./ScenariosDocPage";
 import { StatsPage } from "./StatsPage";
 import { formatTimeWithMs } from "./lib/time-format";
 import type { ThemeChoice } from "./useTheme";
@@ -112,19 +114,6 @@ function consumeSseJsonLines(
   })();
 }
 
-function defaultScenarioPromptPreview(scenarioId: string): string {
-  if (scenarioId === "translate_nist_fips197_pdf_tools" && typeof window !== "undefined") {
-    return getScenarioUserPromptPreview(scenarioId, { publicAssetBaseUrl: window.location.origin });
-  }
-  if (scenarioId === "chat_time_calendar") {
-    return getScenarioUserPromptPreview(scenarioId, {
-      referenceIso: new Date().toISOString(),
-      calendarTimeZone: "Asia/Seoul",
-    });
-  }
-  return getScenarioUserPromptPreview(scenarioId);
-}
-
 function ThemeIcon({ choice }: { choice: ThemeChoice }) {
   if (choice === "dark") return <Moon className="size-4 text-[var(--muted)]" aria-hidden />;
   if (choice === "light") return <Sun className="size-4 text-[var(--muted)]" aria-hidden />;
@@ -134,7 +123,10 @@ function ThemeIcon({ choice }: { choice: ThemeChoice }) {
 export function App() {
   const { choice: themeChoice, setChoice: setThemeChoice, resolved: themeResolved } = useTheme();
   const { pathname } = useLocation();
+  const onBenchPage = pathname === "/";
   const onStatsPage = pathname === "/stats";
+  const onProfilePage = pathname === "/profile";
+  const onScenariosPage = pathname === "/scenarios";
   const [boot] = useState(() => readInitialUiState());
   const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
   const [apiKey, setApiKey] = useState(boot.apiKey);
@@ -1035,12 +1027,16 @@ export function App() {
           </span>
           <div className="min-w-0 flex-1">
             <h1 className="text-lg font-semibold tracking-tight">LLM Model Bench</h1>
-            {!onStatsPage ? (
-              <p className="text-sm text-[var(--muted)]">로컬 프로바이더 감지 · 스트리밍 벤치</p>
-            ) : (
+            {onStatsPage ? (
               <p className="text-sm text-[var(--muted)]">SQLite에 저장된 최신 런 기준 메트릭·결과</p>
+            ) : onProfilePage ? (
+              <p className="text-sm text-[var(--muted)]">모델 패밀리별 샘플링·컨텍스트·런타임 적용 규칙</p>
+            ) : onScenariosPage ? (
+              <p className="text-sm text-[var(--muted)]">시나리오 목적·도구·채점·프롬프트 미리보기</p>
+            ) : (
+              <p className="text-sm text-[var(--muted)]">로컬 프로바이더 감지 · 스트리밍 벤치</p>
             )}
-            {running ? (
+            {running && onBenchPage ? (
               <div
                 className={[
                   "mt-2 flex min-w-0 items-center gap-2 rounded border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--foreground)]",
@@ -1060,14 +1056,14 @@ export function App() {
         </div>
         <div className="justify-self-center sm:px-2" role="tablist" aria-label="페이지">
           <span className="sr-only">페이지</span>
-          <div className="flex rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] p-1 shadow-sm">
+          <div className="flex max-w-[100vw] flex-wrap justify-center gap-1 rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] p-1 shadow-sm sm:max-w-none sm:flex-nowrap">
             <NavLink
               to="/"
               end
               role="tab"
-              aria-selected={!onStatsPage}
+              aria-selected={onBenchPage}
               className={({ isActive }) =>
-                `min-w-[5.5rem] rounded-md px-5 py-2.5 text-center text-base font-semibold tracking-tight no-underline transition-colors ${
+                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
                   isActive
                     ? "bg-[var(--accent)] text-white shadow-md"
                     : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
@@ -1081,7 +1077,7 @@ export function App() {
               role="tab"
               aria-selected={onStatsPage}
               className={({ isActive }) =>
-                `min-w-[5.5rem] rounded-md px-5 py-2.5 text-center text-base font-semibold tracking-tight no-underline transition-colors ${
+                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
                   isActive
                     ? "bg-[var(--accent)] text-white shadow-md"
                     : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
@@ -1089,6 +1085,34 @@ export function App() {
               }
             >
               통계
+            </NavLink>
+            <NavLink
+              to="/profile"
+              role="tab"
+              aria-selected={onProfilePage}
+              className={({ isActive }) =>
+                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
+                  isActive
+                    ? "bg-[var(--accent)] text-white shadow-md"
+                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+                }`
+              }
+            >
+              프로파일
+            </NavLink>
+            <NavLink
+              to="/scenarios"
+              role="tab"
+              aria-selected={onScenariosPage}
+              className={({ isActive }) =>
+                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
+                  isActive
+                    ? "bg-[var(--accent)] text-white shadow-md"
+                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+                }`
+              }
+            >
+              시나리오
             </NavLink>
           </div>
         </div>
@@ -1231,9 +1255,17 @@ export function App() {
         </section>
 
         <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
-          <h2 className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
-            <Monitor className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-            모델 선택
+          <h2 className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
+            <span className="inline-flex items-center gap-2">
+              <Monitor className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
+              모델 선택
+            </span>
+            <NavLink
+              to="/profile"
+              className="shrink-0 text-xs font-normal text-[var(--accent)] no-underline hover:underline"
+            >
+              프로파일 수치·규칙 상세
+            </NavLink>
           </h2>
           <div className="mb-3 grid grid-cols-1 gap-2 rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
             <label className="grid min-w-0 gap-1">
@@ -1377,11 +1409,21 @@ export function App() {
           )}
         </section>
 
-        <ScenarioGuideCards
-          currentScenario={running ? benchCurrent?.scenario : null}
-          running={running}
-          touchedScenarioIds={touchedScenarioIds}
-        />
+        <div className="space-y-2">
+          <div className="flex justify-end">
+            <NavLink
+              to="/scenarios"
+              className="text-xs text-[var(--accent)] no-underline hover:underline"
+            >
+              시나리오 상세 문서
+            </NavLink>
+          </div>
+          <ScenarioGuideCards
+            currentScenario={running ? benchCurrent?.scenario : null}
+            running={running}
+            touchedScenarioIds={touchedScenarioIds}
+          />
+        </div>
 
         <BenchProgressPanel
           className={benchProgressClass}
@@ -1605,6 +1647,8 @@ export function App() {
             }
           />
           <Route path="/stats" element={<StatsPage />} />
+          <Route path="/profile" element={<ProfileDocPage />} />
+          <Route path="/scenarios" element={<ScenariosDocPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

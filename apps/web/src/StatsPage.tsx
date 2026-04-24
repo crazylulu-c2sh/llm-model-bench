@@ -1,4 +1,3 @@
-import { getScenarioUserPromptPreview } from "@llm-bench/shared";
 import type { SortingState } from "@tanstack/react-table";
 import { Activity, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -11,24 +10,12 @@ import { HighlightToggle } from "./components/JsonCodeBlock";
 import type { ResultRow } from "./components/ResultsTable";
 import { ResultsTable } from "./components/ResultsTable";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
+import { defaultScenarioPromptPreview } from "./lib/scenario-prompt-preview";
 import { compareModelIdAlphanumeric, compareModelKey, normalizeBaseUrl } from "./lib/model-sort";
 import { buildChartRowsFromBenchState, mergeBenchDetailsToState, type MetricsAgg } from "./stats/hydrateBenchUi";
 
 function statsItemHasResults(it: StatsModelLatestItem): boolean {
   return (it.scenario_count ?? 0) > 0;
-}
-
-function defaultScenarioPromptPreview(scenarioId: string): string {
-  if (scenarioId === "translate_nist_fips197_pdf_tools" && typeof window !== "undefined") {
-    return getScenarioUserPromptPreview(scenarioId, { publicAssetBaseUrl: window.location.origin });
-  }
-  if (scenarioId === "chat_time_calendar") {
-    return getScenarioUserPromptPreview(scenarioId, {
-      referenceIso: new Date().toISOString(),
-      calendarTimeZone: "Asia/Seoul",
-    });
-  }
-  return getScenarioUserPromptPreview(scenarioId);
 }
 
 export function StatsPage() {
