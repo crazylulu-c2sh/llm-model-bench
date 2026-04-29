@@ -14,6 +14,11 @@ export type OpenAiStreamMetrics = {
   text: string;
   /** `delta.content`만 (tool_calls·추론 채널 제외) — 도구 라운드 히스토리 등 */
   assistantText: string;
+  /**
+   * `delta.reasoning_content` + 문자열 `delta.reasoning` 누적 (MiniMax `reasoning_split` 등).
+   * 히스토리 `reasoning_details` 재주입용; `assistantText`와 분리됨.
+   */
+  reasoningText: string;
   toolCalls: OpenAiToolCallOut[] | null;
   streamCompleted: boolean;
   approxOutputTokens: number;
@@ -74,6 +79,7 @@ export async function consumeOpenAiChatStream(
       totalMs: 0,
       text: "",
       assistantText: "",
+      reasoningText: "",
       toolCalls: null,
       streamCompleted: false,
       approxOutputTokens: 0,
@@ -86,6 +92,8 @@ export async function consumeOpenAiChatStream(
   let combined = "";
   /** delta.content 만 */
   let contentOnly = "";
+  /** reasoning_content + 문자열 reasoning (히스토리 reasoning_details) */
+  let reasoningOnly = "";
   const toolByIndex = new Map<number, MergedToolCall>();
   const t0 = performance.now();
   let ttft: number | null = null;
@@ -119,11 +127,13 @@ export async function consumeOpenAiChatStream(
       if (typeof rc === "string" && rc.length > 0) {
         markTtft();
         combined += rc;
+        reasoningOnly += rc;
       }
       const rsn = delta?.reasoning;
       if (typeof rsn === "string" && rsn.length > 0) {
         markTtft();
         combined += rsn;
+        reasoningOnly += rsn;
       }
       const c = delta?.content;
       if (c) {
@@ -170,6 +180,7 @@ export async function consumeOpenAiChatStream(
     totalMs,
     text: outText,
     assistantText: contentOnly,
+    reasoningText: reasoningOnly,
     toolCalls: toolCallsForApi.length ? toolCallsForApi : null,
     streamCompleted,
     approxOutputTokens,

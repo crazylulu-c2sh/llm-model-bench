@@ -22,6 +22,7 @@ describe("consumeOpenAiChatStream", () => {
     const m = await consumeOpenAiChatStream(stream);
     expect(m.text).toBe("Hello world from stream");
     expect(m.assistantText).toBe("Hello world from stream");
+    expect(m.reasoningText).toBe("");
     expect(m.toolCalls).toBeNull();
     expect(m.ttftMs).not.toBeNull();
     expect(m.streamCompleted).toBe(true);
@@ -52,6 +53,7 @@ describe("consumeOpenAiChatStream", () => {
       "data: [DONE]\n\n",
     ]);
     const m = await consumeOpenAiChatStream(stream);
+    expect(m.reasoningText).toBe("");
     expect(m.ttftMs).not.toBeNull();
     expect(m.streamCompleted).toBe(true);
     expect(m.text).toContain('"tool_calls"');
@@ -69,6 +71,7 @@ describe("consumeOpenAiChatStream", () => {
       "data: [DONE]\n\n",
     ]);
     const m = await consumeOpenAiChatStream(stream);
+    expect(m.reasoningText).toBe("");
     expect(m.text.startsWith("Calling tool.")).toBe(true);
     expect(m.text).toContain("\n");
     expect(m.text).toContain("get_weather");
@@ -80,6 +83,7 @@ describe("consumeOpenAiChatStream", () => {
       "data: [DONE]\n\n",
     ]);
     const m = await consumeOpenAiChatStream(stream);
+    expect(m.reasoningText).toBe("");
     expect(
       scoreScenario("translate_nist_fips197_pdf_tools", m.assistantText, {
         invokedBenchTools: ["fetch_pdf_text"],
@@ -95,6 +99,7 @@ describe("consumeOpenAiChatStream", () => {
     ]);
     const m = await consumeOpenAiChatStream(stream);
     expect(m.assistantText).toBe("");
+    expect(m.reasoningText).toBe("think 2026-04-20 2026-04-21");
     expect(m.text).toBe("think 2026-04-20 2026-04-21");
     expect(m.ttftMs).not.toBeNull();
   });
@@ -108,6 +113,7 @@ describe("consumeOpenAiChatStream", () => {
     const m = await consumeOpenAiChatStream(stream);
     expect(m.text).toBe("[r] visible");
     expect(m.assistantText).toBe(" visible");
+    expect(m.reasoningText).toBe("[r]");
   });
 
   it("appends string delta.reasoning when present", async () => {
@@ -119,5 +125,6 @@ describe("consumeOpenAiChatStream", () => {
     const m = await consumeOpenAiChatStream(stream);
     expect(m.text).toBe("alt tail");
     expect(m.assistantText).toBe("tail");
+    expect(m.reasoningText).toBe("alt ");
   });
 });

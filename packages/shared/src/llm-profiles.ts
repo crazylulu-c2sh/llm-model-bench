@@ -342,8 +342,16 @@ export function resolveBenchProfile(input: {
   samplingOverrides?: Partial<SamplingParams> | null;
   maxTokensOverride?: number | null;
   reasoningEffort?: "minimal" | "low" | "medium" | "high" | null;
+  /**
+   * When UI/server profile is not `auto`, use this family instead of inferring from `modelId`
+   * (sampling, extra_body, prompt rules).
+   */
+  profileFamilyOverride?: LlmProfileFamily | null;
 }): ResolvedBenchProfile {
-  const family = inferLlmProfileFamily(input.modelId);
+  const family =
+    input.profileFamilyOverride != null
+      ? input.profileFamilyOverride
+      : inferLlmProfileFamily(input.modelId);
   const def = getLlmProfileDefinition(family);
   const preset =
     input.presetOverride && input.presetOverride !== "default"
@@ -360,6 +368,9 @@ export function resolveBenchProfile(input: {
   }
   if (family === "qwen36" && input.preserveThinking) {
     extraBody = deepMergeObjects(extraBody, { chat_template_kwargs: { preserve_thinking: true } });
+  }
+  if (family === "minimax_m27") {
+    extraBody = deepMergeObjects(extraBody, { reasoning_split: true });
   }
 
   const complexScenario =

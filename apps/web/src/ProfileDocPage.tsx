@@ -101,6 +101,12 @@ export function ProfileDocPage() {
             메타에 실리며, UI에서 단계(minimal~high)를 고릅니다.
           </li>
           <li>
+            <strong className="text-[var(--foreground)]">minimax_m27</strong>는 MiniMax OpenAI 호환 API의 Interleaved 형식을 위해 요청에{" "}
+            <code className="font-mono text-xs">reasoning_split: true</code>가 포함됩니다. 네이티브 형식(<code className="font-mono text-xs">content</code> 안의{" "}
+            <code className="font-mono text-xs">&lt;redacted_thinking&gt;</code>)은 히스토리에서 <code className="font-mono text-xs">content</code>를 그대로 두는 것이
+            전제이며, 이 프로젝트는 해당 패밀리에 대해 assistant 히스토리에서 thinking 블록을 제거하지 않습니다.
+          </li>
+          <li>
             <strong className="text-[var(--foreground)]">samplingOverrides</strong> JSON은 선택된 프리셋 수치 위에 얕게 덮어씁니다. 서버는{" "}
             <code className="font-mono text-xs">repetition_penalty</code>를 OpenAI 쪽 <code className="font-mono text-xs">frequency_penalty</code>로
             옮겨 실제 요청에 넣습니다.

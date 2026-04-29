@@ -40,6 +40,11 @@ export function buildProfileAugmentedMeta(
         ? Math.floor(input.profile.maxTokensOverride)
         : null;
 
+  const profileFamilyOverride =
+    input.profile.profileId != null && input.profile.profileId !== "auto"
+      ? input.profile.profileId
+      : null;
+
   const resolved = resolveBenchProfile({
     modelId: input.modelId,
     taskMode,
@@ -49,6 +54,7 @@ export function buildProfileAugmentedMeta(
     samplingOverrides: input.profile.samplingOverrides,
     maxTokensOverride: explicitMaxTokens,
     reasoningEffort: input.profile.reasoningEffort,
+    profileFamilyOverride,
   });
 
   const { repetition_penalty, ...restSampling } = resolved.sampling;

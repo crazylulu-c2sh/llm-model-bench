@@ -199,6 +199,21 @@ function sanitizeOpenAiAssistantContent(
   return content as Array<Record<string, unknown>>;
 }
 
+/** MiniMax Interleaved (`reasoning_split: true`) — assistant history must echo `reasoning_details`. */
+function minimaxReasoningDetailsForOpenAiHistory(reasoning: string): Array<Record<string, unknown>> {
+  const text = reasoning.trim();
+  if (!text) return [];
+  return [
+    {
+      type: "reasoning.text",
+      id: "reasoning-text-1",
+      format: "MiniMax-response-v1",
+      index: 0,
+      text,
+    },
+  ];
+}
+
 function mergeOpenAiBody(
   meta: BenchRunMeta,
   base: Record<string, unknown>,
@@ -563,7 +578,7 @@ export async function* runBench(
                     m.assistantText.trim() ? m.assistantText : null,
                     stripThinkHistory,
                   );
-                  messages.push({
+                  const assistantMsg: Record<string, unknown> = {
                     role: "assistant",
                     content: assistantContent,
                     tool_calls: m.toolCalls.map((tc) => ({
@@ -574,7 +589,19 @@ export async function* runBench(
                         arguments: tc.function.arguments,
                       },
                     })),
-                  });
+                  };
+                  const eb = scenarioMeta.extra_body;
+                  if (
+                    eb &&
+                    typeof eb === "object" &&
+                    (eb as { reasoning_split?: unknown }).reasoning_split === true &&
+                    m.reasoningText.trim()
+                  ) {
+                    assistantMsg.reasoning_details = minimaxReasoningDetailsForOpenAiHistory(
+                      m.reasoningText,
+                    );
+                  }
+                  messages.push(assistantMsg);
                   for (const tc of m.toolCalls) {
                     const toolContent = await executeBenchTool(
                       tc.function.name,
