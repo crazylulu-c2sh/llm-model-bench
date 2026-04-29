@@ -1283,7 +1283,7 @@ export function App() {
                 <option value="qwen35">Qwen 3.5</option>
                 <option value="qwen36">Qwen 3.6</option>
                 <option value="gpt_oss">gpt-oss</option>
-                <option value="minimax_m27">MiniMax M2.7</option>
+                <option value="minimax">MiniMax</option>
                 <option value="nemotron3">Nemotron 3</option>
                 <option value="qwen3_coder_next">Qwen3-Coder-Next</option>
                 <option value="glm47_flash">GLM-4.7-Flash</option>

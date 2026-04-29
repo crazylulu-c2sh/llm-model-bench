@@ -196,7 +196,12 @@ const BenchStreamBody = z.object({
     unloadOtherModels: z.boolean().optional(),
     autoUnloadAfterBench: z.boolean().optional(),
     publicAssetsOrigin: z.string().url().optional(),
-    profileId: z.enum(["auto", "unknown", "gemma4", "qwen35", "qwen36", "gpt_oss", "minimax_m27", "nemotron3", "qwen3_coder_next", "glm47_flash"]).optional(),
+    profileId: z.preprocess(
+      (v) => (v === "minimax_m27" ? "minimax" : v),
+      z
+        .enum(["auto", "unknown", "gemma4", "qwen35", "qwen36", "gpt_oss", "minimax", "nemotron3", "qwen3_coder_next", "glm47_flash"])
+        .optional(),
+    ),
     profileMaxTokens: z.number().int().positive().optional(),
     taskMode: z.enum(["general", "coding", "tool"]).optional(),
     thinkingIntent: z.enum(["on", "off"]).optional(),
