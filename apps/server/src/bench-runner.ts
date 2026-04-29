@@ -7,7 +7,12 @@ import type {
 } from "@llm-bench/shared";
 import { stripThinkingBlocks } from "@llm-bench/shared";
 import { consumeAnthropicMessagesStream } from "./anthropic-stream.js";
-import { consumeOpenAiChatStream, tpotFromOpenAi } from "./openai-stream.js";
+import {
+  consumeOpenAiChatStream,
+  openAiBenchOutputText,
+  openAiLiveTokenStreamText,
+  tpotFromOpenAi,
+} from "./openai-stream.js";
 import {
   ALL_SCENARIO_IDS,
   anthropicMessagesForScenario,
@@ -566,7 +571,7 @@ export async function* runBench(
                 totalMsAcc += m.totalMs;
                 if (ttft === null) ttft = m.ttftMs;
                 streamCompleted = m.streamCompleted;
-                for (const ch of chunkTextForUi(m.assistantText, 24)) {
+                for (const ch of chunkTextForUi(openAiLiveTokenStreamText(m), 24)) {
                   yield {
                     type: "token_delta",
                     scenario_id: scenarioId,
@@ -620,14 +625,14 @@ export async function* runBench(
                   }
                   continue;
                 }
-                text = m.assistantText;
+                text = openAiBenchOutputText(m);
                 break;
               }
               if (!iterationFailed) {
                 totalMs = totalMsAcc;
                 if (lastOpen) {
                   tpot = tpotFromOpenAi(lastOpen);
-                  if (!text) text = lastOpen.assistantText;
+                  if (!text.trim()) text = openAiBenchOutputText(lastOpen);
                 }
               }
             } else if (

@@ -191,3 +191,18 @@ export function tpotFromOpenAi(m: OpenAiStreamMetrics): number | null {
   if (m.ttftMs === null || m.approxOutputTokens <= 1) return null;
   return (m.totalMs - m.ttftMs) / (m.approxOutputTokens - 1);
 }
+
+/**
+ * 채점·집계 `output_text`용: `delta.content`만 있는 `assistantText`를 우선하고,
+ * 비어 있으면 `text`(reasoning + content + 필요 시 tool_calls JSON)로 폴백.
+ * Interleaved(`reasoning_split`)에서 최종 턴이 추론 전용 델타만 줄 때 빈 문자열을 막는다.
+ */
+export function openAiBenchOutputText(m: OpenAiStreamMetrics): string {
+  if (m.assistantText.trim()) return m.assistantText;
+  return m.text;
+}
+
+/** 라이브 token_delta: 추론 델타가 있으면 앞에 붙여 스트림에 노출 */
+export function openAiLiveTokenStreamText(m: OpenAiStreamMetrics): string {
+  return `${m.reasoningText}${m.assistantText}`;
+}
