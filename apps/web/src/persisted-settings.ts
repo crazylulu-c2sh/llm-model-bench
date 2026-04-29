@@ -18,7 +18,7 @@ const PrefsSchema = z
     persistApiKeyToDisk: z.boolean().optional(),
     apiKey: z.string().optional(),
     profileId: z
-      .enum(["auto", "unknown", "gemma4", "qwen35", "qwen36", "gpt_oss", "minimax_m27", "nemotron3", "qwen3_coder_next", "glm47_flash"])
+      .enum(["auto", "unknown", "gemma4", "qwen35", "qwen36", "gpt_oss", "minimax", "nemotron3", "qwen3_coder_next", "glm47_flash"])
       .optional(),
     profileMaxTokens: z.number().int().positive().optional(),
     thinkingIntent: z.enum(["on", "off"]).optional(),
@@ -43,6 +43,7 @@ function safeParsePrefs(raw: string | null): Partial<UiPrefs> {
     if (typeof j !== "object" || j === null) return {};
     const obj = j as Record<string, unknown>;
     if (!("v" in obj)) obj.v = STORAGE_VERSION;
+    if (obj.profileId === "minimax_m27") obj.profileId = "minimax";
     const parsed = PrefsSchema.safeParse(obj);
     if (parsed.success) return parsed.data;
     if (obj.v === 1) {

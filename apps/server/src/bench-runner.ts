@@ -7,7 +7,12 @@ import type {
 } from "@llm-bench/shared";
 import { stripThinkingBlocks } from "@llm-bench/shared";
 import { consumeAnthropicMessagesStream } from "./anthropic-stream.js";
-import { consumeOpenAiChatStream, tpotFromOpenAi } from "./openai-stream.js";
+import {
+  consumeOpenAiChatStream,
+  openAiBenchOutputText,
+  openAiLiveTokenStreamText,
+  tpotFromOpenAi,
+} from "./openai-stream.js";
 import {
   ALL_SCENARIO_IDS,
   anthropicMessagesForScenario,
@@ -197,6 +202,21 @@ function sanitizeOpenAiAssistantContent(
     return next as Array<Record<string, unknown>>;
   }
   return content as Array<Record<string, unknown>>;
+}
+
+/** MiniMax Interleaved (`reasoning_split: true`) — assistant history must echo `reasoning_details`. */
+function minimaxReasoningDetailsForOpenAiHistory(reasoning: string): Array<Record<string, unknown>> {
+  const text = reasoning.trim();
+  if (!text) return [];
+  return [
+    {
+      type: "reasoning.text",
+      id: "reasoning-text-1",
+      format: "MiniMax-response-v1",
+      index: 0,
+      text,
+    },
+  ];
 }
 
 function mergeOpenAiBody(
@@ -551,7 +571,7 @@ export async function* runBench(
                 totalMsAcc += m.totalMs;
                 if (ttft === null) ttft = m.ttftMs;
                 streamCompleted = m.streamCompleted;
-                for (const ch of chunkTextForUi(m.assistantText, 24)) {
+                for (const ch of chunkTextForUi(openAiLiveTokenStreamText(m), 24)) {
                   yield {
                     type: "token_delta",
                     scenario_id: scenarioId,
@@ -563,7 +583,7 @@ export async function* runBench(
                     m.assistantText.trim() ? m.assistantText : null,
                     stripThinkHistory,
                   );
-                  messages.push({
+                  const assistantMsg: Record<string, unknown> = {
                     role: "assistant",
                     content: assistantContent,
                     tool_calls: m.toolCalls.map((tc) => ({
@@ -574,7 +594,19 @@ export async function* runBench(
                         arguments: tc.function.arguments,
                       },
                     })),
-                  });
+                  };
+                  const eb = scenarioMeta.extra_body;
+                  if (
+                    eb &&
+                    typeof eb === "object" &&
+                    (eb as { reasoning_split?: unknown }).reasoning_split === true &&
+                    m.reasoningText.trim()
+                  ) {
+                    assistantMsg.reasoning_details = minimaxReasoningDetailsForOpenAiHistory(
+                      m.reasoningText,
+                    );
+                  }
+                  messages.push(assistantMsg);
                   for (const tc of m.toolCalls) {
                     const toolContent = await executeBenchTool(
                       tc.function.name,
@@ -593,14 +625,14 @@ export async function* runBench(
                   }
                   continue;
                 }
-                text = m.assistantText;
+                text = openAiBenchOutputText(m);
                 break;
               }
               if (!iterationFailed) {
                 totalMs = totalMsAcc;
                 if (lastOpen) {
                   tpot = tpotFromOpenAi(lastOpen);
-                  if (!text) text = lastOpen.assistantText;
+                  if (!text.trim()) text = openAiBenchOutputText(lastOpen);
                 }
               }
             } else if (

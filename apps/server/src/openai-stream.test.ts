@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { scoreScenario } from "./scenarios.js";
-import { consumeOpenAiChatStream, tpotFromOpenAi } from "./openai-stream.js";
+import {
+  consumeOpenAiChatStream,
+  openAiBenchOutputText,
+  openAiLiveTokenStreamText,
+  tpotFromOpenAi,
+} from "./openai-stream.js";
 
 function sse(chunks: string[]) {
   const enc = new TextEncoder();
@@ -22,6 +27,7 @@ describe("consumeOpenAiChatStream", () => {
     const m = await consumeOpenAiChatStream(stream);
     expect(m.text).toBe("Hello world from stream");
     expect(m.assistantText).toBe("Hello world from stream");
+    expect(m.reasoningText).toBe("");
     expect(m.toolCalls).toBeNull();
     expect(m.ttftMs).not.toBeNull();
     expect(m.streamCompleted).toBe(true);
@@ -52,6 +58,7 @@ describe("consumeOpenAiChatStream", () => {
       "data: [DONE]\n\n",
     ]);
     const m = await consumeOpenAiChatStream(stream);
+    expect(m.reasoningText).toBe("");
     expect(m.ttftMs).not.toBeNull();
     expect(m.streamCompleted).toBe(true);
     expect(m.text).toContain('"tool_calls"');
@@ -69,6 +76,7 @@ describe("consumeOpenAiChatStream", () => {
       "data: [DONE]\n\n",
     ]);
     const m = await consumeOpenAiChatStream(stream);
+    expect(m.reasoningText).toBe("");
     expect(m.text.startsWith("Calling tool.")).toBe(true);
     expect(m.text).toContain("\n");
     expect(m.text).toContain("get_weather");
@@ -80,6 +88,7 @@ describe("consumeOpenAiChatStream", () => {
       "data: [DONE]\n\n",
     ]);
     const m = await consumeOpenAiChatStream(stream);
+    expect(m.reasoningText).toBe("");
     expect(
       scoreScenario("translate_nist_fips197_pdf_tools", m.assistantText, {
         invokedBenchTools: ["fetch_pdf_text"],
@@ -95,6 +104,7 @@ describe("consumeOpenAiChatStream", () => {
     ]);
     const m = await consumeOpenAiChatStream(stream);
     expect(m.assistantText).toBe("");
+    expect(m.reasoningText).toBe("think 2026-04-20 2026-04-21");
     expect(m.text).toBe("think 2026-04-20 2026-04-21");
     expect(m.ttftMs).not.toBeNull();
   });
@@ -108,6 +118,7 @@ describe("consumeOpenAiChatStream", () => {
     const m = await consumeOpenAiChatStream(stream);
     expect(m.text).toBe("[r] visible");
     expect(m.assistantText).toBe(" visible");
+    expect(m.reasoningText).toBe("[r]");
   });
 
   it("appends string delta.reasoning when present", async () => {
@@ -119,5 +130,55 @@ describe("consumeOpenAiChatStream", () => {
     const m = await consumeOpenAiChatStream(stream);
     expect(m.text).toBe("alt tail");
     expect(m.assistantText).toBe("tail");
+    expect(m.reasoningText).toBe("alt ");
+  });
+});
+
+describe("openAiBenchOutputText", () => {
+  it("prefers assistantText when non-empty", () => {
+    expect(
+      openAiBenchOutputText({
+        ttftMs: 0,
+        totalMs: 1,
+        text: "full",
+        assistantText: "visible",
+        reasoningText: "think",
+        toolCalls: null,
+        streamCompleted: true,
+        approxOutputTokens: 1,
+      }),
+    ).toBe("visible");
+  });
+
+  it("falls back to text when assistantText is blank", () => {
+    expect(
+      openAiBenchOutputText({
+        ttftMs: 0,
+        totalMs: 1,
+        text: "reasoning-only",
+        assistantText: "",
+        reasoningText: "reasoning-only",
+        toolCalls: null,
+        streamCompleted: true,
+        approxOutputTokens: 4,
+      }),
+    ).toBe("reasoning-only");
+  });
+});
+
+describe("openAiLiveTokenStreamText", () => {
+  it("concatenates reasoning then assistant content", () => {
+    expect(
+      openAiLiveTokenStreamText({
+        ttftMs: 0,
+        totalMs: 1,
+        text: "x",
+        assistantText: "out",
+        reasoningText: "in",
+        toolCalls: null,
+        streamCompleted: true,
+        approxOutputTokens: 1,
+      }),
+    ).toBe("inout");
   });
 });

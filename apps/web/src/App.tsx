@@ -302,22 +302,24 @@ export function App() {
     if (!detect) return {} as Record<string, string>;
     const out: Record<string, string> = {};
     for (const m of detect.models) {
-      const fam = inferLlmProfileFamily(m.id);
+      const inferred = inferLlmProfileFamily(m.id);
+      const effectiveQwen36 =
+        profileId === "auto" ? inferred === "qwen36" : profileId === "qwen36";
+      const effectiveGptOss =
+        profileId === "auto" ? inferred === "gpt_oss" : profileId === "gpt_oss";
       const resolved = resolveBenchProfile({
         modelId: m.id,
         taskMode: "general",
         thinkingIntent: thinkingIntent,
-        preserveThinking: fam === "qwen36" ? preserveThinking : false,
+        preserveThinking: effectiveQwen36 ? preserveThinking : false,
         presetOverride: presetOverride || null,
         samplingOverrides: parseSamplingOverridesJson(samplingOverridesText),
         maxTokensOverride: profileMaxTokens.trim() ? Number(profileMaxTokens) : null,
-        reasoningEffort: fam === "gpt_oss" ? reasoningEffort : null,
+        reasoningEffort: effectiveGptOss ? reasoningEffort : null,
+        profileFamilyOverride: profileId === "auto" ? null : profileId,
       });
-      const label =
-        profileId === "auto"
-          ? `${fam} · ${resolved.preset}`
-          : `${profileId} · ${resolved.preset}`;
-      out[m.id] = label;
+      const famLabel = profileId === "auto" ? inferred : profileId;
+      out[m.id] = `${famLabel} · ${resolved.preset}`;
     }
     return out;
   }, [
@@ -1281,7 +1283,7 @@ export function App() {
                 <option value="qwen35">Qwen 3.5</option>
                 <option value="qwen36">Qwen 3.6</option>
                 <option value="gpt_oss">gpt-oss</option>
-                <option value="minimax_m27">MiniMax M2.7</option>
+                <option value="minimax">MiniMax</option>
                 <option value="nemotron3">Nemotron 3</option>
                 <option value="qwen3_coder_next">Qwen3-Coder-Next</option>
                 <option value="glm47_flash">GLM-4.7-Flash</option>

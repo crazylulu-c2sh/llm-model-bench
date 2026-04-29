@@ -100,10 +100,13 @@ preserveThinking `true` 시 `extra_body`에 추가:
 
 ---
 
-## minimax_m2.7
+## minimax
+
+모델 id에 `minimax`(대소문자 무관)가 포함되면 이 패밀리로 추론됩니다(M2.7 등 MiniMax 전 계열).
 
 | 항목 | 값 |
 |------|-----|
+| profile version | 2 |
 | contextNativeMax | 200000 |
 | contextRecommendedStart | 32768 |
 | recommendedMaxTokens.default | 4096 |

@@ -8,7 +8,7 @@ export type LlmProfileFamily =
   | "qwen35"
   | "qwen36"
   | "gpt_oss"
-  | "minimax_m27"
+  | "minimax"
   | "nemotron3"
   | "qwen3_coder_next"
   | "glm47_flash"
@@ -216,9 +216,10 @@ export const LLM_PROFILE_DEFINITIONS: LlmProfileDefinition[] = [
     promptRules: { stripThinkingFromAssistantHistory: false },
   },
   {
-    id: "minimax_m27",
-    version: 1,
-    match: [/minimax[-_]?m2\.?7/i, /MiniMax[-_]?M2\.?7/i],
+    id: "minimax",
+    version: 2,
+    /** MiniMax 벤더·HF/Unsloth 등 모든 MiniMax 계열 모델 id (M2.7 외 포함) */
+    match: [/minimax/i],
     presets: {
       default: { temperature: 1.0, top_p: 0.95, top_k: 40, min_p: 0.01 },
       thinking_general: { temperature: 1.0, top_p: 0.95, top_k: 40, min_p: 0.01 },
@@ -342,8 +343,16 @@ export function resolveBenchProfile(input: {
   samplingOverrides?: Partial<SamplingParams> | null;
   maxTokensOverride?: number | null;
   reasoningEffort?: "minimal" | "low" | "medium" | "high" | null;
+  /**
+   * When UI/server profile is not `auto`, use this family instead of inferring from `modelId`
+   * (sampling, extra_body, prompt rules).
+   */
+  profileFamilyOverride?: LlmProfileFamily | null;
 }): ResolvedBenchProfile {
-  const family = inferLlmProfileFamily(input.modelId);
+  const family =
+    input.profileFamilyOverride != null
+      ? input.profileFamilyOverride
+      : inferLlmProfileFamily(input.modelId);
   const def = getLlmProfileDefinition(family);
   const preset =
     input.presetOverride && input.presetOverride !== "default"
@@ -360,6 +369,9 @@ export function resolveBenchProfile(input: {
   }
   if (family === "qwen36" && input.preserveThinking) {
     extraBody = deepMergeObjects(extraBody, { chat_template_kwargs: { preserve_thinking: true } });
+  }
+  if (family === "minimax") {
+    extraBody = deepMergeObjects(extraBody, { reasoning_split: true });
   }
 
   const complexScenario =

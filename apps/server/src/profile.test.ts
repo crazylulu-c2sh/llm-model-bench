@@ -76,9 +76,20 @@ describe("buildProfileAugmentedMeta", () => {
       profile: { taskMode: "general", thinkingIntent: "on" },
       profileMaxTokens: null,
     });
-    expect(meta.profile_id).toBe("minimax_m27");
+    expect(meta.profile_id).toBe("minimax");
     expect(meta.effective_sampling?.top_k).toBe(40);
     expect(meta.effective_sampling?.min_p).toBe(0.01);
+    expect(meta.extra_body?.reasoning_split).toBe(true);
+  });
+
+  it("adds reasoning_split when profile forces minimax on a non-minimax model id", () => {
+    const meta = buildProfileAugmentedMeta(baseMeta("some/Tiny-Model"), {
+      modelId: "some/Tiny-Model",
+      profile: { profileId: "minimax", taskMode: "general", thinkingIntent: "on" },
+      profileMaxTokens: null,
+    });
+    expect(meta.profile_id).toBe("minimax");
+    expect(meta.extra_body?.reasoning_split).toBe(true);
   });
 });
 
