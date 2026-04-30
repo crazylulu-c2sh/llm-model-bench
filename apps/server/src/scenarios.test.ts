@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { expectedCalendarTriple, scoreScenario } from "./scenarios.js";
+import { buildMessages, expectedCalendarTriple, scoreScenario } from "./scenarios.js";
+
+describe("buildMessages", () => {
+  it("includes system and user roles for basic scenario", () => {
+    const built = buildMessages("chat_ping");
+    expect(built.messages[0]?.role).toBe("system");
+    expect(typeof built.messages[0]?.content).toBe("string");
+    expect(built.messages[1]?.role).toBe("user");
+    expect(built.messages[1]?.content).toBe("ping");
+  });
+
+  it("keeps tools while preserving system+user message order", () => {
+    const built = buildMessages("tool_weather");
+    expect(built.messages.map((m) => m.role)).toEqual(["system", "user"]);
+    expect(Array.isArray(built.tools)).toBe(true);
+  });
+});
 
 describe("scoreScenario tool_weather", () => {
   it("passes when tool_calls JSON is on its own line after assistant text", () => {

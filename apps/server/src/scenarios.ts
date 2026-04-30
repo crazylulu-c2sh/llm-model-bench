@@ -1,5 +1,6 @@
 import {
   ALL_SCENARIO_IDS as SHARED_ALL_SCENARIO_IDS,
+  getScenarioSystemPromptPreview,
   getScenarioUserPromptPreview,
   stripThinkingBlocks,
   type ScenarioId,
@@ -131,6 +132,10 @@ export function scenarioUserMessageContent(id: ScenarioId, ctx?: ScenarioPromptC
   });
 }
 
+export function scenarioSystemMessageContent(id: ScenarioId): string {
+  return getScenarioSystemPromptPreview(id);
+}
+
 export function buildMessages(
   id: ScenarioId,
   ctx?: ScenarioPromptContext,
@@ -139,18 +144,23 @@ export function buildMessages(
   tools?: unknown;
   tool_choice?: unknown;
 } {
+  const systemContent = scenarioSystemMessageContent(id);
   const userContent = scenarioUserMessageContent(id, ctx);
+  const messages: { role: "system" | "user"; content: string }[] = [
+    { role: "system", content: systemContent },
+    { role: "user", content: userContent },
+  ];
 
   const tools = openAiToolsForScenario(id);
   if (tools) {
     return {
-      messages: [{ role: "user", content: userContent }],
+      messages,
       tools: [...tools],
       tool_choice: "auto",
     };
   }
 
-  return { messages: [{ role: "user", content: userContent }] };
+  return { messages };
 }
 
 const ActionSchema = z.object({

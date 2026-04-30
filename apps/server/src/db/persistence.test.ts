@@ -33,6 +33,7 @@ describe("BenchRunPersistence + sqlite", () => {
       type: "scenario_start",
       scenario_id: "chat_ping",
       api_route: "chat_completions",
+      system_prompt: "exact-system-prompt-snapshot",
       user_prompt: "exact-user-prompt-snapshot",
     });
     const ev: StreamEvent = {
@@ -60,6 +61,7 @@ describe("BenchRunPersistence + sqlite", () => {
     expect(detail?.scenarios.length).toBe(1);
     expect(detail?.scenarios[0].id).toBe("chat_ping");
     expect(detail?.scenarios[0].runs[0]?.output_text).toBe("pong");
+    expect(detail?.scenarios[0].prompt_system_preview).toBe("exact-system-prompt-snapshot");
     expect(detail?.scenarios[0].prompt_preview).toBe("exact-user-prompt-snapshot");
   });
 

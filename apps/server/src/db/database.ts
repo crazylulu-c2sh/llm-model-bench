@@ -76,6 +76,7 @@ function migrate(db: Database.Database): void {
       api_route TEXT NOT NULL,
       aggregate_json TEXT NOT NULL,
       prompt_preview TEXT,
+      prompt_system_preview TEXT,
       PRIMARY KEY (run_id, scenario_id, api_route),
       FOREIGN KEY (run_id) REFERENCES bench_runs(run_id) ON DELETE CASCADE
     );
@@ -88,6 +89,10 @@ function migrate(db: Database.Database): void {
       FOREIGN KEY (run_id) REFERENCES bench_runs(run_id) ON DELETE CASCADE
     );
   `);
+  const scenarioCols = db.prepare(`PRAGMA table_info(bench_scenarios)`).all() as Array<{ name: string }>;
+  if (!scenarioCols.some((c) => c.name === "prompt_system_preview")) {
+    db.exec(`ALTER TABLE bench_scenarios ADD COLUMN prompt_system_preview TEXT`);
+  }
   const row = db.prepare(`SELECT version FROM schema_migrations ORDER BY id DESC LIMIT 1`).get() as
     | { version: number }
     | undefined;
@@ -123,14 +128,16 @@ export function upsertScenarioAggregate(
     api_route: string;
     aggregate_json: string;
     prompt_preview: string | null;
+    prompt_system_preview: string | null;
   },
 ): void {
   db.prepare(
-    `INSERT INTO bench_scenarios (run_id, scenario_id, api_route, aggregate_json, prompt_preview)
-     VALUES (@run_id, @scenario_id, @api_route, @aggregate_json, @prompt_preview)
+    `INSERT INTO bench_scenarios (run_id, scenario_id, api_route, aggregate_json, prompt_preview, prompt_system_preview)
+     VALUES (@run_id, @scenario_id, @api_route, @aggregate_json, @prompt_preview, @prompt_system_preview)
      ON CONFLICT(run_id, scenario_id, api_route) DO UPDATE SET
        aggregate_json = excluded.aggregate_json,
-       prompt_preview = COALESCE(excluded.prompt_preview, bench_scenarios.prompt_preview)`,
+       prompt_preview = COALESCE(excluded.prompt_preview, bench_scenarios.prompt_preview),
+       prompt_system_preview = COALESCE(excluded.prompt_system_preview, bench_scenarios.prompt_system_preview)`,
   ).run(row);
 }
 
@@ -213,12 +220,13 @@ export type ScenarioRow = {
   api_route: string;
   aggregate_json: string;
   prompt_preview: string | null;
+  prompt_system_preview: string | null;
 };
 
 export function listScenariosForRun(db: Database.Database, run_id: string): ScenarioRow[] {
   return db
     .prepare(
-      `SELECT scenario_id, api_route, aggregate_json, prompt_preview
+      `SELECT scenario_id, api_route, aggregate_json, prompt_preview, prompt_system_preview
        FROM bench_scenarios WHERE run_id = ? ORDER BY scenario_id, api_route`,
     )
     .all(run_id) as ScenarioRow[];

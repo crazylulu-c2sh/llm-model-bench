@@ -117,6 +117,7 @@ describe("listLatestFinishedRunSummaries", () => {
         runs: [{ ttft_ms: 1, tpot_ms: 2, total_ms: 10, output_text: "x", stream_completed: true }],
       }),
       prompt_preview: "p",
+      prompt_system_preview: "sp",
     });
     upsertScenarioAggregate(db, {
       run_id: meta.run_id,
@@ -128,6 +129,7 @@ describe("listLatestFinishedRunSummaries", () => {
         runs: [],
       }),
       prompt_preview: null,
+      prompt_system_preview: null,
     });
     finishRun(db, meta.run_id, "ok");
     const rows = listLatestFinishedRunSummaries(db);

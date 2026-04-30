@@ -52,7 +52,7 @@ import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/S
 import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
-import { defaultScenarioPromptPreview } from "./lib/scenario-prompt-preview";
+import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
 import { ProfileDocPage } from "./ProfileDocPage";
 import { ScenariosDocPage } from "./ScenariosDocPage";
 import { StatsPage } from "./StatsPage";
@@ -65,6 +65,7 @@ type DetectModel = DetectResult["models"][number];
 type MetricsAgg = {
   scenario_id: string;
   api_route: "chat_completions" | "messages";
+  system_prompt?: string;
   user_prompt?: string;
   runs: Array<{
     ttft_ms: number | null;
@@ -200,6 +201,8 @@ export function App() {
   const [modelOrderIds, setModelOrderIds] = useState<string[]>([]);
   const [benchQueueDraft, setBenchQueueDraft] = useState<DetectModel[]>([]);
   const [detailAggregate, setDetailAggregate] = useState<Record<string, MetricsAgg>>({});
+  /** 라이브 SSE `scenario_start.system_prompt` */
+  const [liveSystemPromptByRowKey, setLiveSystemPromptByRowKey] = useState<Record<string, string>>({});
   /** 라이브 SSE `scenario_start.user_prompt` — 번역 발췌 등 실제 user 메시지 */
   const [liveUserPromptByRowKey, setLiveUserPromptByRowKey] = useState<Record<string, string>>({});
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -406,7 +409,11 @@ export function App() {
         tpot_ms: row.tpot_ms,
         pass: row.pass,
         qualityReason: row.reason ?? last?.quality?.reason,
-        prompt:
+        systemPrompt:
+          agg?.system_prompt ??
+          liveSystemPromptByRowKey[row.rowKey] ??
+          defaultScenarioSystemPromptPreview(row.scenario),
+        userPrompt:
           agg?.user_prompt ??
           liveUserPromptByRowKey[row.rowKey] ??
           defaultScenarioPromptPreview(row.scenario),
@@ -416,7 +423,7 @@ export function App() {
       });
       setDrawerOpen(true);
     },
-    [detailAggregate, liveUserPromptByRowKey],
+    [detailAggregate, liveSystemPromptByRowKey, liveUserPromptByRowKey],
   );
 
   const openFromChartRow = useCallback(
@@ -440,7 +447,11 @@ export function App() {
         tpot_ms: row.tpot > 0 ? row.tpot : null,
         pass: row.pass,
         qualityReason: last?.quality?.reason,
-        prompt:
+        systemPrompt:
+          agg?.system_prompt ??
+          liveSystemPromptByRowKey[key] ??
+          defaultScenarioSystemPromptPreview(row.scenario),
+        userPrompt:
           agg?.user_prompt ??
           liveUserPromptByRowKey[key] ??
           defaultScenarioPromptPreview(row.scenario),
@@ -450,7 +461,7 @@ export function App() {
       });
       setDrawerOpen(true);
     },
-    [detailAggregate, liveUserPromptByRowKey, openDrawerForRow, rows],
+    [detailAggregate, liveSystemPromptByRowKey, liveUserPromptByRowKey, openDrawerForRow, rows],
   );
 
   const openCompareCell = useCallback(
@@ -473,7 +484,9 @@ export function App() {
           tpot_ms: last?.tpot_ms ?? null,
           pass: last?.quality?.pass,
           qualityReason: last?.quality?.reason,
-          prompt: sc.prompt_preview ?? defaultScenarioPromptPreview(scenario),
+          systemPrompt:
+            sc.prompt_system_preview ?? defaultScenarioSystemPromptPreview(scenario),
+          userPrompt: sc.prompt_preview ?? defaultScenarioPromptPreview(scenario),
           outputText: last?.output_text ?? "",
           measuredRunIndex: n > 0 ? n : undefined,
           measuredRunTotal: n > 0 ? n : undefined,
@@ -608,7 +621,8 @@ export function App() {
         tpot_ms: last?.tpot_ms ?? null,
         pass: last?.quality?.pass,
         qualityReason: last?.quality?.reason,
-        prompt: sc.prompt_preview ?? defaultScenarioPromptPreview(sc.id),
+        systemPrompt: sc.prompt_system_preview ?? defaultScenarioSystemPromptPreview(sc.id),
+        userPrompt: sc.prompt_preview ?? defaultScenarioPromptPreview(sc.id),
         outputText: last?.output_text ?? "",
         measuredRunIndex: n > 0 ? n : undefined,
         measuredRunTotal: n > 0 ? n : undefined,
@@ -625,6 +639,7 @@ export function App() {
     setRows([]);
     setLog([]);
     setDetailAggregate({});
+    setLiveSystemPromptByRowKey({});
     setLiveUserPromptByRowKey({});
     setCompareSeries(null);
     setCompareRaw(null);
@@ -738,6 +753,7 @@ export function App() {
     setRunning(true);
     setRows([]);
     setDetailAggregate({});
+    setLiveSystemPromptByRowKey({});
     setLiveUserPromptByRowKey({});
     setPreview("");
     setBenchStepLines([]);
@@ -816,6 +832,12 @@ export function App() {
             }
           }
           if (ev.type === "scenario_start") {
+            if (typeof ev.system_prompt === "string" && ev.system_prompt.length > 0) {
+              setLiveSystemPromptByRowKey((prev) => ({
+                ...prev,
+                [scenarioRowKey(ev.scenario_id, ev.api_route, m.id)]: ev.system_prompt as string,
+              }));
+            }
             if (typeof ev.user_prompt === "string" && ev.user_prompt.length > 0) {
               setLiveUserPromptByRowKey((prev) => ({
                 ...prev,

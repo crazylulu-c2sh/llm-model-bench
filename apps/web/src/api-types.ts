@@ -12,6 +12,7 @@ export type BenchScenarioDetail = {
   id: string;
   api_route: "chat_completions" | "messages";
   runs: BenchScenarioRun[];
+  prompt_system_preview: string | null;
   prompt_preview: string | null;
 };
 
