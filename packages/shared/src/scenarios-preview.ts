@@ -79,6 +79,50 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
   }
 }
 
+/** 벤치 시나리오의 시스템 프롬프트 미리보기(저장·UI 표시용). */
+export function getScenarioSystemPromptPreview(id: string): string {
+  switch (id as ScenarioId) {
+    case "chat_hello":
+    case "chat_ping":
+      return "You are a concise assistant. Follow the user instruction exactly and do not add extra explanation.";
+    case "chat_time_calendar":
+      return [
+        "You are a strict date-format assistant.",
+        "Follow the user-provided reference instant and time zone exactly.",
+        "Return Korean text and ensure required YYYY-MM-DD substrings are present exactly as requested.",
+      ].join(" ");
+    case "tool_weather":
+      return [
+        "You are a tool-using assistant.",
+        "When the user asks for weather, call the available weather tool before giving the final answer.",
+      ].join(" ");
+    case "structured_action":
+      return [
+        "You are a strict JSON assistant.",
+        "Output must be valid JSON only, with no markdown fences, no prose, and no extra keys unless requested.",
+      ].join(" ");
+    case "code_sort_js":
+      return [
+        "You are a code-generation assistant.",
+        "Return only one fenced ```js``` block with no prose.",
+        "Do not use built-in sort helpers.",
+      ].join(" ");
+    case "code_sort_py":
+      return [
+        "You are a code-generation assistant.",
+        "Return only one fenced ```python``` block with no prose.",
+        "Do not use built-in sort helpers.",
+      ].join(" ");
+    case "translate_nist_fips197_pdf_tools":
+      return [
+        "You are a tool-using translation assistant.",
+        "Use the provided fetch tools to read source text first, then produce a concise Korean-only summary.",
+      ].join(" ");
+    default:
+      return "You are a helpful assistant. Follow the user instruction exactly.";
+  }
+}
+
 export function isScenarioId(id: string): id is ScenarioId {
   return (ALL_SCENARIO_IDS as string[]).includes(id);
 }

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export {
   ALL_SCENARIO_IDS,
+  getScenarioSystemPromptPreview,
   getScenarioUserPromptPreview,
   isScenarioId,
   type ScenarioId,
@@ -174,6 +175,8 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     type: z.literal("scenario_start"),
     scenario_id: z.string(),
     api_route: z.enum(["chat_completions", "messages"]),
+    /** 실제 system 메시지 — 라이브 UI 상세와 요청 정합용 */
+    system_prompt: z.string().optional(),
     /** 실제 user 메시지 — 라이브 UI 상세와 요청 정합용 */
     user_prompt: z.string().optional(),
   }),

@@ -11,6 +11,8 @@ import {
 export type MetricsAgg = {
   scenario_id: string;
   api_route: "chat_completions" | "messages";
+  /** 마지막 측정 런과 동일한 system 프롬프트 */
+  system_prompt?: string;
   /** 마지막 측정 런과 동일한 user 프롬프트(라이브 aggregate 또는 DB prompt_preview) */
   user_prompt?: string;
   runs: Array<{
@@ -28,9 +30,11 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
   rows: ResultRow[];
   detailAggregate: Record<string, MetricsAgg>;
   promptByRowKey: Record<string, string>;
+  systemPromptByRowKey: Record<string, string>;
 } {
   const detailAggregate: Record<string, MetricsAgg> = {};
   const promptByRowKey: Record<string, string> = {};
+  const systemPromptByRowKey: Record<string, string> = {};
   const rows: ResultRow[] = [];
 
   for (const detail of details) {
@@ -41,11 +45,17 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
       detailAggregate[rowKey] = {
         scenario_id: sc.id,
         api_route: sc.api_route,
+        ...(sc.prompt_system_preview != null && sc.prompt_system_preview !== ""
+          ? { system_prompt: sc.prompt_system_preview }
+          : {}),
         ...(sc.prompt_preview != null && sc.prompt_preview !== ""
           ? { user_prompt: sc.prompt_preview }
           : {}),
         runs,
       };
+      if (sc.prompt_system_preview != null && sc.prompt_system_preview !== "") {
+        systemPromptByRowKey[rowKey] = sc.prompt_system_preview;
+      }
       if (sc.prompt_preview != null && sc.prompt_preview !== "") {
         promptByRowKey[rowKey] = sc.prompt_preview;
       }
@@ -67,7 +77,7 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
     }
   }
 
-  return { rows, detailAggregate, promptByRowKey };
+  return { rows, detailAggregate, promptByRowKey, systemPromptByRowKey };
 }
 
 export function buildChartRowsFromBenchState(

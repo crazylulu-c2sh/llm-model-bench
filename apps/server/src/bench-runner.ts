@@ -19,6 +19,7 @@ import {
   anthropicToolsForScenario,
   buildMessages,
   isTranslateNistFips197PdfToolsScenario,
+  scenarioSystemMessageContent,
   scenarioUserMessageContent,
   scoreScenario,
   type ScenarioId,
@@ -471,6 +472,8 @@ export async function* runBench(
         const totalIterations = meta.warmup_runs + meta.measured_runs;
         /** 집계 `runs`의 마지막 측정 런과 동일한 참조를 쓴 user 프롬프트 스냅샷 */
         let lastUserPromptForAggregate = "";
+        /** 집계 `runs`의 마지막 측정 런과 동일한 system 프롬프트 스냅샷 */
+        let lastSystemPromptForAggregate = "";
         for (let i = 0; i < totalIterations; i++) {
           const isWarmup = i < meta.warmup_runs;
           const ref = new Date();
@@ -488,12 +491,24 @@ export async function* runBench(
           const stripThinkHistory =
             scenarioMeta.prompt_rules_applied
               ?.stripThinkingFromAssistantHistory === true;
+          let systemPromptThisRun = scenarioSystemMessageContent(scenarioId);
+          if (
+            scenarioMeta.prompt_rules_applied?.gemmaThinkToken &&
+            scenarioMeta.profile_thinking_intent !== "off"
+          ) {
+            const token = "<|think|>";
+            if (!systemPromptThisRun.includes(token)) {
+              systemPromptThisRun = `${token}${systemPromptThisRun}`;
+            }
+          }
           const userPromptThisRun = scenarioUserMessageContent(scenarioId, promptCtx);
+          lastSystemPromptForAggregate = systemPromptThisRun;
           lastUserPromptForAggregate = userPromptThisRun;
           yield {
             type: "scenario_start",
             scenario_id: scenarioId,
             api_route,
+            system_prompt: systemPromptThisRun,
             user_prompt: userPromptThisRun,
           };
 
@@ -947,6 +962,7 @@ export async function* runBench(
             aggregate: {
               scenario_id: scenarioId,
               api_route,
+              system_prompt: lastSystemPromptForAggregate,
               user_prompt: lastUserPromptForAggregate,
               runs,
             },

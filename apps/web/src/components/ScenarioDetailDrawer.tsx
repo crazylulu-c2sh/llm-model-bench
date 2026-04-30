@@ -11,7 +11,8 @@ export type ScenarioDetailPayload = {
   tpot_ms: number | null;
   pass?: boolean;
   qualityReason?: string;
-  prompt: string;
+  systemPrompt: string;
+  userPrompt: string;
   outputText: string;
   /** 마지막으로 표시 중인 측정 런(1-based) / 총 측정 런 수 */
   measuredRunIndex?: number;
@@ -117,8 +118,12 @@ export function ScenarioDetailDrawer({
             )}
           </div>
           <div>
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">프롬프트</h3>
-            <JsonCodeBlock code={payload.prompt || "—"} language="markdown" enabled={hlPreview} maxHeight={200} />
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">System Prompt</h3>
+            <JsonCodeBlock code={payload.systemPrompt || "—"} language="markdown" enabled={hlPreview} maxHeight={160} />
+          </div>
+          <div>
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">User Prompt</h3>
+            <JsonCodeBlock code={payload.userPrompt || "—"} language="markdown" enabled={hlPreview} maxHeight={220} />
           </div>
           {showThinkingSplit ? (
             <>

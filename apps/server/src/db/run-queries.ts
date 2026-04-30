@@ -31,6 +31,7 @@ export function benchResultFromDb(db: Database.Database, run_id: string): BenchR
 
 export type ScenarioDetail = BenchResult["scenarios"][number] & {
   prompt_preview: string | null;
+  prompt_system_preview: string | null;
 };
 
 export type BenchResultDetail = {
@@ -43,12 +44,16 @@ export function benchResultDetailFromDb(db: Database.Database, run_id: string): 
   if (!base) return null;
   const scenRows = listScenariosForRun(db, run_id);
   const promptByKey = new Map<string, string | null>();
+  const systemPromptByKey = new Map<string, string | null>();
   for (const r of scenRows) {
     promptByKey.set(`${r.scenario_id}|${r.api_route}`, r.prompt_preview);
+    systemPromptByKey.set(`${r.scenario_id}|${r.api_route}`, r.prompt_system_preview);
   }
   const scenarios = base.scenarios.map((s) => ({
     ...s,
     prompt_preview: promptByKey.get(`${s.id}|${s.api_route}`) ?? null,
+    prompt_system_preview:
+      systemPromptByKey.get(`${s.id}|${s.api_route}`) ?? null,
   }));
   return { meta: base.meta, scenarios };
 }

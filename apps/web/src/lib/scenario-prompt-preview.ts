@@ -1,4 +1,4 @@
-import { getScenarioUserPromptPreview } from "@llm-bench/shared";
+import { getScenarioSystemPromptPreview, getScenarioUserPromptPreview } from "@llm-bench/shared";
 
 /** 벤치·통계·문서 페이지에서 동일한 사용자 프롬프트 미리보기를 쓰기 위한 헬퍼 */
 export function defaultScenarioPromptPreview(scenarioId: string): string {
@@ -12,4 +12,9 @@ export function defaultScenarioPromptPreview(scenarioId: string): string {
     });
   }
   return getScenarioUserPromptPreview(scenarioId);
+}
+
+/** 벤치·통계·문서 페이지에서 동일한 시스템 프롬프트 미리보기를 쓰기 위한 헬퍼 */
+export function defaultScenarioSystemPromptPreview(scenarioId: string): string {
+  return getScenarioSystemPromptPreview(scenarioId);
 }

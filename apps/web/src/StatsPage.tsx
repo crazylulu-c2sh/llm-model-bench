@@ -10,7 +10,7 @@ import { HighlightToggle } from "./components/JsonCodeBlock";
 import type { ResultRow } from "./components/ResultsTable";
 import { ResultsTable } from "./components/ResultsTable";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
-import { defaultScenarioPromptPreview } from "./lib/scenario-prompt-preview";
+import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
 import { compareModelIdAlphanumeric, compareModelKey, normalizeBaseUrl } from "./lib/model-sort";
 import { buildChartRowsFromBenchState, mergeBenchDetailsToState, type MetricsAgg } from "./stats/hydrateBenchUi";
 
@@ -125,9 +125,14 @@ export function StatsPage() {
     });
   }, [benchDetailsOk, sortedRunIdsFromTable]);
 
-  const { rows, detailAggregate, promptByRowKey } = useMemo(() => {
+  const { rows, detailAggregate, promptByRowKey, systemPromptByRowKey } = useMemo(() => {
     if (sortedBenchDetails.length === 0) {
-      return { rows: [] as ResultRow[], detailAggregate: {} as Record<string, MetricsAgg>, promptByRowKey: {} as Record<string, string> };
+      return {
+        rows: [] as ResultRow[],
+        detailAggregate: {} as Record<string, MetricsAgg>,
+        promptByRowKey: {} as Record<string, string>,
+        systemPromptByRowKey: {} as Record<string, string>,
+      };
     }
     return mergeBenchDetailsToState(sortedBenchDetails);
   }, [sortedBenchDetails]);
@@ -211,7 +216,11 @@ export function StatsPage() {
         tpot_ms: row.tpot_ms,
         pass: row.pass,
         qualityReason: row.reason ?? last?.quality?.reason,
-        prompt:
+        systemPrompt:
+          agg?.system_prompt ??
+          systemPromptByRowKey[row.rowKey] ??
+          defaultScenarioSystemPromptPreview(row.scenario),
+        userPrompt:
           agg?.user_prompt ??
           promptByRowKey[row.rowKey] ??
           defaultScenarioPromptPreview(row.scenario),
@@ -221,7 +230,7 @@ export function StatsPage() {
       });
       setDrawerOpen(true);
     },
-    [detailAggregate, promptByRowKey],
+    [detailAggregate, promptByRowKey, systemPromptByRowKey],
   );
 
   const openFromChartRow = useCallback(
@@ -245,7 +254,11 @@ export function StatsPage() {
         tpot_ms: row.tpot > 0 ? row.tpot : null,
         pass: row.pass,
         qualityReason: last?.quality?.reason,
-        prompt:
+        systemPrompt:
+          agg?.system_prompt ??
+          systemPromptByRowKey[key] ??
+          defaultScenarioSystemPromptPreview(row.scenario),
+        userPrompt:
           agg?.user_prompt ??
           promptByRowKey[key] ??
           defaultScenarioPromptPreview(row.scenario),
@@ -255,7 +268,7 @@ export function StatsPage() {
       });
       setDrawerOpen(true);
     },
-    [detailAggregate, promptByRowKey, rows, openDrawerForRow],
+    [detailAggregate, promptByRowKey, rows, openDrawerForRow, systemPromptByRowKey],
   );
 
   return (
