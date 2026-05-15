@@ -5,6 +5,8 @@ export type ScenarioPromptPreviewOpts = {
   referenceIso?: string;
   /** IANA — 기본 Asia/Seoul */
   calendarTimeZone?: string;
+  /** stress 워크로드 워커별 user 변형(`(client {k})`). 0이면 기본 prompt. */
+  stressWorkerIndex?: number;
 };
 
 /** 시나리오 ID — 서버 `scenarios.ts`와 동기화 */
@@ -16,9 +18,28 @@ export type ScenarioId =
   | "structured_action"
   | "code_sort_js"
   | "code_sort_py"
-  | "translate_nist_fips197_pdf_tools";
+  | "translate_nist_fips197_pdf_tools"
+  | "stress_ping"
+  | "stress_short_reply"
+  | "stress_short_reply_ko"
+  | "stress_short_reply_ja";
 
-export const ALL_SCENARIO_IDS: ScenarioId[] = [
+/** 프로바이더 벤치 전용 워크로드 ID — 모델 벤치 시나리오 셀렉터에 자동 노출되면 안 된다. */
+export type StressWorkloadId =
+  | "stress_ping"
+  | "stress_short_reply"
+  | "stress_short_reply_ko"
+  | "stress_short_reply_ja";
+
+export const STRESS_WORKLOAD_IDS: StressWorkloadId[] = [
+  "stress_ping",
+  "stress_short_reply",
+  "stress_short_reply_ko",
+  "stress_short_reply_ja",
+];
+
+/** 모델 벤치 탭/문서 등 *공개* 시나리오 — `stress_*`는 제외. */
+export const PUBLIC_SCENARIO_IDS: ScenarioId[] = [
   "chat_hello",
   "chat_ping",
   "chat_time_calendar",
@@ -28,6 +49,24 @@ export const ALL_SCENARIO_IDS: ScenarioId[] = [
   "code_sort_py",
   "translate_nist_fips197_pdf_tools",
 ];
+
+/** 전체 시나리오 (공개 + 스트레스). 시나리오 ID 유효성 검사·테스트 fixture용. */
+export const ALL_SCENARIO_IDS: ScenarioId[] = [
+  ...PUBLIC_SCENARIO_IDS,
+  ...STRESS_WORKLOAD_IDS,
+];
+
+const STRESS_PING_USER_BASE = "ping";
+const STRESS_SHORT_REPLY_EN_USER = "In one short sentence, explain what a load test measures.";
+const STRESS_SHORT_REPLY_KO_USER = "한 문장으로, 부하 테스트가 무엇을 측정하는지 설명하세요.";
+const STRESS_SHORT_REPLY_JA_USER = "一文で、負荷テストが何を測定するか説明してください。";
+
+function appendStressClientSuffix(base: string, idx: number | undefined, lang: "en" | "ko" | "ja"): string {
+  if (idx == null || idx <= 0) return base;
+  if (lang === "ko") return `${base} (클라이언트 ${idx})`;
+  if (lang === "ja") return `${base} (クライアント ${idx})`;
+  return `${base} (client ${idx})`;
+}
 
 /**
  * 벤치 시나리오의 사용자 프롬프트 미리보기(저장·UI 표시용).
@@ -40,6 +79,14 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
       return "hello";
     case "chat_ping":
       return "ping";
+    case "stress_ping":
+      return appendStressClientSuffix(STRESS_PING_USER_BASE, opts?.stressWorkerIndex, "en");
+    case "stress_short_reply":
+      return appendStressClientSuffix(STRESS_SHORT_REPLY_EN_USER, opts?.stressWorkerIndex, "en");
+    case "stress_short_reply_ko":
+      return appendStressClientSuffix(STRESS_SHORT_REPLY_KO_USER, opts?.stressWorkerIndex, "ko");
+    case "stress_short_reply_ja":
+      return appendStressClientSuffix(STRESS_SHORT_REPLY_JA_USER, opts?.stressWorkerIndex, "ja");
     case "code_sort_js":
       return [
         "Write a JavaScript function sortNums(arr) that returns a new array of numbers sorted in ascending order using quicksort that you implement yourself.",
@@ -84,7 +131,14 @@ export function getScenarioSystemPromptPreview(id: string): string {
   switch (id as ScenarioId) {
     case "chat_hello":
     case "chat_ping":
+    case "stress_ping":
       return "You are a concise assistant. Follow the user instruction exactly and do not add extra explanation.";
+    case "stress_short_reply":
+      return "You are a concise assistant. Reply in one short sentence only. No lists, no markdown, no preamble.";
+    case "stress_short_reply_ko":
+      return "당신은 간결한 한국어 보조자입니다. 한국어로 한 문장만 답하세요. 목록·마크다운·서두 없이.";
+    case "stress_short_reply_ja":
+      return "あなたは簡潔な日本語アシスタントです。日本語で一文だけ答えてください。箇条書き・マークダウン・前置きは禁止。";
     case "chat_time_calendar":
       return [
         "You are a strict date-format assistant.",
@@ -125,4 +179,25 @@ export function getScenarioSystemPromptPreview(id: string): string {
 
 export function isScenarioId(id: string): id is ScenarioId {
   return (ALL_SCENARIO_IDS as string[]).includes(id);
+}
+
+export function isStressWorkloadId(id: string): id is StressWorkloadId {
+  return (STRESS_WORKLOAD_IDS as string[]).includes(id);
+}
+
+/** 워크로드의 *예상* 응답 스크립트 — `script_match`와 결과 라벨용. */
+export function expectedScriptForWorkload(id: StressWorkloadId): "latin" | "ko" | "ja" {
+  switch (id) {
+    case "stress_short_reply_ko":
+      return "ko";
+    case "stress_short_reply_ja":
+      return "ja";
+    default:
+      return "latin";
+  }
+}
+
+/** 워크로드의 *기본* max_tokens — 서버·UI 동일 값. */
+export function defaultMaxTokensForWorkload(id: StressWorkloadId): number {
+  return id === "stress_ping" ? 32 : 128;
 }

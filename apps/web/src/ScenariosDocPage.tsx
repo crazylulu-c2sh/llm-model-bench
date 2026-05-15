@@ -1,4 +1,4 @@
-import { ALL_SCENARIO_IDS, getScenarioBenchMeta } from "@llm-bench/shared";
+import { PUBLIC_SCENARIO_IDS, getScenarioBenchMeta } from "@llm-bench/shared";
 import { Layers } from "lucide-react";
 import { HighlightToggle, JsonCodeBlock } from "./components/JsonCodeBlock";
 import { defaultScenarioPromptPreview } from "./lib/scenario-prompt-preview";
@@ -25,7 +25,7 @@ export function ScenariosDocPage() {
       </section>
 
       <div className="space-y-6">
-        {ALL_SCENARIO_IDS.map((id) => {
+        {PUBLIC_SCENARIO_IDS.map((id) => {
           const meta = getScenarioBenchMeta(id);
           const preview = defaultScenarioPromptPreview(id);
           return (

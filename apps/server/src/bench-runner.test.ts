@@ -1,6 +1,7 @@
 import type { DetectResult } from "@llm-bench/shared";
 import { describe, expect, it, vi } from "vitest";
-import { normalizeScenarioIdsForBench, runBench, type BenchRequest } from "./bench-runner.js";
+import { makeBenchRunMeta, normalizeScenarioIdsForBench, runBench, type BenchRequest } from "./bench-runner.js";
+import { _resetStreamUsageCacheForTests } from "./openai-fetch.js";
 import type { ScenarioId } from "./scenarios.js";
 
 function jsonResponse(obj: unknown, status = 200) {
@@ -54,6 +55,31 @@ function baseBenchRequest(overrides: Partial<BenchRequest> = {}): BenchRequest {
     ...overrides,
   };
 }
+
+describe("makeBenchRunMeta default scenarioIds", () => {
+  it("falls back to PUBLIC_SCENARIO_IDS (no stress_*) when caller omits scenarioIds", () => {
+    const meta = makeBenchRunMeta(
+      { ...baseBenchRequest(), scenarioIds: undefined },
+      lmStudioDetect(),
+      "run_test_1",
+    );
+    expect(meta.scenario_ids.length).toBeGreaterThan(0);
+    expect(meta.scenario_ids.every((id) => !id.startsWith("stress_"))).toBe(true);
+    expect(meta.scenario_ids).toContain("chat_ping");
+  });
+
+  it("silently drops stress_* ids if a client sends them", () => {
+    const meta = makeBenchRunMeta(
+      {
+        ...baseBenchRequest(),
+        scenarioIds: ["chat_ping", "stress_ping" as ScenarioId, "stress_short_reply_ko" as ScenarioId],
+      },
+      lmStudioDetect(),
+      "run_test_2",
+    );
+    expect(meta.scenario_ids).toEqual(["chat_ping"]);
+  });
+});
 
 describe("normalizeScenarioIdsForBench", () => {
   it("moves translate_nist_fips197_pdf_tools to the end while preserving other order", () => {
@@ -188,5 +214,28 @@ describe("runBench LM Studio autoUnloadAfterBench", () => {
     }
 
     expect(postUnloadCount).toBe(1);
+  });
+});
+
+describe("runBench OpenAI requests carry stream_options.include_usage", () => {
+  it("includes stream_options for streaming chat completions and persists across runs", async () => {
+    _resetStreamUsageCacheForTests();
+    let sawStreamOptions = false;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        const body = String(init?.body ?? "");
+        if (body.includes("stream_options")) sawStreamOptions = true;
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    for await (const _ of runBench(baseBenchRequest(), lmStudioDetect(), { fetchImpl })) {
+      void _;
+    }
+    expect(sawStreamOptions).toBe(true);
   });
 });

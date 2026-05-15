@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMessages, expectedCalendarTriple, scoreScenario } from "./scenarios.js";
+import { buildMessages, detectScript, expectedCalendarTriple, scoreScenario } from "./scenarios.js";
 
 describe("buildMessages", () => {
   it("includes system and user roles for basic scenario", () => {
@@ -42,6 +42,55 @@ describe("scoreScenario chat_hello / chat_ping", () => {
     expect(scoreScenario("chat_hello", "anything").pass).toBe(true);
     expect(scoreScenario("chat_ping", "pong").pass).toBe(true);
     expect(scoreScenario("chat_ping", "not pong").pass).toBe(true);
+  });
+});
+
+describe("scoreScenario stress_*", () => {
+  it("treats all stress workloads as chat-minimal (non-empty passes)", () => {
+    expect(scoreScenario("stress_ping", "pong").pass).toBe(true);
+    expect(scoreScenario("stress_short_reply", "ok").pass).toBe(true);
+    expect(scoreScenario("stress_short_reply_ko", "안녕하세요").pass).toBe(true);
+    expect(scoreScenario("stress_short_reply_ja", "こんにちは").pass).toBe(true);
+    expect(scoreScenario("stress_ping", "").pass).toBe(false);
+  });
+});
+
+describe("detectScript", () => {
+  it("classifies Korean-dominant text as ko", () => {
+    expect(detectScript("부하 테스트는 처리량을 측정합니다.")).toBe("ko");
+  });
+
+  it("classifies Japanese hiragana/katakana as ja", () => {
+    expect(detectScript("負荷テストはスループットを測定します。")).toBe("ja");
+  });
+
+  it("classifies pure English as latin", () => {
+    expect(detectScript("A load test measures throughput.")).toBe("latin");
+  });
+
+  it("returns unknown for empty input", () => {
+    expect(detectScript("")).toBe("unknown");
+    expect(detectScript("   ")).toBe("unknown");
+  });
+
+  it("falls back to mixed for non-dominant scripts", () => {
+    expect(detectScript("Hello 안녕 hello")).toMatch(/mixed|ko/);
+  });
+});
+
+describe("buildMessages stress_*", () => {
+  it("produces system+user messages for stress_short_reply_ko (Korean prompt)", () => {
+    const built = buildMessages("stress_short_reply_ko");
+    expect(built.messages[0]?.role).toBe("system");
+    expect(String(built.messages[0]?.content)).toMatch(/한국어/);
+    expect(built.messages[1]?.role).toBe("user");
+    expect(String(built.messages[1]?.content)).toMatch(/부하 테스트/);
+  });
+
+  it("produces Japanese system+user for stress_short_reply_ja", () => {
+    const built = buildMessages("stress_short_reply_ja");
+    expect(String(built.messages[0]?.content)).toMatch(/日本語/);
+    expect(String(built.messages[1]?.content)).toMatch(/負荷テスト/);
   });
 });
 

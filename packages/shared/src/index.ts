@@ -2,14 +2,39 @@ import { z } from "zod";
 
 export {
   ALL_SCENARIO_IDS,
+  PUBLIC_SCENARIO_IDS,
+  STRESS_WORKLOAD_IDS,
+  defaultMaxTokensForWorkload,
+  expectedScriptForWorkload,
   getScenarioSystemPromptPreview,
   getScenarioUserPromptPreview,
   isScenarioId,
+  isStressWorkloadId,
   type ScenarioId,
   type ScenarioPromptPreviewOpts,
+  type StressWorkloadId,
 } from "./scenarios-preview";
 
 export { getScenarioBenchMeta, type ScenarioBenchMeta } from "./scenario-meta";
+
+export { approxOutputTokens, tokensPerSecondFromRun } from "./tps";
+
+export {
+  STRESS_MAX_LIVE_CELLS,
+  StressRampConfigSchema,
+  type StressApiRoute,
+  type StressProviderKind,
+  type StressRampConfig,
+  type StressResolvedProfile,
+  type StressResult,
+  type StressRunMeta,
+  type StressRunStatus,
+  type StressScriptMatch,
+  type StressStageLatencyMs,
+  type StressStageResult,
+  type StressStreamEvent,
+  type StressTpsSource,
+} from "./stress";
 
 export {
   inferLlmProfileFamily,

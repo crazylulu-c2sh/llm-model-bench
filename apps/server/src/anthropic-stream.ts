@@ -12,6 +12,14 @@ export type AnthropicStreamMetrics = {
   toolUses: AnthropicToolUseOut[] | null;
   streamCompleted: boolean;
   approxOutputTokens: number;
+  /** provider 응답의 `message_delta.usage.output_tokens` (없으면 null) */
+  usageOutputTokens: number | null;
+};
+
+export type AnthropicStreamDelta = { kind: "content"; text: string };
+
+export type AnthropicStreamOptions = {
+  onDelta?: (delta: AnthropicStreamDelta) => void;
 };
 
 type ToolUseAcc = { name: string; id?: string; inputJson: string };
@@ -20,6 +28,7 @@ type ToolUseAcc = { name: string; id?: string; inputJson: string };
 export async function consumeAnthropicMessagesStream(
   body: ReadableStream<Uint8Array> | null,
   signal?: AbortSignal,
+  opts?: AnthropicStreamOptions,
 ): Promise<AnthropicStreamMetrics> {
   if (!body) {
     return {
@@ -30,16 +39,20 @@ export async function consumeAnthropicMessagesStream(
       toolUses: null,
       streamCompleted: false,
       approxOutputTokens: 0,
+      usageOutputTokens: null,
     };
   }
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  void buffer;
   let text = "";
   const toolUseByIndex = new Map<number, ToolUseAcc>();
   const t0 = performance.now();
   let ttft: number | null = null;
   let sawMessageDelta = false;
+  let usageOutputTokens: number | null = null;
+  const onDelta = opts?.onDelta;
 
   const markTtft = () => {
     if (ttft === null) ttft = performance.now() - t0;
@@ -61,7 +74,15 @@ export async function consumeAnthropicMessagesStream(
         index?: number;
         content_block?: { type?: string; id?: string; name?: string };
         delta?: { type?: string; text?: string; partial_json?: string };
+        usage?: { output_tokens?: number };
+        message?: { usage?: { output_tokens?: number } };
       };
+
+      const usageOut =
+        j.usage?.output_tokens ?? j.message?.usage?.output_tokens ?? null;
+      if (typeof usageOut === "number" && usageOut >= 0) {
+        usageOutputTokens = usageOut;
+      }
 
       if (j.type === "content_block_start" && j.content_block?.type === "tool_use") {
         const idx = j.index ?? 0;
@@ -88,6 +109,7 @@ export async function consumeAnthropicMessagesStream(
         if (t) {
           markTtft();
           text += t;
+          if (onDelta) onDelta({ kind: "content", text: t });
         }
       }
     } catch {
@@ -148,5 +170,6 @@ export async function consumeAnthropicMessagesStream(
     toolUses: toolUses.length ? toolUses : null,
     streamCompleted: sawMessageDelta || outText.length > 0,
     approxOutputTokens,
+    usageOutputTokens,
   };
 }

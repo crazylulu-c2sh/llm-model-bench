@@ -263,6 +263,35 @@ function scoreChatMinimal(output: string): { pass: boolean; reason?: string } {
   return { pass: true };
 }
 
+/** 응답 텍스트의 주요 스크립트를 판정. stress KO/JA 워크로드의 `script_match` 라벨용. */
+export function detectScript(text: string): "ko" | "ja" | "latin" | "mixed" | "unknown" {
+  if (!text) return "unknown";
+  const stripped = text.replace(/\s+/g, "");
+  const total = stripped.length;
+  if (total === 0) return "unknown";
+  let hangul = 0;
+  let hiraKata = 0;
+  let han = 0;
+  let latin = 0;
+  for (const ch of stripped) {
+    const cp = ch.codePointAt(0);
+    if (cp == null) continue;
+    if (cp >= 0xac00 && cp <= 0xd7a3) hangul++;
+    else if ((cp >= 0x3041 && cp <= 0x309f) || (cp >= 0x30a0 && cp <= 0x30ff)) hiraKata++;
+    else if ((cp >= 0x4e00 && cp <= 0x9fff) || (cp >= 0x3400 && cp <= 0x4dbf)) han++;
+    else if ((cp >= 0x0041 && cp <= 0x005a) || (cp >= 0x0061 && cp <= 0x007a) || (cp >= 0x0030 && cp <= 0x0039))
+      latin++;
+  }
+  const hangulRate = hangul / total;
+  const hiraKataRate = hiraKata / total;
+  const latinRate = latin / total;
+  if (hangulRate >= 0.3) return "ko";
+  if (hiraKataRate >= 0.2) return "ja";
+  if (latinRate >= 0.9) return "latin";
+  if (hangul + hiraKata + han + latin >= total * 0.5) return "mixed";
+  return "unknown";
+}
+
 /** Heuristic: quicksort-style implementation cues (not a correctness proof). */
 const CODE_SORT_QUICKSORT_CUE_RE =
   /partition|pivot|quicksort|quick_sort|quick\s*sort|lomuto|hoare/i;
@@ -292,7 +321,11 @@ export function scoreScenario(
 ): { pass: boolean; score?: number; reason?: string } {
   switch (id) {
     case "chat_hello":
-    case "chat_ping": {
+    case "chat_ping":
+    case "stress_ping":
+    case "stress_short_reply":
+    case "stress_short_reply_ko":
+    case "stress_short_reply_ja": {
       const r = scoreChatMinimal(output);
       return r;
     }
