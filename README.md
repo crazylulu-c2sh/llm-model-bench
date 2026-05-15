@@ -12,8 +12,8 @@
 
 ## 요구 사항
 
-- Node.js 20+
-- pnpm 10+ (저장소는 `packageManager` 필드에 고정 버전 명시)
+- Node.js 22+
+- pnpm 11+ (저장소는 `packageManager` 필드에 고정 버전 명시)
 
 ## 개발
 
@@ -71,7 +71,7 @@ docker-compose up -d
 
 [`ecosystem.config.cjs`](ecosystem.config.cjs)는 **앱 하나(`llm-bench`)** 만 켭니다. 서버가 `WEB_DIST_PATH`로 지정한 Vite `dist`를 같은 포트에서 함께 서빙하므로, Nginx 없이 **http://호스트:PORT/** 로 UI·`/api`가 모두 동작합니다.
 
-1. 서버에 Node 20+·pnpm·PM2 설치 후 저장소 클론.
+1. 서버에 Node 22+·pnpm·PM2 설치 후 저장소 클론.
 2. `pnpm install` → `pnpm build`(**웹 `dist`가 반드시 있어야** UI가 열립니다).
 3. 루트에서:
 
