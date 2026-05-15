@@ -4,7 +4,7 @@
   "private": true,
   "description": "Local LLM benchmarking (LM Studio, Ollama, OpenAI-compatible)",
   "scripts": {
-    "postinstall": "pnpm --filter @llm-bench/shared run build",
+    "postinstall": "pnpm --filter @llm-bench/shared run build && pnpm rebuild -r better-sqlite3",
     "dev": "node scripts/dev.mjs",
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
