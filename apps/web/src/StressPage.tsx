@@ -86,11 +86,16 @@ export function StressPage() {
   const [maxTokensOverride, setMaxTokensOverride] = useState<string>("");
 
   const [running, setRunning] = useState(false);
+  // runStatus는 그리드/헤더 메시지용. running boolean은 폼·버튼 비활성용으로만 유지.
+  // 종료 후(finished/aborted/error)는 다음 startRun까지 그대로 유지 → 그리드 스냅샷 보존.
+  const [runStatus, setRunStatus] = useState<"idle" | "running" | "finished" | "aborted" | "error">("idle");
   const [stages, setStages] = useState<StressStageResult[]>([]);
   const [currentStageIndex, setCurrentStageIndex] = useState<number | null>(null);
   const [currentConcurrency, setCurrentConcurrency] = useState<number>(0);
   const [liveTps, setLiveTps] = useState<number | null>(null);
   const [cells, setCells] = useState<StressCellState[]>([]);
+  const [stageStartedAt, setStageStartedAt] = useState<number | null>(null);
+  const [stageDurationMs, setStageDurationMs] = useState<number | null>(null);
   const [errorLine, setErrorLine] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -161,16 +166,22 @@ export function StressPage() {
   }, [ramp]);
 
   const startRun = useCallback(async () => {
+    // (1) 검증 먼저 — 통과 못하면 state는 그대로.
     if (!detect || !selectedModelId) {
       toast.error("프로바이더를 감지하고 모델 1개를 선택하세요.");
       return;
     }
+    // (2) 검증 통과 후 일괄 초기화. 사전 슬롯 = min(ramp.max, STRESS_MAX_LIVE_CELLS).
+    const slots = Math.min(ramp.max, STRESS_MAX_LIVE_CELLS);
+    setRunStatus("running");
     setRunning(true);
     setStages([]);
     setErrorLine(null);
-    setCells([]);
+    setCells(Array.from({ length: slots }, () => emptyCellState()));
     setCurrentStageIndex(null);
     setCurrentConcurrency(0);
+    setStageStartedAt(null);
+    setStageDurationMs(null);
     setLiveTps(null);
 
     const controller = new AbortController();
@@ -200,18 +211,20 @@ export function StressPage() {
       if (!resp.ok || !resp.body) {
         const text = await resp.text().catch(() => "");
         setErrorLine(`서버 오류: ${resp.status} ${text.slice(0, 200)}`);
+        // HTTP 응답 실패는 사전 할당된 빈 N칸이 남지 않도록 cells 롤백.
+        setCells([]);
+        setRunStatus("error");
         return;
       }
       await consumeSseJsonLines(resp.body, (ev) => {
         switch (ev.type) {
           case "stress_stage_started": {
-            const stageCells: StressCellState[] = Array.from(
-              { length: Math.min(ev.concurrency, STRESS_MAX_LIVE_CELLS) },
-              () => emptyCellState(),
-            );
+            // cells는 startRun에서 사전 할당된 슬롯을 *유지* — 단계마다 재할당하지 않음.
+            // 워커가 새 request_start 이벤트를 보내면 해당 슬롯이 자연스럽게 갱신됨.
             setCurrentStageIndex(ev.stage_index);
             setCurrentConcurrency(ev.concurrency);
-            setCells(stageCells);
+            setStageStartedAt(performance.now());
+            setStageDurationMs(ramp.durationMs);
             setLiveTps(null);
             break;
           }
@@ -219,14 +232,16 @@ export function StressPage() {
             if (ev.worker_index >= STRESS_MAX_LIVE_CELLS) break;
             setCells((prev) => {
               const next = [...prev];
+              const cur = next[ev.worker_index] ?? emptyCellState();
               next[ev.worker_index] = {
-                ...(next[ev.worker_index] ?? emptyCellState()),
+                ...cur, // requestCount/lastTotalMs는 이전 값 보존; 명시적으로 증분
                 status: "requesting",
                 userPrompt: ev.user_prompt,
                 systemPrompt: ev.system_prompt,
                 responseText: "",
                 reasoningText: "",
                 errorMessage: undefined,
+                requestCount: cur.requestCount + 1,
               };
               return next;
             });
@@ -256,6 +271,7 @@ export function StressPage() {
                 ...cur,
                 status: ev.ok ? "done" : "error",
                 errorMessage: ev.ok ? undefined : `${ev.error_code ?? ""} ${ev.error_message ?? ""}`.trim(),
+                lastTotalMs: ev.total_ms,
               };
               return next;
             });
@@ -271,10 +287,13 @@ export function StressPage() {
           }
           case "run_finished": {
             setStages(ev.stages);
+            setRunStatus("finished");
+            setStageStartedAt(null);
             break;
           }
           case "error": {
             setErrorLine(`${ev.code}: ${ev.message}`);
+            setRunStatus("error");
             toast.error(`프로바이더 벤치 오류: ${ev.code}`);
             break;
           }
@@ -285,10 +304,13 @@ export function StressPage() {
     } catch (e) {
       const err = e as { name?: string };
       if (err?.name === "AbortError") {
+        setRunStatus("aborted");
         toast("중단됨 — 부분 결과가 유지됩니다.");
       } else {
+        setRunStatus("error");
         setErrorLine(`스트림 예외: ${String(e)}`);
       }
+      // 스트림 중 비-AbortError 예외는 그동안 보인 진행을 보존(cells 유지).
     } finally {
       setRunning(false);
       abortRef.current = null;
@@ -533,14 +555,8 @@ export function StressPage() {
           {running ? (
             <span className="inline-flex items-center gap-1 text-xs text-[var(--muted)]">
               <Loader2 className="size-3 animate-spin" aria-hidden />
-              {currentStageIndex != null ? (
-                <>
-                  단계 {currentStageIndex + 1}/{totalStagesExpected} · 동시 {currentConcurrency}명
-                  {liveTps != null ? ` · 라이브 TPS ${liveTps.toFixed(1)}` : ""}
-                </>
-              ) : (
-                <>준비 중…</>
-              )}
+              {/* 단계·동시성은 그리드 헤더에서 보여주므로, 상단 라인은 라이브 TPS만. */}
+              {liveTps != null ? `실행 중 · 라이브 TPS ${liveTps.toFixed(1)}` : "실행 중…"}
             </span>
           ) : null}
           {errorLine ? <span className="text-xs text-red-500">{errorLine}</span> : null}
@@ -549,8 +565,15 @@ export function StressPage() {
 
       <StressTpsChart stages={stages} />
 
-      {running && currentStageIndex != null ? (
-        <StressMonitorGrid concurrency={currentConcurrency} cells={cells} />
+      {cells.length > 0 ? (
+        <StressMonitorGrid
+          concurrency={currentConcurrency}
+          cells={cells}
+          runStatus={runStatus}
+          lastStageIndex={currentStageIndex}
+          stageStartedAt={stageStartedAt}
+          stageDurationMs={stageDurationMs}
+        />
       ) : null}
 
       <StressResultTable stages={stages} expectedScript={expectedScript} />
