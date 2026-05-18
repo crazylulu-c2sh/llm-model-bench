@@ -31,6 +31,32 @@ describe("scoreScenario tool_weather", () => {
   });
 });
 
+describe("scoreScenario stress_long_context*", () => {
+  it("passes non-empty output (en/ko/ja)", () => {
+    expect(scoreScenario("stress_long_context", "Computing has a long history.").pass).toBe(true);
+    expect(scoreScenario("stress_long_context_ko", "컴퓨팅의 역사는 길다.").pass).toBe(true);
+    expect(scoreScenario("stress_long_context_ja", "計算機の歴史は長い。").pass).toBe(true);
+  });
+
+  it("fails on empty output", () => {
+    expect(scoreScenario("stress_long_context", "").pass).toBe(false);
+    expect(scoreScenario("stress_long_context_ko", "   ").pass).toBe(false);
+  });
+});
+
+describe("buildMessages stress_long_context_ko", () => {
+  it("includes Korean system + ~2500-token user corpus + summarization tail", () => {
+    const built = buildMessages("stress_long_context_ko");
+    expect(built.messages[0]?.role).toBe("system");
+    expect(typeof built.messages[0]?.content).toBe("string");
+    expect(built.messages[0]?.content as string).toContain("요약");
+    expect(built.messages[1]?.role).toBe("user");
+    const userText = built.messages[1]?.content as string;
+    expect(userText.length).toBeGreaterThan(1500); // ~3700 chars expected
+    expect(userText).toContain("한 문장으로 요약");
+  });
+});
+
 describe("scoreScenario chat_hello / chat_ping", () => {
   it("fails on empty or whitespace-only output", () => {
     expect(scoreScenario("chat_hello", "").pass).toBe(false);

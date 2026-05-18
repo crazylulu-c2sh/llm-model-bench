@@ -5,6 +5,9 @@ export const WORKLOAD_LABEL: Record<StressWorkloadId, string> = {
   stress_short_reply: "짧은 문장 응답 (영어)",
   stress_short_reply_ko: "짧은 문장 응답 (한국어)",
   stress_short_reply_ja: "짧은 문장 응답 (일본어)",
+  stress_long_context: "긴 컨텍스트 / Prefill 부하 (영어)",
+  stress_long_context_ko: "긴 컨텍스트 / Prefill 부하 (한국어)",
+  stress_long_context_ja: "긴 컨텍스트 / Prefill 부하 (일본어)",
 };
 
 export function workloadLabel(id: string): string {

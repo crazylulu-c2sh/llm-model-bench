@@ -325,7 +325,10 @@ export function scoreScenario(
     case "stress_ping":
     case "stress_short_reply":
     case "stress_short_reply_ko":
-    case "stress_short_reply_ja": {
+    case "stress_short_reply_ja":
+    case "stress_long_context":
+    case "stress_long_context_ko":
+    case "stress_long_context_ja": {
       const r = scoreChatMinimal(output);
       return r;
     }

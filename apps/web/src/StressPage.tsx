@@ -623,6 +623,11 @@ export function StressPage() {
           예상 단계 수: <span className="font-mono">{totalStagesExpected}</span> · 예상 응답 언어:
           <span className="font-mono"> {expectedScript}</span>
         </p>
+        {workloadId.startsWith("stress_long_context") ? (
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            긴 컨텍스트 권장: temperature 0 · timeout ≥ 120s · max_tokens 비우기(32) · 워커별 client 접미사 끄기(prefix caching 엔진)
+          </p>
+        ) : null}
       </section>
 
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">

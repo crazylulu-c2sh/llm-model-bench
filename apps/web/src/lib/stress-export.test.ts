@@ -55,11 +55,11 @@ describe("stressRunToCsv", () => {
     expect(s.startsWith(CSV_BOM)).toBe(true);
   });
 
-  it("has 24 columns in header", () => {
-    expect(CSV_HEADER_COUNT).toBe(24);
+  it("has 26 columns in header", () => {
+    expect(CSV_HEADER_COUNT).toBe(26);
     const s = stressRunToCsv(baseDetail());
     const headerLine = s.replace(CSV_BOM, "").split("\n")[0];
-    expect(headerLine.split(",").length).toBe(24);
+    expect(headerLine.split(",").length).toBe(26);
   });
 
   it("escapes commas, quotes, and newlines in values", () => {
@@ -84,5 +84,24 @@ describe("stressRunToCsv", () => {
     expect(cells[2]).toBe("");
     // aggregate_tps는 17번째 (index 16)
     expect(cells[16]).toBe("");
+  });
+
+  it("emits empty strings when ttft_ms is missing (legacy row)", () => {
+    const d = baseDetail();
+    // baseDetail()은 ttft_ms 없음
+    const s = stressRunToCsv(d);
+    const cells = s.replace(CSV_BOM, "").split("\n")[1].split(",");
+    // ttft_p50은 22번째 (index 21), ttft_p95는 23번째 (index 22)
+    expect(cells[21]).toBe("");
+    expect(cells[22]).toBe("");
+  });
+
+  it("emits ttft values when present", () => {
+    const d = baseDetail();
+    d.stages[0].ttft_ms = { p50: 120, p95: 350 };
+    const s = stressRunToCsv(d);
+    const cells = s.replace(CSV_BOM, "").split("\n")[1].split(",");
+    expect(cells[21]).toBe("120");
+    expect(cells[22]).toBe("350");
   });
 });

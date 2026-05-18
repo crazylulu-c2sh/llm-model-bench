@@ -76,6 +76,8 @@ export interface StressStageResult {
   tps_per_user: number | null;
   tps_unreliable?: true;
   latency_ms: StressStageLatencyMs;
+  /** TTFT(첫 토큰 도착) 집계 — long-context/prefill 워크로드의 1순위 지표. v1.1+에서 추가, 구 row에는 없을 수 있음. */
+  ttft_ms?: StressStageLatencyMs;
   error_rate: number;
   tps_source: StressTpsSource;
   /** 워크로드별 *예상* 스크립트 일치 비율(0–1). v1에서는 KO/JA 워크로드만 계산. */

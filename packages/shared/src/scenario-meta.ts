@@ -120,6 +120,33 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     routesKo: "프로바이더 벤치 단일 라우트.",
     implementationKo: "히라가나·가타카나 비율로 *예상 외 응답* 식별. 채점에는 영향 없음. 모델 벤치 탭 미노출.",
   },
+  stress_long_context: {
+    purposeKo: "프로바이더 벤치 전용: 긴 컨텍스트(~2500 tok)로 prefill·KV 캐시·메모리 대역폭 한계 측정 (영어).",
+    criteriaKo: "응답이 비어있지 않으면 통과. 1순위 지표는 TTFT(p50/p95) — 동시성 증가에 따라 폭증 지점을 관찰.",
+    promptNotesKo: "system: 한 문장 요약 지시. user: 약 2500 토큰 영어 백과 텍스트 + 끝에 요약 지시. 기본 max_tokens 32. `(client {k})` 워커 변형.",
+    toolsSummaryKo: "없음.",
+    routesKo: "프로바이더 벤치 단일 라우트 (chat_completions 우선).",
+    implementationKo:
+      "권장 temperature 0, timeout ≥ 120s. Prefix caching이 있는 엔진(vLLM PagedAttention 등)은 공통 prefix를 캐시해 prefill을 amortize할 수 있음 — workerPromptSuffix off 또는 caching 미지원 엔진에서 측정 권장. 모델 벤치 탭 미노출.",
+  },
+  stress_long_context_ko: {
+    purposeKo: "프로바이더 벤치 전용: 긴 컨텍스트(~2500 tok)로 prefill·KV 캐시·메모리 대역폭 한계 측정 (한국어).",
+    criteriaKo: "응답이 비어있지 않으면 통과. `script_match`로 한국어 응답 비율 확인. 1순위 지표는 TTFT(p50/p95).",
+    promptNotesKo: "system/user 모두 한국어 백과 텍스트(~2500 tok) + 끝에 요약 지시. 기본 max_tokens 32. `(클라이언트 {k})` 워커 변형.",
+    toolsSummaryKo: "없음.",
+    routesKo: "프로바이더 벤치 단일 라우트.",
+    implementationKo:
+      "권장 temperature 0, timeout ≥ 120s. CJK 토큰화 효율 차이로 영어 워크로드 대비 TTFT/TPS가 달라질 수 있음. Prefix caching 엔진은 공통 prefix를 amortize할 수 있어 부하 과소 측정 가능 — workerPromptSuffix off 또는 caching 미지원 엔진 권장. 모델 벤치 탭 미노출.",
+  },
+  stress_long_context_ja: {
+    purposeKo: "프로바이더 벤치 전용: 긴 컨텍스트(~2500 tok)로 prefill·KV 캐시·메모리 대역폭 한계 측정 (일본어).",
+    criteriaKo: "응답이 비어있지 않으면 통과. `script_match`로 일본어(히라가나/가타카나) 응답 비율 확인. 1순위 지표는 TTFT(p50/p95).",
+    promptNotesKo: "system/user 모두 일본어 백과 텍스트(~2500 tok) + 끝에 요약 지시. 기본 max_tokens 32. `(クライアント {k})` 워커 변형.",
+    toolsSummaryKo: "없음.",
+    routesKo: "프로바이더 벤치 단일 라우트.",
+    implementationKo:
+      "권장 temperature 0, timeout ≥ 120s. CJK 토큰화로 영어 대비 TTFT/TPS 변동 가능. Prefix caching 엔진은 공통 prefix amortize 가능 — workerPromptSuffix off 또는 caching 미지원 엔진 권장. 모델 벤치 탭 미노출.",
+  },
 };
 
 export function getScenarioBenchMeta(id: string): ScenarioBenchMeta | null {
