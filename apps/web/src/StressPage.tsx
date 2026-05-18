@@ -165,10 +165,13 @@ export function StressPage() {
       toast.error("프로바이더를 감지하고 모델 1개를 선택하세요.");
       return;
     }
+    // 사전 슬롯 확보: ramp.max(보정값) 또는 STRESS_MAX_LIVE_CELLS 중 작은 값으로 한 번에 할당.
+    // 단계 전환에서 재할당하지 않아 그리드 레이아웃 점프가 사라지고, 종료 후에도 그대로 유지됨.
+    const slots = Math.min(ramp.max, STRESS_MAX_LIVE_CELLS);
     setRunning(true);
     setStages([]);
     setErrorLine(null);
-    setCells([]);
+    setCells(Array.from({ length: slots }, () => emptyCellState()));
     setCurrentStageIndex(null);
     setCurrentConcurrency(0);
     setLiveTps(null);
@@ -205,13 +208,10 @@ export function StressPage() {
       await consumeSseJsonLines(resp.body, (ev) => {
         switch (ev.type) {
           case "stress_stage_started": {
-            const stageCells: StressCellState[] = Array.from(
-              { length: Math.min(ev.concurrency, STRESS_MAX_LIVE_CELLS) },
-              () => emptyCellState(),
-            );
+            // cells는 startRun에서 사전 할당된 슬롯을 *유지* — 단계마다 재할당하지 않음.
+            // 워커가 새 request_start 이벤트를 보내면 해당 슬롯이 자연스럽게 갱신됨.
             setCurrentStageIndex(ev.stage_index);
             setCurrentConcurrency(ev.concurrency);
-            setCells(stageCells);
             setLiveTps(null);
             break;
           }
@@ -549,7 +549,7 @@ export function StressPage() {
 
       <StressTpsChart stages={stages} />
 
-      {running && currentStageIndex != null ? (
+      {cells.length > 0 ? (
         <StressMonitorGrid concurrency={currentConcurrency} cells={cells} />
       ) : null}
 
