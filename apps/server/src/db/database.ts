@@ -88,6 +88,29 @@ function migrate(db: Database.Database): void {
       PRIMARY KEY (run_id, seq),
       FOREIGN KEY (run_id) REFERENCES bench_runs(run_id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS stress_runs (
+      run_id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      finished_at TEXT,
+      base_url TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      workload_id TEXT NOT NULL,
+      meta_json TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error_code TEXT,
+      error_message TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_stress_runs_created
+      ON stress_runs (created_at DESC);
+    CREATE TABLE IF NOT EXISTS stress_stages (
+      run_id TEXT NOT NULL,
+      stage_index INTEGER NOT NULL,
+      concurrency INTEGER NOT NULL,
+      result_json TEXT NOT NULL,
+      PRIMARY KEY (run_id, stage_index),
+      FOREIGN KEY (run_id) REFERENCES stress_runs(run_id) ON DELETE CASCADE
+    );
   `);
   const scenarioCols = db.prepare(`PRAGMA table_info(bench_scenarios)`).all() as Array<{ name: string }>;
   if (!scenarioCols.some((c) => c.name === "prompt_system_preview")) {
@@ -96,7 +119,119 @@ function migrate(db: Database.Database): void {
   const row = db.prepare(`SELECT version FROM schema_migrations ORDER BY id DESC LIMIT 1`).get() as
     | { version: number }
     | undefined;
-  if (!row) db.prepare(`INSERT INTO schema_migrations (version) VALUES (1)`).run();
+  const currentVersion = row?.version ?? 0;
+  if (currentVersion < 1) {
+    db.prepare(`INSERT INTO schema_migrations (version) VALUES (1)`).run();
+  }
+  if (currentVersion < 2) {
+    db.prepare(`INSERT INTO schema_migrations (version) VALUES (2)`).run();
+  }
+}
+
+export type StressRunStatus = "running" | "ok" | "partial" | "error";
+
+export function insertStressRun(
+  db: Database.Database,
+  row: {
+    run_id: string;
+    created_at: string;
+    base_url: string;
+    provider: string;
+    model_id: string;
+    workload_id: string;
+    meta_json: string;
+    status: StressRunStatus;
+  },
+): void {
+  db.prepare(
+    `INSERT INTO stress_runs (run_id, created_at, base_url, provider, model_id, workload_id, meta_json, status)
+     VALUES (@run_id, @created_at, @base_url, @provider, @model_id, @workload_id, @meta_json, @status)`,
+  ).run(row);
+}
+
+export function upsertStressStage(
+  db: Database.Database,
+  row: { run_id: string; stage_index: number; concurrency: number; result_json: string },
+): void {
+  db.prepare(
+    `INSERT INTO stress_stages (run_id, stage_index, concurrency, result_json)
+     VALUES (@run_id, @stage_index, @concurrency, @result_json)
+     ON CONFLICT(run_id, stage_index) DO UPDATE SET
+       concurrency = excluded.concurrency,
+       result_json = excluded.result_json`,
+  ).run(row);
+}
+
+export function finishStressRun(
+  db: Database.Database,
+  run_id: string,
+  status: StressRunStatus,
+  err?: { code?: string; message?: string },
+): void {
+  db.prepare(
+    `UPDATE stress_runs SET
+      finished_at = @finished_at,
+      status = @status,
+      error_code = @error_code,
+      error_message = @error_message
+     WHERE run_id = @run_id`,
+  ).run({
+    run_id,
+    finished_at: new Date().toISOString(),
+    status,
+    error_code: err?.code ?? null,
+    error_message: err?.message?.slice(0, 2000) ?? null,
+  });
+}
+
+export function markStressRunErrorPartial(
+  db: Database.Database,
+  run_id: string,
+  code: string,
+  message: string,
+): void {
+  db.prepare(
+    `UPDATE stress_runs SET
+      status = CASE WHEN status = 'running' THEN 'partial' ELSE status END,
+      error_code = @code,
+      error_message = @message
+     WHERE run_id = @run_id`,
+  ).run({ run_id, code: code.slice(0, 200), message: message.slice(0, 2000) });
+}
+
+export type StressRunSummaryRow = {
+  run_id: string;
+  created_at: string;
+  finished_at: string | null;
+  base_url: string;
+  provider: string;
+  model_id: string;
+  workload_id: string;
+  status: string;
+};
+
+export function listRecentStressRuns(db: Database.Database, limit: number): StressRunSummaryRow[] {
+  return db
+    .prepare(
+      `SELECT run_id, created_at, finished_at, base_url, provider, model_id, workload_id, status
+       FROM stress_runs ORDER BY datetime(created_at) DESC LIMIT ?`,
+    )
+    .all(Math.min(Math.max(limit, 1), 200)) as StressRunSummaryRow[];
+}
+
+export type StressStageRow = {
+  stage_index: number;
+  concurrency: number;
+  result_json: string;
+};
+
+export function listStressStages(db: Database.Database, run_id: string): StressStageRow[] {
+  return db
+    .prepare(
+      `SELECT stage_index, concurrency, result_json
+       FROM stress_stages WHERE run_id = ? ORDER BY stage_index ASC`,
+    )
+    .all(run_id) as StressStageRow[];
 }
 
 export function insertRun(

@@ -22,6 +22,17 @@ export type OpenAiStreamMetrics = {
   toolCalls: OpenAiToolCallOut[] | null;
   streamCompleted: boolean;
   approxOutputTokens: number;
+  /** provider가 `stream_options.include_usage` 응답 청크로 보고한 출력 토큰 (없으면 null) */
+  usageOutputTokens: number | null;
+};
+
+/** 증분 콜백 — 델타 도착 시마다 호출. stress-runner CCTV fan-out 용. */
+export type OpenAiStreamDelta =
+  | { kind: "content"; text: string }
+  | { kind: "reasoning"; text: string };
+
+export type OpenAiStreamOptions = {
+  onDelta?: (delta: OpenAiStreamDelta) => void;
 };
 
 type DeltaToolCall = {
@@ -72,6 +83,7 @@ function serializeMergedToolCalls(byIndex: Map<number, MergedToolCall>): string 
 export async function consumeOpenAiChatStream(
   body: ReadableStream<Uint8Array> | null,
   signal?: AbortSignal,
+  opts?: OpenAiStreamOptions,
 ): Promise<OpenAiStreamMetrics> {
   if (!body) {
     return {
@@ -83,6 +95,7 @@ export async function consumeOpenAiChatStream(
       toolCalls: null,
       streamCompleted: false,
       approxOutputTokens: 0,
+      usageOutputTokens: null,
     };
   }
   const reader = body.getReader();
@@ -98,6 +111,8 @@ export async function consumeOpenAiChatStream(
   const t0 = performance.now();
   let ttft: number | null = null;
   let streamCompleted = false;
+  let usageOutputTokens: number | null = null;
+  const onDelta = opts?.onDelta;
 
   const markTtft = () => {
     if (ttft === null) ttft = performance.now() - t0;
@@ -121,25 +136,35 @@ export async function consumeOpenAiChatStream(
             tool_calls?: DeltaToolCall[];
           };
         }[];
+        usage?: { completion_tokens?: number; output_tokens?: number };
       };
+      if (j.usage) {
+        const ct = typeof j.usage.completion_tokens === "number" ? j.usage.completion_tokens : null;
+        const ot = typeof j.usage.output_tokens === "number" ? j.usage.output_tokens : null;
+        if (ct != null && ct >= 0) usageOutputTokens = ct;
+        else if (ot != null && ot >= 0) usageOutputTokens = ot;
+      }
       const delta = j.choices?.[0]?.delta;
       const rc = delta?.reasoning_content;
       if (typeof rc === "string" && rc.length > 0) {
         markTtft();
         combined += rc;
         reasoningOnly += rc;
+        if (onDelta) onDelta({ kind: "reasoning", text: rc });
       }
       const rsn = delta?.reasoning;
       if (typeof rsn === "string" && rsn.length > 0) {
         markTtft();
         combined += rsn;
         reasoningOnly += rsn;
+        if (onDelta) onDelta({ kind: "reasoning", text: rsn });
       }
       const c = delta?.content;
       if (c) {
         markTtft();
         combined += c;
         contentOnly += c;
+        if (onDelta) onDelta({ kind: "content", text: c });
       }
       const tc = delta?.tool_calls;
       if (tc?.length) {
@@ -184,6 +209,7 @@ export async function consumeOpenAiChatStream(
     toolCalls: toolCallsForApi.length ? toolCallsForApi : null,
     streamCompleted,
     approxOutputTokens,
+    usageOutputTokens,
   };
 }
 

@@ -88,6 +88,38 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     implementationKo:
       "도구 호출 로그와 최종 어시스턴트 텍스트를 합쳐: fetch_pdf_text 호출 존재, 한글 포함, 길이 상한을 만족하는지 확인합니다.",
   },
+  stress_ping: {
+    purposeKo: "프로바이더 벤치 전용: 동시 사용자 부하 측정용 최소 ping 워크로드.",
+    criteriaKo: "응답이 비어있지 않으면 통과. TPS·지연 비교에 사용합니다.",
+    promptNotesKo: "기본 max_tokens 32. 동시 워커별 `ping (client {k})` 변형 가능.",
+    toolsSummaryKo: "없음.",
+    routesKo: "프로바이더 벤치에서 단일 라우트(chat_completions 우선)로만 측정.",
+    implementationKo: "프로바이더 벤치 ramp-up 단계마다 워커가 반복 발사. 모델 벤치 탭에는 노출되지 않습니다.",
+  },
+  stress_short_reply: {
+    purposeKo: "프로바이더 벤치 전용: 영어 한 문장 응답을 동시 사용자 부하로 비교.",
+    criteriaKo: "응답이 비어있지 않으면 통과. 토큰 생성 부하를 조금 더 끌어내는 변형.",
+    promptNotesKo: "기본 max_tokens 128. 동시 워커별 `(client {k})` 변형.",
+    toolsSummaryKo: "없음.",
+    routesKo: "프로바이더 벤치 단일 라우트.",
+    implementationKo: "프로바이더 벤치 ramp-up 단계마다 반복 발사. 모델 벤치 탭 미노출.",
+  },
+  stress_short_reply_ko: {
+    purposeKo: "프로바이더 벤치 전용: 한국어 한 문장 응답 부하 — 다국어 처리 비교용.",
+    criteriaKo: "응답이 비어있지 않으면 통과. `script_match` 라벨로 실제 한국어 응답 비율을 확인.",
+    promptNotesKo: "system/user 모두 한국어. 기본 max_tokens 128. `(클라이언트 {k})` 변형.",
+    toolsSummaryKo: "없음.",
+    routesKo: "프로바이더 벤치 단일 라우트.",
+    implementationKo: "CJK 토큰화 효율 차이로 영어 워크로드 대비 TPS가 달라질 수 있음. 모델 벤치 탭 미노출.",
+  },
+  stress_short_reply_ja: {
+    purposeKo: "프로바이더 벤치 전용: 일본어 한 문장 응답 부하 — 다국어 처리 비교용.",
+    criteriaKo: "응답이 비어있지 않으면 통과. `script_match` 라벨로 실제 일본어(히라가나/가타카나) 응답 비율을 확인.",
+    promptNotesKo: "system/user 모두 일본어. 기본 max_tokens 128. `(クライアント {k})` 변형.",
+    toolsSummaryKo: "없음.",
+    routesKo: "프로바이더 벤치 단일 라우트.",
+    implementationKo: "히라가나·가타카나 비율로 *예상 외 응답* 식별. 채점에는 영향 없음. 모델 벤치 탭 미노출.",
+  },
 };
 
 export function getScenarioBenchMeta(id: string): ScenarioBenchMeta | null {

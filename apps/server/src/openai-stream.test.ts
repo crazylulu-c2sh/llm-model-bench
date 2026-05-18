@@ -146,6 +146,7 @@ describe("openAiBenchOutputText", () => {
         toolCalls: null,
         streamCompleted: true,
         approxOutputTokens: 1,
+        usageOutputTokens: null,
       }),
     ).toBe("visible");
   });
@@ -161,8 +162,47 @@ describe("openAiBenchOutputText", () => {
         toolCalls: null,
         streamCompleted: true,
         approxOutputTokens: 4,
+        usageOutputTokens: null,
       }),
     ).toBe("reasoning-only");
+  });
+});
+
+describe("usage capture & onDelta", () => {
+  it("captures usage.completion_tokens from terminal usage chunk", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+      'data: {"choices":[],"usage":{"completion_tokens":7,"prompt_tokens":3,"total_tokens":10}}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.text).toBe("hi");
+    expect(m.usageOutputTokens).toBe(7);
+  });
+
+  it("leaves usageOutputTokens null when provider does not send usage", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.usageOutputTokens).toBeNull();
+  });
+
+  it("fires onDelta callback per content chunk when provided", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"he"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"llo"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const deltas: string[] = [];
+    const m = await consumeOpenAiChatStream(stream, undefined, {
+      onDelta: (d) => {
+        if (d.kind === "content") deltas.push(d.text);
+      },
+    });
+    expect(m.assistantText).toBe("hello");
+    expect(deltas).toEqual(["he", "llo"]);
   });
 });
 
@@ -178,6 +218,7 @@ describe("openAiLiveTokenStreamText", () => {
         toolCalls: null,
         streamCompleted: true,
         approxOutputTokens: 1,
+        usageOutputTokens: null,
       }),
     ).toBe("inout");
   });

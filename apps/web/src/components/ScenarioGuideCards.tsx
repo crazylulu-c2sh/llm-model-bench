@@ -1,4 +1,4 @@
-import { ALL_SCENARIO_IDS, getScenarioBenchMeta } from "@llm-bench/shared";
+import { PUBLIC_SCENARIO_IDS, getScenarioBenchMeta } from "@llm-bench/shared";
 import { Layers } from "lucide-react";
 
 export function ScenarioGuideCards({
@@ -21,7 +21,7 @@ export function ScenarioGuideCards({
         각 카드는 해당 시나리오가 무엇을 검증하는지 요약합니다. 합격 기준은 펼쳐 보거나 결과 행을 눌러 상세에서 확인할 수 있습니다.
       </p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {ALL_SCENARIO_IDS.map((id) => {
+        {PUBLIC_SCENARIO_IDS.map((id) => {
           const meta = getScenarioBenchMeta(id);
           const active = Boolean(currentScenario && currentScenario === id);
           const wasTouched = running && touched.includes(id);

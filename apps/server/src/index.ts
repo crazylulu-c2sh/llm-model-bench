@@ -5,10 +5,24 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
-import type { BenchRunMeta, DetectResult, StreamEvent, LlmProfileFamily, SamplingPresetName } from "@llm-bench/shared";
-import { SamplingParamsSchema } from "@llm-bench/shared";
+import type {
+  BenchRunMeta,
+  DetectResult,
+  StreamEvent,
+  LlmProfileFamily,
+  SamplingPresetName,
+  StressRunMeta,
+  StressStreamEvent,
+  StressWorkloadId,
+} from "@llm-bench/shared";
+import {
+  SamplingParamsSchema,
+  STRESS_WORKLOAD_IDS,
+  StressRampConfigSchema,
+} from "@llm-bench/shared";
 import { makeBenchRunMeta, runBench, type BenchRequest } from "./bench-runner.js";
 import { detectProvider } from "./detect.js";
+import { runStress, type StressRequest } from "./stress-runner.js";
 
 /** better-sqlite3는 여기서 정적 import하지 않음 — 네이티브 로드 실패 시에도 감지(/api/detect)가 동작하도록 동적 import */
 
@@ -290,6 +304,139 @@ app.post("/api/bench/stream", async (c) => {
         if (started) persister.finalize();
         controller.close();
       }
+    },
+  });
+
+  return c.newResponse(readable, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+});
+
+const StressStreamBody = z.object({
+  detect: z.custom<DetectResult>(),
+  stress: z.object({
+    baseUrl: z.string(),
+    apiKey: z.string().optional(),
+    provider: z.enum(["lm_studio", "ollama", "openai_compatible", "manual"]),
+    modelId: z.string(),
+    workloadId: z.enum(STRESS_WORKLOAD_IDS as [StressWorkloadId, ...StressWorkloadId[]]),
+    ramp: StressRampConfigSchema,
+    maxTokens: z.number().int().positive().optional(),
+    temperature: z.number().optional(),
+    workerPromptSuffix: z.boolean().optional(),
+    requestTimeoutMs: z.number().int().positive().optional(),
+    skipModelLoad: z.boolean().optional(),
+    unloadOtherModels: z.boolean().optional(),
+    autoUnloadAfterBench: z.boolean().optional(),
+    profileId: z.preprocess(
+      (v) => (v === "minimax_m27" ? "minimax" : v),
+      z
+        .enum([
+          "auto",
+          "unknown",
+          "gemma4",
+          "qwen35",
+          "qwen36",
+          "gpt_oss",
+          "minimax",
+          "nemotron3",
+          "qwen3_coder_next",
+          "glm47_flash",
+        ])
+        .optional(),
+    ),
+    taskMode: z.enum(["general", "coding", "tool"]).optional(),
+    thinkingIntent: z.enum(["on", "off"]).optional(),
+    preserveThinking: z.boolean().optional(),
+    presetOverride: z
+      .enum(["default", "thinking_general", "thinking_coding", "nonthinking_general", "tool_call"])
+      .optional(),
+    samplingOverrides: SamplingParamsSchema.optional(),
+    reasoningEffort: z.enum(["minimal", "low", "medium", "high"]).optional(),
+  }),
+});
+
+app.post("/api/stress/stream", async (c) => {
+  const parsed = StressStreamBody.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  const { detect, stress } = parsed.data;
+
+  const req: StressRequest = {
+    baseUrl: stress.baseUrl,
+    apiKey: stress.apiKey,
+    provider: stress.provider,
+    modelId: stress.modelId,
+    workloadId: stress.workloadId,
+    ramp: stress.ramp,
+    maxTokens: stress.maxTokens,
+    temperature: stress.temperature,
+    workerPromptSuffix: stress.workerPromptSuffix,
+    requestTimeoutMs: stress.requestTimeoutMs,
+    skipModelLoad: stress.skipModelLoad,
+    unloadOtherModels: stress.unloadOtherModels,
+    autoUnloadAfterBench: stress.autoUnloadAfterBench,
+    profile: {
+      profileId: stress.profileId as LlmProfileFamily | "auto" | undefined,
+      taskMode: stress.taskMode,
+      thinkingIntent: stress.thinkingIntent,
+      preserveThinking: stress.preserveThinking,
+      presetOverride: stress.presetOverride as SamplingPresetName | undefined,
+      samplingOverrides: stress.samplingOverrides,
+      reasoningEffort: stress.reasoningEffort,
+    },
+  };
+
+  type StressPersister = {
+    start(meta: StressRunMeta): void;
+    onEvent(ev: StressStreamEvent): void;
+    finalize(): void;
+  };
+  const noopPersister: StressPersister = { start() {}, onEvent() {}, finalize() {} };
+
+  const encoder = new TextEncoder();
+  const externalAbort = new AbortController();
+  c.req.raw.signal.addEventListener("abort", () => externalAbort.abort());
+
+  const readable = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const push = (ev: StressStreamEvent) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+      let persister: StressPersister = noopPersister;
+      try {
+        const dbMod = await import("./db/database.js");
+        const { StressRunPersistence } = await import("./db/stress-persist-stream.js");
+        persister = new StressRunPersistence(dbMod.tryOpenProdBenchDatabase());
+      } catch (e) {
+        console.error(
+          "[llm-bench-server] SQLite 계층 로드 실패 — 프로바이더 벤치는 진행하나 디스크 저장은 건너뜁니다:",
+          e,
+        );
+        persister = noopPersister;
+      }
+      let started = false;
+      try {
+        for await (const ev of runStress(req, detect, { signal: externalAbort.signal })) {
+          if (ev.type === "run_started") {
+            persister.start(ev.meta);
+            started = true;
+          }
+          persister.onEvent(ev);
+          push(ev);
+        }
+      } catch (e) {
+        push({ type: "error", code: "stream_failed", message: String(e) });
+      } finally {
+        if (started) persister.finalize();
+        controller.close();
+      }
+    },
+    cancel() {
+      externalAbort.abort();
     },
   });
 

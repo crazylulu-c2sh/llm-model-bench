@@ -5,7 +5,7 @@ import type {
   StreamEvent,
   ThinkingIntent,
 } from "@llm-bench/shared";
-import { stripThinkingBlocks } from "@llm-bench/shared";
+import { PUBLIC_SCENARIO_IDS, stripThinkingBlocks } from "@llm-bench/shared";
 import { consumeAnthropicMessagesStream } from "./anthropic-stream.js";
 import {
   consumeOpenAiChatStream,
@@ -13,6 +13,7 @@ import {
   openAiLiveTokenStreamText,
   tpotFromOpenAi,
 } from "./openai-stream.js";
+import { openAiChatPostWithUsage } from "./openai-fetch.js";
 import {
   ALL_SCENARIO_IDS,
   anthropicMessagesForScenario,
@@ -117,11 +118,19 @@ export function makeBenchRunMeta(
   opts?: { profileMaxTokensOverride?: number | null },
 ): BenchRunMeta {
   const base = detect.baseUrl.replace(/\/+$/, "");
-  const rawScenarioIds =
-    input.scenarioIds?.length &&
-    input.scenarioIds.every((s) => ALL_SCENARIO_IDS.includes(s as ScenarioId))
-      ? input.scenarioIds
-      : (ALL_SCENARIO_IDS as ScenarioId[]);
+  // 모델 벤치 기본값: stress_* 시나리오를 자동 포함하지 않도록 PUBLIC_SCENARIO_IDS만.
+  // 클라이언트가 `scenarioIds`를 명시로 보내고 모두 유효한 *공개* 시나리오일 때만 그 목록을 사용.
+  const userScenarioIds = input.scenarioIds?.length
+    ? input.scenarioIds.filter(
+        (s): s is ScenarioId =>
+          (PUBLIC_SCENARIO_IDS as readonly string[]).includes(s) &&
+          (ALL_SCENARIO_IDS as readonly string[]).includes(s),
+      )
+    : null;
+  const rawScenarioIds: ScenarioId[] =
+    userScenarioIds && userScenarioIds.length > 0
+      ? userScenarioIds
+      : (PUBLIC_SCENARIO_IDS as ScenarioId[]);
   const scenarioIds = normalizeScenarioIdsForBench(rawScenarioIds);
   const routes: ("chat_completions" | "messages")[] = [];
   if (detect.capabilities.openaiChat) routes.push("chat_completions");
@@ -549,12 +558,14 @@ export async function* runBench(
                   stream: true,
                   ...(tools ? { tools, tool_choice } : {}),
                 });
-                const r = await fetchImpl(`${base}/v1/chat/completions`, {
-                  method: "POST",
-                  headers: headers(input.apiKey),
-                  body: JSON.stringify(body),
-                  signal: controller.signal,
-                });
+                const { response: r } = await openAiChatPostWithUsage(
+                  fetchImpl,
+                  `${base}/v1/chat/completions`,
+                  base,
+                  headers(input.apiKey),
+                  body,
+                  controller.signal,
+                );
                 if (r.status === 429) {
                   yield {
                     type: "error",
@@ -779,12 +790,14 @@ export async function* runBench(
                 stream: true,
                 ...(tools ? { tools, tool_choice: tool_choice ?? "auto" } : {}),
               });
-              const r = await fetchImpl(`${base}/v1/chat/completions`, {
-                method: "POST",
-                headers: headers(input.apiKey),
-                body: JSON.stringify(body),
-                signal: controller.signal,
-              });
+              const { response: r } = await openAiChatPostWithUsage(
+                fetchImpl,
+                `${base}/v1/chat/completions`,
+                base,
+                headers(input.apiKey),
+                body,
+                controller.signal,
+              );
               if (r.status === 429) {
                 yield {
                   type: "error",

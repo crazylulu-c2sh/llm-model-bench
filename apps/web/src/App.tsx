@@ -56,6 +56,7 @@ import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from
 import { ProfileDocPage } from "./ProfileDocPage";
 import { ScenariosDocPage } from "./ScenariosDocPage";
 import { StatsPage } from "./StatsPage";
+import { StressPage } from "./StressPage";
 import { formatTimeWithMs } from "./lib/time-format";
 import type { ThemeChoice } from "./useTheme";
 import { useTheme } from "./useTheme";
@@ -125,6 +126,7 @@ export function App() {
   const { choice: themeChoice, setChoice: setThemeChoice, resolved: themeResolved } = useTheme();
   const { pathname } = useLocation();
   const onBenchPage = pathname === "/";
+  const onStressPage = pathname === "/stress";
   const onStatsPage = pathname === "/stats";
   const onProfilePage = pathname === "/profile";
   const onScenariosPage = pathname === "/scenarios";
@@ -1057,8 +1059,10 @@ export function App() {
               <p className="text-sm text-[var(--muted)]">모델 패밀리별 샘플링·컨텍스트·런타임 적용 규칙</p>
             ) : onScenariosPage ? (
               <p className="text-sm text-[var(--muted)]">시나리오 목적·도구·채점·프롬프트 미리보기</p>
+            ) : onStressPage ? (
+              <p className="text-sm text-[var(--muted)]">동시 사용자 부하 · 단계별 TPS · 라이브 워커 모니터</p>
             ) : (
-              <p className="text-sm text-[var(--muted)]">로컬 프로바이더 감지 · 스트리밍 벤치</p>
+              <p className="text-sm text-[var(--muted)]">로컬 프로바이더 감지 · 단일 모델 시나리오 벤치</p>
             )}
             {running && onBenchPage ? (
               <div
@@ -1094,7 +1098,21 @@ export function App() {
                 }`
               }
             >
-              벤치
+              모델 벤치
+            </NavLink>
+            <NavLink
+              to="/stress"
+              role="tab"
+              aria-selected={onStressPage}
+              className={({ isActive }) =>
+                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
+                  isActive
+                    ? "bg-[var(--accent)] text-white shadow-md"
+                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+                }`
+              }
+            >
+              프로바이더 벤치
             </NavLink>
             <NavLink
               to="/stats"
@@ -1670,6 +1688,7 @@ export function App() {
               </>
             }
           />
+          <Route path="/stress" element={<StressPage />} />
           <Route path="/stats" element={<StatsPage />} />
           <Route path="/profile" element={<ProfileDocPage />} />
           <Route path="/scenarios" element={<ScenariosDocPage />} />
