@@ -22,20 +22,29 @@ export type ScenarioId =
   | "stress_ping"
   | "stress_short_reply"
   | "stress_short_reply_ko"
-  | "stress_short_reply_ja";
+  | "stress_short_reply_ja"
+  | "stress_long_context"
+  | "stress_long_context_ko"
+  | "stress_long_context_ja";
 
 /** 프로바이더 벤치 전용 워크로드 ID — 모델 벤치 시나리오 셀렉터에 자동 노출되면 안 된다. */
 export type StressWorkloadId =
   | "stress_ping"
   | "stress_short_reply"
   | "stress_short_reply_ko"
-  | "stress_short_reply_ja";
+  | "stress_short_reply_ja"
+  | "stress_long_context"
+  | "stress_long_context_ko"
+  | "stress_long_context_ja";
 
 export const STRESS_WORKLOAD_IDS: StressWorkloadId[] = [
   "stress_ping",
   "stress_short_reply",
   "stress_short_reply_ko",
   "stress_short_reply_ja",
+  "stress_long_context",
+  "stress_long_context_ko",
+  "stress_long_context_ja",
 ];
 
 /** 모델 벤치 탭/문서 등 *공개* 시나리오 — `stress_*`는 제외. */
@@ -55,6 +64,15 @@ export const ALL_SCENARIO_IDS: ScenarioId[] = [
   ...PUBLIC_SCENARIO_IDS,
   ...STRESS_WORKLOAD_IDS,
 ];
+
+import {
+  LONG_CONTEXT_SYSTEM_EN,
+  LONG_CONTEXT_SYSTEM_JA,
+  LONG_CONTEXT_SYSTEM_KO,
+  LONG_CONTEXT_USER_EN,
+  LONG_CONTEXT_USER_JA,
+  LONG_CONTEXT_USER_KO,
+} from "./stress-long-context-corpus";
 
 const STRESS_PING_USER_BASE = "ping";
 const STRESS_SHORT_REPLY_EN_USER = "In one short sentence, explain what a load test measures.";
@@ -87,6 +105,12 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
       return appendStressClientSuffix(STRESS_SHORT_REPLY_KO_USER, opts?.stressWorkerIndex, "ko");
     case "stress_short_reply_ja":
       return appendStressClientSuffix(STRESS_SHORT_REPLY_JA_USER, opts?.stressWorkerIndex, "ja");
+    case "stress_long_context":
+      return appendStressClientSuffix(LONG_CONTEXT_USER_EN, opts?.stressWorkerIndex, "en");
+    case "stress_long_context_ko":
+      return appendStressClientSuffix(LONG_CONTEXT_USER_KO, opts?.stressWorkerIndex, "ko");
+    case "stress_long_context_ja":
+      return appendStressClientSuffix(LONG_CONTEXT_USER_JA, opts?.stressWorkerIndex, "ja");
     case "code_sort_js":
       return [
         "Write a JavaScript function sortNums(arr) that returns a new array of numbers sorted in ascending order using quicksort that you implement yourself.",
@@ -139,6 +163,12 @@ export function getScenarioSystemPromptPreview(id: string): string {
       return "당신은 간결한 한국어 보조자입니다. 한국어로 한 문장만 답하세요. 목록·마크다운·서두 없이.";
     case "stress_short_reply_ja":
       return "あなたは簡潔な日本語アシスタントです。日本語で一文だけ答えてください。箇条書き・マークダウン・前置きは禁止。";
+    case "stress_long_context":
+      return LONG_CONTEXT_SYSTEM_EN;
+    case "stress_long_context_ko":
+      return LONG_CONTEXT_SYSTEM_KO;
+    case "stress_long_context_ja":
+      return LONG_CONTEXT_SYSTEM_JA;
     case "chat_time_calendar":
       return [
         "You are a strict date-format assistant.",
@@ -189,8 +219,10 @@ export function isStressWorkloadId(id: string): id is StressWorkloadId {
 export function expectedScriptForWorkload(id: StressWorkloadId): "latin" | "ko" | "ja" {
   switch (id) {
     case "stress_short_reply_ko":
+    case "stress_long_context_ko":
       return "ko";
     case "stress_short_reply_ja":
+    case "stress_long_context_ja":
       return "ja";
     default:
       return "latin";
@@ -199,5 +231,13 @@ export function expectedScriptForWorkload(id: StressWorkloadId): "latin" | "ko" 
 
 /** 워크로드의 *기본* max_tokens — 서버·UI 동일 값. */
 export function defaultMaxTokensForWorkload(id: StressWorkloadId): number {
-  return id === "stress_ping" ? 32 : 128;
+  switch (id) {
+    case "stress_ping":
+    case "stress_long_context":
+    case "stress_long_context_ko":
+    case "stress_long_context_ja":
+      return 32;
+    default:
+      return 128;
+  }
 }

@@ -18,6 +18,8 @@ export function StressResultTable({ stages, expectedScript }: { stages: StressSt
   const hasApproxAnywhere = stages.some((s) => s.tps_source !== "usage");
   const allApprox = stages.length > 0 && stages.every((s) => s.tps_source === "approx");
   const hasUnreliableAnywhere = stages.some((s) => s.tps_unreliable === true);
+  const hasTtftAnywhere = stages.some((s) => s.ttft_ms != null);
+  const emptyColSpan = 9 + (expectedScript !== "latin" ? 1 : 0) + (hasTtftAnywhere ? 2 : 0);
   return (
     <div className="overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
       <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">단계별 결과</h2>
@@ -28,8 +30,14 @@ export function StressResultTable({ stages, expectedScript }: { stages: StressSt
             <th className="px-2 py-1">TPS</th>
             <th className="px-2 py-1" title={PER_USER_HEADER_TITLE}>TPS/사용자</th>
             <th className="px-2 py-1">성공률</th>
-            <th className="px-2 py-1">p50</th>
-            <th className="px-2 py-1">p95</th>
+            <th className="px-2 py-1">{hasTtftAnywhere ? "총 p50" : "p50"}</th>
+            <th className="px-2 py-1">{hasTtftAnywhere ? "총 p95" : "p95"}</th>
+            {hasTtftAnywhere ? (
+              <>
+                <th className="px-2 py-1" title="Time To First Token (prefill·KV 캐시 지표)">TTFT p50</th>
+                <th className="px-2 py-1" title="Time To First Token (prefill·KV 캐시 지표)">TTFT p95</th>
+              </>
+            ) : null}
             <th className="px-2 py-1">에러율</th>
             <th className="px-2 py-1">enqueue/drain (ms)</th>
             <th className="px-2 py-1">source</th>
@@ -51,6 +59,12 @@ export function StressResultTable({ stages, expectedScript }: { stages: StressSt
                 <td className="px-2 py-1 font-mono">{(successRate * 100).toFixed(0)}%</td>
                 <td className="px-2 py-1 font-mono">{s.latency_ms.p50 ?? "—"}</td>
                 <td className="px-2 py-1 font-mono">{s.latency_ms.p95 ?? "—"}</td>
+                {hasTtftAnywhere ? (
+                  <>
+                    <td className="px-2 py-1 font-mono">{s.ttft_ms?.p50 ?? "—"}</td>
+                    <td className="px-2 py-1 font-mono">{s.ttft_ms?.p95 ?? "—"}</td>
+                  </>
+                ) : null}
                 <td className="px-2 py-1 font-mono">{(s.error_rate * 100).toFixed(0)}%</td>
                 <td className="px-2 py-1 font-mono">{s.enqueue_duration_ms} / {s.drain_ms}</td>
                 <td className="px-2 py-1 font-mono">{sourceLabel(s.tps_source)}</td>
@@ -64,7 +78,7 @@ export function StressResultTable({ stages, expectedScript }: { stages: StressSt
           })}
           {stages.length === 0 ? (
             <tr>
-              <td className="px-2 py-2 text-[var(--muted)]" colSpan={expectedScript !== "latin" ? 10 : 9}>
+              <td className="px-2 py-2 text-[var(--muted)]" colSpan={emptyColSpan}>
                 아직 결과가 없습니다.
               </td>
             </tr>

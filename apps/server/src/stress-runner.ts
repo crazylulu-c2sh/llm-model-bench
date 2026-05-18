@@ -619,6 +619,10 @@ export async function* runStress(
       const outputTokensTotal = successful.reduce((sum, r) => sum + r.outputTokens, 0);
       const latencies = successful.map((r) => r.totalMs);
       const latency = p50p95(latencies);
+      const ttftValues = successful
+        .map((r) => r.ttftMs)
+        .filter((t): t is number => t != null);
+      const ttft = ttftValues.length > 0 ? p50p95(ttftValues) : null;
       const elapsedSec = durationMs / 1000;
       const aggregateTpsRaw = elapsedSec > 0 ? outputTokensTotal / elapsedSec : null;
       const tooFew = successful.length < 5;
@@ -649,6 +653,14 @@ export async function* runStress(
           p50: latency.p50 != null ? Math.round(latency.p50) : null,
           p95: latency.p95 != null ? Math.round(latency.p95) : null,
         },
+        ...(ttft
+          ? {
+              ttft_ms: {
+                p50: ttft.p50 != null ? Math.round(ttft.p50) : null,
+                p95: ttft.p95 != null ? Math.round(ttft.p95) : null,
+              },
+            }
+          : {}),
         error_rate: requestOutcomes.length > 0 ? failedCount / requestOutcomes.length : 0,
         tps_source: tpsSource,
         ...(scriptMatchRate != null ? { script_match_rate: Number(scriptMatchRate.toFixed(3)) } : {}),

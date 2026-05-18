@@ -169,6 +169,30 @@ describe("runStress abort", () => {
   });
 });
 
+describe("runStress ttft aggregation", () => {
+  it("populates ttft_ms.p50/p95 when successful requests have TTFT", async () => {
+    // mock fetch — 첫 토큰 도착 전 50ms 지연, 그 후 즉시 chunks 전송 → TTFT > 0
+    const fetchImpl = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      return sseChatStreamingResponse({ contentChunks: ["o", "k"], usageCompletionTokens: 2 });
+    }) as unknown as typeof fetch;
+    let stage: StressStreamEvent | null = null;
+    for await (const ev of runStress(
+      baseStressRequest({ ramp: { start: 1, max: 1, step: 1, durationMs: 500 } }),
+      openaiDetect(),
+      { fetchImpl, tickIntervalMs: 5_000, maxRequestsPerWorker: 5 },
+    )) {
+      if (ev.type === "stress_stage_finished") stage = ev;
+    }
+    expect(stage).not.toBeNull();
+    if (stage && stage.type === "stress_stage_finished") {
+      expect(stage.result.ttft_ms).toBeDefined();
+      expect(typeof stage.result.ttft_ms?.p50).toBe("number");
+      expect(typeof stage.result.ttft_ms?.p95).toBe("number");
+    }
+  });
+});
+
 describe("runStress KO workload script_match", () => {
   it("computes script_match_rate when expected script is ko", async () => {
     const fetchImpl = vi.fn(async () =>

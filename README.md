@@ -110,6 +110,8 @@ pm2 reload ecosystem.config.cjs
 
 SQLite를 열 수 없을 때는 벤치 스트림은 진행되나 디스크 저장·히스토리 API가 비활성화될 수 있습니다. 응답에 `sqlite_available` / `sqlite_error` 등이 포함됩니다.
 
+**프로바이더 통계 CSV 익스포트 컬럼** (총 26): `run_id`, `created_at`, `finished_at`, `base_url`, `provider`, `model_id`, `workload_id`, `status`, `stage_index`, `concurrency`, `duration_ms`, `enqueue_duration_ms`, `drain_ms`, `requests_attempted`, `requests_succeeded`, `output_tokens_total`, `aggregate_tps`, `tps_per_user`, `tps_unreliable`, `p50_ms`, `p95_ms`, **`ttft_p50`**, **`ttft_p95`**, `error_rate`, `tps_source`, `script_match_rate`. `p50_ms`/`p95_ms`는 총 요청 지연, `ttft_p50`/`ttft_p95`는 첫 토큰 도착 지연(stress_long_context* 등 prefill 워크로드에서만 채워짐). **인덱스 기반 외부 파서는 v1.x 업데이트로 깨질 수 있음** (`p95_ms` 뒤에 2 컬럼 신규 삽입).
+
 ## 테스트
 
 ```bash
