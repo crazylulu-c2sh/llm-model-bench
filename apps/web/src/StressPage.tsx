@@ -11,7 +11,7 @@ import {
   type StressStreamEvent,
   type StressWorkloadId,
 } from "@llm-bench/shared";
-import { Loader2, Play, Square } from "lucide-react";
+import { AlertTriangle, Loader2, Play, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { SortingState } from "@tanstack/react-table";
@@ -19,6 +19,13 @@ import { DEFAULT_MODEL_TABLE_SORTING, ModelTable } from "./components/ModelTable
 import { StressMonitorGrid, emptyCellState, type StressCellState } from "./components/StressMonitorGrid";
 import { StressResultTable } from "./components/StressResultTable";
 import { StressTpsChart } from "./components/StressTpsChart";
+import {
+  readInitialStressState,
+  readInitialUiState,
+  saveStressSnapshot,
+  saveUiSnapshot,
+  type StressSaveSnapshot,
+} from "./persisted-settings";
 
 type DetectModel = DetectResult["models"][number];
 
@@ -60,30 +67,28 @@ function consumeSseJsonLines(
 }
 
 export function StressPage() {
-  const [baseUrl, setBaseUrl] = useState<string>(() => {
-    try {
-      const raw = window.localStorage.getItem("llm_bench_ui_prefs");
-      if (raw) {
-        const j = JSON.parse(raw) as { baseUrl?: string };
-        if (typeof j.baseUrl === "string" && j.baseUrl) return j.baseUrl;
-      }
-    } catch {}
-    return "http://localhost:1234";
-  });
-  const [apiKey, setApiKey] = useState<string>("");
+  // 공유 키(baseUrl/apiKey/persistApiKeyToDisk)는 모델 벤치와 같은 namespace 사용.
+  // boot은 마운트 시 한 번 잡힌 고정 스냅샷 — save effect에서 spread base로 사용해 모델 벤치 필드 보호.
+  const [boot] = useState(() => readInitialUiState());
+  const [stressBoot] = useState(() => readInitialStressState());
+  const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
+  const [apiKey, setApiKey] = useState(boot.apiKey);
+  const [persistApiKeyToDisk, setPersistApiKeyToDisk] = useState(boot.persistApiKeyToDisk);
   const [detect, setDetect] = useState<DetectResult | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  // 이전 런에서 저장한 모델 id — 첫 detect 이후 1회만 자동 선택에 사용 후 무효화.
+  const lastSelectedModelIdRef = useRef<string | null>(stressBoot.lastSelectedModelId);
   const [sorting, setSorting] = useState<SortingState>(() => DEFAULT_MODEL_TABLE_SORTING);
 
-  const [workloadId, setWorkloadId] = useState<StressWorkloadId>("stress_ping");
-  const [startCC, setStartCC] = useState(1);
-  const [maxCC, setMaxCC] = useState(8);
-  const [stepCC, setStepCC] = useState(1);
-  const [durationMs, setDurationMs] = useState(5000);
-  const [requestTimeoutMs, setRequestTimeoutMs] = useState(30000);
-  const [workerPromptSuffix, setWorkerPromptSuffix] = useState(true);
-  const [maxTokensOverride, setMaxTokensOverride] = useState<string>("");
+  const [workloadId, setWorkloadId] = useState<StressWorkloadId>(stressBoot.workloadId);
+  const [startCC, setStartCC] = useState(stressBoot.startCC);
+  const [maxCC, setMaxCC] = useState(stressBoot.maxCC);
+  const [stepCC, setStepCC] = useState(stressBoot.stepCC);
+  const [durationMs, setDurationMs] = useState(stressBoot.durationMs);
+  const [requestTimeoutMs, setRequestTimeoutMs] = useState(stressBoot.requestTimeoutMs);
+  const [workerPromptSuffix, setWorkerPromptSuffix] = useState(stressBoot.workerPromptSuffix);
+  const [maxTokensOverride, setMaxTokensOverride] = useState<string>(stressBoot.maxTokensOverride);
 
   const [running, setRunning] = useState(false);
   // runStatus는 그리드/헤더 메시지용. running boolean은 폼·버튼 비활성용으로만 유지.
@@ -98,6 +103,86 @@ export function StressPage() {
   const [stageDurationMs, setStageDurationMs] = useState<number | null>(null);
   const [errorLine, setErrorLine] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // 영속 저장: 공유 키 (debounce 350ms).
+  // boot은 마운트 시 고정 — deps에 넣지 않음 (변경 시 deps만 추가하면 매번 다시 저장).
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      saveUiSnapshot({
+        ...boot,
+        baseUrl,
+        apiKey,
+        persistApiKeyToDisk,
+      });
+    }, 350);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseUrl, apiKey, persistApiKeyToDisk]);
+
+  // 영속 저장: stress 전용 키.
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      saveStressSnapshot({
+        workloadId,
+        startCC,
+        maxCC,
+        stepCC,
+        durationMs,
+        requestTimeoutMs,
+        workerPromptSuffix,
+        maxTokensOverride,
+        lastSelectedModelId: selectedModelId,
+      });
+    }, 350);
+    return () => window.clearTimeout(t);
+  }, [
+    workloadId,
+    startCC,
+    maxCC,
+    stepCC,
+    durationMs,
+    requestTimeoutMs,
+    workerPromptSuffix,
+    maxTokensOverride,
+    selectedModelId,
+  ]);
+
+  // Unmount-on-flush: 라우트 이탈 시 pending debounce가 폐기되어도 최종 값이 보존되도록
+  // ref에 매 렌더 동기화된 최신 스냅샷을 즉시 저장.
+  const latestSharedRef = useRef({ baseUrl, apiKey, persistApiKeyToDisk });
+  latestSharedRef.current = { baseUrl, apiKey, persistApiKeyToDisk };
+  const latestStressRef = useRef<StressSaveSnapshot>({
+    workloadId,
+    startCC,
+    maxCC,
+    stepCC,
+    durationMs,
+    requestTimeoutMs,
+    workerPromptSuffix,
+    maxTokensOverride,
+    lastSelectedModelId: selectedModelId,
+  });
+  latestStressRef.current = {
+    workloadId,
+    startCC,
+    maxCC,
+    stepCC,
+    durationMs,
+    requestTimeoutMs,
+    workerPromptSuffix,
+    maxTokensOverride,
+    lastSelectedModelId: selectedModelId,
+  };
+  useEffect(() => {
+    return () => {
+      saveUiSnapshot({
+        ...boot,
+        ...latestSharedRef.current,
+      });
+      saveStressSnapshot(latestStressRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const expectedScript = expectedScriptForWorkload(workloadId);
 
@@ -128,8 +213,21 @@ export function StressPage() {
       }
       const j = (await resp.json()) as DetectResult;
       setDetect(j);
-      if (j.models.length === 1) setSelectedModelId(j.models[0].id);
-      else if (selectedModelId && !j.models.find((m) => m.id === selectedModelId)) setSelectedModelId(null);
+      // 자동 선택 우선순위:
+      //   1) 저장된 lastSelectedModelId가 결과에 있으면 그것
+      //   2) 모델이 1개면 그것
+      //   3) 기존 selectedModelId가 결과에 없으면 해제
+      const restoreId = lastSelectedModelIdRef.current;
+      const hasRestore = restoreId != null && j.models.some((m) => m.id === restoreId);
+      if (hasRestore) {
+        setSelectedModelId(restoreId);
+      } else if (j.models.length === 1) {
+        setSelectedModelId(j.models[0].id);
+      } else if (selectedModelId && !j.models.find((m) => m.id === selectedModelId)) {
+        setSelectedModelId(null);
+      }
+      // 첫 detect 이후 자동 복원 시도는 무효화 — 사용자가 수동으로 바꾼 선택이 덮이지 않게.
+      lastSelectedModelIdRef.current = null;
     } catch (e) {
       setErrorLine(`감지 예외: ${String(e)}`);
     } finally {
@@ -379,6 +477,23 @@ export function StressPage() {
             감지
           </button>
         </div>
+        <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={persistApiKeyToDisk}
+            onChange={(e) => setPersistApiKeyToDisk(e.target.checked)}
+            disabled={running}
+          />
+          <span>
+            <span className="font-medium text-[var(--foreground)]">이 브라우저에 API 키 저장 (로컬 디스크, 평문)</span>
+            <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
+              끄면 같은 탭에서만 <code className="rounded bg-[var(--surface)] px-1">sessionStorage</code>에 보관되어 새로고침은 유지되나 브라우저를 닫으면 사라질 수 있습니다. 켜면{" "}
+              <code className="rounded bg-[var(--surface)] px-1">localStorage</code> 평문으로 남으며 XSS 등에 노출될 수 있습니다.
+            </span>
+          </span>
+        </label>
         {detect ? (
           <p className="mt-2 text-xs text-[var(--muted)]">
             provider=<span className="font-mono">{detect.provider}</span> · 모델 {detect.models.length}개 ·

@@ -222,7 +222,10 @@ export function App() {
   /** 이번 벤치 런에서 `scenario_start`가 있었던 시나리오 id */
   const [touchedScenarioIds, setTouchedScenarioIds] = useState<string[]>([]);
 
+  // 영속 저장 (debounce 350ms). `/stress` 등 다른 라우트에서는 게이트로 차단해
+  // App의 stale state가 stress 페이지의 공유 키 변경(baseUrl/apiKey 등)을 되돌리는 회귀 방지.
   useEffect(() => {
+    if (!onBenchPage) return;
     const t = window.setTimeout(() => {
       saveUiSnapshot({
         baseUrl,
@@ -245,6 +248,7 @@ export function App() {
     }, 350);
     return () => window.clearTimeout(t);
   }, [
+    onBenchPage,
     apiKey,
     baseUrl,
     hlLog,
@@ -262,6 +266,61 @@ export function App() {
     samplingOverridesText,
     profileAdvancedOpen,
   ]);
+
+  // bench → 다른 라우트 전이 시 *즉시 flush*. 게이트가 debounce를 폐기해도 최종 값 보존.
+  const latestBenchSnapshotRef = useRef({
+    baseUrl,
+    parallel,
+    unloadOtherModels,
+    autoUnloadAfterBench,
+    hlPreview,
+    hlLog,
+    persistApiKeyToDisk,
+    apiKey,
+    profileId,
+    profileMaxTokens,
+    thinkingIntent,
+    preserveThinking,
+    reasoningEffort,
+    presetOverride,
+    samplingOverridesText,
+    profileAdvancedOpen,
+  });
+  latestBenchSnapshotRef.current = {
+    baseUrl,
+    parallel,
+    unloadOtherModels,
+    autoUnloadAfterBench,
+    hlPreview,
+    hlLog,
+    persistApiKeyToDisk,
+    apiKey,
+    profileId,
+    profileMaxTokens,
+    thinkingIntent,
+    preserveThinking,
+    reasoningEffort,
+    presetOverride,
+    samplingOverridesText,
+    profileAdvancedOpen,
+  };
+  const prevOnBenchPageRef = useRef(onBenchPage);
+  useEffect(() => {
+    if (prevOnBenchPageRef.current && !onBenchPage) {
+      saveUiSnapshot(latestBenchSnapshotRef.current);
+    }
+    prevOnBenchPageRef.current = onBenchPage;
+  }, [onBenchPage]);
+
+  // 다른 라우트 → bench 재진입 시 공유 필드 (baseUrl/apiKey/persistApiKeyToDisk)를
+  // 디스크에서 다시 읽어 App state에 반영. /stress가 바꾼 값을 App input이 stale로 보여주지 않게.
+  useEffect(() => {
+    if (!onBenchPage) return;
+    const latest = readInitialUiState();
+    setBaseUrl(latest.baseUrl);
+    setApiKey(latest.apiKey);
+    setPersistApiKeyToDisk(latest.persistApiKeyToDisk);
+  }, [onBenchPage]);
 
   useEffect(() => {
     const el = profileDetailsRef.current;
