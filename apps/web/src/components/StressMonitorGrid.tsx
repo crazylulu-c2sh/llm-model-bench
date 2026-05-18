@@ -78,6 +78,8 @@ export function StressMonitorGrid({
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
         {Array.from({ length: slots }, (_, i) => {
           const c = cells[i] ?? emptyCellState();
+          // A안: running 중에만 디밍, 종료 후엔 전 슬롯 밝게(스냅샷). status는 무관.
+          const dimmed = runStatus === "running" && i >= concurrency;
           return (
             <StressWorkerCell
               key={i}
@@ -88,6 +90,7 @@ export function StressMonitorGrid({
               responseText={c.responseText}
               reasoningText={c.reasoningText}
               errorMessage={c.errorMessage}
+              dimmed={dimmed}
             />
           );
         })}

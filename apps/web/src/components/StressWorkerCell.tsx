@@ -10,6 +10,7 @@ export function StressWorkerCell({
   responseText,
   reasoningText,
   errorMessage,
+  dimmed = false,
 }: {
   workerIndex: number;
   status: StressCellStatus;
@@ -18,6 +19,8 @@ export function StressWorkerCell({
   responseText: string;
   reasoningText: string;
   errorMessage?: string;
+  /** A안: 호출자가 `runStatus === "running" && i >= concurrency`로 계산해 전달. status는 영향 없음. */
+  dimmed?: boolean;
 }) {
   const badge =
     status === "streaming"
@@ -42,9 +45,10 @@ export function StressWorkerCell({
   const streamingRing = status === "streaming" ? "ring-1 ring-[var(--accent)]/40" : "";
   // 셀별 aria-live는 대표 셀(worker 0)만 polite, 나머지는 off로 스크린리더 폭주 방지.
   const ariaLive: "polite" | "off" = workerIndex === 0 ? "polite" : "off";
+  const dimClass = dimmed ? "opacity-50 grayscale" : "";
   return (
     <article
-      className={`rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-xs shadow-sm ${streamingRing}`}
+      className={`rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-xs shadow-sm transition-opacity ${streamingRing} ${dimClass}`}
     >
       <header className="mb-1 flex items-center justify-between">
         <span className="font-mono font-semibold text-[var(--foreground)]">사용자 #{workerIndex + 1}</span>
