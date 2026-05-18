@@ -94,6 +94,8 @@ export function StressPage() {
   const [currentConcurrency, setCurrentConcurrency] = useState<number>(0);
   const [liveTps, setLiveTps] = useState<number | null>(null);
   const [cells, setCells] = useState<StressCellState[]>([]);
+  const [stageStartedAt, setStageStartedAt] = useState<number | null>(null);
+  const [stageDurationMs, setStageDurationMs] = useState<number | null>(null);
   const [errorLine, setErrorLine] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -178,6 +180,8 @@ export function StressPage() {
     setCells(Array.from({ length: slots }, () => emptyCellState()));
     setCurrentStageIndex(null);
     setCurrentConcurrency(0);
+    setStageStartedAt(null);
+    setStageDurationMs(null);
     setLiveTps(null);
 
     const controller = new AbortController();
@@ -219,6 +223,8 @@ export function StressPage() {
             // 워커가 새 request_start 이벤트를 보내면 해당 슬롯이 자연스럽게 갱신됨.
             setCurrentStageIndex(ev.stage_index);
             setCurrentConcurrency(ev.concurrency);
+            setStageStartedAt(performance.now());
+            setStageDurationMs(ramp.durationMs);
             setLiveTps(null);
             break;
           }
@@ -282,6 +288,7 @@ export function StressPage() {
           case "run_finished": {
             setStages(ev.stages);
             setRunStatus("finished");
+            setStageStartedAt(null);
             break;
           }
           case "error": {
@@ -564,6 +571,8 @@ export function StressPage() {
           cells={cells}
           runStatus={runStatus}
           lastStageIndex={currentStageIndex}
+          stageStartedAt={stageStartedAt}
+          stageDurationMs={stageDurationMs}
         />
       ) : null}
 

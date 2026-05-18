@@ -1,4 +1,5 @@
 import { STRESS_MAX_LIVE_CELLS } from "@llm-bench/shared";
+import { StressStageProgressBar } from "./StressStageProgressBar";
 import { StressWorkerCell, type StressCellStatus } from "./StressWorkerCell";
 
 export type StressCellState = {
@@ -57,11 +58,17 @@ export function StressMonitorGrid({
   cells,
   runStatus,
   lastStageIndex,
+  stageStartedAt,
+  stageDurationMs,
 }: {
   concurrency: number;
   cells: StressCellState[];
   runStatus: StressGridRunStatus;
   lastStageIndex: number | null;
+  /** `running` 중 현재 단계 시작 시각(performance.now). 다른 상태에서는 null. */
+  stageStartedAt?: number | null;
+  /** 현재 단계의 enqueue duration (ms). */
+  stageDurationMs?: number | null;
 }) {
   const slots = cells.length;
   const truncated = concurrency > STRESS_MAX_LIVE_CELLS;
@@ -81,6 +88,9 @@ export function StressMonitorGrid({
           </span>
         ) : null}
       </div>
+      {runStatus === "running" && stageStartedAt != null && stageDurationMs != null ? (
+        <StressStageProgressBar stageStartedAt={stageStartedAt} stageDurationMs={stageDurationMs} />
+      ) : null}
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
         {Array.from({ length: slots }, (_, i) => {
           const c = cells[i] ?? emptyCellState();
