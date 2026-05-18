@@ -7,9 +7,13 @@ import type { SortingState } from "@tanstack/react-table";
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
+  BookOpen,
   ChevronDown,
   ChevronUp,
   Download,
+  FlaskConical,
+  Gauge,
   History,
   KeyRound,
   Link2,
@@ -17,6 +21,7 @@ import {
   Monitor,
   Moon,
   Play,
+  Settings2,
   Sun,
   SunMoon,
 } from "lucide-react";
@@ -1161,21 +1166,10 @@ export function App() {
                 }`
               }
             >
-              모델 벤치
-            </NavLink>
-            <NavLink
-              to="/stress"
-              role="tab"
-              aria-selected={onStressPage}
-              className={({ isActive }) =>
-                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
-                  isActive
-                    ? "bg-[var(--accent)] text-white shadow-md"
-                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-                }`
-              }
-            >
-              프로바이더 벤치
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <FlaskConical className="size-4" aria-hidden />
+                모델 벤치
+              </span>
             </NavLink>
             <NavLink
               to="/stats"
@@ -1189,7 +1183,27 @@ export function App() {
                 }`
               }
             >
-              모델 통계
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <BarChart3 className="size-4" aria-hidden />
+                모델 통계
+              </span>
+            </NavLink>
+            <NavLink
+              to="/stress"
+              role="tab"
+              aria-selected={onStressPage}
+              className={({ isActive }) =>
+                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
+                  isActive
+                    ? "bg-[var(--accent)] text-white shadow-md"
+                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+                }`
+              }
+            >
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <Gauge className="size-4" aria-hidden />
+                프로바이더 벤치
+              </span>
             </NavLink>
             <NavLink
               to="/provider-stats"
@@ -1203,7 +1217,10 @@ export function App() {
                 }`
               }
             >
-              프로바이더 통계
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <History className="size-4" aria-hidden />
+                프로바이더 통계
+              </span>
             </NavLink>
             <NavLink
               to="/profile"
@@ -1217,7 +1234,10 @@ export function App() {
                 }`
               }
             >
-              프로파일
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <Settings2 className="size-4" aria-hidden />
+                프로파일
+              </span>
             </NavLink>
             <NavLink
               to="/scenarios"
@@ -1231,7 +1251,10 @@ export function App() {
                 }`
               }
             >
-              시나리오
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <BookOpen className="size-4" aria-hidden />
+                시나리오
+              </span>
             </NavLink>
           </div>
         </div>
