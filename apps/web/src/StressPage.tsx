@@ -226,14 +226,16 @@ export function StressPage() {
             if (ev.worker_index >= STRESS_MAX_LIVE_CELLS) break;
             setCells((prev) => {
               const next = [...prev];
+              const cur = next[ev.worker_index] ?? emptyCellState();
               next[ev.worker_index] = {
-                ...(next[ev.worker_index] ?? emptyCellState()),
+                ...cur, // requestCount/lastTotalMs는 이전 값 보존; 명시적으로 증분
                 status: "requesting",
                 userPrompt: ev.user_prompt,
                 systemPrompt: ev.system_prompt,
                 responseText: "",
                 reasoningText: "",
                 errorMessage: undefined,
+                requestCount: cur.requestCount + 1,
               };
               return next;
             });
@@ -263,6 +265,7 @@ export function StressPage() {
                 ...cur,
                 status: ev.ok ? "done" : "error",
                 errorMessage: ev.ok ? undefined : `${ev.error_code ?? ""} ${ev.error_message ?? ""}`.trim(),
+                lastTotalMs: ev.total_ms,
               };
               return next;
             });

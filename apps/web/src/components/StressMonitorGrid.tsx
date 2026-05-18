@@ -8,6 +8,10 @@ export type StressCellState = {
   responseText: string;
   reasoningText: string;
   errorMessage?: string;
+  /** 이 워커가 *전체 런* 동안 발사한 누적 요청 수 (request_start마다 +1) */
+  requestCount: number;
+  /** 마지막으로 완료된 요청의 total_ms (request_end에서 덮어씀) */
+  lastTotalMs: number | null;
 };
 
 export function emptyCellState(): StressCellState {
@@ -16,6 +20,8 @@ export function emptyCellState(): StressCellState {
     userPrompt: "",
     responseText: "",
     reasoningText: "",
+    requestCount: 0,
+    lastTotalMs: null,
   };
 }
 
@@ -91,6 +97,8 @@ export function StressMonitorGrid({
               reasoningText={c.reasoningText}
               errorMessage={c.errorMessage}
               dimmed={dimmed}
+              requestCount={c.requestCount}
+              lastTotalMs={c.lastTotalMs}
             />
           );
         })}

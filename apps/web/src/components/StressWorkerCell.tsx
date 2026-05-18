@@ -11,6 +11,8 @@ export function StressWorkerCell({
   reasoningText,
   errorMessage,
   dimmed = false,
+  requestCount = 0,
+  lastTotalMs = null,
 }: {
   workerIndex: number;
   status: StressCellStatus;
@@ -21,6 +23,10 @@ export function StressWorkerCell({
   errorMessage?: string;
   /** A안: 호출자가 `runStatus === "running" && i >= concurrency`로 계산해 전달. status는 영향 없음. */
   dimmed?: boolean;
+  /** 이 워커가 전체 런 동안 발사한 누적 요청 수. */
+  requestCount?: number;
+  /** 마지막으로 완료된 요청의 total_ms (`request_end`에서만 갱신). */
+  lastTotalMs?: number | null;
 }) {
   const badge =
     status === "streaming"
@@ -85,6 +91,10 @@ export function StressWorkerCell({
       {errorMessage ? (
         <div className="mt-1 truncate text-[10px] text-red-500" title={errorMessage}>{errorMessage}</div>
       ) : null}
+      <footer className="mt-1 flex items-center justify-between text-[10px] text-[var(--muted)]">
+        <span className="font-mono">req {requestCount}건</span>
+        <span className="font-mono">마지막 {lastTotalMs != null ? `${Math.round(lastTotalMs)}ms` : "—"}</span>
+      </footer>
     </article>
   );
 }
