@@ -12,6 +12,8 @@ function sourceLabel(s: StressTpsSource): string {
 }
 
 export function StressResultTable({ stages, expectedScript }: { stages: StressStageResult[]; expectedScript: "ko" | "ja" | "latin" }) {
+  const hasApproxAnywhere = stages.some((s) => s.tps_source !== "usage");
+  const allApprox = stages.length > 0 && stages.every((s) => s.tps_source === "approx");
   return (
     <div className="overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
       <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">단계별 결과</h2>
@@ -64,9 +66,17 @@ export function StressResultTable({ stages, expectedScript }: { stages: StressSt
           ) : null}
         </tbody>
       </table>
-      <p className="mt-2 text-xs text-[var(--muted)]">
-        TPS 산정은 단계 wall-clock 동안 성공 요청의 출력 토큰 합을 사용합니다. <code className="font-mono">source=approx</code>는 chars/4 추정치이며 CJK 응답에서 오차가 큽니다.
-      </p>
+      {hasApproxAnywhere ? (
+        <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
+          {allApprox
+            ? "이 런은 provider가 usage 토큰 수를 보고하지 않아 모든 단계에서 chars/4 추정치(approx)로 TPS를 계산했습니다. CJK 응답은 토큰당 글자 수가 적어 과소 추정 오차가 큽니다."
+            : (
+              <>
+                일부 단계가 <code className="font-mono">approx</code>(또는 <code className="font-mono">mixed</code>)로 떨어졌습니다 — provider가 해당 요청에서 usage를 보내지 않았거나 <code className="font-mono">stream_options.include_usage</code>를 거부한 경우입니다. approx 단계의 TPS는 chars/4 추정치이며 CJK 응답에서 오차가 큽니다.
+              </>
+            )}
+        </p>
+      ) : null}
     </div>
   );
 }
