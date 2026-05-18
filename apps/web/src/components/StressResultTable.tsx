@@ -1,4 +1,5 @@
 import type { StressStageResult, StressTpsSource } from "@llm-bench/shared";
+import { getTpsTier, tpsTierColor, TPS_TIER_THRESHOLDS } from "../lib/tps-tier";
 
 function fmt(n: number | null | undefined, digits = 1): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -11,9 +12,12 @@ function sourceLabel(s: StressTpsSource): string {
   return "approx";
 }
 
+const PER_USER_HEADER_TITLE = `색: 쾌적 ≥${TPS_TIER_THRESHOLDS.fast} · 쓸만 ${TPS_TIER_THRESHOLDS.good}–${TPS_TIER_THRESHOLDS.fast - 1} · 채택가능 ${TPS_TIER_THRESHOLDS.okay}–${TPS_TIER_THRESHOLDS.good - 1} · 너무 느림 <${TPS_TIER_THRESHOLDS.okay}`;
+
 export function StressResultTable({ stages, expectedScript }: { stages: StressStageResult[]; expectedScript: "ko" | "ja" | "latin" }) {
   const hasApproxAnywhere = stages.some((s) => s.tps_source !== "usage");
   const allApprox = stages.length > 0 && stages.every((s) => s.tps_source === "approx");
+  const hasUnreliableAnywhere = stages.some((s) => s.tps_unreliable === true);
   return (
     <div className="overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
       <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">단계별 결과</h2>
@@ -22,7 +26,7 @@ export function StressResultTable({ stages, expectedScript }: { stages: StressSt
           <tr>
             <th className="px-2 py-1">동시성</th>
             <th className="px-2 py-1">TPS</th>
-            <th className="px-2 py-1">TPS/사용자</th>
+            <th className="px-2 py-1" title={PER_USER_HEADER_TITLE}>TPS/사용자</th>
             <th className="px-2 py-1">성공률</th>
             <th className="px-2 py-1">p50</th>
             <th className="px-2 py-1">p95</th>
@@ -36,13 +40,14 @@ export function StressResultTable({ stages, expectedScript }: { stages: StressSt
           {stages.map((s) => {
             const successRate =
               s.requests_attempted > 0 ? s.requests_succeeded / s.requests_attempted : 0;
+            const perUserTier = getTpsTier(s.tps_per_user, s.tps_unreliable === true);
             return (
               <tr key={s.stage_index} className="border-b border-[var(--border)] text-[var(--foreground)]">
                 <td className="px-2 py-1 font-mono">{s.concurrency}</td>
                 <td className="px-2 py-1 font-mono">
                   {s.tps_unreliable ? <span title="신뢰도 낮음">{fmt(s.aggregate_tps, 1) ?? "—"}*</span> : fmt(s.aggregate_tps, 1)}
                 </td>
-                <td className="px-2 py-1 font-mono">{fmt(s.tps_per_user, 2)}</td>
+                <td className="px-2 py-1 font-mono" style={{ color: tpsTierColor(perUserTier) }}>{fmt(s.tps_per_user, 2)}</td>
                 <td className="px-2 py-1 font-mono">{(successRate * 100).toFixed(0)}%</td>
                 <td className="px-2 py-1 font-mono">{s.latency_ms.p50 ?? "—"}</td>
                 <td className="px-2 py-1 font-mono">{s.latency_ms.p95 ?? "—"}</td>
@@ -75,6 +80,11 @@ export function StressResultTable({ stages, expectedScript }: { stages: StressSt
                 일부 단계가 <code className="font-mono">approx</code>(또는 <code className="font-mono">mixed</code>)로 떨어졌습니다 — provider가 해당 요청에서 usage를 보내지 않았거나 <code className="font-mono">stream_options.include_usage</code>를 거부한 경우입니다. approx 단계의 TPS는 chars/4 추정치이며 CJK 응답에서 오차가 큽니다.
               </>
             )}
+        </p>
+      ) : null}
+      {hasUnreliableAnywhere ? (
+        <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
+          집계 TPS의 <code className="font-mono">*</code>(신뢰도 낮음 — 표본 부족·단계 너무 짧음·성공 없음) 단계는 TPS/사용자 셀이 회색(<code className="font-mono">—</code>)으로 표시됩니다.
         </p>
       ) : null}
     </div>
