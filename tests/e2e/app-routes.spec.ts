@@ -5,18 +5,26 @@ test.describe("LLM Model Bench UI", () => {
     await page.goto("/");
     await expect(page).toHaveTitle(/LLM Model Bench/);
     await expect(page.getByRole("heading", { name: "LLM Model Bench" })).toBeVisible();
-    await expect(page.getByText("로컬 프로바이더 감지 · 스트리밍 벤치")).toBeVisible();
+    await expect(page.getByText("로컬 프로바이더 감지 · 단일 모델 시나리오 벤치")).toBeVisible();
     const tablist = page.getByRole("tablist", { name: "페이지" });
-    await expect(tablist.getByRole("tab", { name: "벤치" })).toBeVisible();
-    await expect(tablist.getByRole("tab", { name: "통계" })).toBeVisible();
+    await expect(tablist.getByRole("tab", { name: "모델 벤치" })).toBeVisible();
+    await expect(tablist.getByRole("tab", { name: "프로바이더 벤치" })).toBeVisible();
+    await expect(tablist.getByRole("tab", { name: "모델 통계" })).toBeVisible();
+    await expect(tablist.getByRole("tab", { name: "프로바이더 통계" })).toBeVisible();
     await expect(tablist.getByRole("tab", { name: "프로파일" })).toBeVisible();
     await expect(tablist.getByRole("tab", { name: "시나리오" })).toBeVisible();
   });
 
-  test("탭: 통계 페이지 부제", async ({ page }) => {
+  test("탭: 모델 통계 페이지 부제", async ({ page }) => {
     await page.goto("/stats");
     await expect(page.getByText("SQLite에 저장된 최신 런 기준 메트릭·결과")).toBeVisible();
-    await expect(page.getByRole("tab", { name: "통계" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tab", { name: "모델 통계" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("탭: 프로바이더 통계 페이지 부제·탭 활성", async ({ page }) => {
+    await page.goto("/provider-stats");
+    await expect(page.getByText("SQLite에 저장된 프로바이더 벤치 런 — 필터·익스포트·삭제")).toBeVisible();
+    await expect(page.getByRole("tab", { name: "프로바이더 통계" })).toHaveAttribute("aria-selected", "true");
   });
 
   test("탭: 프로파일 문서", async ({ page }) => {
@@ -37,9 +45,9 @@ test.describe("LLM Model Bench UI", () => {
 
   test("탭 클릭으로 홈 복귀", async ({ page, baseURL }) => {
     await page.goto("/profile");
-    await page.getByRole("tab", { name: "벤치" }).click();
+    await page.getByRole("tab", { name: "모델 벤치" }).click();
     await expect(page).toHaveURL(new URL("/", baseURL!).href);
-    await expect(page.getByText("로컬 프로바이더 감지 · 스트리밍 벤치")).toBeVisible();
+    await expect(page.getByText("로컬 프로바이더 감지 · 단일 모델 시나리오 벤치")).toBeVisible();
     await expect(page.getByRole("heading", { name: "모델 선택" })).toBeVisible();
   });
 

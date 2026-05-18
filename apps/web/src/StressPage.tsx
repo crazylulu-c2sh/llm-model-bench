@@ -27,14 +27,9 @@ import {
   type StressSaveSnapshot,
 } from "./persisted-settings";
 
-type DetectModel = DetectResult["models"][number];
+import { WORKLOAD_LABEL } from "./lib/stress-labels";
 
-const WORKLOAD_LABEL: Record<StressWorkloadId, string> = {
-  stress_ping: "짧은 ping (영어)",
-  stress_short_reply: "짧은 문장 응답 (영어)",
-  stress_short_reply_ko: "짧은 문장 응답 (한국어)",
-  stress_short_reply_ja: "짧은 문장 응답 (일본어)",
-};
+type DetectModel = DetectResult["models"][number];
 
 function consumeSseJsonLines(
   stream: ReadableStream<Uint8Array>,

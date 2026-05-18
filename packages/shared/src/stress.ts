@@ -155,3 +155,39 @@ export const STRESS_MAX_LIVE_CELLS = 16;
 
 /** 모델 벤치와 동일 ResolvedBenchProfile 재사용 — 타입 export 편의. */
 export type StressResolvedProfile = ResolvedBenchProfile;
+
+export type StressRunListItem = {
+  run_id: string;
+  created_at: string;
+  finished_at: string | null;
+  base_url: string;
+  provider: string;
+  model_id: string;
+  workload_id: string;
+  status: StressRunStatus;
+};
+
+export type StressRunFilterOptions = {
+  workload_ids: string[];
+  statuses: StressRunStatus[];
+  model_ids: string[];
+  base_urls: string[];
+};
+
+export type StressRunsListResponse = {
+  items: StressRunListItem[];
+  filter_options: StressRunFilterOptions;
+  has_more: boolean;
+  sqlite_available: boolean;
+  sqlite_error?: string;
+};
+
+export type StressRunDetailResponse = {
+  meta: StressRunMeta & {
+    status: StressRunStatus;
+    finished_at: string | null;
+    error_code: string | null;
+    error_message: string | null;
+  };
+  stages: StressStageResult[];
+};
