@@ -1,5 +1,11 @@
 import { z } from "zod";
-import type { LlmProfileFamily, SamplingPresetName, ThinkingIntent } from "@llm-bench/shared";
+import {
+  isStressWorkloadId,
+  type LlmProfileFamily,
+  type SamplingPresetName,
+  type StressWorkloadId,
+  type ThinkingIntent,
+} from "@llm-bench/shared";
 
 export const PREFS_STORAGE_KEY = "llm-bench-ui-prefs";
 export const SESSION_API_KEY = "llm-bench-api-key";
@@ -201,4 +207,112 @@ export function debounce<T extends (...args: never[]) => void>(fn: T, ms: number
       fn(...args);
     }, ms);
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Stress (프로바이더 벤치) 페이지 전용 prefs                            */
+/* ------------------------------------------------------------------ */
+
+export const STRESS_PREFS_STORAGE_KEY = "llm-bench-stress-prefs";
+const STRESS_STORAGE_VERSION = 1 as const;
+
+// clamp 범위는 StressPage UI 입력 한도와 정확히 일치 (서버 schema의 100ms 하한이 아님).
+const StressPrefsSchema = z.object({
+  v: z.literal(STRESS_STORAGE_VERSION),
+  workloadId: z.string().refine((s): s is StressWorkloadId => isStressWorkloadId(s)).optional(),
+  startCC: z.number().int().min(1).max(256).optional(),
+  maxCC: z.number().int().min(1).max(256).optional(),
+  stepCC: z.number().int().min(1).max(64).optional(),
+  durationMs: z.number().int().min(1000).max(600_000).optional(),
+  requestTimeoutMs: z.number().int().min(5000).max(600_000).optional(),
+  workerPromptSuffix: z.boolean().optional(),
+  maxTokensOverride: z.string().max(16).optional(),
+  lastSelectedModelId: z.string().max(256).nullable().optional(),
+});
+
+export type StressInitialState = {
+  workloadId: StressWorkloadId;
+  startCC: number;
+  maxCC: number;
+  stepCC: number;
+  durationMs: number;
+  requestTimeoutMs: number;
+  workerPromptSuffix: boolean;
+  maxTokensOverride: string;
+  lastSelectedModelId: string | null;
+};
+
+export type StressSaveSnapshot = StressInitialState;
+
+function defaultStressState(): StressInitialState {
+  return {
+    workloadId: "stress_ping",
+    startCC: 1,
+    maxCC: 8,
+    stepCC: 1,
+    durationMs: 5000,
+    requestTimeoutMs: 30_000,
+    workerPromptSuffix: true,
+    maxTokensOverride: "",
+    lastSelectedModelId: null,
+  };
+}
+
+/** Stress page 영속 상태 읽기. 실패·version mismatch·파싱 오류 시 전체 default. */
+export function readInitialStressState(): StressInitialState {
+  const defaults = defaultStressState();
+  if (typeof window === "undefined") return defaults;
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(STRESS_PREFS_STORAGE_KEY);
+  } catch {
+    return defaults;
+  }
+  if (!raw) return defaults;
+  let obj: unknown;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    return defaults;
+  }
+  const parsed = StressPrefsSchema.safeParse(obj);
+  if (!parsed.success) return defaults;
+  return {
+    workloadId: parsed.data.workloadId ?? defaults.workloadId,
+    startCC: parsed.data.startCC ?? defaults.startCC,
+    maxCC: parsed.data.maxCC ?? defaults.maxCC,
+    stepCC: parsed.data.stepCC ?? defaults.stepCC,
+    durationMs: parsed.data.durationMs ?? defaults.durationMs,
+    requestTimeoutMs: parsed.data.requestTimeoutMs ?? defaults.requestTimeoutMs,
+    workerPromptSuffix: parsed.data.workerPromptSuffix ?? defaults.workerPromptSuffix,
+    maxTokensOverride: parsed.data.maxTokensOverride ?? defaults.maxTokensOverride,
+    lastSelectedModelId: parsed.data.lastSelectedModelId ?? defaults.lastSelectedModelId,
+  };
+}
+
+export function saveStressSnapshot(s: StressSaveSnapshot): void {
+  if (typeof window === "undefined") return;
+  // startCC ≤ maxCC 자동 보정.
+  const startCC = Math.max(1, Math.min(256, Math.floor(s.startCC)));
+  const maxCC = Math.max(startCC, Math.min(256, Math.floor(s.maxCC)));
+  const stepCC = Math.max(1, Math.min(64, Math.floor(s.stepCC)));
+  const durationMs = Math.max(1000, Math.min(600_000, Math.floor(s.durationMs)));
+  const requestTimeoutMs = Math.max(5000, Math.min(600_000, Math.floor(s.requestTimeoutMs)));
+  const payload = {
+    v: STRESS_STORAGE_VERSION,
+    workloadId: s.workloadId,
+    startCC,
+    maxCC,
+    stepCC,
+    durationMs,
+    requestTimeoutMs,
+    workerPromptSuffix: s.workerPromptSuffix,
+    maxTokensOverride: s.maxTokensOverride.slice(0, 16),
+    lastSelectedModelId: s.lastSelectedModelId,
+  };
+  try {
+    window.localStorage.setItem(STRESS_PREFS_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    /* storage full / disabled */
+  }
 }
