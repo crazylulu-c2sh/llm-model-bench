@@ -169,6 +169,147 @@ app.get("/api/runs/:runId", async (c) => {
   }
 });
 
+const STRESS_STATUS_VALUES = ["running", "ok", "partial", "error"] as const;
+const emptyStressFilterOptions = () => ({
+  workload_ids: [] as string[],
+  statuses: [] as Array<(typeof STRESS_STATUS_VALUES)[number]>,
+  model_ids: [] as string[],
+  base_urls: [] as string[],
+});
+const normBaseUrl = (u: string) => u.replace(/\/+$/, "");
+
+app.get("/api/stress/runs", async (c) => {
+  const q = c.req.query();
+  if (q.before && !q.before_id) {
+    return c.json({ error: "before_id required when before is set" }, 400);
+  }
+  if (q.status && !(STRESS_STATUS_VALUES as readonly string[]).includes(q.status)) {
+    return c.json({ error: `invalid status: ${q.status}` }, 400);
+  }
+  const limit = Math.min(Math.max(parseInt(q.limit ?? "50", 10) || 50, 1), 200);
+  try {
+    const dbMod = await import("./db/database.js");
+    const db = dbMod.tryOpenProdBenchDatabase();
+    if (!db) {
+      return c.json({
+        items: [],
+        filter_options: emptyStressFilterOptions(),
+        has_more: false,
+        sqlite_available: false,
+        sqlite_error: dbMod.getProdBenchDatabaseOpenError(),
+      });
+    }
+    const rows = dbMod.listStressRunsFiltered(db, {
+      workload_id: q.workload_id,
+      status: q.status,
+      model_id: q.model_id,
+      base_url: q.base_url,
+      before_created_at: q.before,
+      before_run_id: q.before_id,
+      limit: limit + 1,
+    });
+    const has_more = rows.length > limit;
+    if (has_more) rows.pop();
+    const items = rows.map((r) => ({ ...r, base_url: normBaseUrl(r.base_url) }));
+    const fo = dbMod.getStressFilterOptions(db);
+    const filter_options = {
+      workload_ids: fo.workload_ids,
+      statuses: fo.statuses.filter((s): s is (typeof STRESS_STATUS_VALUES)[number] =>
+        (STRESS_STATUS_VALUES as readonly string[]).includes(s),
+      ),
+      model_ids: fo.model_ids,
+      base_urls: Array.from(new Set(fo.base_urls.map(normBaseUrl))).sort(),
+    };
+    return c.json({ items, filter_options, has_more, sqlite_available: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[llm-bench-server] /api/stress/runs DB 로드 실패:", msg);
+    return c.json({
+      items: [],
+      filter_options: emptyStressFilterOptions(),
+      has_more: false,
+      sqlite_available: false,
+      sqlite_error: msg,
+    });
+  }
+});
+
+app.get("/api/stress/runs/:runId", async (c) => {
+  const runId = c.req.param("runId");
+  try {
+    const dbMod = await import("./db/database.js");
+    const db = dbMod.tryOpenProdBenchDatabase();
+    if (!db) {
+      return c.json(
+        {
+          error: "sqlite_unavailable",
+          detail: dbMod.getProdBenchDatabaseOpenError(),
+        },
+        503,
+      );
+    }
+    const meta = dbMod.getStressRunMeta(db, runId);
+    if (!meta) return c.json({ error: "not_found" }, 404);
+    let metaJson: Record<string, unknown> = {};
+    try {
+      metaJson = JSON.parse(meta.meta_json);
+    } catch (err) {
+      console.warn("[llm-bench-server] stress meta_json parse failed", meta.run_id, err);
+    }
+    const stageRows = dbMod.listStressStages(db, runId);
+    const stages = stageRows.flatMap((s) => {
+      try {
+        const parsed = JSON.parse(s.result_json);
+        return [{ stage_index: s.stage_index, concurrency: s.concurrency, ...parsed }];
+      } catch (err) {
+        console.warn(
+          "[llm-bench-server] stress stage result_json parse failed",
+          meta.run_id,
+          s.stage_index,
+          err,
+        );
+        return [];
+      }
+    });
+    return c.json({
+      meta: {
+        ...metaJson,
+        run_id: meta.run_id,
+        created_at: meta.created_at,
+        base_url: normBaseUrl(meta.base_url),
+        provider: meta.provider,
+        model_id: meta.model_id,
+        workload_id: meta.workload_id,
+        status: meta.status,
+        finished_at: meta.finished_at,
+        error_code: meta.error_code,
+        error_message: meta.error_message,
+      },
+      stages,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[llm-bench-server] /api/stress/runs/:runId DB 로드 실패:", msg);
+    return c.json({ error: "internal_error", detail: msg }, 500);
+  }
+});
+
+app.delete("/api/stress/runs/:runId", async (c) => {
+  const runId = c.req.param("runId");
+  try {
+    const dbMod = await import("./db/database.js");
+    const db = dbMod.tryOpenProdBenchDatabase();
+    if (!db) return c.json({ error: "sqlite_unavailable" }, 503);
+    const changes = dbMod.deleteStressRun(db, runId);
+    if (changes === 0) return c.json({ error: "not_found" }, 404);
+    return c.json({ ok: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[llm-bench-server] DELETE /api/stress/runs/:runId 실패:", msg);
+    return c.json({ error: "internal_error", detail: msg }, 500);
+  }
+});
+
 const DetectBody = z.object({
   baseUrl: z.string().min(1),
   apiKey: z.string().optional(),

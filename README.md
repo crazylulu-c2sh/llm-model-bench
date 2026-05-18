@@ -103,6 +103,10 @@ pm2 reload ecosystem.config.cjs
 | GET | `/api/runs/:runId` | 단일 런 상세 |
 | GET | `/api/runs/latest-by-model` | baseUrl·modelIds별 최신 완료 런 |
 | GET | `/api/stats/model-latest` | 모델별 최신 완료 런 요약(통계 UI용) |
+| POST | `/api/stress/stream` | 프로바이더 stress 벤치 실행, **SSE**로 stage·worker 이벤트 |
+| GET | `/api/stress/runs` | stress 런 목록(필터: `workload_id`/`status`/`model_id`/`base_url`, cursor: `before`+`before_id`, `limit`≤200) |
+| GET | `/api/stress/runs/:runId` | stress 런 상세(meta + stages) |
+| DELETE | `/api/stress/runs/:runId` | stress 런 + 단계 결과 영구 삭제 (FK CASCADE) |
 
 SQLite를 열 수 없을 때는 벤치 스트림은 진행되나 디스크 저장·히스토리 API가 비활성화될 수 있습니다. 응답에 `sqlite_available` / `sqlite_error` 등이 포함됩니다.
 

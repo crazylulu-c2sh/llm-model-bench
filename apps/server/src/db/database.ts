@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import type { BenchRunMeta } from "@llm-bench/shared";
+import type { BenchRunMeta, StressRunStatus } from "@llm-bench/shared";
+
+export type { StressRunStatus };
 
 export type RunStatus = "running" | "ok" | "partial" | "error";
 
@@ -128,8 +130,6 @@ function migrate(db: Database.Database): void {
   }
 }
 
-export type StressRunStatus = "running" | "ok" | "partial" | "error";
-
 export function insertStressRun(
   db: Database.Database,
   row: {
@@ -210,13 +210,98 @@ export type StressRunSummaryRow = {
   status: string;
 };
 
-export function listRecentStressRuns(db: Database.Database, limit: number): StressRunSummaryRow[] {
-  return db
+export type StressRunListOpts = {
+  workload_id?: string;
+  status?: string;
+  model_id?: string;
+  base_url?: string;
+  before_created_at?: string;
+  before_run_id?: string;
+  limit: number;
+};
+
+export function listStressRunsFiltered(
+  db: Database.Database,
+  opts: StressRunListOpts,
+): StressRunSummaryRow[] {
+  const where: string[] = [];
+  const params: Record<string, string | number> = {};
+  if (opts.workload_id) {
+    where.push("workload_id = @workload_id");
+    params.workload_id = opts.workload_id;
+  }
+  if (opts.status) {
+    where.push("status = @status");
+    params.status = opts.status;
+  }
+  if (opts.model_id) {
+    where.push("model_id = @model_id");
+    params.model_id = opts.model_id;
+  }
+  if (opts.base_url) {
+    where.push("RTRIM(base_url, '/') = RTRIM(@base_url, '/')");
+    params.base_url = opts.base_url;
+  }
+  if (opts.before_created_at) {
+    where.push(
+      "(datetime(created_at) < datetime(@before_created_at) OR (datetime(created_at) = datetime(@before_created_at) AND run_id < @before_run_id))",
+    );
+    params.before_created_at = opts.before_created_at;
+    params.before_run_id = opts.before_run_id ?? "";
+  }
+  params.limit = Math.min(Math.max(opts.limit, 1), 200);
+  const sql = `SELECT run_id, created_at, finished_at, base_url, provider, model_id, workload_id, status
+               FROM stress_runs
+               ${where.length ? "WHERE " + where.join(" AND ") : ""}
+               ORDER BY datetime(created_at) DESC, run_id DESC
+               LIMIT @limit`;
+  return db.prepare(sql).all(params) as StressRunSummaryRow[];
+}
+
+export type StressRunMetaRow = StressRunSummaryRow & {
+  meta_json: string;
+  error_code: string | null;
+  error_message: string | null;
+};
+
+export function getStressRunMeta(
+  db: Database.Database,
+  run_id: string,
+): StressRunMetaRow | null {
+  const r = db
     .prepare(
-      `SELECT run_id, created_at, finished_at, base_url, provider, model_id, workload_id, status
-       FROM stress_runs ORDER BY datetime(created_at) DESC LIMIT ?`,
+      `SELECT run_id, created_at, finished_at, base_url, provider, model_id, workload_id, status,
+              meta_json, error_code, error_message
+       FROM stress_runs WHERE run_id = ?`,
     )
-    .all(Math.min(Math.max(limit, 1), 200)) as StressRunSummaryRow[];
+    .get(run_id);
+  return (r ?? null) as StressRunMetaRow | null;
+}
+
+export type StressFilterOptionsRow = {
+  workload_ids: string[];
+  statuses: string[];
+  model_ids: string[];
+  base_urls: string[];
+};
+
+export function getStressFilterOptions(db: Database.Database): StressFilterOptionsRow {
+  const q = (col: string): string[] =>
+    (
+      db
+        .prepare(`SELECT DISTINCT ${col} AS v FROM stress_runs ORDER BY v LIMIT 200`)
+        .all() as Array<{ v: string }>
+    ).map((r) => r.v);
+  return {
+    workload_ids: q("workload_id"),
+    statuses: q("status"),
+    model_ids: q("model_id"),
+    base_urls: q("base_url"),
+  };
+}
+
+export function deleteStressRun(db: Database.Database, run_id: string): number {
+  return db.prepare(`DELETE FROM stress_runs WHERE run_id = ?`).run(run_id).changes as number;
 }
 
 export type StressStageRow = {
