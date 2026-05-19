@@ -12,6 +12,7 @@ test.describe("LLM Model Bench UI", () => {
     await expect(tablist.getByRole("tab", { name: "모델 통계" })).toBeVisible();
     await expect(tablist.getByRole("tab", { name: "프로바이더 통계" })).toBeVisible();
     await expect(tablist.getByRole("tab", { name: "프로파일" })).toBeVisible();
+    await expect(tablist.getByRole("tab", { name: "프로바이더 모니터" })).toBeVisible();
     await expect(tablist.getByRole("tab", { name: "시나리오" })).toBeVisible();
   });
 
@@ -33,6 +34,12 @@ test.describe("LLM Model Bench UI", () => {
     await expect(page.getByRole("heading", { name: "모델 프로파일 문서" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "gemma4", exact: true })).toBeVisible();
     await expect(page.getByRole("tab", { name: "프로파일" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("탭: 프로바이더 모니터 페이지 부제·탭 활성", async ({ page }) => {
+    await page.goto("/provider-monitor");
+    await expect(page.getByText("로드된 모델 · 메모리·GPU 모니터 · lms CLI 조작")).toBeVisible();
+    await expect(page.getByRole("tab", { name: "프로바이더 모니터" })).toHaveAttribute("aria-selected", "true");
   });
 
   test("탭: 시나리오 문서", async ({ page }) => {

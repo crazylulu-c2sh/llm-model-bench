@@ -11,6 +11,7 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  Cpu,
   Download,
   FlaskConical,
   Gauge,
@@ -59,6 +60,7 @@ import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
 import { ProfileDocPage } from "./ProfileDocPage";
+import { ProviderMonitorPage } from "./ProviderMonitorPage";
 import { ScenariosDocPage } from "./ScenariosDocPage";
 import { StatsPage } from "./StatsPage";
 import { StressPage } from "./StressPage";
@@ -135,6 +137,7 @@ export function App() {
   const onStressPage = pathname === "/stress";
   const onStatsPage = pathname === "/stats";
   const onProviderStatsPage = pathname === "/provider-stats";
+  const onProviderMonitorPage = pathname === "/provider-monitor";
   const onProfilePage = pathname === "/profile";
   const onScenariosPage = pathname === "/scenarios";
   const [boot] = useState(() => readInitialUiState());
@@ -1123,6 +1126,8 @@ export function App() {
               <p className="text-sm text-[var(--muted)]">SQLite에 저장된 최신 런 기준 메트릭·결과</p>
             ) : onProviderStatsPage ? (
               <p className="text-sm text-[var(--muted)]">SQLite에 저장된 프로바이더 벤치 런 — 필터·익스포트·삭제</p>
+            ) : onProviderMonitorPage ? (
+              <p className="text-sm text-[var(--muted)]">로드된 모델 · 메모리·GPU 모니터 · lms CLI 조작</p>
             ) : onProfilePage ? (
               <p className="text-sm text-[var(--muted)]">모델 패밀리별 샘플링·컨텍스트·런타임 적용 규칙</p>
             ) : onScenariosPage ? (
@@ -1237,6 +1242,23 @@ export function App() {
               <span className="inline-flex items-center justify-center gap-1.5">
                 <Settings2 className="size-4" aria-hidden />
                 프로파일
+              </span>
+            </NavLink>
+            <NavLink
+              to="/provider-monitor"
+              role="tab"
+              aria-selected={onProviderMonitorPage}
+              className={({ isActive }) =>
+                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
+                  isActive
+                    ? "bg-[var(--accent)] text-white shadow-md"
+                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+                }`
+              }
+            >
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <Cpu className="size-4" aria-hidden />
+                프로바이더 모니터
               </span>
             </NavLink>
             <NavLink
@@ -1792,6 +1814,7 @@ export function App() {
           <Route path="/stats" element={<StatsPage />} />
           <Route path="/provider-stats" element={<StressStatsPage />} />
           <Route path="/profile" element={<ProfileDocPage />} />
+          <Route path="/provider-monitor" element={<ProviderMonitorPage />} />
           <Route path="/scenarios" element={<ScenariosDocPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
