@@ -19,7 +19,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.13.8
-        version: 1.19.14(hono@4.12.16)
+        version: 1.19.14(hono@4.12.19)
       '@llm-bench/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -27,8 +27,8 @@ importers:
         specifier: ^11.8.1
         version: 11.10.0
       hono:
-        specifier: ^4.12.16
-        version: 4.12.16
+        specifier: ^4.12.19
+        version: 4.12.19
       pdf-parse:
         specifier: 1.1.1
         version: 1.1.1
@@ -1168,8 +1168,8 @@ packages:
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
-  hono@4.12.16:
-    resolution: {integrity: sha512-jN0ZewiNAWSe5khM3EyCmBb250+b40wWbwNILNfEvq84VREWwOIkuUsFONk/3i3nqkz7Oe1PcpM2mwQEK2L9Kg==}
+  hono@4.12.19:
+    resolution: {integrity: sha512-xa3eYXYXx68XTT4hZ7dRzsXBhaq85ToSrlUJNoR0gwz/1Ap/CNwX47wfvV7pc/xWhjKVVkLT7zBJy8chhNguqQ==}
     engines: {node: '>=16.9.0'}
 
   ieee754@1.2.1:
@@ -2046,9 +2046,9 @@ snapshots:
   '@esbuild/win32-x64@0.27.7':
     optional: true
 
-  '@hono/node-server@1.19.14(hono@4.12.16)':
+  '@hono/node-server@1.19.14(hono@4.12.19)':
     dependencies:
-      hono: 4.12.16
+      hono: 4.12.19
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -2619,7 +2619,7 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
-  hono@4.12.16: {}
+  hono@4.12.19: {}
 
   ieee754@1.2.1: {}
 
