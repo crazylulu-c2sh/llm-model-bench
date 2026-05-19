@@ -31,7 +31,7 @@ EXPOSE 20080
 CMD ["node", "dist/index.js"]
 
 # --- UI (동일 오리진 /api → api 서비스)
-FROM nginx:1.27-alpine AS web
+FROM nginx:1.31-alpine AS web
 COPY docker/nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 EXPOSE 80
