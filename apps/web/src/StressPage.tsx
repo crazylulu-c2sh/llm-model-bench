@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { SortingState } from "@tanstack/react-table";
 import { DEFAULT_MODEL_TABLE_SORTING, ModelTable } from "./components/ModelTable";
+import { ProviderMemoryWidget } from "./components/ProviderMemoryWidget";
 import { StressMonitorGrid, emptyCellState, type StressCellState } from "./components/StressMonitorGrid";
 import { StressResultTable } from "./components/StressResultTable";
 import { StressTpsChart } from "./components/StressTpsChart";
@@ -496,6 +497,10 @@ export function StressPage() {
           </p>
         ) : null}
       </section>
+
+      {detect ? (
+        <ProviderMemoryWidget baseUrl={baseUrl} provider={detect.provider} apiKey={apiKey || undefined} />
+      ) : null}
 
       {detect && detect.models.length > 0 ? (
         <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">

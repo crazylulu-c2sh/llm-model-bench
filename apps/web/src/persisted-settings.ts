@@ -316,3 +316,100 @@ export function saveStressSnapshot(s: StressSaveSnapshot): void {
     /* storage full / disabled */
   }
 }
+
+// ---------- Provider monitor 페이지 prefs ----------
+
+export const MONITOR_PREFS_STORAGE_KEY = "llm-bench-monitor-prefs";
+const MONITOR_STORAGE_VERSION = 1 as const;
+
+const MonitorProviderSchema = z.enum(["lm_studio", "ollama"]);
+
+const MonitorPrefsSchema = z.object({
+  v: z.literal(MONITOR_STORAGE_VERSION),
+  baseUrl: z.string().max(512).optional(),
+  provider: MonitorProviderSchema.optional(),
+  pollEnabled: z.boolean().optional(),
+  intervalMs: z.union([z.literal(2000), z.literal(5000), z.literal(10000)]).optional(),
+});
+
+export type MonitorProvider = z.infer<typeof MonitorProviderSchema>;
+
+export type MonitorInitialState = {
+  baseUrl: string;
+  provider: MonitorProvider;
+  pollEnabled: boolean;
+  intervalMs: 2000 | 5000 | 10000;
+};
+
+export type MonitorSaveSnapshot = MonitorInitialState;
+
+function defaultMonitorState(): MonitorInitialState {
+  return {
+    baseUrl: DEFAULT_BASE,
+    provider: "lm_studio",
+    pollEnabled: true,
+    intervalMs: 5000,
+  };
+}
+
+export function readInitialMonitorState(): MonitorInitialState {
+  const defaults = defaultMonitorState();
+  if (typeof window === "undefined") return defaults;
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(MONITOR_PREFS_STORAGE_KEY);
+  } catch {
+    return fallbackFromUi(defaults);
+  }
+  if (!raw) return fallbackFromUi(defaults);
+  let obj: unknown;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    return fallbackFromUi(defaults);
+  }
+  const parsed = MonitorPrefsSchema.safeParse(obj);
+  if (!parsed.success) return fallbackFromUi(defaults);
+  const baseUrl =
+    parsed.data.baseUrl && parsed.data.baseUrl.trim()
+      ? parsed.data.baseUrl
+      : pickUiBaseUrl(defaults.baseUrl);
+  return {
+    baseUrl,
+    provider: parsed.data.provider ?? defaults.provider,
+    pollEnabled: parsed.data.pollEnabled ?? defaults.pollEnabled,
+    intervalMs: (parsed.data.intervalMs ?? defaults.intervalMs) as MonitorInitialState["intervalMs"],
+  };
+}
+
+function fallbackFromUi(defaults: MonitorInitialState): MonitorInitialState {
+  return { ...defaults, baseUrl: pickUiBaseUrl(defaults.baseUrl) };
+}
+
+function pickUiBaseUrl(fallback: string): string {
+  // monitor prefs가 비어 있으면 bench/stress 쪽 마지막 baseUrl을 따라간다.
+  // sessionStorage 등 외부 의존을 피하기 위해 readPrefsFromDisk만 사용.
+  try {
+    const p = readPrefsFromDisk();
+    if (typeof p.baseUrl === "string" && p.baseUrl.trim()) return p.baseUrl;
+  } catch {
+    /* swallow */
+  }
+  return fallback;
+}
+
+export function saveMonitorSnapshot(s: MonitorSaveSnapshot): void {
+  if (typeof window === "undefined") return;
+  const payload = {
+    v: MONITOR_STORAGE_VERSION,
+    baseUrl: (s.baseUrl ?? "").slice(0, 512),
+    provider: s.provider,
+    pollEnabled: !!s.pollEnabled,
+    intervalMs: s.intervalMs,
+  };
+  try {
+    window.localStorage.setItem(MONITOR_PREFS_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    /* storage full / disabled */
+  }
+}

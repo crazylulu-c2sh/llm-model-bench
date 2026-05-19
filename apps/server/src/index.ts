@@ -22,6 +22,7 @@ import {
 } from "@llm-bench/shared";
 import { makeBenchRunMeta, runBench, type BenchRequest } from "./bench-runner.js";
 import { detectProvider } from "./detect.js";
+import { registerMonitorRoutes } from "./monitor-routes.js";
 import { runStress, type StressRequest } from "./stress-runner.js";
 
 /** better-sqlite3는 여기서 정적 import하지 않음 — 네이티브 로드 실패 시에도 감지(/api/detect)가 동작하도록 동적 import */
@@ -590,6 +591,8 @@ app.post("/api/stress/stream", async (c) => {
     },
   });
 });
+
+registerMonitorRoutes(app);
 
 /** `WEB_DIST_PATH`가 있으면 Vite `dist`를 같은 포트에서 서빙(단일 PM2/Node 프로세스). */
 const webDistEnv = process.env.WEB_DIST_PATH?.trim();

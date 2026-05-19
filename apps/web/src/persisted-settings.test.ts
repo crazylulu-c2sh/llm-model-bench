@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  MONITOR_PREFS_STORAGE_KEY,
+  PREFS_STORAGE_KEY,
+  readInitialMonitorState,
   readInitialStressState,
+  saveMonitorSnapshot,
   saveStressSnapshot,
   STRESS_PREFS_STORAGE_KEY,
 } from "./persisted-settings";
@@ -117,5 +121,66 @@ describe("readInitialStressState", () => {
     const s = readInitialStressState();
     expect(s.startCC).toBe(10);
     expect(s.maxCC).toBe(10);
+  });
+});
+
+describe("readInitialMonitorState", () => {
+  it("returns defaults when storage empty (no fallback ui prefs)", () => {
+    const s = readInitialMonitorState();
+    expect(s.provider).toBe("lm_studio");
+    expect(s.pollEnabled).toBe(true);
+    expect(s.intervalMs).toBe(5000);
+    expect(s.baseUrl).toBe("http://127.0.0.1:1234");
+  });
+
+  it("falls back to bench/stress baseUrl when monitor prefs has no baseUrl", () => {
+    window.localStorage.setItem(
+      PREFS_STORAGE_KEY,
+      JSON.stringify({ v: 2, baseUrl: "http://10.20.30.40:1234" }),
+    );
+    const s = readInitialMonitorState();
+    expect(s.baseUrl).toBe("http://10.20.30.40:1234");
+  });
+
+  it("ignores stored payload when version mismatches", () => {
+    window.localStorage.setItem(
+      MONITOR_PREFS_STORAGE_KEY,
+      JSON.stringify({ v: 99, baseUrl: "x", provider: "lm_studio" }),
+    );
+    const s = readInitialMonitorState();
+    expect(s.baseUrl).toBe("http://127.0.0.1:1234");
+    expect(s.provider).toBe("lm_studio");
+  });
+
+  it("round-trips valid fields", () => {
+    saveMonitorSnapshot({
+      baseUrl: "http://localhost:11434",
+      provider: "ollama",
+      pollEnabled: false,
+      intervalMs: 10000,
+    });
+    const s = readInitialMonitorState();
+    expect(s.baseUrl).toBe("http://localhost:11434");
+    expect(s.provider).toBe("ollama");
+    expect(s.pollEnabled).toBe(false);
+    expect(s.intervalMs).toBe(10000);
+  });
+
+  it("rejects invalid provider via schema (falls back to defaults)", () => {
+    window.localStorage.setItem(
+      MONITOR_PREFS_STORAGE_KEY,
+      JSON.stringify({ v: 1, provider: "manual" }),
+    );
+    const s = readInitialMonitorState();
+    expect(s.provider).toBe("lm_studio");
+  });
+
+  it("rejects invalid intervalMs via schema", () => {
+    window.localStorage.setItem(
+      MONITOR_PREFS_STORAGE_KEY,
+      JSON.stringify({ v: 1, intervalMs: 1234 }),
+    );
+    const s = readInitialMonitorState();
+    expect(s.intervalMs).toBe(5000);
   });
 });
