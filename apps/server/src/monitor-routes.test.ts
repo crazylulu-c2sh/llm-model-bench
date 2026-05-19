@@ -406,6 +406,35 @@ describe("GET /api/monitor/lms/log-stream", () => {
     await consume;
   });
 
+  it("releases counter when client aborts before consuming stream body", async () => {
+    process.env.ENABLE_LMS_CLI = "1";
+    let spawnCount = 0;
+    _setSpawnForTest(((_file: any, _args: any, _opts: any) => {
+      spawnCount += 1;
+      return makeMockChild() as any;
+    }) as never);
+    const app = makeApp();
+    const url = "http://x/api/monitor/lms/log-stream?baseUrl=http%3A%2F%2F127.0.0.1%3A1234";
+
+    // 1차: 응답 받자마자 client abort (body 미소비). cancel()이 호출되지 않으므로
+    // 라우트 핸들러의 c.req.raw.signal abort listener만이 release()를 트리거할 수 있다.
+    const ac = new AbortController();
+    const res1 = await app.fetch(new Request(url, { signal: ac.signal }));
+    expect(res1.status).toBe(200);
+    ac.abort();
+    // abort listener는 microtask로 처리되므로 한 tick 대기.
+    await new Promise((r) => setTimeout(r, 10));
+
+    // 2차 연결이 200이면 counter가 해제된 것. 누수 시 409.
+    const res2 = await app.fetch(jsonReq(url, null, "GET"));
+    expect(res2.status).toBe(200);
+    // 2차도 body를 정리.
+    const sse2 = readSse(res2);
+    sse2.close();
+    // spawn은 1차에서 body 미소비라 start() 미발동 → 0회. 2차도 body 미소비.
+    expect(spawnCount).toBeLessThanOrEqual(2);
+  });
+
   it("buffers partial lines across chunk boundaries", async () => {
     process.env.ENABLE_LMS_CLI = "1";
     let captured: MockChild | null = null;

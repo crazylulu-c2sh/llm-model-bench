@@ -41,14 +41,16 @@ function instanceIdsForModelKey(models: LmStudioListedModel[], modelKey: string)
 
 export async function lmStudioListModels(
   baseUrl: string,
-  opts: { fetchImpl?: FetchLike; apiKey?: string } = {},
+  opts: { fetchImpl?: FetchLike; apiKey?: string; timeoutMs?: number } = {},
 ): Promise<{ ok: boolean; status: number; models: LmStudioListedModel[]; body: string }> {
   const fetchImpl = opts.fetchImpl ?? fetch;
+  const timeoutMs = opts.timeoutMs;
   const root = apiRoot(baseUrl);
   const candidates = [`${root}/api/v1/models`, `${root}/api/v0/models`];
   for (const url of candidates) {
     const r = await fetchImpl(url, {
       headers: headers(opts.apiKey),
+      ...(timeoutMs != null ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
     });
     const t = await r.text();
     if (r.status === 404) continue;

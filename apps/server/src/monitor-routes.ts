@@ -77,14 +77,11 @@ export function registerMonitorRoutes(app: Hono): void {
 
     const includeHost = remoteLoopback && localhost;
     const system = includeHost ? getSystemSnapshot() : null;
-    const gpu = includeHost ? await getGpuSnapshot(3000) : null;
-
-    const providerBlock = await collectForProvider(
-      body.provider,
-      body.baseUrl,
-      body.apiKey,
-      allowCli,
-    );
+    // gpu와 provider HTTP는 서로 독립적이라 병렬화 (snapshot p99 단축).
+    const [gpu, providerBlock] = await Promise.all([
+      includeHost ? getGpuSnapshot(3000) : Promise.resolve(null),
+      collectForProvider(body.provider, body.baseUrl, body.apiKey, allowCli),
+    ]);
 
     const resp: MonitorSnapshotResponse = {
       ts,
@@ -196,7 +193,17 @@ export function registerMonitorRoutes(app: Hono): void {
     let child: ReturnType<typeof spawnLmsLogStream> | null = null;
     const encoder = new TextEncoder();
     const externalAbort = new AbortController();
-    c.req.raw.signal.addEventListener("abort", () => externalAbort.abort());
+    // body를 한 번도 consume하지 않은 채 client가 끊으면 ReadableStream의 cancel()이
+    // 호출되지 않으므로 여기서도 release()를 트리거해야 counter leak이 안 남는다.
+    // release는 idempotent라 정상 close/error/cancel 경로와 중복 호출돼도 안전.
+    c.req.raw.signal.addEventListener(
+      "abort",
+      () => {
+        externalAbort.abort();
+        release();
+      },
+      { once: true },
+    );
 
     const readable = new ReadableStream<Uint8Array>({
       start(controller) {

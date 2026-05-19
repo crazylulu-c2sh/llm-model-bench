@@ -26,7 +26,8 @@ export async function collectLmStudioLoaded(
 ): Promise<ProviderLoadedResult> {
   let listed: Awaited<ReturnType<typeof lmStudioListModels>>;
   try {
-    listed = await lmStudioListModels(baseUrl, { apiKey: opts.apiKey });
+    // 5초 timeout — Ollama 경로와 일관, 죽은 호스트에서 snapshot 전체가 hang 안 되게.
+    listed = await lmStudioListModels(baseUrl, { apiKey: opts.apiKey, timeoutMs: 5000 });
   } catch (e) {
     listed = { ok: false, status: 0, models: [], body: (e as Error).message };
   }

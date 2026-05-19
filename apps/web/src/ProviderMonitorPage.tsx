@@ -207,7 +207,11 @@ export function ProviderMonitorPage() {
       </section>
 
       {cardEligible ? (
-        <LmsControlCard baseUrl={baseUrl} loaded={snap.data?.provider.loaded ?? []} />
+        <LmsControlCard
+          baseUrl={baseUrl}
+          loaded={snap.data?.provider.loaded ?? []}
+          onSuccess={() => snap.reload()}
+        />
       ) : null}
 
       {cardEligible ? <LmsLogStreamCard baseUrl={baseUrl} /> : null}
@@ -315,9 +319,11 @@ function LoadedModelsTable({ data }: { data: MonitorSnapshotResponse | null }) {
 function LmsControlCard({
   baseUrl,
   loaded,
+  onSuccess,
 }: {
   baseUrl: string;
   loaded: MonitorSnapshotResponse["provider"]["loaded"];
+  onSuccess?: () => void;
 }) {
   const [model, setModel] = useState("");
   const [busy, setBusy] = useState(false);
@@ -337,6 +343,8 @@ function LmsControlCard({
         setResult(`${action} 실패: ${j.error ?? r.statusText}`);
       } else {
         setResult(`${action} OK${j.stdout ? `: ${truncate(j.stdout, 200)}` : ""}`);
+        // 다음 폴링 사이클(최대 10s)까지 기다리지 않고 즉시 snapshot 갱신.
+        onSuccess?.();
       }
     } catch (e) {
       setResult(`${action} 오류: ${(e as Error).message}`);
@@ -434,7 +442,9 @@ function LmsLogStreamCard({ baseUrl }: { baseUrl: string }) {
       }
     };
     es.onerror = () => {
-      setError("연결 종료 또는 오류");
+      // EventSource는 status code를 노출하지 않으므로 409·502 등을 정확히 구분할 수 없다.
+      // 흔한 원인 2가지 안내.
+      setError("연결 종료 또는 오류 (다른 클라이언트가 사용 중이거나 lms 프로세스 종료)");
       es.close();
       setActive(false);
     };

@@ -135,6 +135,25 @@ describe("collectLmStudioLoaded — CLI fallback gating", () => {
   });
 });
 
+describe("collectLmStudioLoaded — HTTP timeout", () => {
+  it("passes AbortSignal (timeout) to fetch (5s)", async () => {
+    const seenSignals: (AbortSignal | null)[] = [];
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      seenSignals.push(init?.signal ?? null);
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ models: [] }),
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await collectLmStudioLoaded("http://127.0.0.1:1234", { allowCli: false });
+    // 한 번 이상 fetch가 signal을 받았어야 한다 (AbortSignal.timeout가 전달됐는지).
+    const signal = seenSignals[0];
+    expect(signal).not.toBeNull();
+    expect(signal!.aborted).toBe(false);
+  });
+});
+
 describe("collectOllamaLoaded", () => {
   it("parses /api/ps models", async () => {
     globalThis.fetch = vi.fn(async () => ({
