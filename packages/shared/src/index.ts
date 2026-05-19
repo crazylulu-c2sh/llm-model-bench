@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ProviderKindSchema } from "./provider-kind";
 
 export {
   ALL_SCENARIO_IDS,
@@ -84,13 +85,7 @@ export const SamplingParamsSchema = z.object({
   repetition_penalty: z.number().optional(),
 });
 
-export const ProviderKindSchema = z.enum([
-  "lm_studio",
-  "ollama",
-  "openai_compatible",
-  "manual",
-]);
-export type ProviderKind = z.infer<typeof ProviderKindSchema>;
+export { ProviderKindSchema, type ProviderKind } from "./provider-kind";
 
 export const DetectStepSchema = z.object({
   name: z.string(),

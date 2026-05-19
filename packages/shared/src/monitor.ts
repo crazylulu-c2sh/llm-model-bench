@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProviderKindSchema } from "./index";
+import { ProviderKindSchema } from "./provider-kind";
 
 export const LoadedModelInfoSchema = z.object({
   id: z.string(),
