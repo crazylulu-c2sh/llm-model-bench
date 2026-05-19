@@ -152,6 +152,27 @@ describe("collectLmStudioLoaded — HTTP timeout", () => {
     expect(signal).not.toBeNull();
     expect(signal!.aborted).toBe(false);
   });
+
+  it("shares a single timeout signal across v1/v0 candidates (caps total timeout)", async () => {
+    // patch A 회귀 가드: lmStudioListModels는 v1 → v0 직렬 fallback인데,
+    // 각 candidate마다 새 AbortSignal.timeout()을 만들면 10s 누적. 단일 signal 공유로 5s cap.
+    const seenSignals: AbortSignal[] = [];
+    let callCount = 0;
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      callCount += 1;
+      if (init?.signal) seenSignals.push(init.signal);
+      // 첫 번째 candidate(v1)는 404 → 두 번째(v0)로 fallback
+      if (callCount === 1) {
+        return { ok: false, status: 404, text: async () => "" } as unknown as Response;
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({ models: [] }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await collectLmStudioLoaded("http://127.0.0.1:1234", { allowCli: false });
+    expect(callCount).toBe(2);
+    expect(seenSignals).toHaveLength(2);
+    // 동일 signal 인스턴스가 두 번 전달돼야 한다.
+    expect(seenSignals[0]).toBe(seenSignals[1]);
+  });
 });
 
 describe("collectOllamaLoaded", () => {

@@ -47,10 +47,12 @@ export async function lmStudioListModels(
   const timeoutMs = opts.timeoutMs;
   const root = apiRoot(baseUrl);
   const candidates = [`${root}/api/v1/models`, `${root}/api/v0/models`];
+  // v1/v0 candidates는 단일 signal을 공유 — 두 endpoint가 직렬로 timeout을 누적해 hang하는 것을 방지.
+  const signal = timeoutMs != null ? AbortSignal.timeout(timeoutMs) : undefined;
   for (const url of candidates) {
     const r = await fetchImpl(url, {
       headers: headers(opts.apiKey),
-      ...(timeoutMs != null ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
+      ...(signal ? { signal } : {}),
     });
     const t = await r.text();
     if (r.status === 404) continue;

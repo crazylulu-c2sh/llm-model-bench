@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type PollingState<T> = {
   data: T | null;
@@ -102,8 +102,6 @@ export function usePollingFetch<T>(
     };
   }, [url, intervalMs, enabled, initKey, reloadTick]);
 
-  return {
-    ...state,
-    reload: () => setReloadTick((n) => n + 1),
-  };
+  const reload = useCallback(() => setReloadTick((n) => n + 1), []);
+  return { ...state, reload };
 }
