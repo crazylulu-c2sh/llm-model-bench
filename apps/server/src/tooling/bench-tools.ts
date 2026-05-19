@@ -1,13 +1,7 @@
-import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-
-/** `pdf-parse` 루트 index는 ESM에서 `module.parent`가 없어 디버그용 readFile을 시도한다 — 코어만 로드 */
-const require = createRequire(import.meta.url);
-const pdfParseCore = require("pdf-parse/lib/pdf-parse.js") as (
-  buf: Buffer,
-) => Promise<{ text: string }>;
+import { PDFParse } from "pdf-parse";
 
 const WHITELIST_PATH = "/nist.fips.197.pdf";
 const MAX_URL_TEXT = 8_000;
@@ -86,9 +80,14 @@ export async function executeBenchTool(
   }
 
   if (name === "fetch_pdf_text") {
-    const data = await pdfParseCore(buf);
-    const t = (data.text ?? "").trim();
-    return t.length ? t.slice(0, MAX_PDF_CHARS) : "error: empty pdf text";
+    const parser = new PDFParse({ data: buf });
+    try {
+      const data = await parser.getText();
+      const t = (data.text ?? "").trim();
+      return t.length ? t.slice(0, MAX_PDF_CHARS) : "error: empty pdf text";
+    } finally {
+      await parser.destroy();
+    }
   }
   if (name === "fetch_url") {
     const ct = (r.headers.get("content-type") ?? "").toLowerCase();
