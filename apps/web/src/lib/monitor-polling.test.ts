@@ -50,4 +50,30 @@ describe("fetchPollingJson", () => {
     await fetchPollingJson("/x", null, ac.signal);
     expect(seenSignal).toBe(ac.signal);
   });
+
+  it("returns aborted=true on AbortError without throwing", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      const err = new Error("aborted") as Error & { name: string };
+      err.name = "AbortError";
+      throw err;
+    }) as unknown as typeof fetch;
+    const r = await fetchPollingJson("/x", null, new AbortController().signal);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.aborted).toBe(true);
+      expect(r.error).toBe("aborted");
+    }
+  });
+
+  it("returns non-aborted error string on generic network failure", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    const r = await fetchPollingJson("/x", null, new AbortController().signal);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.aborted).toBeUndefined();
+      expect(r.error).toMatch(/ECONNREFUSED/);
+    }
+  });
 });

@@ -1,8 +1,10 @@
+import { EventEmitter } from "node:events";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   _resetLmsCliCacheForTest,
   _setExecFileForTest,
+  _setSpawnForTest,
 } from "./lms-cli";
 import {
   _resetSystemInfoCacheForTest,
@@ -40,12 +42,61 @@ beforeEach(() => {
 afterEach(() => {
   _setExecFileForTest(null);
   _setSystemInfoExecFileForTest(null);
+  _setSpawnForTest(null);
   _setRemoteAddrResolverForTest(null);
   _resetLmsCliCacheForTest();
   _resetSystemInfoCacheForTest();
   process.env = { ...originalEnv };
   globalThis.fetch = originalFetch;
 });
+
+type MockChild = EventEmitter & {
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+  kill: (signal?: NodeJS.Signals | number) => boolean;
+};
+
+function makeMockChild(): MockChild {
+  const child = new EventEmitter() as MockChild;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = vi.fn().mockReturnValue(true);
+  return child;
+}
+
+/**
+ * SSE Response의 body를 reader로 한 chunk 받을 때까지 대기 — start() 발동을 보장.
+ * 이후 collected lines를 push해서 검증하는 collector도 함께 반환.
+ */
+function readSse(res: Response): {
+  collected: string[];
+  consume: () => Promise<void>;
+  close: () => void;
+} {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  const collected: string[] = [];
+  let stopped = false;
+  const consume = async () => {
+    while (!stopped) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      const chunk = decoder.decode(value);
+      for (const piece of chunk.split("\n\n")) {
+        const m = piece.match(/^data: (.+)$/m);
+        if (m) collected.push(m[1]);
+      }
+    }
+  };
+  return {
+    collected,
+    consume,
+    close: () => {
+      stopped = true;
+      reader.cancel().catch(() => undefined);
+    },
+  };
+}
 
 describe("POST /api/monitor/snapshot — gating", () => {
   it("non-loopback client → soft-fail 200, system/gpu null, remoteLoopback false", async () => {
@@ -295,5 +346,99 @@ describe("GET /api/monitor/lms/log-stream", () => {
       jsonReq("http://x/api/monitor/lms/log-stream?baseUrl=http%3A%2F%2F127.0.0.1%3A1234", null, "GET"),
     );
     expect(res.status).toBe(403);
+  });
+
+  it("releases activeLogClients counter on child close (재연결 가능)", async () => {
+    process.env.ENABLE_LMS_CLI = "1";
+    const children: MockChild[] = [];
+    _setSpawnForTest(((_file: any, _args: any, _opts: any) => {
+      const c = makeMockChild();
+      children.push(c);
+      return c as any;
+    }) as never);
+    const app = makeApp();
+    const url = "http://x/api/monitor/lms/log-stream?baseUrl=http%3A%2F%2F127.0.0.1%3A1234";
+
+    // 1차 연결 — stream consume + child close
+    const res1 = await app.fetch(jsonReq(url, null, "GET"));
+    expect(res1.status).toBe(200);
+    const sse1 = readSse(res1);
+    const consumePromise = sse1.consume();
+    // start()가 발동될 때까지 한 tick 대기 + child 이벤트 발사
+    await new Promise((r) => setTimeout(r, 5));
+    expect(children).toHaveLength(1);
+    children[0].emit("close", 0);
+    await consumePromise;
+    expect(sse1.collected.some((d) => d.includes('"closed"'))).toBe(true);
+
+    // 2차 연결 — 카운터가 해제됐다면 200, 누수면 409.
+    const res2 = await app.fetch(jsonReq(url, null, "GET"));
+    expect(res2.status).toBe(200);
+    const sse2 = readSse(res2);
+    sse2.close();
+  });
+
+  it("returns 409 log_stream_busy on second concurrent connection", async () => {
+    process.env.ENABLE_LMS_CLI = "1";
+    const children: MockChild[] = [];
+    _setSpawnForTest(((_file: any, _args: any, _opts: any) => {
+      const c = makeMockChild();
+      children.push(c);
+      return c as any;
+    }) as never);
+    const app = makeApp();
+    const url = "http://x/api/monitor/lms/log-stream?baseUrl=http%3A%2F%2F127.0.0.1%3A1234";
+
+    // 라우트 핸들러는 동기로 counter += 1을 한 뒤 ReadableStream을 반환.
+    // 따라서 첫 요청 응답이 200이면 카운터는 이미 1, 다음 요청은 409.
+    const res1 = await app.fetch(jsonReq(url, null, "GET"));
+    expect(res1.status).toBe(200);
+
+    const res2 = await app.fetch(jsonReq(url, null, "GET"));
+    expect(res2.status).toBe(409);
+    expect((await res2.json()).error).toBe("log_stream_busy");
+
+    // cleanup: 1차 child close → counter 해제 (다음 테스트 isolate)
+    const sse1 = readSse(res1);
+    const consume = sse1.consume();
+    await new Promise((r) => setTimeout(r, 5));
+    children[0]?.emit("close", 0);
+    await consume;
+  });
+
+  it("buffers partial lines across chunk boundaries", async () => {
+    process.env.ENABLE_LMS_CLI = "1";
+    let captured: MockChild | null = null;
+    _setSpawnForTest(((_file: any, _args: any, _opts: any) => {
+      captured = makeMockChild();
+      return captured as any;
+    }) as never);
+    const app = makeApp();
+    const url = "http://x/api/monitor/lms/log-stream?baseUrl=http%3A%2F%2F127.0.0.1%3A1234";
+
+    const res = await app.fetch(jsonReq(url, null, "GET"));
+    expect(res.status).toBe(200);
+    const sse = readSse(res);
+    const consume = sse.consume();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(captured).not.toBeNull();
+    // "line1\nlin" 다음 "e2\nline3\n" — 중간이 잘려도 line2가 합쳐서 나와야 한다.
+    captured!.stdout.emit("data", Buffer.from("line1\nlin"));
+    captured!.stdout.emit("data", Buffer.from("e2\nline3\n"));
+    await new Promise((r) => setTimeout(r, 5));
+    captured!.emit("close", 0);
+    await consume;
+
+    const lines = sse.collected
+      .map((d) => {
+        try {
+          return JSON.parse(d) as { type: string; line?: string };
+        } catch {
+          return null;
+        }
+      })
+      .filter((j): j is { type: string; line?: string } => j != null && j.type === "line")
+      .map((j) => j.line);
+    expect(lines).toEqual(["line1", "line2", "line3"]);
   });
 });

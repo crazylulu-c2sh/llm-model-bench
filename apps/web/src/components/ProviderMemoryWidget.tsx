@@ -36,11 +36,12 @@ export function ProviderMemoryWidget({
     [baseUrl, provider, apiKey],
   );
 
+  // 접힌 상태에서는 폴링도 멈춤 — 화면 밖이라 데이터를 갱신할 이유 없음.
   const snap = usePollingFetch<MonitorSnapshotResponse>(
     "/api/monitor/snapshot",
     init,
     5000,
-    eligible,
+    eligible && open,
   );
 
   if (!eligible) return null;

@@ -180,9 +180,18 @@ export function registerMonitorRoutes(app: Hono): void {
     if (!isLmsCliEnabled()) {
       return c.json({ error: "lms_cli_disabled" }, 403);
     }
+    // 라우트 핸들러(동기 부분)에서 즉시 lock 예약 — ReadableStream.start()는
+    // stream consumer가 구독한 뒤 비동기로 호출되므로 거기서 +1하면 TOCTOU race.
     if (activeLogClients > 0) {
       return c.json({ error: "log_stream_busy" }, 409);
     }
+    activeLogClients += 1;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      if (activeLogClients > 0) activeLogClients -= 1;
+    };
 
     let child: ReturnType<typeof spawnLmsLogStream> | null = null;
     const encoder = new TextEncoder();
@@ -202,23 +211,40 @@ export function registerMonitorRoutes(app: Hono): void {
           child = spawnLmsLogStream();
         } catch (e) {
           push({ type: "error", message: (e as Error).message });
+          release();
           controller.close();
           return;
         }
-        activeLogClients += 1;
         push({ type: "started", ts: new Date().toISOString() });
 
+        // chunk 경계에서 라인이 잘려도 다음 chunk와 이어붙이도록 carry-over 버퍼 유지.
+        const buffers: Record<"stdout" | "stderr", string> = { stdout: "", stderr: "" };
         const handleChunk = (chunk: Buffer, stream: "stdout" | "stderr") => {
-          const text = chunk.toString("utf-8");
-          for (const line of text.split("\n")) {
-            if (!line.trim()) continue;
-            push({ type: "line", stream, ts: new Date().toISOString(), line });
+          buffers[stream] += chunk.toString("utf-8");
+          let idx = buffers[stream].indexOf("\n");
+          while (idx !== -1) {
+            const line = buffers[stream].slice(0, idx).replace(/\r$/, "");
+            buffers[stream] = buffers[stream].slice(idx + 1);
+            if (line.trim()) {
+              push({ type: "line", stream, ts: new Date().toISOString(), line });
+            }
+            idx = buffers[stream].indexOf("\n");
           }
+        };
+        const flushStream = (stream: "stdout" | "stderr") => {
+          const remainder = buffers[stream];
+          if (remainder.trim()) {
+            push({ type: "line", stream, ts: new Date().toISOString(), line: remainder });
+          }
+          buffers[stream] = "";
         };
         child.stdout?.on("data", (b: Buffer) => handleChunk(b, "stdout"));
         child.stderr?.on("data", (b: Buffer) => handleChunk(b, "stderr"));
         child.on("close", (code) => {
+          flushStream("stdout");
+          flushStream("stderr");
           push({ type: "closed", code });
+          release();
           try {
             controller.close();
           } catch {
@@ -227,6 +253,7 @@ export function registerMonitorRoutes(app: Hono): void {
         });
         child.on("error", (e) => {
           push({ type: "error", message: e.message });
+          release();
           try {
             controller.close();
           } catch {
@@ -249,7 +276,7 @@ export function registerMonitorRoutes(app: Hono): void {
         } catch {
           /* ignore */
         }
-        if (activeLogClients > 0) activeLogClients -= 1;
+        release();
       },
     });
 

@@ -159,7 +159,8 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string | unde
 export async function collectOllamaLoaded(baseUrl: string): Promise<ProviderLoadedResult> {
   const root = baseUrl.replace(/\/+$/, "");
   try {
-    const r = await fetch(`${root}/api/ps`);
+    // 5초 timeout — 죽은 호스트에서 snapshot 전체가 hang하는 것을 방지.
+    const r = await fetch(`${root}/api/ps`, { signal: AbortSignal.timeout(5000) });
     if (!r.ok) {
       const text = await r.text().catch(() => "");
       return {

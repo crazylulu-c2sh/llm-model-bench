@@ -372,17 +372,22 @@ function LmsControlCard({
       {result ? <p className="mt-2 text-xs">{result}</p> : null}
       {loaded.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          {loaded.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              disabled={busy}
-              onClick={() => call("unload", m.id)}
-              className="rounded-md border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface)] disabled:opacity-50"
-            >
-              unload {m.id}
-            </button>
-          ))}
+          {loaded.map((m) => {
+            // HTTP 경로: id=loaded_instance.id, name=model key.
+            // CLI 경로: id=model key. `lms unload`는 모델 식별자(key)를 기대하므로 name 우선.
+            const cliTarget = m.name ?? m.id;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                disabled={busy}
+                onClick={() => call("unload", cliTarget)}
+                className="rounded-md border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface)] disabled:opacity-50"
+              >
+                unload {cliTarget}
+              </button>
+            );
+          })}
         </div>
       ) : null}
     </section>
