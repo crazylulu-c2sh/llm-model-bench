@@ -275,6 +275,21 @@ export function registerMonitorRoutes(app: Hono): void {
             /* ignore */
           }
         });
+        // narrow race: outer abort가 start() 진입 *전*에 발화했다면 위 listener는
+        // 이미 aborted인 signal에 등록되어 fire하지 않는다. 즉시 kill + close로 child orphan 방지.
+        // release()는 outer abort handler에서 이미 호출됐고 idempotent.
+        if (externalAbort.signal.aborted) {
+          try {
+            child.kill("SIGTERM");
+          } catch {
+            /* ignore */
+          }
+          try {
+            controller.close();
+          } catch {
+            /* ignore */
+          }
+        }
       },
       cancel() {
         externalAbort.abort();
