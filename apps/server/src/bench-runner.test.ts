@@ -531,3 +531,156 @@ describe("runBench judge integration — 4 cases", () => {
     expect(lastQuality?.reason).toMatch(/judge_network_error|judge_http_500/);
   });
 });
+
+// Section B — vision default acts as floor (Math.max guard).
+// We inspect the POST body to confirm the actual `max_tokens` sent upstream.
+describe("runBench vision max_tokens — default as floor (B)", () => {
+  function capturingFetchImpl(captured: { max_tokens?: number }) {
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        try {
+          const body = JSON.parse(String(init?.body ?? "{}")) as { max_tokens?: number };
+          captured.max_tokens = body.max_tokens;
+        } catch {
+          /* ignore */
+        }
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+  }
+
+  it("vision default (2048) wins when no user override (request max_tokens unset)", async () => {
+    const captured: { max_tokens?: number } = {};
+    for await (const _ of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_chart_peak_a"],
+        warmupRuns: 0,
+        measuredRuns: 1,
+        // max_tokens unset → BenchRunMeta uses fallback 512; floor bumps to 2048
+      }),
+      lmStudioDetect(),
+      { fetchImpl: capturingFetchImpl(captured) },
+    )) {
+      void _;
+    }
+    expect(captured.max_tokens).toBe(2048);
+  });
+
+  it("user max_tokens larger than vision default wins (4096 respected)", async () => {
+    const captured: { max_tokens?: number } = {};
+    for await (const _ of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_chart_peak_a"],
+        warmupRuns: 0,
+        measuredRuns: 1,
+        max_tokens: 4096,
+      }),
+      lmStudioDetect(),
+      { fetchImpl: capturingFetchImpl(captured) },
+    )) {
+      void _;
+    }
+    expect(captured.max_tokens).toBe(4096);
+  });
+
+  it("user max_tokens smaller than vision default clamps up to default (256 → 2048)", async () => {
+    const captured: { max_tokens?: number } = {};
+    for await (const _ of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_chart_peak_a"],
+        warmupRuns: 0,
+        measuredRuns: 1,
+        max_tokens: 256,
+      }),
+      lmStudioDetect(),
+      { fetchImpl: capturingFetchImpl(captured) },
+    )) {
+      void _;
+    }
+    expect(captured.max_tokens).toBe(2048);
+  });
+});
+
+// Section C — truncated_at_max_tokens prefix on quality.reason.
+describe("runBench truncation labelling (C)", () => {
+  /** SSE with finish_reason="length" — simulates upstream cutting off at max_tokens. */
+  function truncatedChatSse(): Response {
+    const enc = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"thinking..."}}]}\n\n'));
+        controller.enqueue(
+          enc.encode('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n'),
+        );
+        controller.enqueue(enc.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  }
+
+  it("prefixes quality.reason with truncated_at_max_tokens=N when finish_reason=length", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) return truncatedChatSse();
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let lastQuality: { pass: boolean; score?: number; reason?: string } | undefined;
+    for await (const ev of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_chart_peak_a"],
+        warmupRuns: 0,
+        measuredRuns: 1,
+      }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_end") lastQuality = ev.quality;
+    }
+    expect(lastQuality?.reason).toMatch(/^truncated_at_max_tokens=2048 \| /);
+    // 잘림으로 JSON이 안 나왔으므로 rubric 0 + "no json object"가 prefix 뒤에 옴
+    expect(lastQuality?.reason).toMatch(/no json object/);
+    expect(lastQuality?.pass).toBe(false);
+  });
+
+  it("does NOT prefix when upstream_no_vision already labelled (negative case)", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        return new Response(
+          "Error: this model does not support image input",
+          { status: 400, headers: { "content-type": "text/plain" } },
+        );
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let lastQuality: { pass: boolean; score?: number; reason?: string } | undefined;
+    for await (const ev of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_chart_peak_a"],
+        warmupRuns: 0,
+        measuredRuns: 1,
+      }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_end") lastQuality = ev.quality;
+    }
+    expect(lastQuality?.reason).toMatch(/^upstream_no_vision:/);
+    expect(lastQuality?.reason).not.toMatch(/truncated_at_max_tokens/);
+  });
+});
