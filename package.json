@@ -8,7 +8,8 @@
     "dev": "node scripts/dev.mjs",
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "prepare:vision": "node scripts/prepare-vision-assets.mjs"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +20,13 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
-    "@types/node": "^25.6.0"
+    "@types/node": "^25.6.0",
+    "sharp": "^0.34.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "sharp"
+    ]
   }
 }
