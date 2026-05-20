@@ -41,4 +41,30 @@ describe("resolveBenchProfile", () => {
     });
     expect(r.extraBody.reasoning_split).toBeUndefined();
   });
+
+  it("sets enable_thinking=false for Nemotron 3 when thinking off", () => {
+    const r = resolveBenchProfile({
+      modelId: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
+      taskMode: "general",
+      thinkingIntent: "off",
+    });
+    expect(r.family).toBe("nemotron3");
+    expect(r.preset).toBe("nonthinking_general");
+    expect(r.extraBody.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(r.sampling.temperature).toBe(0.2);
+    expect(r.sampling.top_k).toBe(1);
+  });
+
+  it("omits chat_template_kwargs for Nemotron 3 when thinking on", () => {
+    const r = resolveBenchProfile({
+      modelId: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
+      taskMode: "general",
+      thinkingIntent: "on",
+    });
+    expect(r.family).toBe("nemotron3");
+    expect(r.preset).toBe("thinking_general");
+    expect(r.extraBody.chat_template_kwargs).toBeUndefined();
+    expect(r.sampling.temperature).toBe(0.6);
+    expect(r.sampling.top_p).toBe(0.95);
+  });
 });
