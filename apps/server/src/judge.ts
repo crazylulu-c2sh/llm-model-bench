@@ -22,6 +22,8 @@ export type JudgeRequest = {
   modelOutput: string;
   criterion: string;
   model?: string;
+  /** 테스트 / proxy 주입용. 미지정 시 global fetch. */
+  fetchImpl?: typeof fetch;
 };
 
 export type JudgeResult =
@@ -82,9 +84,10 @@ export async function runLlmJudge(req: JudgeRequest): Promise<JudgeResult> {
 
   const controller = new AbortController();
   const to = setTimeout(() => controller.abort(), JUDGE_TIMEOUT_MS);
+  const doFetch = req.fetchImpl ?? fetch;
   let response: Response;
   try {
-    response = await fetch("https://api.anthropic.com/v1/messages", {
+    response = await doFetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "content-type": "application/json",
