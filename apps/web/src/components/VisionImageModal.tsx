@@ -48,10 +48,12 @@ export function VisionImageModal({
       className="fixed inset-0 z-[100] flex items-center justify-center p-4"
       role="presentation"
       onMouseDown={(e) => {
+        // backdrop이 pointer-events-none이라 click이 outer로 통과한다 — target===currentTarget로 backdrop 영역 클릭 판정.
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="absolute inset-0 bg-black/70" aria-hidden />
+      {/* backdrop은 시각용. pointer-events-none으로 두어야 outer onMouseDown이 backdrop 영역 클릭을 받는다. */}
+      <div className="pointer-events-none absolute inset-0 bg-black/70" aria-hidden />
       <div
         role="dialog"
         aria-modal="true"
