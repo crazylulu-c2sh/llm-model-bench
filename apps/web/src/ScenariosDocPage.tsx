@@ -96,30 +96,30 @@ export function ScenariosDocPage() {
                   </div>
                   <div>
                     <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">합격 / 불합격 기준</h4>
-                    <p className="mt-1 leading-relaxed text-[var(--muted)]">{meta.criteriaKo}</p>
+                    <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.criteriaKo}</p>
                   </div>
                   {meta.promptNotesKo ? (
                     <div>
                       <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">프롬프트·주입</h4>
-                      <p className="mt-1 leading-relaxed text-[var(--muted)]">{meta.promptNotesKo}</p>
+                      <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.promptNotesKo}</p>
                     </div>
                   ) : null}
                   {meta.toolsSummaryKo ? (
                     <div>
                       <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">도구</h4>
-                      <p className="mt-1 leading-relaxed text-[var(--muted)]">{meta.toolsSummaryKo}</p>
+                      <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.toolsSummaryKo}</p>
                     </div>
                   ) : null}
                   {meta.routesKo ? (
                     <div>
                       <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">API 라우트</h4>
-                      <p className="mt-1 leading-relaxed text-[var(--muted)]">{meta.routesKo}</p>
+                      <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.routesKo}</p>
                     </div>
                   ) : null}
                   {meta.implementationKo ? (
                     <div>
                       <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">채점·실행</h4>
-                      <p className="mt-1 leading-relaxed text-[var(--muted)]">{meta.implementationKo}</p>
+                      <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.implementationKo}</p>
                     </div>
                   ) : null}
                   <div>

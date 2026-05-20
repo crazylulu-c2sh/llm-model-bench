@@ -103,7 +103,7 @@ export function ScenarioGuideCards({
                     <summary className="cursor-pointer select-none font-semibold text-[var(--foreground)]">
                       합격 / 불합격 기준
                     </summary>
-                    <p className="mt-1.5 leading-relaxed text-[var(--muted)]">{meta.criteriaKo}</p>
+                    <p className="mt-1.5 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.criteriaKo}</p>
                   </details>
                 </>
               ) : (

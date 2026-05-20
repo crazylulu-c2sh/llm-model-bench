@@ -149,9 +149,17 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     criteriaKo:
       "한 줄 요약: 정답 텍스트 고정 없음(주관 채점) · LLM-as-Judge 필수 · judge 비활성 시 최대 rubric 1 (score 0.33, pass=false).\n\n" +
       "(a) 왜 judge가 필요한가: 한국어 자유 서술 응답이라 결정론 채점 불가, 풍자 의도 해석은 외부 모델에 위임한다.\n" +
-      "(b) 서버 prefilter (4종 모두 통과해야 judge로 진행): ① 한글 포함, ② 서버·데이터센터 단서(`서버`, `데이터센터`, `랙`, `server`, `datacenter`), ③ 당나귀·수레 단서(`당나귀`, `수레`, `짐마차`, `donkey`, `cart`), ④ 대비·기대·현실 단서(`대비`, `차이`, `기대`, `현실`, `약속`, `실제`, `promise`, `reality`, `expect`).\n" +
+      "(b) 서버 prefilter (4종 모두 통과해야 judge로 진행):\n" +
+      "  ① 한글 포함\n" +
+      "  ② 서버·데이터센터 단서 (`서버`, `데이터센터`, `랙`, `server`, `datacenter`)\n" +
+      "  ③ 당나귀·수레 단서 (`당나귀`, `수레`, `짐마차`, `donkey`, `cart`)\n" +
+      "  ④ 대비·기대·현실 단서 (`대비`, `차이`, `기대`, `현실`, `약속`, `실제`, `promise`, `reality`, `expect`)\n" +
       "(c) 켜는 방법: 환경변수 `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. 기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n" +
-      "(d) Judge 활성 시 rubric — **3**: 두 패널 텍스트 인용 + 시각 묘사(서버 랙 vs 당나귀 수레) + \"LLM 클라우드 약속 vs 로컬 PC 현실\" 풍자 의도 모두 정확. **2**: OCR/시각은 정확하나 기술 맥락(LLM/PC 연결) 약함. **1**: 묘사만 하고 *왜 웃긴지* 미설명. **0**: OCR 실패 / 무관한 설명.\n" +
+      "(d) Judge 활성 시 rubric:\n" +
+      "  • 3 = 두 패널 텍스트 인용 + 시각 묘사(서버 랙 vs 당나귀 수레) + \"LLM 클라우드 약속 vs 로컬 PC 현실\" 풍자 의도 모두 정확.\n" +
+      "  • 2 = OCR·시각은 정확하나 기술 맥락(LLM/PC 연결) 약함.\n" +
+      "  • 1 = 묘사만 하고 '왜 웃긴지' 미설명.\n" +
+      "  • 0 = OCR 실패 / 무관한 설명.\n" +
       "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo: "A는 상하 분할, B는 좌우 분할. prompt는 '두 패널'로 방향 무관.",
     toolsSummaryKo: "없음.",
@@ -164,9 +172,17 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     criteriaKo:
       "한 줄 요약: 정답 텍스트 고정 없음(주관 채점) · LLM-as-Judge 필수 · judge 비활성 시 최대 rubric 1 (score 0.33, pass=false).\n\n" +
       "(a) 왜 judge가 필요한가: 한국어 자유 서술 응답이라 결정론 채점 불가, 풍자 의도 해석은 외부 모델에 위임한다.\n" +
-      "(b) 서버 prefilter (4종 모두 통과해야 judge로 진행): ① 한글 포함, ② 서버·데이터센터 단서(`서버`, `데이터센터`, `랙`, `server`, `datacenter`), ③ 당나귀·수레 단서(`당나귀`, `수레`, `짐마차`, `donkey`, `cart`), ④ 대비·기대·현실 단서(`대비`, `차이`, `기대`, `현실`, `약속`, `실제`, `promise`, `reality`, `expect`).\n" +
+      "(b) 서버 prefilter (4종 모두 통과해야 judge로 진행):\n" +
+      "  ① 한글 포함\n" +
+      "  ② 서버·데이터센터 단서 (`서버`, `데이터센터`, `랙`, `server`, `datacenter`)\n" +
+      "  ③ 당나귀·수레 단서 (`당나귀`, `수레`, `짐마차`, `donkey`, `cart`)\n" +
+      "  ④ 대비·기대·현실 단서 (`대비`, `차이`, `기대`, `현실`, `약속`, `실제`, `promise`, `reality`, `expect`)\n" +
       "(c) 켜는 방법: 환경변수 `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. 기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n" +
-      "(d) Judge 활성 시 rubric — **3**: 두 패널 텍스트 인용 + 시각 묘사(서버 랙 vs 당나귀 수레) + \"LLM 클라우드 약속 vs 로컬 PC 현실\" 풍자 의도 모두 정확. **2**: OCR/시각은 정확하나 기술 맥락(LLM/PC 연결) 약함. **1**: 묘사만 하고 *왜 웃긴지* 미설명. **0**: OCR 실패 / 무관한 설명.\n" +
+      "(d) Judge 활성 시 rubric:\n" +
+      "  • 3 = 두 패널 텍스트 인용 + 시각 묘사(서버 랙 vs 당나귀 수레) + \"LLM 클라우드 약속 vs 로컬 PC 현실\" 풍자 의도 모두 정확.\n" +
+      "  • 2 = OCR·시각은 정확하나 기술 맥락(LLM/PC 연결) 약함.\n" +
+      "  • 1 = 묘사만 하고 '왜 웃긴지' 미설명.\n" +
+      "  • 0 = OCR 실패 / 무관한 설명.\n" +
       "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo: "B는 가로 분할(좌우). prompt가 방향을 명시하지 않아 두 변형이 같은 prompt를 공유.",
     toolsSummaryKo: "없음.",
@@ -179,9 +195,16 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     criteriaKo:
       "한 줄 요약: 정답 HTML 고정 없음(구조 일치 채점) · LLM-as-Judge 필수 · judge 비활성 시 최대 rubric 1 (score 0.33, pass=false).\n\n" +
       "(a) 왜 judge가 필요한가: HTML 텍스트가 다양해 결정론 비교 불가, 레이아웃·요소 재현은 judge가 시각 비교한다.\n" +
-      "(b) 서버 prefilter (모두 case-insensitive 통과해야 judge로 진행): ① ```` ```html ```` 펜스 또는 일반 ```` ``` ```` 코드 펜스 존재, ② 시맨틱 태그(`<header>`/`<nav>`/`<main>`/`<section>`/`<footer>`) 중 3개 이상, ③ 필수 단서 `Sign Up`, `Learn More`, `Feature` 모두 포함.\n" +
+      "(b) 서버 prefilter (모두 case-insensitive 통과해야 judge로 진행):\n" +
+      "  ① ```html``` 펜스 또는 일반 ``` 코드 펜스 존재\n" +
+      "  ② 시맨틱 태그(<header>·<nav>·<main>·<section>·<footer>) 중 3개 이상\n" +
+      "  ③ 필수 단서 `Sign Up`, `Learn More`, `Feature` 모두 포함\n" +
       "(c) 켜는 방법: `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. 기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n" +
-      "(d) Judge 활성 시 rubric — **3**: grid/flex 사용, 모든 라벨 섹션이 올바른 수직 순서, 라벨된 요소(버튼·내비·폼 필드) 모두 재현. **2**: 레이아웃 대체로 맞으나 정렬 어긋남 또는 1~2개 사소한 누락. **1**: 단일 컬럼으로 무너짐 OR 핵심 버튼/내비 누락. **0**: 코드 생성 거부 / 무관한 코드.\n" +
+      "(d) Judge 활성 시 rubric:\n" +
+      "  • 3 = grid/flex 사용, 모든 라벨 섹션이 올바른 수직 순서, 라벨된 요소(버튼·내비·폼 필드) 모두 재현.\n" +
+      "  • 2 = 레이아웃 대체로 맞으나 정렬 어긋남 또는 1~2개 사소한 누락.\n" +
+      "  • 1 = 단일 컬럼으로 무너짐 OR 핵심 버튼·내비 누락.\n" +
+      "  • 0 = 코드 생성 거부 / 무관한 코드.\n" +
       "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. 비전 미지원 모델 400은 `upstream_no_vision`으로 별도 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo: "A 와이어프레임: Header(Logo+Nav 5개), Hero(Sign Up+Learn More), Features Grid 3개, Testimonials, Footer 4열.",
     toolsSummaryKo: "없음.",
@@ -194,9 +217,16 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     criteriaKo:
       "한 줄 요약: 정답 HTML 고정 없음(구조 일치 채점) · LLM-as-Judge 필수 · judge 비활성 시 최대 rubric 1 (score 0.33, pass=false).\n\n" +
       "(a) 왜 judge가 필요한가: HTML 텍스트가 다양해 결정론 비교 불가, 레이아웃·요소 재현은 judge가 시각 비교한다.\n" +
-      "(b) 서버 prefilter (모두 case-insensitive 통과해야 judge로 진행): ① ```` ```html ```` 펜스 또는 일반 ```` ``` ```` 코드 펜스 존재, ② 시맨틱 태그(`<header>`/`<nav>`/`<main>`/`<section>`/`<footer>`) 중 3개 이상, ③ 필수 단서 `Get Started`, `Learn More`, `Feature title` 모두 포함.\n" +
+      "(b) 서버 prefilter (모두 case-insensitive 통과해야 judge로 진행):\n" +
+      "  ① ```html``` 펜스 또는 일반 ``` 코드 펜스 존재\n" +
+      "  ② 시맨틱 태그(<header>·<nav>·<main>·<section>·<footer>) 중 3개 이상\n" +
+      "  ③ 필수 단서 `Get Started`, `Learn More`, `Feature title` 모두 포함\n" +
       "(c) 켜는 방법: `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. 기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n" +
-      "(d) Judge 활성 시 rubric — **3**: grid/flex 사용, 모든 라벨 섹션이 올바른 수직 순서, 라벨된 요소(버튼·내비·폼 필드) 모두 재현. **2**: 레이아웃 대체로 맞으나 정렬 어긋남 또는 1~2개 사소한 누락. **1**: 단일 컬럼으로 무너짐 OR 핵심 버튼/내비 누락. **0**: 코드 생성 거부 / 무관한 코드.\n" +
+      "(d) Judge 활성 시 rubric:\n" +
+      "  • 3 = grid/flex 사용, 모든 라벨 섹션이 올바른 수직 순서, 라벨된 요소(버튼·내비·폼 필드) 모두 재현.\n" +
+      "  • 2 = 레이아웃 대체로 맞으나 정렬 어긋남 또는 1~2개 사소한 누락.\n" +
+      "  • 1 = 단일 컬럼으로 무너짐 OR 핵심 버튼·내비 누락.\n" +
+      "  • 0 = 코드 생성 거부 / 무관한 코드.\n" +
       "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. 비전 미지원 모델 400은 `upstream_no_vision`으로 별도 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo: "B 와이어프레임: Header(Logo+Nav 4개), Hero(Get Started + Hero Image/Video), Features Grid 3개, Testimonials 2개, Footer 3열.",
     toolsSummaryKo: "없음.",
