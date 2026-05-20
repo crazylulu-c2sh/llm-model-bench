@@ -360,6 +360,30 @@ export function rubricToScore(n: 0 | 1 | 2 | 3): { score: number; pass: boolean 
   return { score: 0, pass: false };
 }
 
+/**
+ * `rubricToScore`의 역함수 — 비전 시나리오의 score(0/0.33/0.67/1)로부터 루브릭 0~3 복원.
+ * 부동소수점 오차 허용을 위해 ±0.02 tolerance로 가장 가까운 단계를 선택.
+ * 입력 범위 밖이거나 NaN이면 null. UI 표시(`ResultsTable`, `ScenarioDetailDrawer`)에서 사용.
+ */
+export function scoreToRubric(score: number | null | undefined): 0 | 1 | 2 | 3 | null {
+  if (score == null || !Number.isFinite(score)) return null;
+  if (score < 0 || score > 1) return null;
+  const targets: Array<{ rubric: 0 | 1 | 2 | 3; value: number }> = [
+    { rubric: 0, value: 0 },
+    { rubric: 1, value: 0.33 },
+    { rubric: 2, value: 0.67 },
+    { rubric: 3, value: 1 },
+  ];
+  let best: { rubric: 0 | 1 | 2 | 3; diff: number } | null = null;
+  for (const t of targets) {
+    const diff = Math.abs(score - t.value);
+    if (best == null || diff < best.diff) best = { rubric: t.rubric, diff };
+  }
+  // ±0.05 안에 들지 않으면 보수적으로 null 반환 — 모르는 스케일은 표시 안 함.
+  if (!best || best.diff > 0.05) return null;
+  return best.rubric;
+}
+
 /** 비전 시나리오별 기본 max_tokens. 텍스트는 별도 정책. */
 export function defaultMaxTokensForVisionScenario(id: string): number | null {
   if (id === "vision_wireframe_html_a" || id === "vision_wireframe_html_b") return 4096;
