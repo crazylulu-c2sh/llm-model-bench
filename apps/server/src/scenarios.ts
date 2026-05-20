@@ -2,11 +2,20 @@ import {
   ALL_SCENARIO_IDS as SHARED_ALL_SCENARIO_IDS,
   getScenarioSystemPromptPreview,
   getScenarioUserPromptPreview,
+  isVisionScenario,
+  rubricToScore,
   stripThinkingBlocks,
   type ScenarioId,
 } from "@llm-bench/shared";
 import { z } from "zod";
 import { resolvePublicAssetsOrigin } from "./tooling/bench-tools.js";
+import {
+  extractFirstJsonObject,
+  normalizeProduct,
+  normalizeQuarter,
+  parseSignedPercent,
+} from "./scoring/normalize.js";
+import { buildImagePart } from "./vision-assets.js";
 
 export type { ScenarioId };
 export const ALL_SCENARIO_IDS = SHARED_ALL_SCENARIO_IDS;
@@ -136,30 +145,50 @@ export function scenarioSystemMessageContent(id: ScenarioId): string {
   return getScenarioSystemPromptPreview(id);
 }
 
+export type OpenAiContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+export type OpenAiMessage = {
+  role: "system" | "user" | "assistant" | "tool";
+  content?: string | OpenAiContentPart[] | null;
+  tool_calls?: unknown;
+  tool_call_id?: string;
+};
+
 export function buildMessages(
   id: ScenarioId,
   ctx?: ScenarioPromptContext,
 ): {
-  messages: { role: "system" | "user" | "assistant" | "tool"; content?: string | null; tool_calls?: unknown; tool_call_id?: string }[];
+  messages: OpenAiMessage[];
   tools?: unknown;
   tool_choice?: unknown;
 } {
   const systemContent = scenarioSystemMessageContent(id);
-  const userContent = scenarioUserMessageContent(id, ctx);
-  const messages: { role: "system" | "user"; content: string }[] = [
-    { role: "system", content: systemContent },
-    { role: "user", content: userContent },
-  ];
+  const userTextContent = scenarioUserMessageContent(id, ctx);
+
+  const messages: OpenAiMessage[] = [{ role: "system", content: systemContent }];
+
+  if (isVisionScenario(id)) {
+    const origin = ctx?.publicAssetsOrigin?.trim()
+      ? ctx.publicAssetsOrigin.trim()
+      : resolvePublicAssetsOrigin({ publicAssetsOrigin: ctx?.publicAssetsOrigin });
+    const imagePart = buildImagePart(id, origin, "openai");
+    messages.push({
+      role: "user",
+      content: [
+        { type: "text", text: userTextContent },
+        imagePart,
+      ],
+    });
+  } else {
+    messages.push({ role: "user", content: userTextContent });
+  }
 
   const tools = openAiToolsForScenario(id);
   if (tools) {
-    return {
-      messages,
-      tools: [...tools],
-      tool_choice: "auto",
-    };
+    return { messages, tools: [...tools], tool_choice: "auto" };
   }
-
   return { messages };
 }
 
@@ -374,24 +403,203 @@ export function scoreScenario(
         return { pass: false, reason: String(e) };
       }
     }
+    case "vision_table_ocr_a":
+      return scoreVisionTableOcr(output, { net_income_2024: 2373.9, net_income_yoy_percent: 11.3 });
+    case "vision_table_ocr_b":
+      return scoreVisionTableOcr(output, { net_income_2024: 410.55, net_income_yoy_percent: 20.7 });
+    case "vision_count_red_cars_a":
+      return scoreVisionCountRedCars(output, [31, 37]);
+    case "vision_count_red_cars_b":
+      return scoreVisionCountRedCars(output, [40, 48]);
+    case "vision_chart_peak_a":
+      return scoreVisionChartPeak(output, { product: "C", quarter: "Q2 2024", value_percent: 45.8 });
+    case "vision_chart_peak_b":
+      return scoreVisionChartPeak(output, { product: "C", quarter: "Q2 2024", value_percent: 62.4 });
+    case "vision_meme_explain_a":
+    case "vision_meme_explain_b":
+      return scoreVisionMemeExplain(output);
+    case "vision_wireframe_html_a":
+      return scoreVisionWireframe(output, ["sign up", "learn more", "feature"]);
+    case "vision_wireframe_html_b":
+      return scoreVisionWireframe(output, ["get started", "learn more", "feature title"]);
     default:
       return { pass: false, reason: "unknown scenario" };
   }
 }
+
+function rubricResult(
+  rubric: 0 | 1 | 2 | 3,
+  reason: string,
+): { pass: boolean; score: number; reason: string } {
+  const { pass, score } = rubricToScore(rubric);
+  return { pass, score, reason: `rubric=${rubric} | ${reason}` };
+}
+
+function scoreVisionTableOcr(
+  output: string,
+  expected: { net_income_2024: number; net_income_yoy_percent: number },
+): { pass: boolean; score: number; reason: string } {
+  const objStr = extractFirstJsonObject(output);
+  if (!objStr) return rubricResult(0, "no json object");
+  let obj: { net_income_2024?: unknown; net_income_yoy_percent?: unknown };
+  try {
+    obj = JSON.parse(objStr);
+  } catch (e) {
+    return rubricResult(0, `json parse failed: ${String(e).slice(0, 80)}`);
+  }
+  const value = parseSignedPercent(obj.net_income_2024 as string | number | null | undefined);
+  const yoy = parseSignedPercent(obj.net_income_yoy_percent as string | number | null | undefined);
+  if (value == null || yoy == null) return rubricResult(0, "missing keys");
+  const valueOk = Math.abs(value - expected.net_income_2024) / Math.abs(expected.net_income_2024) <= 0.02;
+  const yoyOk = Math.abs(yoy - expected.net_income_yoy_percent) <= 0.5;
+  if (valueOk && yoyOk)
+    return rubricResult(3, `value=${value} yoy=${yoy}`);
+  if (valueOk || yoyOk)
+    return rubricResult(2, `value=${value} yoy=${yoy} (one-side)`);
+  return rubricResult(1, `value=${value} yoy=${yoy} (both off)`);
+}
+
+function scoreVisionCountRedCars(
+  output: string,
+  range: [number, number],
+): { pass: boolean; score: number; reason: string } {
+  const objStr = extractFirstJsonObject(output);
+  if (!objStr) return rubricResult(0, "no json object");
+  let obj: { red_cars?: unknown };
+  try {
+    obj = JSON.parse(objStr);
+  } catch (e) {
+    return rubricResult(0, `json parse failed: ${String(e).slice(0, 80)}`);
+  }
+  const raw = obj.red_cars;
+  const n =
+    typeof raw === "number" && Number.isFinite(raw)
+      ? Math.trunc(raw)
+      : typeof raw === "string"
+        ? Math.trunc(Number(raw))
+        : null;
+  if (n == null || !Number.isFinite(n)) return rubricResult(0, "missing or invalid red_cars");
+  if (n === 0) return rubricResult(0, "red_cars=0 (explicit zero)");
+  if (n >= 100) return rubricResult(0, `red_cars=${n} (excessive hallucination)`);
+  const [lo, hi] = range;
+  if (n >= lo && n <= hi) return rubricResult(3, `predicted=${n} range=[${lo},${hi}]`);
+  if (n >= lo - 3 && n <= hi + 3) return rubricResult(2, `predicted=${n} range=[${lo},${hi}]`);
+  if (n >= lo - 5 && n <= hi + 5) return rubricResult(1, `predicted=${n} range=[${lo},${hi}]`);
+  return rubricResult(0, `predicted=${n} range=[${lo},${hi}]`);
+}
+
+function scoreVisionChartPeak(
+  output: string,
+  expected: { product: string; quarter: string; value_percent: number },
+): { pass: boolean; score: number; reason: string } {
+  const objStr = extractFirstJsonObject(output);
+  if (!objStr) return rubricResult(0, "no json object");
+  let obj: { product?: unknown; quarter?: unknown; value_percent?: unknown };
+  try {
+    obj = JSON.parse(objStr);
+  } catch (e) {
+    return rubricResult(0, `json parse failed: ${String(e).slice(0, 80)}`);
+  }
+  const product = normalizeProduct(obj.product as string | null | undefined);
+  const quarter = normalizeQuarter(obj.quarter as string | null | undefined);
+  const value = parseSignedPercent(obj.value_percent as string | number | null | undefined);
+  if (product == null || quarter == null || value == null)
+    return rubricResult(0, "missing keys");
+  const productOk = product === expected.product;
+  const quarterOk = quarter === expected.quarter;
+  const valueOk = Math.abs(value - expected.value_percent) <= 1.5;
+  const passes = [productOk, quarterOk, valueOk].filter(Boolean).length;
+  const tag = `product=${product}(${productOk}) quarter=${quarter}(${quarterOk}) value=${value}(${valueOk})`;
+  if (passes === 3) return rubricResult(3, tag);
+  if (passes === 2) return rubricResult(2, tag);
+  if (passes === 1) return rubricResult(1, tag);
+  return rubricResult(0, tag);
+}
+
+function scoreVisionMemeExplain(output: string): { pass: boolean; score: number; reason: string } {
+  const text = stripThinkingBlocks(output);
+  const hasHangul = /[가-힣]/.test(text);
+  const lowered = text.toLowerCase();
+  const hasServer = /서버|데이터센터|랙|server|datacenter|data center/i.test(text);
+  const hasDonkey = /당나귀|수레|짐마차|donkey|cart/i.test(text);
+  const hasContrast = /대비|차이|기대|현실|약속|실제|promise|reality|expect|expectation/i.test(text);
+  void lowered;
+  const passed = [hasHangul, hasServer, hasDonkey, hasContrast].filter(Boolean).length;
+  if (passed < 4) {
+    return rubricResult(
+      0,
+      `prefilter fail: hangul=${hasHangul} server=${hasServer} donkey=${hasDonkey} contrast=${hasContrast}`,
+    );
+  }
+  // 모든 prefilter 통과 → 잠정 1점(judge_pending). bench-runner가 judge로 덮어쓴다.
+  return rubricResult(
+    1,
+    "judge_pending: prefilter passed — set LLM_JUDGE_ENABLED=1 for rubric judging",
+  );
+}
+
+function scoreVisionWireframe(
+  output: string,
+  requiredCues: string[],
+): { pass: boolean; score: number; reason: string } {
+  const stripped = stripThinkingBlocks(output);
+  const fenceMatch = stripped.match(/```html\s*([\s\S]*?)```/i) ?? stripped.match(/```\s*([\s\S]*?)```/);
+  if (!fenceMatch) return rubricResult(0, "no html fence");
+  const html = fenceMatch[1];
+  const htmlLc = html.toLowerCase();
+  const semantics = ["<header", "<nav", "<main", "<section", "<footer"].filter((t) => htmlLc.includes(t));
+  if (semantics.length < 3) return rubricResult(0, `semantic tags ${semantics.length}/3`);
+  const missing = requiredCues.filter((cue) => !htmlLc.includes(cue.toLowerCase()));
+  if (missing.length > 0) return rubricResult(0, `missing cues: ${missing.join(", ")}`);
+  return rubricResult(
+    1,
+    "judge_pending: prefilter passed — set LLM_JUDGE_ENABLED=1 for rubric judging",
+  );
+}
+
+export type AnthropicContentPart =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      source:
+        | { type: "base64"; media_type: "image/webp"; data: string }
+        | { type: "url"; url: string };
+    };
+
+export type AnthropicUserAssistantMessage = {
+  role: "user" | "assistant";
+  content: string | AnthropicContentPart[];
+};
 
 export function anthropicMessagesForScenario(
   id: ScenarioId,
   ctx?: ScenarioPromptContext,
 ): {
   system?: string;
-  messages: { role: "user" | "assistant"; content: string }[];
+  messages: AnthropicUserAssistantMessage[];
 } {
-  const { messages, tools } = buildMessages(id, ctx);
-  void tools;
-  const sys = messages.find((m) => m.role === "system");
-  const rest = messages.filter((m) => m.role !== "system") as { role: "user" | "assistant"; content: string }[];
+  const systemContent = scenarioSystemMessageContent(id);
+  const userText = scenarioUserMessageContent(id, ctx);
+  if (!isVisionScenario(id)) {
+    return {
+      system: systemContent,
+      messages: [{ role: "user", content: userText }],
+    };
+  }
+  const origin = ctx?.publicAssetsOrigin?.trim()
+    ? ctx.publicAssetsOrigin.trim()
+    : resolvePublicAssetsOrigin({ publicAssetsOrigin: ctx?.publicAssetsOrigin });
+  const imagePart = buildImagePart(id, origin, "anthropic");
   return {
-    system: typeof sys?.content === "string" ? sys.content : undefined,
-    messages: rest.length ? rest : [{ role: "user", content: "ping" }],
+    system: systemContent,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: userText },
+          imagePart,
+        ],
+      },
+    ],
   };
 }
