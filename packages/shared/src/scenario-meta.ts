@@ -79,9 +79,10 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
   vision_table_ocr_a: {
     purposeKo: "복잡한 재무 표 이미지에서 'Net Income' 행의 2024 Actual 값과 YoY 변화율을 정확히 추출하는지 평가합니다 (ChatGPT 생성 이미지).",
     criteriaKo:
-      "JSON 객체 {net_income_2024, net_income_yoy_percent}로 출력해야 합니다. 2% 상대오차 / 0.5%p 절대오차 안에 들면 만점(3점). 한 항목만 맞으면 부분 점수(2점). pass는 score ≥ 0.67(루브릭 2점) 기준입니다.",
+      "정답: 'Net Income' 행의 2024 Actual = 2373.9, YoY = 11.3%. " +
+      "채점: JSON `{net_income_2024, net_income_yoy_percent}` 출력. 두 키 모두 통과(값 2% 상대오차 / YoY 0.5%p 절대오차)면 rubric 3, 한쪽만 통과면 2, 둘 다 오차 밖이지만 파싱 OK면 1, JSON 파싱 실패 / 키 누락 / 거부 응답이면 0. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo:
-      "이미지에 'Net Income'과 'Net Income Attributable to Shareholders' 두 행이 별도 존재합니다 — 프롬프트는 정확한 'Net Income' 행을 요구합니다. 정답: 2024 Actual 2373.9, YoY 11.3%.",
+      "이미지에 'Net Income'과 'Net Income Attributable to Shareholders' 두 행이 별도 존재합니다 — 프롬프트는 정확한 'Net Income' 행을 요구합니다(case-insensitive 매칭 허용).",
     toolsSummaryKo: "없음. 이미지 1장이 user 메시지에 image_url(또는 base64) 파트로 포함됩니다.",
     routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
     implementationKo:
@@ -90,89 +91,118 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
   vision_table_ocr_b: {
     purposeKo: "복잡한 재무 표 이미지에서 'NET INCOME' 행의 2024 Actual 값과 YoY 변화율을 정확히 추출하는지 평가합니다 (Gemini 생성 이미지).",
     criteriaKo:
-      "JSON {net_income_2024, net_income_yoy_percent}. 2% 상대오차 / 0.5%p 절대오차. 동일 채점 로직(`vision_table_ocr_a` 참고).",
+      "정답: 'NET INCOME' 행의 2024 Actual = 410.55, YoY = +20.7%. " +
+      "채점: JSON `{net_income_2024, net_income_yoy_percent}` 출력. 두 키 모두 통과(값 2% 상대오차 / YoY 0.5%p 절대오차)면 rubric 3, 한쪽만 통과면 2, 둘 다 오차 밖이지만 파싱 OK면 1, JSON 파싱 실패 / 키 누락 / 거부 응답이면 0. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo:
-      "B 이미지는 AI 생성 아티팩트로 COGS·R&D·OPERATING INCOME 등 여러 행이 동일 숫자(410.55/+20.7%)를 공유합니다. v1 채점은 숫자만 보므로 *행 식별 실패*와 *정확 식별*을 구분하지 못합니다. 정답: 2024 Actual 410.55, YoY 20.7%.",
-    toolsSummaryKo: "없음.",
-    routesKo: "`vision_table_ocr_a`와 동일.",
-    implementationKo: "`vision_table_ocr_a`와 동일.",
+      "B 이미지는 AI 생성 아티팩트로 COGS·R&D·OPERATING INCOME 등 여러 행이 동일 숫자(410.55/+20.7%)를 공유합니다. v1 채점은 숫자만 보므로 *행 식별 실패*와 *정확 식별*을 구분하지 못합니다.",
+    toolsSummaryKo: "없음. 이미지 1장이 user 메시지에 image_url(또는 base64) 파트로 포함됩니다.",
+    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
+    implementationKo:
+      "서버가 응답에서 첫 JSON 객체를 추출 → 두 키 모두 number로 정규화(콤마·$·% strip) → 오차 검사. 루브릭 0~3을 score 0~1로 매핑.",
   },
   vision_count_red_cars_a: {
     purposeKo: "밀집된 항공 주차장 사진에서 빨간색 차량 수를 정확히 카운팅하는지 평가합니다 (ChatGPT 생성 이미지).",
     criteriaKo:
-      "JSON {red_cars: <integer>}. 인간 카운트 범위 [31, 37]에 들면 3점, ±3대 2점, ±5대 1점, 그 외 0점. pass는 score ≥ 0.67. JSON 키 누락 또는 거부 응답은 0점.",
+      "정답 범위: 31~37대 (사람이 직접 카운트). " +
+      "채점: JSON `{red_cars: <integer>}` 출력. 범위 안이면 rubric 3, ±3대면 2, ±5대면 1, 그 외 / `red_cars = 0` / 100 이상 환각 / JSON 키 누락 / 거부 응답이면 0. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo:
-      "사람이 직접 카운트한 범위가 ground truth입니다. 생성 모델 프롬프트는 '대략 15~20대'를 요구했지만 실제로는 두 이미지 모두 30대+ — 모델이 프롬프트 사양을 기억해서 답하면 0점으로 떨어집니다(이미지 인식 vs 사전지식 변별 신호).",
+      "사람이 직접 카운트한 범위가 ground truth. 생성 모델 프롬프트는 '대략 15~20대'를 요구했지만 실제로는 두 이미지 모두 30대+ — 모델이 프롬프트 사양을 기억해서 답하면 0점으로 떨어집니다(이미지 인식 vs 사전지식 변별 신호).",
     toolsSummaryKo: "없음.",
-    routesKo: "비전 모델: OpenAI / Anthropic 양쪽.",
-    implementationKo: "JSON 첫 객체 → red_cars 정수 → 범위 단계 비교(루브릭 0~3 → score).",
+    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
+    implementationKo: "서버가 응답에서 첫 JSON 객체를 추출 → red_cars 정수 변환 → 범위 단계 비교. 루브릭 0~3을 score 0~1로 매핑.",
   },
   vision_count_red_cars_b: {
     purposeKo: "밀집된 항공 주차장 사진에서 빨간색 차량 수를 정확히 카운팅하는지 평가합니다 (Gemini 생성 이미지).",
     criteriaKo:
-      "JSON {red_cars: <integer>}. 인간 카운트 범위 [40, 48]에 들면 3점, ±3대 2점, ±5대 1점, 그 외 0점.",
+      "정답 범위: 40~48대 (사람이 직접 카운트). " +
+      "채점: JSON `{red_cars: <integer>}` 출력. 범위 안이면 rubric 3, ±3대면 2, ±5대면 1, 그 외 / `red_cars = 0` / 100 이상 환각 / JSON 키 누락 / 거부 응답이면 0. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo:
-      "사람이 직접 카운트한 범위 [40, 48]가 ground truth. Gemini가 자체 이미지를 16/18~22로 자체 평가했지만 인간 카운트와 크게 어긋남 — 사용자 수동 카운트의 중요성을 입증.",
+      "Gemini가 자체 이미지를 16/18~22로 자체 평가했지만 인간 카운트와 크게 어긋남 — 사용자 수동 카운트의 중요성을 입증.",
     toolsSummaryKo: "없음.",
-    routesKo: "`vision_count_red_cars_a`와 동일.",
-    implementationKo: "`vision_count_red_cars_a`와 동일.",
+    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
+    implementationKo: "서버가 응답에서 첫 JSON 객체를 추출 → red_cars 정수 변환 → 범위 단계 비교. 루브릭 0~3을 score 0~1로 매핑.",
   },
   vision_chart_peak_a: {
     purposeKo: "다중 라인 차트에서 전체 최고점의 제품·분기·값을 추출하는지 평가합니다 (ChatGPT 생성 이미지).",
     criteriaKo:
-      "JSON {product, quarter, value_percent}. 세 조건 모두 통과 시 3점, 두 개 2점, 한 개 1점, 모두 실패/파싱 실패 0점. value는 ±1.5%p 허용.",
+      "정답: product = \"C\", quarter = \"Q2 2024\", value_percent = 45.8. " +
+      "채점: JSON `{product, quarter, value_percent}` 출력. 세 조건 모두 통과면 rubric 3, 두 개면 2, 한 개면 1, 모두 실패 / JSON 파싱 실패 / 키 누락이면 0. value_percent는 ±1.5%p 허용. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo:
-      "A 이미지에는 'Peak Comparison (Q2 2024): Product C: 45.8%, Product A: 45.2%' 콜아웃 박스가 직접 적혀 있어 모델이 그래프 추론 없이 박스 텍스트 OCR만으로 만점 가능 — 순수 차트 해석과 텍스트 인식이 구분되지 않습니다. 정답: C / Q2 2024 / 45.8%.",
+      "A 이미지에는 'Peak Comparison (Q2 2024): Product C: 45.8%, Product A: 45.2%' 콜아웃 박스가 직접 적혀 있어 모델이 그래프 추론 없이 박스 텍스트 OCR만으로 만점 가능 — 순수 차트 해석과 텍스트 인식이 구분되지 않습니다.",
     toolsSummaryKo: "없음.",
-    routesKo: "비전 모델: OpenAI / Anthropic 양쪽.",
-    implementationKo: "JSON 첫 객체 → product/quarter 정규화 후 exact 매칭, value_percent는 parseSignedPercent로 number 통일.",
+    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
+    implementationKo: "서버가 응답에서 첫 JSON 객체를 추출 → product/quarter는 정규화(trim·대문자·`Q2 2024`/`Q2'24`/`2024 Q2` canonicalize) 후 exact 매칭, value_percent는 parseSignedPercent로 number 통일. 루브릭 0~3을 score 0~1로 매핑.",
   },
   vision_chart_peak_b: {
     purposeKo: "다중 라인 차트에서 전체 최고점의 제품·분기·값을 추출하는지 평가합니다 (Gemini 생성 이미지).",
     criteriaKo:
-      "JSON {product, quarter, value_percent}. 채점 단계는 `vision_chart_peak_a`와 동일.",
+      "정답: product = \"C\", quarter = \"Q2 2024\", value_percent = 62.4. " +
+      "채점: JSON `{product, quarter, value_percent}` 출력. 세 조건 모두 통과면 rubric 3, 두 개면 2, 한 개면 1, 모두 실패 / JSON 파싱 실패 / 키 누락이면 0. value_percent는 ±1.5%p 허용. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo:
-      "정답: C / Q2 2024 / 62.4% (커서·Gemini 두 독립 리뷰가 모두 62.4 확정). Product A 최고는 Q3 2024 61.1%.",
+      "참고: Product A 최고는 Q3 2024 / 61.1% (피크 비교 시 혼동 주의). 정답 62.4는 커서·Gemini 두 독립 리뷰가 모두 확정.",
     toolsSummaryKo: "없음.",
-    routesKo: "`vision_chart_peak_a`와 동일.",
-    implementationKo: "`vision_chart_peak_a`와 동일.",
+    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
+    implementationKo: "서버가 응답에서 첫 JSON 객체를 추출 → product/quarter는 정규화(trim·대문자·`Q2 2024`/`Q2'24`/`2024 Q2` canonicalize) 후 exact 매칭, value_percent는 parseSignedPercent로 number 통일. 루브릭 0~3을 score 0~1로 매핑.",
   },
   vision_meme_explain_a: {
     purposeKo: "두 패널 밈의 시각적 대비와 풍자 의도를 한국어로 정확히 설명하는지 평가합니다 (ChatGPT 생성 이미지).",
     criteriaKo:
-      "한국어로 3~5문장. prefilter는 한글 + 서버/데이터센터 단서 + 당나귀/수레 단서 + 대비/기대/현실 키워드 모두 통과 시 진행. 환경변수 LLM_JUDGE_ENABLED=1이 아니면 키워드 prefilter만 적용되어 최대 1점(pass=false)으로 기록됩니다 — 본격 비교는 judge 활성 필수.",
+      "한 줄 요약: 정답 텍스트 고정 없음(주관 채점) · LLM-as-Judge 필수 · judge 비활성 시 최대 rubric 1 (score 0.33, pass=false).\n\n" +
+      "(a) 왜 judge가 필요한가: 한국어 자유 서술 응답이라 결정론 채점 불가, 풍자 의도 해석은 외부 모델에 위임한다.\n" +
+      "(b) 서버 prefilter (4종 모두 통과해야 judge로 진행): ① 한글 포함, ② 서버·데이터센터 단서(`서버`, `데이터센터`, `랙`, `server`, `datacenter`), ③ 당나귀·수레 단서(`당나귀`, `수레`, `짐마차`, `donkey`, `cart`), ④ 대비·기대·현실 단서(`대비`, `차이`, `기대`, `현실`, `약속`, `실제`, `promise`, `reality`, `expect`).\n" +
+      "(c) 켜는 방법: 환경변수 `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. 기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n" +
+      "(d) Judge 활성 시 rubric — **3**: 두 패널 텍스트 인용 + 시각 묘사(서버 랙 vs 당나귀 수레) + \"LLM 클라우드 약속 vs 로컬 PC 현실\" 풍자 의도 모두 정확. **2**: OCR/시각은 정확하나 기술 맥락(LLM/PC 연결) 약함. **1**: 묘사만 하고 *왜 웃긴지* 미설명. **0**: OCR 실패 / 무관한 설명.\n" +
+      "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo: "A는 상하 분할, B는 좌우 분할. prompt는 '두 패널'로 방향 무관.",
     toolsSummaryKo: "없음.",
-    routesKo: "비전 모델: OpenAI / Anthropic 양쪽.",
+    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
     implementationKo:
-      "scoreScenario는 prefilter만(rubric 0~1). LLM_JUDGE_ENABLED=1일 때 bench-runner가 judge를 await해서 0~3 rubric으로 덮어씁니다. judge 실패(timeout/parse/network)는 rubric 0.",
+      "scoreScenario는 prefilter + 잠정 rubric 1만 산출(내부 `judge_pending` 플래그). bench-runner가 judge enable + prefilter 통과 시 Claude Opus 4.7 호출 후 0~3 rubric으로 덮어쓴다. judge 실패는 rubric 0. emit 직전 `judge_pending` 플래그는 SSE/DB에서 제거.",
   },
   vision_meme_explain_b: {
     purposeKo: "두 패널 밈의 시각적 대비와 풍자 의도를 한국어로 정확히 설명하는지 평가합니다 (Gemini 생성 이미지).",
-    criteriaKo: "`vision_meme_explain_a`와 동일. judge off는 최대 1점.",
+    criteriaKo:
+      "한 줄 요약: 정답 텍스트 고정 없음(주관 채점) · LLM-as-Judge 필수 · judge 비활성 시 최대 rubric 1 (score 0.33, pass=false).\n\n" +
+      "(a) 왜 judge가 필요한가: 한국어 자유 서술 응답이라 결정론 채점 불가, 풍자 의도 해석은 외부 모델에 위임한다.\n" +
+      "(b) 서버 prefilter (4종 모두 통과해야 judge로 진행): ① 한글 포함, ② 서버·데이터센터 단서(`서버`, `데이터센터`, `랙`, `server`, `datacenter`), ③ 당나귀·수레 단서(`당나귀`, `수레`, `짐마차`, `donkey`, `cart`), ④ 대비·기대·현실 단서(`대비`, `차이`, `기대`, `현실`, `약속`, `실제`, `promise`, `reality`, `expect`).\n" +
+      "(c) 켜는 방법: 환경변수 `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. 기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n" +
+      "(d) Judge 활성 시 rubric — **3**: 두 패널 텍스트 인용 + 시각 묘사(서버 랙 vs 당나귀 수레) + \"LLM 클라우드 약속 vs 로컬 PC 현실\" 풍자 의도 모두 정확. **2**: OCR/시각은 정확하나 기술 맥락(LLM/PC 연결) 약함. **1**: 묘사만 하고 *왜 웃긴지* 미설명. **0**: OCR 실패 / 무관한 설명.\n" +
+      "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo: "B는 가로 분할(좌우). prompt가 방향을 명시하지 않아 두 변형이 같은 prompt를 공유.",
     toolsSummaryKo: "없음.",
-    routesKo: "`vision_meme_explain_a`와 동일.",
-    implementationKo: "`vision_meme_explain_a`와 동일.",
+    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
+    implementationKo:
+      "scoreScenario는 prefilter + 잠정 rubric 1만 산출(내부 `judge_pending` 플래그). bench-runner가 judge enable + prefilter 통과 시 Claude Opus 4.7 호출 후 0~3 rubric으로 덮어쓴다. judge 실패는 rubric 0. emit 직전 `judge_pending` 플래그는 SSE/DB에서 제거.",
   },
   vision_wireframe_html_a: {
     purposeKo: "손그림 와이어프레임 이미지를 시맨틱 HTML5 + Tailwind로 재구성하는지 평가합니다 (ChatGPT 생성 이미지).",
     criteriaKo:
-      "```html``` 펜스 + 시맨틱 태그 3개 이상 + 단서(Sign Up, Learn More, Feature) 모두 substring 매칭(case-insensitive). prefilter 통과 후 judge가 0~3 평가. LLM_JUDGE_ENABLED=1이 아니면 최대 1점(pass=false). 비전 미지원 모델은 본 시나리오에서 400/거부를 받을 수 있으며 결과는 0점으로 기록됩니다.",
+      "한 줄 요약: 정답 HTML 고정 없음(구조 일치 채점) · LLM-as-Judge 필수 · judge 비활성 시 최대 rubric 1 (score 0.33, pass=false).\n\n" +
+      "(a) 왜 judge가 필요한가: HTML 텍스트가 다양해 결정론 비교 불가, 레이아웃·요소 재현은 judge가 시각 비교한다.\n" +
+      "(b) 서버 prefilter (모두 case-insensitive 통과해야 judge로 진행): ① ```` ```html ```` 펜스 또는 일반 ```` ``` ```` 코드 펜스 존재, ② 시맨틱 태그(`<header>`/`<nav>`/`<main>`/`<section>`/`<footer>`) 중 3개 이상, ③ 필수 단서 `Sign Up`, `Learn More`, `Feature` 모두 포함.\n" +
+      "(c) 켜는 방법: `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. 기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n" +
+      "(d) Judge 활성 시 rubric — **3**: grid/flex 사용, 모든 라벨 섹션이 올바른 수직 순서, 라벨된 요소(버튼·내비·폼 필드) 모두 재현. **2**: 레이아웃 대체로 맞으나 정렬 어긋남 또는 1~2개 사소한 누락. **1**: 단일 컬럼으로 무너짐 OR 핵심 버튼/내비 누락. **0**: 코드 생성 거부 / 무관한 코드.\n" +
+      "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. 비전 미지원 모델 400은 `upstream_no_vision`으로 별도 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo: "A 와이어프레임: Header(Logo+Nav 5개), Hero(Sign Up+Learn More), Features Grid 3개, Testimonials, Footer 4열.",
     toolsSummaryKo: "없음.",
-    routesKo: "비전 모델: OpenAI / Anthropic 양쪽. 기본 max_tokens 4096(긴 HTML 출력).",
+    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인. 기본 max_tokens 4096(긴 HTML 출력).",
     implementationKo:
-      "scoreScenario: 펜스 추출 + substring 매칭(prefilter, case-insensitive). LLM_JUDGE_ENABLED=1이면 judge가 0~3 rubric을 반환해 덮어씀.",
+      "scoreScenario: 펜스 추출 + substring 매칭(prefilter, case-insensitive) + 잠정 rubric 1(`judge_pending` 플래그). bench-runner가 judge enable + prefilter 통과 시 Claude Opus 4.7 호출 후 0~3 rubric으로 덮어쓴다. judge 실패는 rubric 0.",
   },
   vision_wireframe_html_b: {
     purposeKo: "손그림 와이어프레임 이미지를 시맨틱 HTML5 + Tailwind로 재구성하는지 평가합니다 (Gemini 생성 이미지).",
     criteriaKo:
-      "`vision_wireframe_html_a`와 동일하되 단서는 Get Started / Learn More / Feature title.",
+      "한 줄 요약: 정답 HTML 고정 없음(구조 일치 채점) · LLM-as-Judge 필수 · judge 비활성 시 최대 rubric 1 (score 0.33, pass=false).\n\n" +
+      "(a) 왜 judge가 필요한가: HTML 텍스트가 다양해 결정론 비교 불가, 레이아웃·요소 재현은 judge가 시각 비교한다.\n" +
+      "(b) 서버 prefilter (모두 case-insensitive 통과해야 judge로 진행): ① ```` ```html ```` 펜스 또는 일반 ```` ``` ```` 코드 펜스 존재, ② 시맨틱 태그(`<header>`/`<nav>`/`<main>`/`<section>`/`<footer>`) 중 3개 이상, ③ 필수 단서 `Get Started`, `Learn More`, `Feature title` 모두 포함.\n" +
+      "(c) 켜는 방법: `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. 기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n" +
+      "(d) Judge 활성 시 rubric — **3**: grid/flex 사용, 모든 라벨 섹션이 올바른 수직 순서, 라벨된 요소(버튼·내비·폼 필드) 모두 재현. **2**: 레이아웃 대체로 맞으나 정렬 어긋남 또는 1~2개 사소한 누락. **1**: 단일 컬럼으로 무너짐 OR 핵심 버튼/내비 누락. **0**: 코드 생성 거부 / 무관한 코드.\n" +
+      "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. 비전 미지원 모델 400은 `upstream_no_vision`으로 별도 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo: "B 와이어프레임: Header(Logo+Nav 4개), Hero(Get Started + Hero Image/Video), Features Grid 3개, Testimonials 2개, Footer 3열.",
     toolsSummaryKo: "없음.",
-    routesKo: "`vision_wireframe_html_a`와 동일.",
-    implementationKo: "`vision_wireframe_html_a`와 동일.",
+    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인. 기본 max_tokens 4096(긴 HTML 출력).",
+    implementationKo:
+      "scoreScenario: 펜스 추출 + substring 매칭(prefilter, case-insensitive) + 잠정 rubric 1(`judge_pending` 플래그). bench-runner가 judge enable + prefilter 통과 시 Claude Opus 4.7 호출 후 0~3 rubric으로 덮어쓴다. judge 실패는 rubric 0.",
   },
   translate_nist_fips197_pdf_tools: {
     purposeKo: "도구 호출로 NIST FIPS 197 PDF 텍스트를 읽고, 한국어 요약을 생성하는지 봅니다.",
