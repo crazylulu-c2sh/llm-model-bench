@@ -19,6 +19,16 @@ export type ScenarioId =
   | "code_sort_js"
   | "code_sort_py"
   | "translate_nist_fips197_pdf_tools"
+  | "vision_table_ocr_a"
+  | "vision_table_ocr_b"
+  | "vision_count_red_cars_a"
+  | "vision_count_red_cars_b"
+  | "vision_chart_peak_a"
+  | "vision_chart_peak_b"
+  | "vision_meme_explain_a"
+  | "vision_meme_explain_b"
+  | "vision_wireframe_html_a"
+  | "vision_wireframe_html_b"
   | "stress_ping"
   | "stress_short_reply"
   | "stress_short_reply_ko"
@@ -57,7 +67,53 @@ export const PUBLIC_SCENARIO_IDS: ScenarioId[] = [
   "code_sort_js",
   "code_sort_py",
   "translate_nist_fips197_pdf_tools",
+  "vision_table_ocr_a",
+  "vision_table_ocr_b",
+  "vision_count_red_cars_a",
+  "vision_count_red_cars_b",
+  "vision_chart_peak_a",
+  "vision_chart_peak_b",
+  "vision_meme_explain_a",
+  "vision_meme_explain_b",
+  "vision_wireframe_html_a",
+  "vision_wireframe_html_b",
 ];
+
+/** 비전 시나리오 ID — 카테고리 라벨링·필터링용 */
+export const VISION_SCENARIO_IDS: ScenarioId[] = [
+  "vision_table_ocr_a",
+  "vision_table_ocr_b",
+  "vision_count_red_cars_a",
+  "vision_count_red_cars_b",
+  "vision_chart_peak_a",
+  "vision_chart_peak_b",
+  "vision_meme_explain_a",
+  "vision_meme_explain_b",
+  "vision_wireframe_html_a",
+  "vision_wireframe_html_b",
+];
+
+/** 모델 벤치 UI 체크박스 초기 선택값 + 서버 폴백 — 비전은 opt-in이므로 텍스트 8개만. */
+export const DEFAULT_SCENARIO_IDS: ScenarioId[] = [
+  "chat_hello",
+  "chat_ping",
+  "chat_time_calendar",
+  "tool_weather",
+  "structured_action",
+  "code_sort_js",
+  "code_sort_py",
+  "translate_nist_fips197_pdf_tools",
+];
+
+/** 시나리오 카테고리 — UI 그룹 헤더용 */
+export type ScenarioCategory = "text" | "vision";
+export function scenarioCategory(id: ScenarioId): ScenarioCategory {
+  return id.startsWith("vision_") ? "vision" : "text";
+}
+
+export function isVisionScenario(id: string): boolean {
+  return (VISION_SCENARIO_IDS as readonly string[]).includes(id);
+}
 
 /** 전체 시나리오 (공개 + 스트레스). 시나리오 ID 유효성 검사·테스트 fixture용. */
 export const ALL_SCENARIO_IDS: ScenarioId[] = [
@@ -145,6 +201,42 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
         "2) From the returned English text, write a concise Korean summary within 1000 characters. Korean only. No quotes, no English, do not paste the full PDF.",
       ].join("\n");
     }
+    case "vision_table_ocr_a":
+    case "vision_table_ocr_b":
+      return [
+        "Locate the row labeled \"Net Income\" (case-insensitive — `NET INCOME` / `Net Income` 모두 동일하게 취급).",
+        "*Not* \"Net Income Attributable to …\" nor any other sub-row.",
+        "Report its **2024 Actual** value and **YoY Change** percent.",
+        "Respond with JSON only: {\"net_income_2024\": <number>, \"net_income_yoy_percent\": <number>}.",
+        "Use plain numbers — no currency symbols, no `%` sign, no commas.",
+      ].join(" ");
+    case "vision_count_red_cars_a":
+    case "vision_count_red_cars_b":
+      return [
+        "Count the number of distinctly red cars in this aerial parking lot photo.",
+        "Only count cars whose body color is unambiguously red (not orange, maroon, or dark red shadows).",
+        "Respond with JSON only: {\"red_cars\": <integer>}.",
+      ].join(" ");
+    case "vision_chart_peak_a":
+    case "vision_chart_peak_b":
+      return [
+        "Look at this multi-line chart of product market share.",
+        "Identify the highest peak in the entire chart: which product, at which quarter, and what value (in percent).",
+        "Respond with JSON only: {\"product\":\"A\"|\"B\"|\"C\"|\"D\"|\"E\",\"quarter\":\"Q1 2023\"|\"Q2 2023\"|\"Q3 2023\"|\"Q4 2023\"|\"Q1 2024\"|\"Q2 2024\"|\"Q3 2024\"|\"Q4 2024\",\"value_percent\": <number>}.",
+      ].join(" ");
+    case "vision_meme_explain_a":
+    case "vision_meme_explain_b":
+      return [
+        "이 밈이 풍자하는 바를 한국어로 3~5문장으로 설명하세요.",
+        "두 패널이 각각 무엇을 보여주고, 왜 대비가 우스운지 짚어 주세요.",
+      ].join(" ");
+    case "vision_wireframe_html_a":
+    case "vision_wireframe_html_b":
+      return [
+        "Recreate this hand-drawn website wireframe in semantic HTML5 using Tailwind CSS utility classes.",
+        "Include every labeled section with the same text labels.",
+        "Output one fenced ```html``` block only — no prose, no commentary.",
+      ].join(" ");
     default:
       return `Unknown scenario: ${id}`;
   }
@@ -202,9 +294,78 @@ export function getScenarioSystemPromptPreview(id: string): string {
         "You are a tool-using translation assistant.",
         "Use the provided fetch tools to read source text first, then produce a concise Korean-only summary.",
       ].join(" ");
+    case "vision_table_ocr_a":
+    case "vision_table_ocr_b":
+      return "You are a strict JSON OCR assistant. Output a single JSON object only — no markdown, no prose.";
+    case "vision_count_red_cars_a":
+    case "vision_count_red_cars_b":
+      return "You are a strict counting assistant. Reply with JSON only, no prose. Count carefully and avoid guessing.";
+    case "vision_chart_peak_a":
+    case "vision_chart_peak_b":
+      return "You are a strict chart-reading assistant. Output a single JSON object only.";
+    case "vision_meme_explain_a":
+    case "vision_meme_explain_b":
+      return "You are an image-reading assistant. Briefly explain the joke in this meme in Korean. 3–5 sentences. Be concrete about both panels.";
+    case "vision_wireframe_html_a":
+    case "vision_wireframe_html_b":
+      return "You are a frontend assistant. Reply with a single fenced ```html``` block using Tailwind CSS utility classes. No prose.";
     default:
       return "You are a helpful assistant. Follow the user instruction exactly.";
   }
+}
+
+/** 비전 시나리오 이미지 자산 매핑 — 서버·UI 공통. v1 자산은 모두 WebP. */
+export type ScenarioImageAsset = { url: string; alt: string; mime: "image/webp" };
+
+const VISION_IMAGE_FILES: Record<string, string> = {
+  vision_table_ocr_a: "table_ocr_a.webp",
+  vision_table_ocr_b: "table_ocr_b.webp",
+  vision_count_red_cars_a: "count_red_cars_a.webp",
+  vision_count_red_cars_b: "count_red_cars_b.webp",
+  vision_chart_peak_a: "chart_peak_a.webp",
+  vision_chart_peak_b: "chart_peak_b.webp",
+  vision_meme_explain_a: "meme_explain_a.webp",
+  vision_meme_explain_b: "meme_explain_b.webp",
+  vision_wireframe_html_a: "wireframe_html_a.webp",
+  vision_wireframe_html_b: "wireframe_html_b.webp",
+};
+
+/** 비전 시나리오의 이미지 자산 경로 반환. 텍스트 시나리오는 빈 배열. */
+export function getScenarioImageAssets(
+  id: string,
+  baseUrl?: string,
+): ScenarioImageAsset[] {
+  const filename = VISION_IMAGE_FILES[id];
+  if (!filename) return [];
+  const base = baseUrl?.replace(/\/+$/, "") ?? "";
+  return [
+    {
+      url: `${base}/vision/${filename}`,
+      alt: id,
+      mime: "image/webp",
+    },
+  ];
+}
+
+/** 비전 시나리오 이미지 파일명 — 서버 vision-assets 모듈이 읽는 경로 기반 */
+export function visionImageFilename(id: string): string | null {
+  return VISION_IMAGE_FILES[id] ?? null;
+}
+
+/** 채점 루브릭 0~3 → score(0~1)·pass(>=0.67) 매핑. 단일 위치 — 서버·judge·UI 공통 호출. */
+export function rubricToScore(n: 0 | 1 | 2 | 3): { score: number; pass: boolean } {
+  if (n === 3) return { score: 1, pass: true };
+  if (n === 2) return { score: 0.67, pass: true };
+  if (n === 1) return { score: 0.33, pass: false };
+  return { score: 0, pass: false };
+}
+
+/** 비전 시나리오별 기본 max_tokens. 텍스트는 별도 정책. */
+export function defaultMaxTokensForVisionScenario(id: string): number | null {
+  if (id === "vision_wireframe_html_a" || id === "vision_wireframe_html_b") return 4096;
+  if (id === "vision_meme_explain_a" || id === "vision_meme_explain_b") return 1024;
+  if ((VISION_SCENARIO_IDS as readonly string[]).includes(id)) return 512;
+  return null;
 }
 
 export function isScenarioId(id: string): id is ScenarioId {
