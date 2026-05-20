@@ -5,7 +5,20 @@ import type {
   StreamEvent,
   ThinkingIntent,
 } from "@llm-bench/shared";
-import { PUBLIC_SCENARIO_IDS, stripThinkingBlocks } from "@llm-bench/shared";
+import {
+  DEFAULT_SCENARIO_IDS,
+  PUBLIC_SCENARIO_IDS,
+  defaultMaxTokensForVisionScenario,
+  isVisionScenario,
+  rubricToScore,
+  stripThinkingBlocks,
+} from "@llm-bench/shared";
+import { isJudgeEnabled, runLlmJudge } from "./judge.js";
+import {
+  isLoopbackOrPrivateOrigin,
+  loadVisionImageBytes,
+  visionImageRefs,
+} from "./vision-assets.js";
 import { consumeAnthropicMessagesStream } from "./anthropic-stream.js";
 import {
   consumeOpenAiChatStream,
@@ -118,8 +131,8 @@ export function makeBenchRunMeta(
   opts?: { profileMaxTokensOverride?: number | null },
 ): BenchRunMeta {
   const base = detect.baseUrl.replace(/\/+$/, "");
-  // 모델 벤치 기본값: stress_* 시나리오를 자동 포함하지 않도록 PUBLIC_SCENARIO_IDS만.
-  // 클라이언트가 `scenarioIds`를 명시로 보내고 모두 유효한 *공개* 시나리오일 때만 그 목록을 사용.
+  // 모델 벤치 기본값: 클라이언트가 `scenarioIds`를 안 보내면 텍스트 8개(=DEFAULT_SCENARIO_IDS)만
+  // 실행한다 — 비전 시나리오는 opt-in. (이전 폴백 = PUBLIC_SCENARIO_IDS는 비전 포함 18개라 비용 폭증.)
   const userScenarioIds = input.scenarioIds?.length
     ? input.scenarioIds.filter(
         (s): s is ScenarioId =>
@@ -130,7 +143,7 @@ export function makeBenchRunMeta(
   const rawScenarioIds: ScenarioId[] =
     userScenarioIds && userScenarioIds.length > 0
       ? userScenarioIds
-      : (PUBLIC_SCENARIO_IDS as ScenarioId[]);
+      : (DEFAULT_SCENARIO_IDS as ScenarioId[]);
   const scenarioIds = normalizeScenarioIdsForBench(rawScenarioIds);
   const routes: ("chat_completions" | "messages")[] = [];
   if (detect.capabilities.openaiChat) routes.push("chat_completions");
@@ -353,10 +366,7 @@ function prepareAnthropicScenario(
     calendarTimeZone: string;
   },
   scenarioMeta: BenchRunMeta,
-): {
-  system?: string;
-  messages: { role: "user" | "assistant"; content: string }[];
-} {
+): ReturnType<typeof anthropicMessagesForScenario> {
   const am = anthropicMessagesForScenario(scenarioId, promptCtx);
   let system = am.system;
   if (
@@ -513,13 +523,27 @@ export async function* runBench(
           const userPromptThisRun = scenarioUserMessageContent(scenarioId, promptCtx);
           lastSystemPromptForAggregate = systemPromptThisRun;
           lastUserPromptForAggregate = userPromptThisRun;
-          yield {
+          const visionThisRun = isVisionScenario(scenarioId);
+          const visionMaxTokens = visionThisRun
+            ? defaultMaxTokensForVisionScenario(scenarioId)
+            : null;
+          if (visionMaxTokens) {
+            scenarioMeta.max_tokens = visionMaxTokens;
+          }
+          const scenarioStart: StreamEvent = {
             type: "scenario_start",
             scenario_id: scenarioId,
             api_route,
             system_prompt: systemPromptThisRun,
             user_prompt: userPromptThisRun,
           };
+          if (visionThisRun) {
+            const refs = visionImageRefs(scenarioId);
+            const delivery = isLoopbackOrPrivateOrigin(assetOrigin) ? "base64" : "url";
+            (scenarioStart as unknown as Record<string, unknown>).image_refs = refs;
+            (scenarioStart as unknown as Record<string, unknown>).image_delivery = delivery;
+          }
+          yield scenarioStart;
 
           let iterationFailed = false;
           const controller = new AbortController();
@@ -896,13 +920,21 @@ export async function* runBench(
               }
             }
 
-            const quality = isWarmup
+            let quality = isWarmup
               ? undefined
               : scoreScenario(scenarioId, text, {
                   invokedBenchTools,
                   calendarReferenceIso: ref.toISOString(),
                   calendarTimeZone: "Asia/Seoul",
                 });
+            if (
+              !isWarmup &&
+              quality &&
+              isJudgeEnabled() &&
+              isJudgePending(quality.reason)
+            ) {
+              quality = await runJudgeForVisionScenario(scenarioId, text);
+            }
             if (!isWarmup) {
               runs.push({
                 ttft_ms: ttft,
@@ -1012,4 +1044,63 @@ function chunkTextForUi(text: string, size: number): string[] {
   const out: string[] = [];
   for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size));
   return out;
+}
+
+function isJudgePending(reason: string | undefined): boolean {
+  return typeof reason === "string" && reason.includes("judge_pending");
+}
+
+const JUDGE_CRITERIA: Partial<Record<ScenarioId, string>> = {
+  vision_meme_explain_a:
+    "Score the model's Korean explanation of this meme on 0–3:\n" +
+    "3 = both panels' text quoted + correct visual description (server rack vs donkey cart) + identifies the irony of \"LLM cloud promises vs local PC reality\".\n" +
+    "2 = correct OCR and visuals, but weak/missing technical framing (LLM/PC connection underexplained).\n" +
+    "1 = describes the image but fails to explain why it is funny.\n" +
+    "0 = OCR failure or irrelevant explanation.",
+  vision_wireframe_html_a:
+    "Score the generated HTML against the hand-drawn wireframe on 0–3:\n" +
+    "3 = grid/flex used, all sections present at the right vertical order, every labeled element (buttons / nav items / form fields) reproduced.\n" +
+    "2 = layout roughly matches but some alignment off, 1–2 minor text typos or one tiny component missing.\n" +
+    "1 = collapses to a single column / fails multi-column layout, OR a key button (e.g. Sign Up / Get Started) or nav menu is missing.\n" +
+    "0 = refuses to generate code / outputs unrelated code / barely any text from the wireframe.",
+};
+JUDGE_CRITERIA.vision_meme_explain_b = JUDGE_CRITERIA.vision_meme_explain_a;
+JUDGE_CRITERIA.vision_wireframe_html_b = JUDGE_CRITERIA.vision_wireframe_html_a;
+
+async function runJudgeForVisionScenario(
+  scenarioId: ScenarioId,
+  output: string,
+): Promise<{ pass: boolean; score: number; reason: string }> {
+  const criterion = JUDGE_CRITERIA[scenarioId];
+  if (!criterion) {
+    return { pass: false, score: 0, reason: "judge_skipped: no criterion" };
+  }
+  let asset;
+  try {
+    asset = loadVisionImageBytes(scenarioId);
+  } catch (e) {
+    return {
+      pass: false,
+      score: 0,
+      reason: `judge_network_error: image load failed (${String(e).slice(0, 80)})`,
+    };
+  }
+  const result = await runLlmJudge({
+    image: { bytes: asset.bytes, mediaType: asset.mediaType },
+    modelOutput: output,
+    criterion,
+  });
+  if (!result.enabled) {
+    // Should not reach here because we check isJudgeEnabled() first.
+    return { pass: false, score: 0.33, reason: "judge disabled — prefilter only" };
+  }
+  if ("error" in result) {
+    return { pass: false, score: 0, reason: result.reason };
+  }
+  const { pass, score } = rubricToScore(result.rubric);
+  return {
+    pass,
+    score,
+    reason: `rubric=${result.rubric} | judge: ${result.reason}`,
+  };
 }
