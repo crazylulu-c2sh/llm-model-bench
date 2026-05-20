@@ -133,13 +133,13 @@ preserveThinking `true` 시 `extra_body`에 추가:
 | recommendedMaxTokens.complex | 32768 |
 | promptRules.stripThinkingFromAssistantHistory | true |
 
-| preset | temperature | top_p |
-|--------|---------------|-------|
-| default | 1.0 | 1.0 |
-| thinking_general | 1.0 | 1.0 |
-| thinking_coding | 0.6 | 0.95 |
-| nonthinking_general | 1.0 | 1.0 |
-| tool_call | 0.6 | 0.95 |
+| preset | temperature | top_p | top_k |
+|--------|---------------|-------|-------|
+| default | 0.6 | 0.95 | — |
+| thinking_general | 0.6 | 0.95 | — |
+| thinking_coding | 0.6 | 0.95 | — |
+| nonthinking_general | 0.2 | — | 1 |
+| tool_call | 0.6 | 0.95 | — |
 
 ---
 
