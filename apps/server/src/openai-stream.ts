@@ -24,6 +24,11 @@ export type OpenAiStreamMetrics = {
   approxOutputTokens: number;
   /** provider가 `stream_options.include_usage` 응답 청크로 보고한 출력 토큰 (없으면 null) */
   usageOutputTokens: number | null;
+  /**
+   * 마지막으로 보고된 `choices[0].finish_reason` — `"length"`면 max_tokens 도달로 잘림.
+   * 일부 OpenAI 호환 서버(LM Studio·vLLM 등)는 이 필드를 보내지 않으므로 null 가능.
+   */
+  finishReason: string | null;
 };
 
 /** 증분 콜백 — 델타 도착 시마다 호출. stress-runner CCTV fan-out 용. */
@@ -96,6 +101,7 @@ export async function consumeOpenAiChatStream(
       streamCompleted: false,
       approxOutputTokens: 0,
       usageOutputTokens: null,
+      finishReason: null,
     };
   }
   const reader = body.getReader();
@@ -112,6 +118,7 @@ export async function consumeOpenAiChatStream(
   let ttft: number | null = null;
   let streamCompleted = false;
   let usageOutputTokens: number | null = null;
+  let finishReason: string | null = null;
   const onDelta = opts?.onDelta;
 
   const markTtft = () => {
@@ -135,9 +142,15 @@ export async function consumeOpenAiChatStream(
             reasoning?: unknown;
             tool_calls?: DeltaToolCall[];
           };
+          /** 마지막 청크에서 "stop" | "length" | "tool_calls" | "content_filter" 등이 채워짐. */
+          finish_reason?: string | null;
         }[];
         usage?: { completion_tokens?: number; output_tokens?: number };
       };
+      const fr = j.choices?.[0]?.finish_reason;
+      if (typeof fr === "string" && fr.length > 0) {
+        finishReason = fr;
+      }
       if (j.usage) {
         const ct = typeof j.usage.completion_tokens === "number" ? j.usage.completion_tokens : null;
         const ot = typeof j.usage.output_tokens === "number" ? j.usage.output_tokens : null;
@@ -209,6 +222,7 @@ export async function consumeOpenAiChatStream(
     toolCalls: toolCallsForApi.length ? toolCallsForApi : null,
     streamCompleted,
     approxOutputTokens,
+    finishReason,
     usageOutputTokens,
   };
 }

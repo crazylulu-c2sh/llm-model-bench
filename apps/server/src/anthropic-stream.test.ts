@@ -90,6 +90,55 @@ describe("consumeAnthropicMessagesStream", () => {
     expect(m.usageOutputTokens).toBeNull();
   });
 
+  it("captures stop_reason='max_tokens' for truncation detection", async () => {
+    const body = streamFrom([
+      block("content_block_delta", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "Hello" },
+      }),
+      block("message_delta", {
+        type: "message_delta",
+        delta: { stop_reason: "max_tokens" },
+        usage: { output_tokens: 5 },
+      }),
+      block("message_stop", { type: "message_stop" }),
+    ]);
+    const m = await consumeAnthropicMessagesStream(body);
+    expect(m.stopReason).toBe("max_tokens");
+  });
+
+  it("captures stop_reason='end_turn' on normal completion", async () => {
+    const body = streamFrom([
+      block("content_block_delta", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "Hi" },
+      }),
+      block("message_delta", {
+        type: "message_delta",
+        delta: { stop_reason: "end_turn" },
+        usage: { output_tokens: 1 },
+      }),
+      block("message_stop", { type: "message_stop" }),
+    ]);
+    const m = await consumeAnthropicMessagesStream(body);
+    expect(m.stopReason).toBe("end_turn");
+  });
+
+  it("leaves stopReason null when message_delta omits stop_reason", async () => {
+    const body = streamFrom([
+      block("content_block_delta", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "Hi" },
+      }),
+      block("message_stop", { type: "message_stop" }),
+    ]);
+    const m = await consumeAnthropicMessagesStream(body);
+    expect(m.stopReason).toBeNull();
+  });
+
   it("fires onDelta callback per text_delta when provided", async () => {
     const body = streamFrom([
       block("content_block_delta", {

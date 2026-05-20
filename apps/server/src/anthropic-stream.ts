@@ -14,6 +14,12 @@ export type AnthropicStreamMetrics = {
   approxOutputTokens: number;
   /** provider 응답의 `message_delta.usage.output_tokens` (없으면 null) */
   usageOutputTokens: number | null;
+  /**
+   * `message_delta.delta.stop_reason` — `"end_turn"`, `"max_tokens"`,
+   * `"stop_sequence"`, `"tool_use"` 중 하나. `"max_tokens"`면 한도 도달로 잘림.
+   * 일부 호환 서버는 보내지 않으므로 null 가능.
+   */
+  stopReason: string | null;
 };
 
 export type AnthropicStreamDelta = { kind: "content"; text: string };
@@ -40,6 +46,7 @@ export async function consumeAnthropicMessagesStream(
       streamCompleted: false,
       approxOutputTokens: 0,
       usageOutputTokens: null,
+      stopReason: null,
     };
   }
   const reader = body.getReader();
@@ -52,6 +59,7 @@ export async function consumeAnthropicMessagesStream(
   let ttft: number | null = null;
   let sawMessageDelta = false;
   let usageOutputTokens: number | null = null;
+  let lastStopReason: string | null = null;
   const onDelta = opts?.onDelta;
 
   const markTtft = () => {
@@ -73,7 +81,13 @@ export async function consumeAnthropicMessagesStream(
         type?: string;
         index?: number;
         content_block?: { type?: string; id?: string; name?: string };
-        delta?: { type?: string; text?: string; partial_json?: string };
+        delta?: {
+          type?: string;
+          text?: string;
+          partial_json?: string;
+          /** `message_delta` 이벤트에서만 채워짐. `"max_tokens"` 등. */
+          stop_reason?: string | null;
+        };
         usage?: { output_tokens?: number };
         message?: { usage?: { output_tokens?: number } };
       };
@@ -82,6 +96,15 @@ export async function consumeAnthropicMessagesStream(
         j.usage?.output_tokens ?? j.message?.usage?.output_tokens ?? null;
       if (typeof usageOut === "number" && usageOut >= 0) {
         usageOutputTokens = usageOut;
+      }
+
+      // `message_delta` 이벤트의 stop_reason 캡처. `sawMessageDelta`(스트림 완료 신호)와
+      // 의미가 다르므로 별도 변수에 저장.
+      if (j.type === "message_delta") {
+        const sr = j.delta?.stop_reason;
+        if (typeof sr === "string" && sr.length > 0) {
+          lastStopReason = sr;
+        }
       }
 
       if (j.type === "content_block_start" && j.content_block?.type === "tool_use") {
@@ -171,5 +194,6 @@ export async function consumeAnthropicMessagesStream(
     streamCompleted: sawMessageDelta || outText.length > 0,
     approxOutputTokens,
     usageOutputTokens,
+    stopReason: lastStopReason,
   };
 }
