@@ -72,6 +72,7 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
         tpot_ms: last.tpot_ms ?? null,
         tps,
         pass: last.quality?.pass,
+        score: last.quality?.score,
         reason: last.quality?.reason,
       });
     }

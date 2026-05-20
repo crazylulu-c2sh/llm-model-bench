@@ -518,6 +518,7 @@ export function App() {
         ttft_ms: row.ttft_ms,
         tpot_ms: row.tpot_ms,
         pass: row.pass,
+        score: row.score ?? last?.quality?.score,
         qualityReason: row.reason ?? last?.quality?.reason,
         systemPrompt:
           agg?.system_prompt ??
@@ -556,6 +557,7 @@ export function App() {
         ttft_ms: row.ttft > 0 ? row.ttft : null,
         tpot_ms: row.tpot > 0 ? row.tpot : null,
         pass: row.pass,
+        score: last?.quality?.score,
         qualityReason: last?.quality?.reason,
         systemPrompt:
           agg?.system_prompt ??
@@ -593,6 +595,7 @@ export function App() {
           ttft_ms: last?.ttft_ms ?? null,
           tpot_ms: last?.tpot_ms ?? null,
           pass: last?.quality?.pass,
+          score: last?.quality?.score,
           qualityReason: last?.quality?.reason,
           systemPrompt:
             sc.prompt_system_preview ?? defaultScenarioSystemPromptPreview(scenario),
@@ -730,6 +733,7 @@ export function App() {
         ttft_ms: last?.ttft_ms ?? null,
         tpot_ms: last?.tpot_ms ?? null,
         pass: last?.quality?.pass,
+        score: last?.quality?.score,
         qualityReason: last?.quality?.reason,
         systemPrompt: sc.prompt_system_preview ?? defaultScenarioSystemPromptPreview(sc.id),
         userPrompt: sc.prompt_preview ?? defaultScenarioPromptPreview(sc.id),
@@ -1021,6 +1025,7 @@ export function App() {
                   tpot_ms: last.tpot_ms ?? null,
                   tps,
                   pass: last.quality?.pass,
+                  score: last.quality?.score,
                   reason: last.quality?.reason,
                 },
               ];

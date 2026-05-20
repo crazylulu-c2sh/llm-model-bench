@@ -215,6 +215,7 @@ export function StatsPage() {
         ttft_ms: row.ttft_ms,
         tpot_ms: row.tpot_ms,
         pass: row.pass,
+        score: row.score ?? last?.quality?.score,
         qualityReason: row.reason ?? last?.quality?.reason,
         systemPrompt:
           agg?.system_prompt ??
@@ -253,6 +254,7 @@ export function StatsPage() {
         ttft_ms: row.ttft > 0 ? row.ttft : null,
         tpot_ms: row.tpot > 0 ? row.tpot : null,
         pass: row.pass,
+        score: last?.quality?.score,
         qualityReason: last?.quality?.reason,
         systemPrompt:
           agg?.system_prompt ??
