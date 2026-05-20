@@ -1,4 +1,4 @@
-import { getScenarioBenchMeta, partitionThinkingBlocks } from "@llm-bench/shared";
+import { getScenarioBenchMeta, isVisionScenario, partitionThinkingBlocks, scoreToRubric } from "@llm-bench/shared";
 import { X } from "lucide-react";
 import { JsonCodeBlock } from "./JsonCodeBlock";
 
@@ -10,6 +10,8 @@ export type ScenarioDetailPayload = {
   ttft_ms: number | null;
   tpot_ms: number | null;
   pass?: boolean;
+  /** 0~1 점수. 비전 시나리오에서 rubric 0~3과 함께 표시. */
+  score?: number;
   qualityReason?: string;
   systemPrompt: string;
   userPrompt: string;
@@ -92,7 +94,15 @@ export function ScenarioDetailDrawer({
             <div className="sm:col-span-2">
               <span className="text-[var(--muted)]">품질</span>
               <p className="text-[var(--foreground)]">
-                {payload.pass === true ? "통과" : payload.pass === false ? "실패" : "—"}
+                {(() => {
+                  const vision = isVisionScenario(payload.scenario);
+                  if (vision && typeof payload.score === "number") {
+                    const rubric = scoreToRubric(payload.score);
+                    const label = payload.pass === true ? "통과" : payload.pass === false ? "미통과" : "—";
+                    return `rubric ${rubric ?? "?"}/3 · score ${payload.score.toFixed(2)} (${label})`;
+                  }
+                  return payload.pass === true ? "통과" : payload.pass === false ? "실패" : "—";
+                })()}
                 {payload.qualityReason ? (
                   <span className="mt-1 block whitespace-pre-wrap rounded border border-[var(--border)] bg-[var(--surface)] p-2 font-mono text-xs">
                     {payload.qualityReason}

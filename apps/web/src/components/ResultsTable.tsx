@@ -1,3 +1,4 @@
+import { isVisionScenario, scoreToRubric } from "@llm-bench/shared";
 import {
   createColumnHelper,
   flexRender,
@@ -21,6 +22,8 @@ export type ResultRow = {
   /** 근사 초당 출력 토큰; 없으면 null */
   tps?: number | null;
   pass?: boolean;
+  /** 0~1 점수. 비전 시나리오에서 rubric 0~3과 함께 표시. 텍스트 시나리오는 보통 0 또는 1. */
+  score?: number;
   reason?: string;
 };
 
@@ -188,11 +191,42 @@ export function ResultsTable({
           return x - y;
         },
       }),
-      columnHelper.accessor("pass", {
-        header: () => <span title="시나리오별 품질 스코어(합격/불합격)">품질</span>,
-        cell: (info) => {
-          const v = info.getValue();
-          if (v === true) {
+      columnHelper.display({
+        id: "quality",
+        header: () => (
+          <span title="텍스트 시나리오는 합격/불합격 이진. 비전 시나리오는 rubric 0~3(score 0/0.33/0.67/1), rubric ≥ 2 가 통과.">
+            품질
+          </span>
+        ),
+        cell: ({ row }) => {
+          const { pass, score, scenario } = row.original;
+          const vision = isVisionScenario(scenario);
+
+          if (vision && typeof score === "number") {
+            const rubric = scoreToRubric(score);
+            // 색상 토큰 — 4단계: 3/2 = pass 톤, 0 = fail 톤, 1 = muted (부분 인식).
+            const colorClass =
+              rubric === 3 || rubric === 2
+                ? "text-[var(--chart-pass)] border-[var(--chart-pass)]"
+                : rubric === 0
+                  ? "text-[var(--chart-fail)] border-[var(--chart-fail)]"
+                  : "text-[var(--muted)] border-[var(--border)]";
+            const rubricLabel = rubric ?? "?";
+            const passLabel = pass ? "통과" : "미통과";
+            return (
+              <span
+                className={`inline-flex items-center gap-1.5 rounded border bg-[var(--surface)] px-1.5 py-0.5 ${colorClass}`}
+                aria-label={`루브릭 ${rubricLabel}/3, score ${score.toFixed(2)}, ${passLabel}`}
+                title={`rubric ${rubricLabel}/3 · score ${score.toFixed(2)} · ${passLabel}`}
+              >
+                <span className="font-mono text-xs">{rubricLabel}/3</span>
+                <span className="text-[10px] text-[var(--muted)]">·</span>
+                <span className="font-mono text-xs">{score.toFixed(2)}</span>
+              </span>
+            );
+          }
+
+          if (pass === true) {
             return (
               <span className="inline-flex items-center gap-1.5">
                 <CircleCheck className="size-4 shrink-0 text-[var(--chart-pass)]" aria-hidden />
@@ -200,7 +234,7 @@ export function ResultsTable({
               </span>
             );
           }
-          if (v === false) {
+          if (pass === false) {
             return (
               <span className="inline-flex items-center gap-1.5">
                 <CircleX className="size-4 shrink-0 text-[var(--chart-fail)]" aria-hidden />
