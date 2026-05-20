@@ -364,7 +364,10 @@ export function resolveBenchProfile(input: {
   const sampling: SamplingParams = { ...baseSampling, ...(input.samplingOverrides ?? {}) };
 
   let extraBody: Record<string, unknown> = {};
-  if ((family === "qwen35" || family === "qwen36") && input.thinkingIntent === "off") {
+  if (
+    (family === "qwen35" || family === "qwen36" || family === "nemotron3") &&
+    input.thinkingIntent === "off"
+  ) {
     extraBody = deepMergeObjects(extraBody, { chat_template_kwargs: { enable_thinking: false } });
   }
   if (family === "qwen36" && input.preserveThinking) {
