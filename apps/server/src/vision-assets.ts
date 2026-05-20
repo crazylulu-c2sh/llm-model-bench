@@ -25,6 +25,9 @@ export type AnthropicImagePart = {
 
 const cache = new Map<ScenarioId, ImageBytes>();
 
+/** base64 인라인 페이로드 폭주를 막는 디스크 상한. 1MB. */
+export const MAX_VISION_IMAGE_BYTES = 1024 * 1024;
+
 function repoRootDir(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 }
@@ -35,13 +38,20 @@ function visionFilePath(filename: string): string {
 
 export { isVisionScenario };
 
-/** 디스크에서 한 번 읽고 메모리 캐시. 비전 시나리오가 아니면 throw. */
+/**
+ * 디스크에서 한 번 읽고 메모리 캐시. 비전 시나리오가 아니면 throw.
+ * 1MB 초과 자산이면 `image_too_large: <id>=<bytes>` 형태로 throw —
+ * bench-runner의 try/catch가 이 prefix를 감지해 quality에 라벨링한다.
+ */
 export function loadVisionImageBytes(id: ScenarioId): ImageBytes {
   const cached = cache.get(id);
   if (cached) return cached;
   const filename = visionImageFilename(id);
   if (!filename) throw new Error(`not a vision scenario: ${id}`);
   const bytes = readFileSync(visionFilePath(filename));
+  if (bytes.byteLength > MAX_VISION_IMAGE_BYTES) {
+    throw new Error(`image_too_large: ${id}=${bytes.byteLength}`);
+  }
   const out: ImageBytes = {
     bytes,
     mediaType: "image/webp",

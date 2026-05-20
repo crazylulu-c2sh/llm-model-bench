@@ -230,6 +230,10 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     system_prompt: z.string().optional(),
     /** 실제 user 메시지 — 라이브 UI 상세와 요청 정합용 */
     user_prompt: z.string().optional(),
+    /** 비전 시나리오에서만 채워짐 — D4 재현성용 안정 경로. base64 데이터 URL은 절대 포함하지 않는다. */
+    image_refs: z.array(z.string()).optional(),
+    /** 비전 시나리오에서만 채워짐 — D1 분기 결과(`base64`/`url`). */
+    image_delivery: z.enum(["base64", "url"]).optional(),
   }),
   z.object({
     type: z.literal("token_delta"),
