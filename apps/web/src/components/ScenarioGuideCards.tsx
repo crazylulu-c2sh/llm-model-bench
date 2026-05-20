@@ -4,7 +4,18 @@ import {
   getScenarioImageAssets,
   isVisionScenario,
 } from "@llm-bench/shared";
-import { Layers } from "lucide-react";
+import { Layers, ZoomIn } from "lucide-react";
+import { useState } from "react";
+import { VisionImageModal } from "./VisionImageModal";
+
+function visionCategoryLabel(id: string): string | undefined {
+  if (id.startsWith("vision_table_ocr")) return "OCR";
+  if (id.startsWith("vision_count_red_cars")) return "카운트";
+  if (id.startsWith("vision_chart_peak")) return "차트";
+  if (id.startsWith("vision_meme_explain")) return "밈";
+  if (id.startsWith("vision_wireframe_html")) return "와이어프레임";
+  return undefined;
+}
 
 export function ScenarioGuideCards({
   currentScenario,
@@ -18,6 +29,7 @@ export function ScenarioGuideCards({
   const touched = touchedScenarioIds ?? [];
   const baseUrl =
     typeof window !== "undefined" ? window.location.origin : undefined;
+  const [modal, setModal] = useState<{ url: string; scenarioId: string; category?: string } | null>(null);
   return (
     <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
       <h2 className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
@@ -57,14 +69,32 @@ export function ScenarioGuideCards({
                 ) : null}
               </div>
               {images.length > 0 ? (
-                <div className="mt-2 overflow-hidden rounded border border-[var(--border)] bg-[var(--surface-2)]">
+                <button
+                  type="button"
+                  className="group mt-2 relative block w-full overflow-hidden rounded border border-[var(--border)] bg-[var(--surface-2)] cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                  onClick={() =>
+                    setModal({
+                      url: images[0].url,
+                      scenarioId: id,
+                      category: visionCategoryLabel(id),
+                    })
+                  }
+                  aria-label={`${id} 이미지 확대`}
+                >
                   <img
                     src={images[0].url}
                     alt={images[0].alt}
                     loading="lazy"
                     className="block w-full max-h-40 object-contain"
                   />
-                </div>
+                  <span
+                    aria-hidden
+                    className="absolute right-1 top-1 inline-flex items-center gap-0.5 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100"
+                  >
+                    <ZoomIn className="size-3" />
+                    확대
+                  </span>
+                </button>
               ) : null}
               {meta ? (
                 <>
@@ -83,6 +113,13 @@ export function ScenarioGuideCards({
           );
         })}
       </div>
+      <VisionImageModal
+        open={modal !== null}
+        imageUrl={modal?.url ?? ""}
+        scenarioId={modal?.scenarioId ?? ""}
+        categoryLabel={modal?.category}
+        onClose={() => setModal(null)}
+      />
     </section>
   );
 }
