@@ -1,5 +1,13 @@
 import type { BenchRunMeta, DetectResult, LlmProfileFamily, SamplingPresetName, StreamEvent, ThinkingIntent } from "@llm-bench/shared";
-import { inferLlmProfileFamily, resolveBenchProfile } from "@llm-bench/shared";
+import {
+  DEFAULT_SCENARIO_IDS,
+  PUBLIC_SCENARIO_IDS,
+  VISION_SCENARIO_IDS,
+  getScenarioBenchMeta,
+  inferLlmProfileFamily,
+  isVisionScenario,
+  resolveBenchProfile,
+} from "@llm-bench/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { toast, Toaster } from "sonner";
@@ -147,6 +155,17 @@ export function App() {
   const [parallel, setParallel] = useState(boot.parallel);
   const [unloadOtherModels, setUnloadOtherModels] = useState(boot.unloadOtherModels);
   const [autoUnloadAfterBench, setAutoUnloadAfterBench] = useState(boot.autoUnloadAfterBench);
+  const [selectedScenarioIds, setSelectedScenarioIds] = useState<string[]>(boot.selectedScenarioIds);
+  const [scenarioPickerOpen, setScenarioPickerOpen] = useState(false);
+  const toggleScenarioSelection = useCallback((id: string) => {
+    setSelectedScenarioIds((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
+    );
+  }, []);
+  const visibleSelectedScenarioIds = useMemo(
+    () => selectedScenarioIds.filter((id) => (PUBLIC_SCENARIO_IDS as readonly string[]).includes(id)),
+    [selectedScenarioIds],
+  );
   const [profileId, setProfileId] = useState<"auto" | LlmProfileFamily>(boot.profileId);
   const [profileMaxTokens, setProfileMaxTokens] = useState(boot.profileMaxTokens);
   const [thinkingIntent, setThinkingIntent] = useState<ThinkingIntent>(boot.thinkingIntent);
@@ -254,6 +273,7 @@ export function App() {
         presetOverride,
         samplingOverridesText,
         profileAdvancedOpen,
+        selectedScenarioIds,
       });
     }, 350);
     return () => window.clearTimeout(t);
@@ -275,6 +295,7 @@ export function App() {
     presetOverride,
     samplingOverridesText,
     profileAdvancedOpen,
+    selectedScenarioIds,
   ]);
 
   // bench → 다른 라우트 전이 시 *즉시 flush*. 게이트가 debounce를 폐기해도 최종 값 보존.
@@ -295,6 +316,7 @@ export function App() {
     presetOverride,
     samplingOverridesText,
     profileAdvancedOpen,
+    selectedScenarioIds,
   });
   latestBenchSnapshotRef.current = {
     baseUrl,
@@ -313,6 +335,7 @@ export function App() {
     presetOverride,
     samplingOverridesText,
     profileAdvancedOpen,
+    selectedScenarioIds,
   };
   const prevOnBenchPageRef = useRef(onBenchPage);
   useEffect(() => {
@@ -769,6 +792,7 @@ export function App() {
         presetOverride,
         samplingOverridesText,
         profileAdvancedOpen,
+        selectedScenarioIds,
       });
     } catch (e) {
       appendLog(String(e));
@@ -860,6 +884,7 @@ export function App() {
               unloadOtherModels,
               autoUnloadAfterBench,
               publicAssetsOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
+              scenarioIds: visibleSelectedScenarioIds,
               ...buildBenchProfilePayload(m.id),
             },
           }),
@@ -1355,6 +1380,113 @@ export function App() {
             <input type="checkbox" checked={parallel} onChange={(e) => setParallel(e.target.checked)} />
             병렬 실행 (기본은 직렬; 켜면 경고)
           </label>
+          <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
+            <button
+              type="button"
+              onClick={() => setScenarioPickerOpen((v) => !v)}
+              className="flex w-full items-center justify-between gap-2 text-left"
+            >
+              <span className="font-medium text-[var(--foreground)]">
+                실행 시나리오 ({visibleSelectedScenarioIds.length}/{PUBLIC_SCENARIO_IDS.length})
+              </span>
+              <span className="text-xs text-[var(--muted)]">
+                {visibleSelectedScenarioIds.filter((id) => isVisionScenario(id)).length > 0
+                  ? `· 비전 ${visibleSelectedScenarioIds.filter((id) => isVisionScenario(id)).length}개 포함`
+                  : "· 텍스트 시나리오만"}
+                {" "}
+                {scenarioPickerOpen ? "▴" : "▾"}
+              </span>
+            </button>
+            {scenarioPickerOpen ? (
+              <div className="mt-2 space-y-3">
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <button
+                    type="button"
+                    className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    onClick={() => setSelectedScenarioIds([...DEFAULT_SCENARIO_IDS])}
+                  >
+                    기본 (텍스트 8개)
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    onClick={() => setSelectedScenarioIds([...PUBLIC_SCENARIO_IDS])}
+                  >
+                    전체 선택
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    onClick={() =>
+                      setSelectedScenarioIds([...DEFAULT_SCENARIO_IDS, ...VISION_SCENARIO_IDS])
+                    }
+                  >
+                    텍스트 + 비전 (10개 비전)
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    onClick={() => setSelectedScenarioIds([])}
+                  >
+                    모두 해제
+                  </button>
+                </div>
+                <div>
+                  <div className="mb-1 text-xs font-semibold text-[var(--foreground)]">텍스트 시나리오</div>
+                  <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                    {(PUBLIC_SCENARIO_IDS as string[])
+                      .filter((id) => !isVisionScenario(id))
+                      .map((id) => {
+                        const meta = getScenarioBenchMeta(id);
+                        const checked = selectedScenarioIds.includes(id);
+                        return (
+                          <label key={id} className="flex items-start gap-2 text-xs text-[var(--muted)]">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={checked}
+                              onChange={() => toggleScenarioSelection(id)}
+                            />
+                            <span>
+                              <span className="font-mono text-[var(--foreground)]">{id}</span>
+                              {meta ? <span className="ml-1">— {meta.purposeKo.slice(0, 60)}</span> : null}
+                            </span>
+                          </label>
+                        );
+                      })}
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1 text-xs font-semibold text-[var(--foreground)]">
+                    비전 시나리오{" "}
+                    <span className="text-[var(--muted)]">
+                      (opt-in · 비전 미지원 모델은 400/거부 가능 · 호출 비용 ↑)
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                    {(VISION_SCENARIO_IDS as string[]).map((id) => {
+                      const meta = getScenarioBenchMeta(id);
+                      const checked = selectedScenarioIds.includes(id);
+                      return (
+                        <label key={id} className="flex items-start gap-2 text-xs text-[var(--muted)]">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={checked}
+                            onChange={() => toggleScenarioSelection(id)}
+                          />
+                          <span>
+                            <span className="font-mono text-[var(--foreground)]">{id}</span>
+                            {meta ? <span className="ml-1">— {meta.purposeKo.slice(0, 60)}</span> : null}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
           <label
             className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
             title={
