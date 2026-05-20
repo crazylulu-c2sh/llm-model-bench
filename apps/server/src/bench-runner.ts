@@ -535,7 +535,14 @@ export async function* runBench(
             ? defaultMaxTokensForVisionScenario(scenarioId)
             : null;
           if (visionMaxTokens) {
-            scenarioMeta.max_tokens = visionMaxTokens;
+            // vision default는 *floor*로만 작동. 세 source 중 가장 큰 값을 사용:
+            //   1) `BenchRequest.max_tokens` (UI top-level 입력)
+            //   2) `scenarioMeta.max_tokens` (profile augmentation 후 — profileMaxTokens 또는
+            //      프로파일 권장값)
+            //   3) vision default (이 줄의 floor)
+            // profile augmentation이 BenchRequest.max_tokens을 무시하므로 (1)을 명시 비교.
+            const userTopLevel = input.max_tokens ?? 0;
+            scenarioMeta.max_tokens = Math.max(userTopLevel, scenarioMeta.max_tokens, visionMaxTokens);
           }
           const visionImageDelivery: "base64" | "url" | undefined = visionThisRun
             ? (isLoopbackOrPrivateOrigin(assetOrigin) ? "base64" : "url")
@@ -555,6 +562,10 @@ export async function* runBench(
           /** D5: 비전 시나리오에서 400 + image/vision/multimodal 본문 매칭 시 채워짐.
               quality.reason을 `upstream_no_vision: ...`로 덮어쓰는 데 사용. */
           let upstreamNoVisionDetail: string | null = null;
+          /** C: 4개 stream consume 분기에서 `finish_reason: "length"` 또는
+              `stop_reason: "max_tokens"`가 감지되면 true. quality.reason에
+              `truncated_at_max_tokens=N` prefix를 붙이는 데 사용. */
+          let truncated = false;
           const controller = new AbortController();
           const to = setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -627,6 +638,7 @@ export async function* runBench(
                   controller.signal,
                 );
                 lastOpen = m;
+                if (m.finishReason === "length") truncated = true;
                 totalMsAcc += m.totalMs;
                 if (ttft === null) ttft = m.ttftMs;
                 streamCompleted = m.streamCompleted;
@@ -746,6 +758,7 @@ export async function* runBench(
                   controller.signal,
                 );
                 lastAnth = m;
+                if (m.stopReason === "max_tokens") truncated = true;
                 totalMsAcc += m.totalMs;
                 if (ttft === null) ttft = m.ttftMs;
                 streamCompleted = m.streamCompleted;
@@ -868,6 +881,7 @@ export async function* runBench(
                 ttft = m.ttftMs;
                 totalMs = m.totalMs;
                 streamCompleted = m.streamCompleted;
+                if (m.finishReason === "length") truncated = true;
                 tpot = tpotFromOpenAi(m);
                 for (const ch of chunkTextForUi(text, 24)) {
                   yield {
@@ -929,6 +943,7 @@ export async function* runBench(
                 ttft = m.ttftMs;
                 totalMs = m.totalMs;
                 streamCompleted = m.streamCompleted;
+                if (m.stopReason === "max_tokens") truncated = true;
                 tpot =
                   ttft !== null && m.approxOutputTokens > 1
                     ? (totalMs - ttft) / (m.approxOutputTokens - 1)
@@ -973,6 +988,19 @@ export async function* runBench(
               const { judge_pending: _drop, ...rest } = quality;
               void _drop;
               quality = rest;
+            }
+            // C-3: max_tokens 잘림이 발생한 경우 quality.reason에 prefix 추가.
+            // `upstream_no_vision`은 이미 quality 전체를 교체했으므로 prefix 미적용.
+            // `image_too_large`는 try/catch 분기에서 별도 emit 경로라 이 코드를 거치지 않음.
+            if (!isWarmup && quality && truncated && !upstreamNoVisionDetail) {
+              const tokens = scenarioMeta.max_tokens;
+              const prevReason = quality.reason ?? "";
+              quality = {
+                ...quality,
+                reason: prevReason
+                  ? `truncated_at_max_tokens=${tokens} | ${prevReason}`
+                  : `truncated_at_max_tokens=${tokens}`,
+              };
             }
             if (!isWarmup) {
               runs.push({
