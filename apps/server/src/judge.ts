@@ -14,7 +14,7 @@ const JUDGE_TIMEOUT_MS = 30_000;
 
 export type JudgeImage = {
   bytes: Buffer;
-  mediaType: "image/webp";
+  mediaType: "image/jpeg";
 };
 
 export type JudgeRequest = {
