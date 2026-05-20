@@ -36,9 +36,11 @@ for (const [srcName, dstName] of MAP) {
     continue;
   }
   const buf = await readFile(src);
+  // OCR scenarios need higher quality so that small financial-table digits stay readable.
+  const quality = dstName.startsWith("table_ocr_") ? 92 : 82;
   const out = await sharp(buf)
     .resize({ width: 1280, withoutEnlargement: true })
-    .webp({ quality: 82 })
+    .webp({ quality })
     .toBuffer();
   await writeFile(dst, out);
   console.log(`${dstName}  ${(out.byteLength / 1024).toFixed(1)} KB`);
