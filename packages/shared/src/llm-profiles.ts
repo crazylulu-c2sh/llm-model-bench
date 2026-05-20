@@ -234,13 +234,13 @@ export const LLM_PROFILE_DEFINITIONS: LlmProfileDefinition[] = [
   },
   {
     id: "nemotron3",
-    version: 1,
+    version: 2,
     match: [/nemotron[-_]?3/i],
     presets: {
-      default: { temperature: 1.0, top_p: 1.0 },
-      thinking_general: { temperature: 1.0, top_p: 1.0 },
+      default: { temperature: 0.6, top_p: 0.95 },
+      thinking_general: { temperature: 0.6, top_p: 0.95 },
       thinking_coding: { temperature: 0.6, top_p: 0.95 },
-      nonthinking_general: { temperature: 1.0, top_p: 1.0 },
+      nonthinking_general: { temperature: 0.2, top_k: 1 },
       tool_call: { temperature: 0.6, top_p: 0.95 },
     },
     recommendedMaxTokens: { default: 8192, complex: 32_768 },
