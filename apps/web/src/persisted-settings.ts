@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  DEFAULT_SCENARIO_IDS,
+  PUBLIC_SCENARIO_IDS,
   isStressWorkloadId,
   type LlmProfileFamily,
   type SamplingPresetName,
@@ -35,6 +37,7 @@ const PrefsSchema = z
       .optional(),
     samplingOverridesJson: z.string().optional(),
     profileAdvancedOpen: z.boolean().optional(),
+    selectedScenarioIds: z.array(z.string()).optional(),
   })
   .passthrough();
 
@@ -94,6 +97,13 @@ export function writeSessionApiKey(value: string) {
   else sessionStorage.removeItem(SESSION_API_KEY);
 }
 
+function sanitizeSelectedScenarioIds(input: string[] | undefined): string[] {
+  if (!Array.isArray(input)) return [...DEFAULT_SCENARIO_IDS];
+  const allowed = new Set(PUBLIC_SCENARIO_IDS as readonly string[]);
+  const filtered = input.filter((s) => allowed.has(s));
+  return filtered.length > 0 ? filtered : [...DEFAULT_SCENARIO_IDS];
+}
+
 /** Full UI state for initial React state (client only). */
 export function readInitialUiState() {
   if (typeof window === "undefined") {
@@ -114,6 +124,7 @@ export function readInitialUiState() {
       presetOverride: "" as const,
       samplingOverridesText: "",
       profileAdvancedOpen: false,
+      selectedScenarioIds: [...DEFAULT_SCENARIO_IDS] as string[],
     };
   }
   const p = readPrefsFromDisk();
@@ -137,6 +148,7 @@ export function readInitialUiState() {
     presetOverride: (p.presetOverride ?? "") as SamplingPresetName | "",
     samplingOverridesText: p.samplingOverridesJson ?? "",
     profileAdvancedOpen: p.profileAdvancedOpen ?? false,
+    selectedScenarioIds: sanitizeSelectedScenarioIds(p.selectedScenarioIds),
   };
 }
 
@@ -157,6 +169,7 @@ export type SaveUiSnapshot = {
   presetOverride: SamplingPresetName | "";
   samplingOverridesText: string;
   profileAdvancedOpen: boolean;
+  selectedScenarioIds: string[];
 };
 
 /** Persist snapshot: non-secret prefs always on disk; api key follows opt-in / session. */
@@ -185,6 +198,7 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
     presetOverride: s.presetOverride || undefined,
     samplingOverridesJson: s.samplingOverridesText.trim() ? s.samplingOverridesText : undefined,
     profileAdvancedOpen: s.profileAdvancedOpen,
+    selectedScenarioIds: sanitizeSelectedScenarioIds(s.selectedScenarioIds),
   };
 
   if (s.persistApiKeyToDisk) {

@@ -3,7 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PDFParse } from "pdf-parse";
 
-const WHITELIST_PATH = "/nist.fips.197.pdf";
+const WHITELIST_EXACT = ["/nist.fips.197.pdf"];
+const WHITELIST_PREFIXES = ["/vision/"];
 const MAX_URL_TEXT = 8_000;
 const MAX_PDF_CHARS = 6_000;
 const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
@@ -35,15 +36,18 @@ export function resolvePublicAssetsOrigin(input: { publicAssetsOrigin?: string |
 
 export function nistFips197PdfUrl(publicAssetsOrigin: string): string {
   const base = publicAssetsOrigin.replace(/\/+$/, "");
-  return `${base}${WHITELIST_PATH}`;
+  return `${base}${WHITELIST_EXACT[0]}`;
 }
 
-/** SSRF 방지: `publicAssetsOrigin` 과 동일한 origin 이며 `/nist.fips.197.pdf` 만 허용 */
+/** SSRF 방지: `publicAssetsOrigin` 과 동일한 origin이며 화이트리스트 경로만 허용. */
 export function assertUrlAllowed(publicAssetsOrigin: string, urlStr: string): void {
   const base = new URL(`${publicAssetsOrigin.replace(/\/+$/, "")}/`);
   const u = new URL(urlStr);
   if (u.origin !== base.origin) throw new Error("url origin not allowed");
-  if (u.pathname !== WHITELIST_PATH) throw new Error("url path not allowed");
+  const p = u.pathname;
+  if (WHITELIST_EXACT.includes(p)) return;
+  if (WHITELIST_PREFIXES.some((pre) => p.startsWith(pre))) return;
+  throw new Error("url path not allowed");
 }
 
 export async function executeBenchTool(
