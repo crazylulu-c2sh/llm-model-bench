@@ -412,8 +412,8 @@ export function App() {
   }, [detect, modelOrderIds, selected]);
 
   const profileHintByModelId = useMemo(() => {
-    if (!detect) return {} as Record<string, string>;
-    const out: Record<string, string> = {};
+    if (!detect) return {} as Record<string, { family: LlmProfileFamily; preset: SamplingPresetName }>;
+    const out: Record<string, { family: LlmProfileFamily; preset: SamplingPresetName }> = {};
     for (const m of detect.models) {
       const inferred = inferLlmProfileFamily(m.id);
       const effectiveQwen36 =
@@ -432,7 +432,7 @@ export function App() {
         profileFamilyOverride: profileId === "auto" ? null : profileId,
       });
       const famLabel = profileId === "auto" ? inferred : profileId;
-      out[m.id] = `${famLabel} · ${resolved.preset}`;
+      out[m.id] = { family: famLabel, preset: resolved.preset };
     }
     return out;
   }, [
@@ -1735,6 +1735,7 @@ export function App() {
               selectionDisabled={running}
               profileHintByModelId={profileHintByModelId}
               benchActiveModelId={running ? benchCurrent?.modelId ?? null : null}
+              benchRunning={running}
             />
           ) : detect && detect.models.length === 0 ? (
             <p className="py-8 text-center text-sm text-[var(--muted)]">

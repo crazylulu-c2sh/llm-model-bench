@@ -1,4 +1,4 @@
-import type { DetectResult } from "@llm-bench/shared";
+import type { DetectResult, LlmProfileFamily, SamplingPresetName } from "@llm-bench/shared";
 import {
   createColumnHelper,
   flexRender,
@@ -10,7 +10,60 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Square } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { ConfirmDialog } from "./ConfirmDialog";
+
+export type ProfileHint = { family: LlmProfileFamily; preset: SamplingPresetName };
+
+function ProfileHintCell({
+  hint,
+  onRequestLeave,
+}: {
+  hint?: ProfileHint;
+  onRequestLeave: (hash: string) => void;
+}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  if (!hint) {
+    return (
+      <span className="block max-w-[14rem] truncate font-mono text-[10px] leading-tight text-[var(--muted)]">—</span>
+    );
+  }
+  const onProfile = location.pathname === "/profile";
+  const handle = (hash: string) => (e: ReactMouseEvent<HTMLAnchorElement>) => {
+    e.stopPropagation();
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    if (onProfile) navigate({ pathname: "/profile", hash });
+    else onRequestLeave(hash);
+  };
+  const linkCls =
+    "text-[var(--muted)] underline-offset-2 hover:text-[var(--accent)] hover:underline focus:outline-none focus:underline";
+  return (
+    <span
+      className="block max-w-[14rem] truncate font-mono text-[10px] leading-tight"
+      title={`${hint.family} · ${hint.preset}`}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <a
+        href={`/profile#${hint.family}`}
+        onClick={handle(`#${hint.family}`)}
+        className={linkCls}
+      >
+        {hint.family}
+      </a>
+      <span className="text-[var(--muted)]"> · </span>
+      <a
+        href={`/profile#preset-${hint.preset}`}
+        onClick={handle(`#preset-${hint.preset}`)}
+        className={linkCls}
+      >
+        {hint.preset}
+      </a>
+    </span>
+  );
+}
 
 /** 테이블과 App의 기본 정렬(id 오름차순)을 맞춥니다. */
 export const DEFAULT_MODEL_TABLE_SORTING: SortingState = [{ id: "id", desc: false }];
@@ -88,6 +141,7 @@ export function ModelTable({
   selectionDisabled = false,
   profileHintByModelId,
   benchActiveModelId = null,
+  benchRunning = false,
 }: {
   models: DetectResult["models"];
   selected: Record<string, boolean>;
@@ -99,14 +153,18 @@ export function ModelTable({
   onSortedModelIdsChange?: (ids: string[]) => void;
   /** true이면 체크·행 토글·전체 선택을 막습니다(예: 벤치 실행 중). */
   selectionDisabled?: boolean;
-  profileHintByModelId?: Record<string, string>;
+  profileHintByModelId?: Record<string, ProfileHint>;
   /** 벤치 스트림에서 현재 다루는 모델 id(행 테두리 강조). */
   benchActiveModelId?: string | null;
+  /** 벤치가 진행 중이면 프로파일 링크 이탈 확인 다이얼로그에 추가 안내가 표시됨. */
+  benchRunning?: boolean;
 }) {
   const data = useMemo<ModelRow[]>(() => models.map((m) => ({ ...m })), [models]);
   const allSelected = models.length > 0 && models.every((m) => selected[m.id]);
   const someSelected = models.some((m) => selected[m.id]);
   const rowPointerRef = useRef<{ x: number; y: number; modelId: string } | null>(null);
+  const [pendingHash, setPendingHash] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const columns = useMemo(
     () => [
@@ -208,9 +266,10 @@ export function ModelTable({
         id: "profile_hint",
         header: () => <span className="font-medium text-[var(--muted)]">프로파일</span>,
         cell: ({ row }) => (
-          <span className="block max-w-[14rem] truncate font-mono text-[10px] leading-tight text-[var(--muted)]" title={profileHintByModelId?.[row.original.id]}>
-            {profileHintByModelId?.[row.original.id] ?? "—"}
-          </span>
+          <ProfileHintCell
+            hint={profileHintByModelId?.[row.original.id]}
+            onRequestLeave={setPendingHash}
+          />
         ),
         enableSorting: false,
       }),
@@ -310,6 +369,24 @@ export function ModelTable({
         {someSelected && !allSelected ? " · 일부 선택됨" : null}
         {selectionDisabled ? " · 벤치 실행 중에는 선택을 바꿀 수 없습니다." : null}
       </p>
+      <ConfirmDialog
+        open={pendingHash !== null}
+        title="프로파일 문서 페이지로 이동"
+        confirmLabel="이동"
+        onConfirm={() => {
+          const h = pendingHash;
+          setPendingHash(null);
+          if (h) navigate({ pathname: "/profile", hash: h });
+        }}
+        onCancel={() => setPendingHash(null)}
+      >
+        <p>현재 화면을 떠나 프로파일 문서 페이지로 이동합니다.</p>
+        {benchRunning ? (
+          <p className="mt-2 text-[var(--muted)]">
+            벤치가 진행 중입니다 — 화면만 바뀌며 실행은 백그라운드에서 계속됩니다.
+          </p>
+        ) : null}
+      </ConfirmDialog>
     </div>
   );
 }
