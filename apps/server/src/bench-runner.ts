@@ -496,6 +496,14 @@ export async function* runBench(
         for (let i = 0; i < totalIterations; i++) {
           const isWarmup = i < meta.warmup_runs;
           const ref = new Date();
+          const visionThisRun = isVisionScenario(scenarioId);
+
+          // D7: 비전 시나리오는 warmup 단계에서 호출하지 않는다 — 이미지
+          // 인코딩·멀티모달 API 비용을 warmup에서 중복시키지 않음.
+          if (isWarmup && visionThisRun) {
+            continue;
+          }
+
           const promptCtx = {
             publicAssetsOrigin: assetOrigin,
             referenceAt: ref,
@@ -523,29 +531,30 @@ export async function* runBench(
           const userPromptThisRun = scenarioUserMessageContent(scenarioId, promptCtx);
           lastSystemPromptForAggregate = systemPromptThisRun;
           lastUserPromptForAggregate = userPromptThisRun;
-          const visionThisRun = isVisionScenario(scenarioId);
           const visionMaxTokens = visionThisRun
             ? defaultMaxTokensForVisionScenario(scenarioId)
             : null;
           if (visionMaxTokens) {
             scenarioMeta.max_tokens = visionMaxTokens;
           }
-          const scenarioStart: StreamEvent = {
+          const visionImageDelivery: "base64" | "url" | undefined = visionThisRun
+            ? (isLoopbackOrPrivateOrigin(assetOrigin) ? "base64" : "url")
+            : undefined;
+          const visionRefs = visionThisRun ? visionImageRefs(scenarioId) : undefined;
+          yield {
             type: "scenario_start",
             scenario_id: scenarioId,
             api_route,
             system_prompt: systemPromptThisRun,
             user_prompt: userPromptThisRun,
+            ...(visionRefs ? { image_refs: visionRefs } : {}),
+            ...(visionImageDelivery ? { image_delivery: visionImageDelivery } : {}),
           };
-          if (visionThisRun) {
-            const refs = visionImageRefs(scenarioId);
-            const delivery = isLoopbackOrPrivateOrigin(assetOrigin) ? "base64" : "url";
-            (scenarioStart as unknown as Record<string, unknown>).image_refs = refs;
-            (scenarioStart as unknown as Record<string, unknown>).image_delivery = delivery;
-          }
-          yield scenarioStart;
 
           let iterationFailed = false;
+          /** D5: 비전 시나리오에서 400 + image/vision/multimodal 본문 매칭 시 채워짐.
+              quality.reason을 `upstream_no_vision: ...`로 덮어쓰는 데 사용. */
+          let upstreamNoVisionDetail: string | null = null;
           const controller = new AbortController();
           const to = setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -834,6 +843,13 @@ export async function* runBench(
               }
               if (!iterationFailed && (!r.ok || !r.body)) {
                 const errText = await r.text().catch(() => "");
+                if (
+                  visionThisRun &&
+                  r.status === 400 &&
+                  /image|vision|multimodal/i.test(errText)
+                ) {
+                  upstreamNoVisionDetail = errText.slice(0, 80);
+                }
                 yield {
                   type: "error",
                   layer: "upstream",
@@ -888,6 +904,13 @@ export async function* runBench(
               });
               if (!r.ok || !r.body) {
                 const errText = await r.text().catch(() => "");
+                if (
+                  visionThisRun &&
+                  r.status === 400 &&
+                  /image|vision|multimodal/i.test(errText)
+                ) {
+                  upstreamNoVisionDetail = errText.slice(0, 80);
+                }
                 yield {
                   type: "error",
                   layer: "upstream",
@@ -920,20 +943,36 @@ export async function* runBench(
               }
             }
 
-            let quality = isWarmup
+            let quality:
+              | { pass: boolean; score?: number; reason?: string; judge_pending?: true }
+              | undefined = isWarmup
               ? undefined
               : scoreScenario(scenarioId, text, {
                   invokedBenchTools,
                   calendarReferenceIso: ref.toISOString(),
                   calendarTimeZone: "Asia/Seoul",
                 });
-            if (
+            // D5: 비전 시나리오에서 400 + image/vision/multimodal 본문 매칭이 감지된 경우
+            // scoreScenario의 결과(빈 출력 → 0점)를 `upstream_no_vision`로 덮어쓴다.
+            if (!isWarmup && quality && upstreamNoVisionDetail) {
+              quality = {
+                pass: false,
+                score: 0,
+                reason: `upstream_no_vision: ${upstreamNoVisionDetail}`,
+              };
+            } else if (
               !isWarmup &&
               quality &&
               isJudgeEnabled() &&
-              isJudgePending(quality.reason)
+              quality.judge_pending === true
             ) {
-              quality = await runJudgeForVisionScenario(scenarioId, text);
+              quality = await runJudgeForVisionScenario(scenarioId, text, fetchImpl);
+            }
+            // emit 직전 내부 플래그 제거 — SSE/DB에는 노출되지 않게 한다.
+            if (quality && quality.judge_pending === true) {
+              const { judge_pending: _drop, ...rest } = quality;
+              void _drop;
+              quality = rest;
             }
             if (!isWarmup) {
               runs.push({
@@ -961,12 +1000,20 @@ export async function* runBench(
               quality,
             };
           } catch (e) {
-            const code = isAbortLikeError(e)
-              ? "request_timeout"
-              : "upstream_exception";
-            const message = isAbortLikeError(e)
-              ? `요청이 ${Math.floor(requestTimeoutMs / 1000)}초 제한을 넘어 중단되었습니다 (${String(e)})`
-              : String(e);
+            const errMsg = String(e);
+            // A5: vision-assets가 1MB 초과 자산에서 throw하는 `image_too_large:` prefix를
+            // 캐치해 quality로 라벨링한다. 일반 `upstream_exception`과 구분.
+            const isImageTooLarge = errMsg.startsWith("Error: image_too_large:") || errMsg.includes("image_too_large:");
+            const code = isImageTooLarge
+              ? "image_too_large"
+              : isAbortLikeError(e)
+                ? "request_timeout"
+                : "upstream_exception";
+            const message = isImageTooLarge
+              ? errMsg
+              : isAbortLikeError(e)
+                ? `요청이 ${Math.floor(requestTimeoutMs / 1000)}초 제한을 넘어 중단되었습니다 (${errMsg})`
+                : errMsg;
             yield {
               type: "error",
               layer: "upstream",
@@ -975,6 +1022,35 @@ export async function* runBench(
               partial: { scenarioId, api_route },
             };
             iterationFailed = true;
+            if (isImageTooLarge && !isWarmup) {
+              const quality = {
+                pass: false,
+                score: 0,
+                reason: `image_too_large: ${errMsg.replace(/^Error:\s*/, "").slice(0, 120)}`,
+              };
+              runs.push({
+                ttft_ms: null,
+                tpot_ms: null,
+                total_ms: 0,
+                output_text: "",
+                stream_completed: false,
+                quality,
+              });
+              yield {
+                type: "scenario_end",
+                scenario_id: scenarioId,
+                api_route,
+                metrics: {
+                  ttft_ms: null,
+                  tpot_ms: null,
+                  total_ms: 0,
+                  output_chars: 0,
+                  approx_tokens: 0,
+                  stream_completed: false,
+                },
+                quality,
+              };
+            }
           } finally {
             clearTimeout(to);
           }
@@ -1046,30 +1122,31 @@ function chunkTextForUi(text: string, size: number): string[] {
   return out;
 }
 
-function isJudgePending(reason: string | undefined): boolean {
-  return typeof reason === "string" && reason.includes("judge_pending");
-}
+const MEME_JUDGE_CRITERION =
+  "Score the model's Korean explanation of this meme on 0–3:\n" +
+  "3 = both panels' text quoted + correct visual description (server rack vs donkey cart) + identifies the irony of \"LLM cloud promises vs local PC reality\".\n" +
+  "2 = correct OCR and visuals, but weak/missing technical framing (LLM/PC connection underexplained).\n" +
+  "1 = describes the image but fails to explain why it is funny.\n" +
+  "0 = OCR failure or irrelevant explanation.";
+
+const WIREFRAME_JUDGE_CRITERION =
+  "Score the generated HTML against the hand-drawn wireframe on 0–3:\n" +
+  "3 = grid/flex used, all sections present at the right vertical order, every labeled element (buttons / nav items / form fields) reproduced.\n" +
+  "2 = layout roughly matches but some alignment off, 1–2 minor text typos or one tiny component missing.\n" +
+  "1 = collapses to a single column / fails multi-column layout, OR a key button (e.g. Sign Up / Get Started) or nav menu is missing.\n" +
+  "0 = refuses to generate code / outputs unrelated code / barely any text from the wireframe.";
 
 const JUDGE_CRITERIA: Partial<Record<ScenarioId, string>> = {
-  vision_meme_explain_a:
-    "Score the model's Korean explanation of this meme on 0–3:\n" +
-    "3 = both panels' text quoted + correct visual description (server rack vs donkey cart) + identifies the irony of \"LLM cloud promises vs local PC reality\".\n" +
-    "2 = correct OCR and visuals, but weak/missing technical framing (LLM/PC connection underexplained).\n" +
-    "1 = describes the image but fails to explain why it is funny.\n" +
-    "0 = OCR failure or irrelevant explanation.",
-  vision_wireframe_html_a:
-    "Score the generated HTML against the hand-drawn wireframe on 0–3:\n" +
-    "3 = grid/flex used, all sections present at the right vertical order, every labeled element (buttons / nav items / form fields) reproduced.\n" +
-    "2 = layout roughly matches but some alignment off, 1–2 minor text typos or one tiny component missing.\n" +
-    "1 = collapses to a single column / fails multi-column layout, OR a key button (e.g. Sign Up / Get Started) or nav menu is missing.\n" +
-    "0 = refuses to generate code / outputs unrelated code / barely any text from the wireframe.",
+  vision_meme_explain_a: MEME_JUDGE_CRITERION,
+  vision_meme_explain_b: MEME_JUDGE_CRITERION,
+  vision_wireframe_html_a: WIREFRAME_JUDGE_CRITERION,
+  vision_wireframe_html_b: WIREFRAME_JUDGE_CRITERION,
 };
-JUDGE_CRITERIA.vision_meme_explain_b = JUDGE_CRITERIA.vision_meme_explain_a;
-JUDGE_CRITERIA.vision_wireframe_html_b = JUDGE_CRITERIA.vision_wireframe_html_a;
 
 async function runJudgeForVisionScenario(
   scenarioId: ScenarioId,
   output: string,
+  fetchImpl: typeof fetch,
 ): Promise<{ pass: boolean; score: number; reason: string }> {
   const criterion = JUDGE_CRITERIA[scenarioId];
   if (!criterion) {
@@ -1089,13 +1166,18 @@ async function runJudgeForVisionScenario(
     image: { bytes: asset.bytes, mediaType: asset.mediaType },
     modelOutput: output,
     criterion,
+    fetchImpl,
   });
   if (!result.enabled) {
     // Should not reach here because we check isJudgeEnabled() first.
     return { pass: false, score: 0.33, reason: "judge disabled — prefilter only" };
   }
   if ("error" in result) {
-    return { pass: false, score: 0, reason: result.reason };
+    return {
+      pass: false,
+      score: 0,
+      reason: `${result.error}: ${result.reason}`.slice(0, 200),
+    };
   }
   const { pass, score } = rubricToScore(result.rubric);
   return {

@@ -347,7 +347,7 @@ export function scoreScenario(
   id: ScenarioId,
   output: string,
   ctx?: ScoreContext,
-): { pass: boolean; score?: number; reason?: string } {
+): { pass: boolean; score?: number; reason?: string; judge_pending?: true } {
   switch (id) {
     case "chat_hello":
     case "chat_ping":
@@ -427,18 +427,34 @@ export function scoreScenario(
   }
 }
 
+/** 내부 채점 결과 — judge_pending은 bench-runner에서 소비 후 emit 직전 strip. */
+export type ScenarioScoreResult = {
+  pass: boolean;
+  score: number;
+  reason: string;
+  /** 내부 플래그: prefilter 통과 후 judge가 필요함. SSE/DB 직전에 제거. */
+  judge_pending?: true;
+};
+
 function rubricResult(
   rubric: 0 | 1 | 2 | 3,
   reason: string,
-): { pass: boolean; score: number; reason: string } {
+  opts?: { judgePending?: true },
+): ScenarioScoreResult {
   const { pass, score } = rubricToScore(rubric);
-  return { pass, score, reason: `rubric=${rubric} | ${reason}` };
+  const out: ScenarioScoreResult = {
+    pass,
+    score,
+    reason: `rubric=${rubric} | ${reason}`,
+  };
+  if (opts?.judgePending) out.judge_pending = true;
+  return out;
 }
 
 function scoreVisionTableOcr(
   output: string,
   expected: { net_income_2024: number; net_income_yoy_percent: number },
-): { pass: boolean; score: number; reason: string } {
+): ScenarioScoreResult {
   const objStr = extractFirstJsonObject(output);
   if (!objStr) return rubricResult(0, "no json object");
   let obj: { net_income_2024?: unknown; net_income_yoy_percent?: unknown };
@@ -462,7 +478,7 @@ function scoreVisionTableOcr(
 function scoreVisionCountRedCars(
   output: string,
   range: [number, number],
-): { pass: boolean; score: number; reason: string } {
+): ScenarioScoreResult {
   const objStr = extractFirstJsonObject(output);
   if (!objStr) return rubricResult(0, "no json object");
   let obj: { red_cars?: unknown };
@@ -491,7 +507,7 @@ function scoreVisionCountRedCars(
 function scoreVisionChartPeak(
   output: string,
   expected: { product: string; quarter: string; value_percent: number },
-): { pass: boolean; score: number; reason: string } {
+): ScenarioScoreResult {
   const objStr = extractFirstJsonObject(output);
   if (!objStr) return rubricResult(0, "no json object");
   let obj: { product?: unknown; quarter?: unknown; value_percent?: unknown };
@@ -516,7 +532,7 @@ function scoreVisionChartPeak(
   return rubricResult(0, tag);
 }
 
-function scoreVisionMemeExplain(output: string): { pass: boolean; score: number; reason: string } {
+function scoreVisionMemeExplain(output: string): ScenarioScoreResult {
   const text = stripThinkingBlocks(output);
   const hasHangul = /[가-힣]/.test(text);
   const lowered = text.toLowerCase();
@@ -531,17 +547,18 @@ function scoreVisionMemeExplain(output: string): { pass: boolean; score: number;
       `prefilter fail: hangul=${hasHangul} server=${hasServer} donkey=${hasDonkey} contrast=${hasContrast}`,
     );
   }
-  // 모든 prefilter 통과 → 잠정 1점(judge_pending). bench-runner가 judge로 덮어쓴다.
+  // 모든 prefilter 통과 → 잠정 1점 + judge_pending 플래그. bench-runner가 judge 결과로 덮어쓴다.
   return rubricResult(
     1,
-    "judge_pending: prefilter passed — set LLM_JUDGE_ENABLED=1 for rubric judging",
+    "prefilter passed — set LLM_JUDGE_ENABLED=1 for rubric judging",
+    { judgePending: true },
   );
 }
 
 function scoreVisionWireframe(
   output: string,
   requiredCues: string[],
-): { pass: boolean; score: number; reason: string } {
+): ScenarioScoreResult {
   const stripped = stripThinkingBlocks(output);
   const fenceMatch = stripped.match(/```html\s*([\s\S]*?)```/i) ?? stripped.match(/```\s*([\s\S]*?)```/);
   if (!fenceMatch) return rubricResult(0, "no html fence");
@@ -553,7 +570,8 @@ function scoreVisionWireframe(
   if (missing.length > 0) return rubricResult(0, `missing cues: ${missing.join(", ")}`);
   return rubricResult(
     1,
-    "judge_pending: prefilter passed — set LLM_JUDGE_ENABLED=1 for rubric judging",
+    "prefilter passed — set LLM_JUDGE_ENABLED=1 for rubric judging",
+    { judgePending: true },
   );
 }
 

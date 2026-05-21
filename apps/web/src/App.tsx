@@ -156,7 +156,7 @@ export function App() {
   const [unloadOtherModels, setUnloadOtherModels] = useState(boot.unloadOtherModels);
   const [autoUnloadAfterBench, setAutoUnloadAfterBench] = useState(boot.autoUnloadAfterBench);
   const [selectedScenarioIds, setSelectedScenarioIds] = useState<string[]>(boot.selectedScenarioIds);
-  const [scenarioPickerOpen, setScenarioPickerOpen] = useState(false);
+  const [scenarioPickerOpen, setScenarioPickerOpen] = useState(boot.scenarioPickerOpen);
   const toggleScenarioSelection = useCallback((id: string) => {
     setSelectedScenarioIds((prev) =>
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
@@ -165,6 +165,18 @@ export function App() {
   const visibleSelectedScenarioIds = useMemo(
     () => selectedScenarioIds.filter((id) => (PUBLIC_SCENARIO_IDS as readonly string[]).includes(id)),
     [selectedScenarioIds],
+  );
+  const selectedTextCount = useMemo(
+    () => visibleSelectedScenarioIds.filter((id) => !isVisionScenario(id)).length,
+    [visibleSelectedScenarioIds],
+  );
+  const selectedVisionCount = useMemo(
+    () => visibleSelectedScenarioIds.filter((id) => isVisionScenario(id)).length,
+    [visibleSelectedScenarioIds],
+  );
+  const totalTextScenarios = useMemo(
+    () => (PUBLIC_SCENARIO_IDS as string[]).filter((id) => !isVisionScenario(id)).length,
+    [],
   );
   const [profileId, setProfileId] = useState<"auto" | LlmProfileFamily>(boot.profileId);
   const [profileMaxTokens, setProfileMaxTokens] = useState(boot.profileMaxTokens);
@@ -274,6 +286,7 @@ export function App() {
         samplingOverridesText,
         profileAdvancedOpen,
         selectedScenarioIds,
+        scenarioPickerOpen,
       });
     }, 350);
     return () => window.clearTimeout(t);
@@ -296,6 +309,7 @@ export function App() {
     samplingOverridesText,
     profileAdvancedOpen,
     selectedScenarioIds,
+    scenarioPickerOpen,
   ]);
 
   // bench → 다른 라우트 전이 시 *즉시 flush*. 게이트가 debounce를 폐기해도 최종 값 보존.
@@ -317,6 +331,7 @@ export function App() {
     samplingOverridesText,
     profileAdvancedOpen,
     selectedScenarioIds,
+    scenarioPickerOpen,
   });
   latestBenchSnapshotRef.current = {
     baseUrl,
@@ -336,6 +351,7 @@ export function App() {
     samplingOverridesText,
     profileAdvancedOpen,
     selectedScenarioIds,
+    scenarioPickerOpen,
   };
   const prevOnBenchPageRef = useRef(onBenchPage);
   useEffect(() => {
@@ -793,6 +809,7 @@ export function App() {
         samplingOverridesText,
         profileAdvancedOpen,
         selectedScenarioIds,
+        scenarioPickerOpen,
       });
     } catch (e) {
       appendLog(String(e));
@@ -1043,6 +1060,10 @@ export function App() {
 
   const requestBench = useCallback(() => {
     if (!detect) return;
+    if (visibleSelectedScenarioIds.length === 0) {
+      toast.error("실행할 시나리오를 1개 이상 선택하세요.");
+      return;
+    }
     const models = orderedSelectedModels;
     if (!models.length) {
       toast.error("벤치할 모델을 하나 이상 선택하세요.");
@@ -1050,7 +1071,7 @@ export function App() {
     }
     setBenchQueueDraft([...models]);
     setBenchConfirmOpen(true);
-  }, [detect, orderedSelectedModels]);
+  }, [detect, orderedSelectedModels, visibleSelectedScenarioIds.length]);
 
   const handleConfirmBench = useCallback(() => {
     setBenchConfirmOpen(false);
@@ -1387,16 +1408,33 @@ export function App() {
               className="flex w-full items-center justify-between gap-2 text-left"
             >
               <span className="font-medium text-[var(--foreground)]">
-                실행 시나리오 ({visibleSelectedScenarioIds.length}/{PUBLIC_SCENARIO_IDS.length})
+                실행 시나리오{" "}
+                <span className={visibleSelectedScenarioIds.length === 0 ? "text-[var(--danger)]" : "text-[var(--muted)]"}>
+                  ({visibleSelectedScenarioIds.length}/{PUBLIC_SCENARIO_IDS.length})
+                </span>
               </span>
-              <span className="text-xs text-[var(--muted)]">
-                {visibleSelectedScenarioIds.filter((id) => isVisionScenario(id)).length > 0
-                  ? `· 비전 ${visibleSelectedScenarioIds.filter((id) => isVisionScenario(id)).length}개 포함`
-                  : "· 텍스트 시나리오만"}
-                {" "}
-                {scenarioPickerOpen ? "▴" : "▾"}
+              <span className="flex items-center gap-2 text-xs">
+                <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[var(--muted)]">
+                  텍스트 {selectedTextCount}/{totalTextScenarios}
+                </span>
+                <span
+                  className={[
+                    "rounded px-1.5 py-0.5",
+                    selectedVisionCount > 0
+                      ? "bg-[var(--accent)]/15 text-[var(--accent)]"
+                      : "bg-[var(--surface-2)] text-[var(--muted)]",
+                  ].join(" ")}
+                >
+                  비전 {selectedVisionCount}/{VISION_SCENARIO_IDS.length}
+                </span>
+                <span className="text-[var(--muted)]">{scenarioPickerOpen ? "▴" : "▾"}</span>
               </span>
             </button>
+            {visibleSelectedScenarioIds.length === 0 ? (
+              <p className="mt-2 text-xs text-[var(--danger)]">
+                실행할 시나리오를 1개 이상 선택해야 합니다.
+              </p>
+            ) : null}
             {scenarioPickerOpen ? (
               <div className="mt-2 space-y-3">
                 <div className="flex flex-wrap gap-2 text-xs">
@@ -1404,15 +1442,9 @@ export function App() {
                     type="button"
                     className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
                     onClick={() => setSelectedScenarioIds([...DEFAULT_SCENARIO_IDS])}
+                    title="기존 텍스트 8개만 실행"
                   >
                     기본 (텍스트 8개)
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
-                    onClick={() => setSelectedScenarioIds([...PUBLIC_SCENARIO_IDS])}
-                  >
-                    전체 선택
                   </button>
                   <button
                     type="button"
@@ -1420,8 +1452,17 @@ export function App() {
                     onClick={() =>
                       setSelectedScenarioIds([...DEFAULT_SCENARIO_IDS, ...VISION_SCENARIO_IDS])
                     }
+                    title="처음 실행하는 모델용: 텍스트 8 + 비전 10 = 18개 시나리오"
                   >
-                    텍스트 + 비전 (10개 비전)
+                    전체 18개 (텍스트+비전)
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-[var(--accent)] bg-[var(--accent)]/10 px-2 py-1 hover:bg-[var(--accent)]/20"
+                    onClick={() => setSelectedScenarioIds([...VISION_SCENARIO_IDS])}
+                    title="이미 텍스트 벤치 완료한 모델에 비전 10개만 추가로 실행"
+                  >
+                    비전만 (10개) · 보완 벤치
                   </button>
                   <button
                     type="button"
@@ -1732,9 +1773,14 @@ export function App() {
               type="button"
               className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-medium shadow-sm disabled:opacity-50"
               onClick={requestBench}
-              disabled={!detect || running}
+              disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
               aria-busy={running}
               aria-label="선택한 모델 벤치 실행"
+              title={
+                visibleSelectedScenarioIds.length === 0
+                  ? "실행할 시나리오를 1개 이상 선택하세요"
+                  : undefined
+              }
             >
               {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Play className="size-4" aria-hidden />}
               선택 모델 벤치

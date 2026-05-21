@@ -1,5 +1,6 @@
 import type { DetectResult } from "@llm-bench/shared";
-import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_SCENARIO_IDS } from "@llm-bench/shared";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeBenchRunMeta, normalizeScenarioIdsForBench, runBench, type BenchRequest } from "./bench-runner.js";
 import { _resetStreamUsageCacheForTests } from "./openai-fetch.js";
 import type { ScenarioId } from "./scenarios.js";
@@ -57,15 +58,18 @@ function baseBenchRequest(overrides: Partial<BenchRequest> = {}): BenchRequest {
 }
 
 describe("makeBenchRunMeta default scenarioIds", () => {
-  it("falls back to PUBLIC_SCENARIO_IDS (no stress_*) when caller omits scenarioIds", () => {
+  it("falls back to DEFAULT_SCENARIO_IDS (text 8, no vision_/stress_) when caller omits scenarioIds", () => {
     const meta = makeBenchRunMeta(
       { ...baseBenchRequest(), scenarioIds: undefined },
       lmStudioDetect(),
       "run_test_1",
     );
-    expect(meta.scenario_ids.length).toBeGreaterThan(0);
+    expect(meta.scenario_ids).toHaveLength(DEFAULT_SCENARIO_IDS.length);
     expect(meta.scenario_ids.every((id) => !id.startsWith("stress_"))).toBe(true);
+    expect(meta.scenario_ids.every((id) => !id.startsWith("vision_"))).toBe(true);
     expect(meta.scenario_ids).toContain("chat_ping");
+    // 정렬 normalize (translate를 마지막으로) 후에도 동일한 8개 집합이 유지된다.
+    expect(new Set(meta.scenario_ids)).toEqual(new Set(DEFAULT_SCENARIO_IDS));
   });
 
   it("silently drops stress_* ids if a client sends them", () => {
@@ -237,5 +241,293 @@ describe("runBench OpenAI requests carry stream_options.include_usage", () => {
       void _;
     }
     expect(sawStreamOptions).toBe(true);
+  });
+});
+
+// Section A — vision-specific behavior (D5/D7) and judge integration
+describe("runBench vision D7 — warmup skips vision scenarios", () => {
+  it("does not call upstream for vision scenario during warmup iterations", async () => {
+    let chatCalls = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        chatCalls += 1;
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    for await (const _ of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_chart_peak_a"],
+        warmupRuns: 1,
+        measuredRuns: 1,
+      }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      void _;
+    }
+    // measured 1회만 호출되어야 한다 — warmup은 비전에서 스킵.
+    expect(chatCalls).toBe(1);
+  });
+});
+
+describe("runBench vision D5 — upstream_no_vision labelling", () => {
+  it("labels quality when 400 body mentions image/vision/multimodal", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        return new Response(
+          "Error: this model does not support image input",
+          { status: 400, headers: { "content-type": "text/plain" } },
+        );
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let labelled = false;
+    for await (const ev of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_chart_peak_a"],
+        warmupRuns: 0,
+        measuredRuns: 1,
+      }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_end" && ev.quality?.reason?.startsWith("upstream_no_vision:")) {
+        labelled = true;
+        expect(ev.quality.pass).toBe(false);
+        expect(ev.quality.score).toBe(0);
+      }
+    }
+    expect(labelled).toBe(true);
+  });
+
+  it("does NOT label generic 400 without vision keywords", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        return new Response("Error: rate limited", { status: 400 });
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let labelled = false;
+    for await (const ev of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_chart_peak_a"],
+        warmupRuns: 0,
+        measuredRuns: 1,
+      }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_end" && ev.quality?.reason?.startsWith("upstream_no_vision:")) {
+        labelled = true;
+      }
+    }
+    expect(labelled).toBe(false);
+  });
+});
+
+describe("runBench scenario_start emits image_refs/image_delivery for vision", () => {
+  it("includes image_refs (WebP path) and image_delivery (base64 for loopback)", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) return sseChatOk();
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let sawImageRefs = false;
+    let sawDelivery = false;
+    for await (const ev of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_chart_peak_a"],
+        warmupRuns: 0,
+        measuredRuns: 1,
+      }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_start") {
+        if (ev.image_refs && ev.image_refs[0]?.endsWith(".webp")) sawImageRefs = true;
+        if (ev.image_delivery === "base64") sawDelivery = true;
+      }
+    }
+    expect(sawImageRefs).toBe(true);
+    expect(sawDelivery).toBe(true);
+  });
+});
+
+describe("runBench judge integration — 4 cases", () => {
+  // 비전 meme/wireframe 시나리오에서 prefilter 통과 응답을 모킹해 judge 후처리를 검증.
+  // chat_completions 응답이 prefilter 키워드를 모두 포함한 한국어 설명을 반환해야 함.
+  const memePass = "이 밈은 데이터센터 서버 랙과 당나귀 수레의 대비로 기대와 현실의 차이를 풍자합니다.";
+
+  function memeSseResponse(): Response {
+    const enc = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          enc.encode(`data: {"choices":[{"delta":{"content":${JSON.stringify(memePass)}}}]}\n\n`),
+        );
+        controller.enqueue(enc.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
+
+  function judgeResponse(jsonBody: unknown): Response {
+    return new Response(JSON.stringify(jsonBody), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  beforeEach(() => {
+    delete process.env.LLM_JUDGE_ENABLED;
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  afterEach(() => {
+    delete process.env.LLM_JUDGE_ENABLED;
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it("judge disabled — prefilter passes, score capped at rubric 1 (pass=false)", async () => {
+    let judgeCalled = false;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) return memeSseResponse();
+      if (url.includes("api.anthropic.com")) judgeCalled = true;
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let lastQuality: { pass: boolean; score?: number; reason?: string } | undefined;
+    for await (const ev of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_meme_explain_a"],
+        warmupRuns: 0,
+        measuredRuns: 1,
+      }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_end") lastQuality = ev.quality;
+    }
+    expect(judgeCalled).toBe(false);
+    expect(lastQuality?.pass).toBe(false);
+    expect(lastQuality?.score).toBeCloseTo(0.33, 2);
+    // 내부 플래그는 emit 직전 제거되어야 한다.
+    expect((lastQuality as { judge_pending?: true })?.judge_pending).toBeUndefined();
+  });
+
+  it("judge enabled + rubric 3 — final pass=true score=1.0", async () => {
+    process.env.LLM_JUDGE_ENABLED = "1";
+    process.env.ANTHROPIC_API_KEY = "fake-test-key";
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) return memeSseResponse();
+      if (url.includes("api.anthropic.com")) {
+        return judgeResponse({
+          content: [{ type: "text", text: '{"score":3,"reason":"all elements covered"}' }],
+        });
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let lastQuality: { pass: boolean; score?: number; reason?: string } | undefined;
+    for await (const ev of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_meme_explain_a"],
+        warmupRuns: 0,
+        measuredRuns: 1,
+      }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_end") lastQuality = ev.quality;
+    }
+    expect(lastQuality?.pass).toBe(true);
+    expect(lastQuality?.score).toBeCloseTo(1, 5);
+    expect(lastQuality?.reason).toMatch(/rubric=3/);
+  });
+
+  it("judge enabled + invalid JSON — judge_parse_error rubric 0", async () => {
+    process.env.LLM_JUDGE_ENABLED = "1";
+    process.env.ANTHROPIC_API_KEY = "fake-test-key";
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) return memeSseResponse();
+      if (url.includes("api.anthropic.com")) {
+        // 응답에 JSON 객체가 없는 텍스트 → judge_parse_error
+        return judgeResponse({ content: [{ type: "text", text: "Score: 3 (looks good)" }] });
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let lastQuality: { pass: boolean; score?: number; reason?: string } | undefined;
+    for await (const ev of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_meme_explain_a"],
+        warmupRuns: 0,
+        measuredRuns: 1,
+      }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_end") lastQuality = ev.quality;
+    }
+    expect(lastQuality?.pass).toBe(false);
+    expect(lastQuality?.score).toBe(0);
+    expect(lastQuality?.reason).toMatch(/judge_parse_error/);
+  });
+
+  it("judge enabled + HTTP error — judge_network_error rubric 0", async () => {
+    process.env.LLM_JUDGE_ENABLED = "1";
+    process.env.ANTHROPIC_API_KEY = "fake-test-key";
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) return memeSseResponse();
+      if (url.includes("api.anthropic.com")) {
+        return new Response("internal error", { status: 500 });
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let lastQuality: { pass: boolean; score?: number; reason?: string } | undefined;
+    for await (const ev of runBench(
+      baseBenchRequest({
+        scenarioIds: ["vision_meme_explain_a"],
+        warmupRuns: 0,
+        measuredRuns: 1,
+      }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_end") lastQuality = ev.quality;
+    }
+    expect(lastQuality?.pass).toBe(false);
+    expect(lastQuality?.score).toBe(0);
+    expect(lastQuality?.reason).toMatch(/judge_network_error|judge_http_500/);
   });
 });
