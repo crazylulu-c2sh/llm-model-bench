@@ -18,6 +18,7 @@ export {
   isVisionScenario,
   rubricToScore,
   scenarioCategory,
+  scoreToRubric,
   visionImageFilename,
   type ScenarioCategory,
   type ScenarioId,
