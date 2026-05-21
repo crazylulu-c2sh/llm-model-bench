@@ -1,6 +1,6 @@
 import type { BenchRunMeta, StreamEvent } from "@llm-bench/shared";
 import { getScenarioSystemPromptPreview, getScenarioUserPromptPreview } from "@llm-bench/shared";
-import type Database from "better-sqlite3";
+import type { DatabaseSync } from "node:sqlite";
 import { appendTextLog, finishRun, insertRun, markRunErrorPartial, upsertScenarioAggregate } from "./database.js";
 
 function promptPreviewForScenario(scenarioId: string, meta: BenchRunMeta | null): string {
@@ -25,7 +25,7 @@ export class BenchRunPersistence {
   /** `scenario_id|api_route` → 마지막 `scenario_start.system_prompt` */
   private lastSystemPromptByScenarioKey = new Map<string, string>();
 
-  constructor(private readonly db: Database.Database | null) {}
+  constructor(private readonly db: DatabaseSync | null) {}
 
   start(meta: BenchRunMeta): void {
     if (!this.db) return;

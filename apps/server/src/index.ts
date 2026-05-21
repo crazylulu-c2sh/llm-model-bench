@@ -25,7 +25,11 @@ import { detectProvider } from "./detect.js";
 import { registerMonitorRoutes } from "./monitor-routes.js";
 import { runStress, type StressRequest } from "./stress-runner.js";
 
-/** better-sqlite3는 여기서 정적 import하지 않음 — 네이티브 로드 실패 시에도 감지(/api/detect)가 동작하도록 동적 import */
+/**
+ * DB 모듈은 라우트 핸들러에서 동적 import한다.
+ * `tryOpenProdBenchDatabase()`가 throw하더라도(권한·경로·잠금 등) `/api/detect`,
+ * `/api/health` 등 DB 무관 엔드포인트는 영향 없이 응답하도록 모듈 평가 자체를 지연시킴.
+ */
 
 const app = new Hono();
 
@@ -630,3 +634,16 @@ const port = Number(process.env.PORT ?? 20080);
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`llm-bench-server listening on http://localhost:${info.port}`);
 });
+
+// 정상 종료(SIGTERM/SIGINT) 시 SQLite WAL truncate 후 close — Docker/PM2 운영에서 WAL 사이즈 폭주 방지
+for (const sig of ["SIGTERM", "SIGINT"] as const) {
+  process.once(sig, async () => {
+    try {
+      const dbMod = await import("./db/database.js");
+      dbMod.closeProdBenchDatabase();
+    } catch {
+      // DB 모듈이 로드된 적 없으면 무시
+    }
+    process.exit(0);
+  });
+}

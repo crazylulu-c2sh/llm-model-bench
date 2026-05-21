@@ -41,7 +41,7 @@ export function StatsPage() {
         if (j.sqlite_available === false) {
           toast.warning(
             j.sqlite_error ??
-              "SQLite를 사용할 수 없습니다. 서버에서 `pnpm rebuild better-sqlite3` 등을 확인하세요.",
+              "SQLite를 사용할 수 없습니다. 서버의 DB 파일 경로·권한·잠금 상태를 확인하세요.",
           );
         }
         setListItems(j.items ?? []);

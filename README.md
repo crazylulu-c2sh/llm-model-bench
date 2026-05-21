@@ -12,7 +12,7 @@
 
 ## 요구 사항
 
-- Node.js 22+
+- Node.js 24.x (LTS) — 저장소는 [`.nvmrc`](.nvmrc) / `package.json` `volta`로 정확 패치 버전을 고정합니다. nvm/fnm/Volta 중 하나가 있으면 디렉터리 진입 시 자동 활성화됩니다. (`engine-strict=true`라 다른 메이저에선 `pnpm install`이 실패)
 - pnpm 11+ (저장소는 `packageManager` 필드에 고정 버전 명시)
 
 ## 개발
@@ -72,7 +72,7 @@ pnpm build
 
 ### Docker Compose 동작 매트릭스
 
-Compose API 이미지(`node:22-bookworm-slim`)에는 `nvidia-smi`·`lms`가 들어있지 않고, 브라우저 → nginx → API 컨테이너 경유 시 **클라이언트 IP가 docker bridge IP**(`172.x.x.x`)라 loopback이 아님.
+Compose API 이미지(`node:24-bookworm-slim`)에는 `nvidia-smi`·`lms`가 들어있지 않고, 브라우저 → nginx → API 컨테이너 경유 시 **클라이언트 IP가 docker bridge IP**(`172.x.x.x`)라 loopback이 아님.
 
 - snapshot/availability: **200 soft-fail** (`system`/`gpu`는 null, provider HTTP는 시도)
 - load/unload/log-stream: **403 hard fail**
@@ -117,7 +117,7 @@ docker-compose up -d
 
 [`ecosystem.config.cjs`](ecosystem.config.cjs)는 **앱 하나(`llm-bench`)** 만 켭니다. 서버가 `WEB_DIST_PATH`로 지정한 Vite `dist`를 같은 포트에서 함께 서빙하므로, Nginx 없이 **http://호스트:PORT/** 로 UI·`/api`가 모두 동작합니다.
 
-1. 서버에 Node 22+·pnpm·PM2 설치 후 저장소 클론.
+1. 서버에 Node 24.x·pnpm·PM2 설치 후 저장소 클론.
 2. `pnpm install` → `pnpm build`(**웹 `dist`가 반드시 있어야** UI가 열립니다).
 3. 루트에서:
 
@@ -142,6 +142,11 @@ git pull && pnpm install && pnpm build && pm2 reload ecosystem.config.cjs
 ```
 
 `reload`는 무중단에 가깝게 프로세스를 교체합니다. 환경을 바꿨다면 `pm2 delete llm-bench` 후 다시 `pm2 start ecosystem.config.cjs`를 쓰거나 `pm2 reload ecosystem.config.cjs --update-env`로 반영합니다. 부팅 시 자동 기동은 `pm2 startup` + `pm2 save`입니다.
+
+### 트러블슈팅
+
+- **SQLite 사용 불가 토스트가 뜬다**: API가 DB 파일을 열지 못한 상태입니다. 파일 경로(`BENCH_DB_PATH` 또는 `apps/server/data/bench.sqlite`)·권한(쓰기 가능)·잠금(`*-wal`/`*-shm` 사이드카가 다른 프로세스에 잡혀 있지 않은지)을 확인하세요. 원인을 해소한 뒤에도 토스트가 계속 보이면 **API 프로세스를 재시작**해야 합니다 (열기 결과를 프로세스 생애 동안 캐시).
+- **`node:sqlite` 안정성**: Node 24에서 플래그 없이 동작하지만 stability는 아직 RC(`ExperimentalWarning` 출력). 동작은 안정적이나 Node 마이너 업그레이드 시 API 미세 변경 가능성을 인지하세요. Node 메이저 핀(`.nvmrc`/`engines`)으로 가드합니다.
 
 ## 서버 API 요약
 

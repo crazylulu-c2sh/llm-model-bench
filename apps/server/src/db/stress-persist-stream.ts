@@ -1,5 +1,5 @@
 import type { StressRunMeta, StressStreamEvent } from "@llm-bench/shared";
-import type Database from "better-sqlite3";
+import type { DatabaseSync } from "node:sqlite";
 import {
   finishStressRun,
   insertStressRun,
@@ -16,7 +16,7 @@ export class StressRunPersistence {
   private runId: string | null = null;
   private hadError = false;
 
-  constructor(private readonly db: Database.Database | null) {}
+  constructor(private readonly db: DatabaseSync | null) {}
 
   start(meta: StressRunMeta): void {
     if (!this.db) return;

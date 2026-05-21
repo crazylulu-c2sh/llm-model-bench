@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import type { BenchRunMeta, StressRunStatus } from "@llm-bench/shared";
 
 export type { StressRunStatus };
@@ -11,24 +11,24 @@ export function defaultDbPath(): string {
   return process.env.BENCH_DB_PATH ?? path.resolve(process.cwd(), "data", "bench.sqlite");
 }
 
-export function openBenchDatabase(filePath: string): Database.Database {
+export function openBenchDatabase(filePath: string): DatabaseSync {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
-  const db = new Database(filePath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+  const db = new DatabaseSync(filePath);
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA foreign_keys = ON");
   migrate(db);
   return db;
 }
 
-let prodDbCache: Database.Database | null | undefined;
+let prodDbCache: DatabaseSync | null | undefined;
 let prodDbOpenError: string | null = null;
 
 /**
  * 기본 경로(`BENCH_DB_PATH` / `data/bench.sqlite`)로 DB를 한 번만 연다.
- * `better-sqlite3` 네이티브 모듈 오류(노드 ABI 불일치 등) 시 null을 반환하고 벤치는 계속할 수 있게 한다.
+ * 권한·경로·잠금 오류 등으로 열기 실패 시 null을 반환하고 벤치는 계속할 수 있게 한다.
  */
-export function tryOpenProdBenchDatabase(): Database.Database | null {
+export function tryOpenProdBenchDatabase(): DatabaseSync | null {
   if (prodDbCache !== undefined) return prodDbCache;
   try {
     prodDbCache = openBenchDatabase(defaultDbPath());
@@ -39,7 +39,7 @@ export function tryOpenProdBenchDatabase(): Database.Database | null {
     prodDbOpenError = msg;
     prodDbCache = null;
     console.error(
-      "[llm-bench-server] SQLite를 열 수 없습니다. 히스토리 API·런 저장이 비활성화됩니다. (원인: Node 버전 변경 후 `pnpm rebuild better-sqlite3` 시도)",
+      "[llm-bench-server] SQLite를 열 수 없습니다. 히스토리 API·런 저장이 비활성화됩니다. (DB 경로·권한·잠금 상태를 확인하세요)",
       msg,
     );
     return null;
@@ -50,7 +50,24 @@ export function getProdBenchDatabaseOpenError(): string | null {
   return prodDbOpenError;
 }
 
-function migrate(db: Database.Database): void {
+/** SIGTERM/SIGINT 등 정상 종료 시 호출 — WAL truncate 후 닫음. 미열림 상태면 no-op. */
+export function closeProdBenchDatabase(): void {
+  const db = prodDbCache;
+  if (!db) return;
+  try {
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+  } catch {
+    // checkpoint 실패해도 close는 시도
+  }
+  try {
+    db.close();
+  } catch {
+    // 이미 닫힌 경우 등 — 무시
+  }
+  prodDbCache = null;
+}
+
+function migrate(db: DatabaseSync): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       id INTEGER PRIMARY KEY,
@@ -131,7 +148,7 @@ function migrate(db: Database.Database): void {
 }
 
 export function insertStressRun(
-  db: Database.Database,
+  db: DatabaseSync,
   row: {
     run_id: string;
     created_at: string;
@@ -150,7 +167,7 @@ export function insertStressRun(
 }
 
 export function upsertStressStage(
-  db: Database.Database,
+  db: DatabaseSync,
   row: { run_id: string; stage_index: number; concurrency: number; result_json: string },
 ): void {
   db.prepare(
@@ -163,7 +180,7 @@ export function upsertStressStage(
 }
 
 export function finishStressRun(
-  db: Database.Database,
+  db: DatabaseSync,
   run_id: string,
   status: StressRunStatus,
   err?: { code?: string; message?: string },
@@ -185,7 +202,7 @@ export function finishStressRun(
 }
 
 export function markStressRunErrorPartial(
-  db: Database.Database,
+  db: DatabaseSync,
   run_id: string,
   code: string,
   message: string,
@@ -221,7 +238,7 @@ export type StressRunListOpts = {
 };
 
 export function listStressRunsFiltered(
-  db: Database.Database,
+  db: DatabaseSync,
   opts: StressRunListOpts,
 ): StressRunSummaryRow[] {
   const where: string[] = [];
@@ -265,7 +282,7 @@ export type StressRunMetaRow = StressRunSummaryRow & {
 };
 
 export function getStressRunMeta(
-  db: Database.Database,
+  db: DatabaseSync,
   run_id: string,
 ): StressRunMetaRow | null {
   const r = db
@@ -285,7 +302,8 @@ export type StressFilterOptionsRow = {
   base_urls: string[];
 };
 
-export function getStressFilterOptions(db: Database.Database): StressFilterOptionsRow {
+export function getStressFilterOptions(db: DatabaseSync): StressFilterOptionsRow {
+  // `col`은 호출부에서 4개 하드코딩 리터럴만 넘김 — 외부 입력에 노출하면 SQL 인젝션 위험.
   const q = (col: string): string[] =>
     (
       db
@@ -300,8 +318,8 @@ export function getStressFilterOptions(db: Database.Database): StressFilterOptio
   };
 }
 
-export function deleteStressRun(db: Database.Database, run_id: string): number {
-  return db.prepare(`DELETE FROM stress_runs WHERE run_id = ?`).run(run_id).changes as number;
+export function deleteStressRun(db: DatabaseSync, run_id: string): number {
+  return Number(db.prepare(`DELETE FROM stress_runs WHERE run_id = ?`).run(run_id).changes);
 }
 
 export type StressStageRow = {
@@ -310,7 +328,7 @@ export type StressStageRow = {
   result_json: string;
 };
 
-export function listStressStages(db: Database.Database, run_id: string): StressStageRow[] {
+export function listStressStages(db: DatabaseSync, run_id: string): StressStageRow[] {
   return db
     .prepare(
       `SELECT stage_index, concurrency, result_json
@@ -320,7 +338,7 @@ export function listStressStages(db: Database.Database, run_id: string): StressS
 }
 
 export function insertRun(
-  db: Database.Database,
+  db: DatabaseSync,
   row: {
     run_id: string;
     created_at: string;
@@ -335,13 +353,18 @@ export function insertRun(
     `INSERT INTO bench_runs (run_id, created_at, base_url, provider, model_id, meta_json, status)
      VALUES (@run_id, @created_at, @base_url, @provider, @model_id, @meta_json, @status)`,
   ).run({
-    ...row,
+    run_id: row.run_id,
+    created_at: row.created_at,
+    base_url: row.base_url,
+    provider: row.provider,
+    model_id: row.model_id,
+    status: row.status,
     meta_json: JSON.stringify(row.meta),
   });
 }
 
 export function upsertScenarioAggregate(
-  db: Database.Database,
+  db: DatabaseSync,
   row: {
     run_id: string;
     scenario_id: string;
@@ -361,7 +384,7 @@ export function upsertScenarioAggregate(
   ).run(row);
 }
 
-export function appendTextLog(db: Database.Database, run_id: string, seq: number, line: string): void {
+export function appendTextLog(db: DatabaseSync, run_id: string, seq: number, line: string): void {
   db.prepare(
     `INSERT INTO bench_text_logs (run_id, seq, ts, line) VALUES (@run_id, @seq, @ts, @line)`,
   ).run({
@@ -373,7 +396,7 @@ export function appendTextLog(db: Database.Database, run_id: string, seq: number
 }
 
 export function finishRun(
-  db: Database.Database,
+  db: DatabaseSync,
   run_id: string,
   status: RunStatus,
   err?: { code?: string; message?: string },
@@ -395,7 +418,7 @@ export function finishRun(
 }
 
 export function markRunErrorPartial(
-  db: Database.Database,
+  db: DatabaseSync,
   run_id: string,
   code: string,
   message: string,
@@ -419,7 +442,7 @@ export type RunSummaryRow = {
   status: string;
 };
 
-export function listRecentRuns(db: Database.Database, limit: number): RunSummaryRow[] {
+export function listRecentRuns(db: DatabaseSync, limit: number): RunSummaryRow[] {
   return db
     .prepare(
       `SELECT run_id, created_at, finished_at, base_url, provider, model_id, status
@@ -428,7 +451,7 @@ export function listRecentRuns(db: Database.Database, limit: number): RunSummary
     .all(Math.min(Math.max(limit, 1), 200)) as RunSummaryRow[];
 }
 
-export function getRunMetaJson(db: Database.Database, run_id: string): string | null {
+export function getRunMetaJson(db: DatabaseSync, run_id: string): string | null {
   const r = db.prepare(`SELECT meta_json FROM bench_runs WHERE run_id = ?`).get(run_id) as
     | { meta_json: string }
     | undefined;
@@ -443,7 +466,7 @@ export type ScenarioRow = {
   prompt_system_preview: string | null;
 };
 
-export function listScenariosForRun(db: Database.Database, run_id: string): ScenarioRow[] {
+export function listScenariosForRun(db: DatabaseSync, run_id: string): ScenarioRow[] {
   return db
     .prepare(
       `SELECT scenario_id, api_route, aggregate_json, prompt_preview, prompt_system_preview
@@ -456,7 +479,7 @@ export type LatestRunRow = RunSummaryRow & { meta_json: string };
 
 /** 각 model_id당 base_url 일치 런 중 finished_at/created_at 최신 1건 */
 export function latestFinishedRunsByModels(
-  db: Database.Database,
+  db: DatabaseSync,
   baseUrl: string,
   modelIds: string[],
 ): Map<string, LatestRunRow> {
@@ -489,7 +512,7 @@ export type LatestFinishedRunSummary = {
   scenario_count: number;
 };
 
-export function listLatestFinishedRunSummaries(db: Database.Database): LatestFinishedRunSummary[] {
+export function listLatestFinishedRunSummaries(db: DatabaseSync): LatestFinishedRunSummary[] {
   return db
     .prepare(
       `SELECT ranked.run_id, ranked.created_at, ranked.finished_at, ranked.base_url, ranked.provider, ranked.model_id, ranked.status,

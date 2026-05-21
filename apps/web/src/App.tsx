@@ -634,7 +634,7 @@ export function App() {
       const data = (await res.json()) as LatestByModelResponse;
       if (data.sqlite_available === false) {
         toast.warning(
-          `SQLite를 사용할 수 없어 저장된 런을 불러올 수 없습니다. 서버에서 Node 버전에 맞게 \`pnpm rebuild better-sqlite3\`를 실행해 보세요.`,
+          `SQLite를 사용할 수 없어 저장된 런을 불러올 수 없습니다. 서버의 DB 파일 경로·권한·잠금 상태를 확인하세요.`,
         );
         setCompareSeries(null);
         setCompareRaw(null);

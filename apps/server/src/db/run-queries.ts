@@ -1,5 +1,5 @@
 import type { BenchResult, BenchRunMeta } from "@llm-bench/shared";
-import type Database from "better-sqlite3";
+import type { DatabaseSync } from "node:sqlite";
 import { getRunMetaJson, listScenariosForRun } from "./database.js";
 
 function parseAggregateRuns(aggregateJson: string): unknown[] {
@@ -11,7 +11,7 @@ function parseAggregateRuns(aggregateJson: string): unknown[] {
   }
 }
 
-export function benchResultFromDb(db: Database.Database, run_id: string): BenchResult | null {
+export function benchResultFromDb(db: DatabaseSync, run_id: string): BenchResult | null {
   const metaJson = getRunMetaJson(db, run_id);
   if (!metaJson) return null;
   let meta: BenchRunMeta;
@@ -39,7 +39,7 @@ export type BenchResultDetail = {
   scenarios: ScenarioDetail[];
 };
 
-export function benchResultDetailFromDb(db: Database.Database, run_id: string): BenchResultDetail | null {
+export function benchResultDetailFromDb(db: DatabaseSync, run_id: string): BenchResultDetail | null {
   const base = benchResultFromDb(db, run_id);
   if (!base) return null;
   const scenRows = listScenariosForRun(db, run_id);
