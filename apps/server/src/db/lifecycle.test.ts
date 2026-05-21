@@ -1,7 +1,7 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeProdBenchDatabase,
   getProdBenchDatabaseOpenError,
@@ -50,7 +50,7 @@ describe("prod bench database lifecycle", () => {
     const blocked = path.join(tmpRoot, "blocked");
     process.env.BENCH_DB_PATH = path.join(blocked, "child", "bench.sqlite");
     // 부모를 파일로 만들어 mkdirSync({ recursive: true })가 실패하게 함
-    require("node:fs").writeFileSync(blocked, "not-a-dir");
+    writeFileSync(blocked, "not-a-dir");
 
     const r1 = tryOpenProdBenchDatabase();
     expect(r1).toBeNull();
@@ -70,5 +70,30 @@ describe("prod bench database lifecycle", () => {
   it("close()는 미열림 상태에서도 안전하다 (no-op)", () => {
     expect(() => closeProdBenchDatabase()).not.toThrow();
     expect(() => closeProdBenchDatabase()).not.toThrow();
+  });
+
+  it("backoff 윈도우(>60s) 경과 후 자동 재시도된다", () => {
+    // 1) 실패 유도
+    const blocked = path.join(tmpRoot, "blocked2");
+    process.env.BENCH_DB_PATH = path.join(blocked, "child", "bench.sqlite");
+    writeFileSync(blocked, "not-a-dir");
+    expect(tryOpenProdBenchDatabase()).toBeNull();
+
+    // 2) 차단 해소(파일 → 정상 경로) — close 없이 backoff 만료만으로 회복되는지 검증
+    rmSync(blocked);
+    process.env.BENCH_DB_PATH = path.join(tmpRoot, "auto-recovered.sqlite");
+
+    // 3) 즉시 재호출: backoff 내라 여전히 null
+    expect(tryOpenProdBenchDatabase()).toBeNull();
+
+    // 4) Date.now()를 PROD_DB_RETRY_AFTER_MS(60s) + 1s 만큼 앞으로 — fake timer로 시계만 이동
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    try {
+      vi.setSystemTime(Date.now() + 61_000);
+      // 5) backoff 만료 → 다음 호출에서 실제 open 시도, 정상 경로이므로 인스턴스 반환
+      expect(tryOpenProdBenchDatabase()).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

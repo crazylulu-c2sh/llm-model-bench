@@ -302,7 +302,7 @@ app.get("/api/stress/runs/:runId", async (c) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[llm-bench-server] /api/stress/runs/:runId DB 로드 실패:", msg);
-    return c.json({ error: "internal_error", detail: msg }, 500);
+    return c.json({ error: "internal_error", message: SQLITE_PUBLIC_UNAVAILABLE_MSG }, 500);
   }
 });
 
@@ -311,14 +311,19 @@ app.delete("/api/stress/runs/:runId", async (c) => {
   try {
     const dbMod = await import("./db/database.js");
     const db = dbMod.tryOpenProdBenchDatabase();
-    if (!db) return c.json({ error: "sqlite_unavailable" }, 503);
+    if (!db) {
+      return c.json(
+        { error: "sqlite_unavailable", message: SQLITE_PUBLIC_UNAVAILABLE_MSG },
+        503,
+      );
+    }
     const changes = dbMod.deleteStressRun(db, runId);
     if (changes === 0) return c.json({ error: "not_found" }, 404);
     return c.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[llm-bench-server] DELETE /api/stress/runs/:runId 실패:", msg);
-    return c.json({ error: "internal_error", detail: msg }, 500);
+    return c.json({ error: "internal_error", message: SQLITE_PUBLIC_UNAVAILABLE_MSG }, 500);
   }
 });
 

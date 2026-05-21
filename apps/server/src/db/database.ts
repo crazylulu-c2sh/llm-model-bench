@@ -56,6 +56,10 @@ export function tryOpenProdBenchDatabase(): DatabaseSync | null {
   }
 }
 
+/**
+ * @internal 진단/테스트 전용. **클라이언트 응답에 노출하지 말 것** — 경로·errno 등이 새어나간다.
+ * 현재 production 응답은 모두 generic 문구(`SQLITE_PUBLIC_UNAVAILABLE_MSG`)만 보낸다.
+ */
 export function getProdBenchDatabaseOpenError(): string | null {
   return prodDbOpenError;
 }

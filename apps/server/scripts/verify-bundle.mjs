@@ -42,14 +42,11 @@ if (bad.length > 0) {
   process.exit(1);
 }
 
-// 런타임 스모크: DB 청크 자체를 import해 resolution을 강제. index.js는 serve()를 호출하므로 제외.
-// (tsup이 만드는 청크 이름은 hash로 끝나서 패턴으로 추림 — 미래에 entry 더 늘어나면 갱신 필요.)
-const dbChunks = jsFiles.filter((p) => {
-  const name = path.basename(p);
-  return /^(database|chunk|persist-stream|run-queries|stress-persist-stream)-[A-Z0-9]+\.js$/.test(name);
-});
+// 런타임 스모크: index.js를 제외한 모든 청크를 dynamic import해 resolution을 강제.
+// (index.js는 serve()로 listen하므로 제외 — 그 외 청크는 모듈 평가 시 부수 효과 없음.)
+const importable = jsFiles.filter((p) => path.basename(p) !== "index.js");
 
-for (const p of dbChunks) {
+for (const p of importable) {
   try {
     await import(pathToFileURL(p).href);
   } catch (e) {
@@ -60,5 +57,5 @@ for (const p of dbChunks) {
 }
 
 console.log(
-  `[verify-bundle] OK — ${jsFiles.length} files scanned, ${dbChunks.length} DB chunks imported successfully.`,
+  `[verify-bundle] OK — ${jsFiles.length} files scanned, ${importable.length} chunks imported successfully.`,
 );
