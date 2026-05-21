@@ -7,7 +7,8 @@ import {
   type SamplingPresetName,
 } from "@llm-bench/shared";
 import { BookOpen } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 
 const PRESET_ORDER: SamplingPresetName[] = [
   "default",
@@ -70,8 +71,8 @@ function runtimeNotesForFamily(id: LlmProfileFamily): ReactNode[] {
   if (id === "qwen3_coder_next") {
     notes.push(
       <li key="default_preset">
-        preset heuristic 예외: taskMode·thinkingIntent와 무관하게 항상{" "}
-        <code className="font-mono text-xs">default</code> 프리셋을 사용합니다.
+        preset heuristic 예외: taskMode·thinkingIntent와 무관하게 항상 <PresetAnchor name="default" />{" "}
+        프리셋을 사용합니다.
       </li>,
     );
   }
@@ -91,6 +92,148 @@ function RuntimeNotes({ family }: { family: LlmProfileFamily }) {
   );
 }
 
+function PresetAnchor({ name }: { name: SamplingPresetName }) {
+  return (
+    <a href={`#preset-${name}`} className="font-mono text-xs text-[var(--accent)] hover:underline">
+      {name}
+    </a>
+  );
+}
+
+function FamilyAnchor({ id }: { id: LlmProfileFamily }) {
+  return (
+    <a href={`#${id}`} className="font-mono text-xs text-[var(--accent)] hover:underline">
+      {id}
+    </a>
+  );
+}
+
+type PresetDescription = {
+  when: ReactNode;
+  intent: ReactNode;
+  examples: string[];
+  refs: LlmProfileFamily[];
+};
+
+const PRESET_DESCRIPTIONS: Record<SamplingPresetName, PresetDescription> = {
+  default: {
+    when: (
+      <>
+        <code className="font-mono text-xs">qwen3_coder_next</code> 패밀리에서만 taskMode·thinking과
+        무관하게 강제됩니다. 다른 패밀리에서는 휴리스틱이 이 이름을 고르지 않으며, UI 프리셋 강제에서{" "}
+        <code className="font-mono text-xs">default</code>를 골라도 무시되고 휴리스틱이 다시 적용됩니다.
+      </>
+    ),
+    intent: (
+      <>
+        패밀리별 “권장 시작값”. 보통 <PresetAnchor name="thinking_general" />과 같거나 그에 준하는
+        다양성을 가집니다. unknown 패밀리는 이 이름 대신 보수적 폴백(<code className="font-mono text-xs">temperature: 0.2, top_p: 1.0</code>)으로 떨어집니다.
+      </>
+    ),
+    examples: [
+      "qwen3_coder_next 기반 코더 모델 일반 사용",
+      "특정 휴리스틱을 잠시 우회하고 패밀리 기본값으로 비교하고 싶을 때",
+    ],
+    refs: ["qwen3_coder_next", "qwen36"],
+  },
+  thinking_general: {
+    when: <>thinking on + 일반 시나리오(coding/tool이 아닌 경우)에 자동 선택됩니다.</>,
+    intent: (
+      <>
+        추론·탐색용. 다양성을 위해 top_p·temperature를 약간 높게 두는 패밀리가 많습니다(qwen36: 1.0 / 0.95).
+      </>
+    ),
+    examples: [
+      "분석·요약·Q&A·멀티스텝 추론",
+      "비전 시나리오의 이미지 설명",
+      "긴 문서/롱 컨텍스트 요약",
+    ],
+    refs: ["qwen36", "nemotron3"],
+  },
+  thinking_coding: {
+    when: <>thinking on + coding 시나리오에 자동 선택됩니다.</>,
+    intent: (
+      <>
+        결정성↑. presence/temperature를 낮춰 일관된 코드 생성을 우선합니다(qwen36 기준 temperature 0.6,
+        presence 0.0).
+      </>
+    ),
+    examples: [
+      "함수/모듈 작성, 기존 코드 수정·리팩토링",
+      "스택 트레이스·테스트 실패 디버깅 풀이",
+      "리뷰 코멘트 반영용 패치 작성",
+    ],
+    refs: ["qwen36", "qwen35"],
+  },
+  nonthinking_general: {
+    when: <>thinking off(사고 차단) + tool이 아닌 시나리오일 때 자동 선택됩니다.</>,
+    intent: (
+      <>
+        짧고 직접적인 응답. 일부 패밀리는 매우 보수적입니다 — <FamilyAnchor id="nemotron3" />는{" "}
+        <code className="font-mono text-xs">temperature 0.2 + top_k 1</code>까지 떨어뜨립니다.
+      </>
+    ),
+    examples: [
+      "짧은 분류·라벨링",
+      "형식 변환(예: 단답 → JSON 한 줄)",
+      "latency 민감한 단답 Q&A",
+    ],
+    refs: ["nemotron3", "qwen36"],
+  },
+  tool_call: {
+    when: <>taskMode = tool일 때 모든 패밀리에서 강제됩니다.</>,
+    intent: <>구조화된 호출(함수/JSON) 안정성을 위해 보수적 샘플링.</>,
+    examples: [
+      "함수 호출(tool use) 시나리오 전반",
+      "스키마가 정해진 구조화 응답 생성",
+    ],
+    refs: ["qwen36", "nemotron3"],
+  },
+};
+
+function PresetCard({ name }: { name: SamplingPresetName }) {
+  const desc = PRESET_DESCRIPTIONS[name];
+  return (
+    <section
+      id={`preset-${name}`}
+      className="scroll-mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm"
+    >
+      <h4 className="mb-2 font-mono text-sm font-semibold text-[var(--foreground)]">{name}</h4>
+      <dl className="space-y-2 text-sm leading-relaxed text-[var(--muted)]">
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">언제 선택되는가</dt>
+          <dd className="mt-1">{desc.when}</dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">무엇을 위한 프리셋인가</dt>
+          <dd className="mt-1">{desc.intent}</dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">예시 시나리오</dt>
+          <dd className="mt-1">
+            <ul className="list-inside list-disc space-y-0.5">
+              {desc.examples.map((ex) => (
+                <li key={ex}>{ex}</li>
+              ))}
+            </ul>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">참고할 수치(패밀리 카드)</dt>
+          <dd className="mt-1 flex flex-wrap gap-x-2">
+            {desc.refs.map((id, idx) => (
+              <span key={id}>
+                <FamilyAnchor id={id} />
+                {idx < desc.refs.length - 1 ? <span className="text-[var(--muted)]"> · </span> : null}
+              </span>
+            ))}
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
 function PromptRulesSummary({ rules }: { rules: LlmProfileDefinition["promptRules"] }) {
   const bits: string[] = [];
   if (rules.gemmaThinkToken) bits.push("Gemma: 사고 켜짐 시 시스템 프롬프트 앞에 <|think|> 삽입");
@@ -107,6 +250,21 @@ function PromptRulesSummary({ rules }: { rules: LlmProfileDefinition["promptRule
 }
 
 export function ProfileDocPage() {
+  const location = useLocation();
+  useEffect(() => {
+    if (!location.hash) return;
+    const id = decodeURIComponent(location.hash.slice(1));
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => {
+        document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(r1);
+      if (r2) cancelAnimationFrame(r2);
+    };
+  }, [location.key, location.hash]);
   return (
     <div className="space-y-8">
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
@@ -139,11 +297,11 @@ export function ProfileDocPage() {
             <code className="font-mono text-xs">resolveBenchProfile</code>에 들어갑니다.
           </li>
           <li>
-            <strong className="text-[var(--foreground)]">tool</strong> 시나리오는 항상 <code className="font-mono text-xs">tool_call</code>{" "}
-            프리셋을 씁니다. 그 외에는 thinking off → <code className="font-mono text-xs">nonthinking_general</code>, coding →{" "}
-            <code className="font-mono text-xs">thinking_coding</code>, 그 외 → <code className="font-mono text-xs">thinking_general</code>
-            입니다. <code className="font-mono text-xs">qwen3_coder_next</code>는 예외로 항상 <code className="font-mono text-xs">default</code>{" "}
-            프리셋입니다.
+            <strong className="text-[var(--foreground)]">tool</strong> 시나리오는 항상{" "}
+            <PresetAnchor name="tool_call" /> 프리셋을 씁니다. 그 외에는 thinking off →{" "}
+            <PresetAnchor name="nonthinking_general" />, coding → <PresetAnchor name="thinking_coding" />, 그 외 →{" "}
+            <PresetAnchor name="thinking_general" />입니다. <FamilyAnchor id="qwen3_coder_next" />는 예외로 항상{" "}
+            <PresetAnchor name="default" /> 프리셋입니다.
           </li>
           <li>
             UI에서 <strong className="text-[var(--foreground)]">preset 강제</strong>를 켜면(비어 있지 않으면) 위 휴리스틱 대신 해당
@@ -186,6 +344,28 @@ export function ProfileDocPage() {
             )}
           </pre>
         </details>
+      </section>
+
+      <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
+        <h3 className="mb-2 text-sm font-semibold text-[var(--foreground)]">프리셋 설명</h3>
+        <p className="mb-2 text-sm leading-relaxed text-[var(--muted)]">
+          프리셋 이름은 “어떤 의도로 만든 샘플링 묶음인가”를 가리킵니다. 같은 이름이라도{" "}
+          <strong className="text-[var(--foreground)]">패밀리에 따라 값이 다를 수 있으니</strong>, 정확한 수치는 각 패밀리
+          카드의 “프리셋별 샘플링” 표를 보세요.
+        </p>
+        <p className="mb-4 text-sm leading-relaxed text-[var(--muted)]">
+          모델 테이블의 <strong className="text-[var(--foreground)]">프로파일</strong> 열은 현재 UI 설정 +{" "}
+          <code className="font-mono text-xs">taskMode: "general"</code> 기준 스냅샷입니다. 벤치 중 시나리오가{" "}
+          <code className="font-mono text-xs">coding</code>·<code className="font-mono text-xs">tool</code>로 바뀌면(프리셋
+          강제가 없는 한) 실제로는 <PresetAnchor name="thinking_coding" />·<PresetAnchor name="tool_call" />이 쓰입니다.
+          또한 열의 패밀리 이름은 UI 프로파일 강제(<code className="font-mono text-xs">profileId</code>)가 우선이므로{" "}
+          <code className="font-mono text-xs">inferLlmProfileFamily(modelId)</code> 결과와 다를 수 있습니다.
+        </p>
+        <div className="space-y-3">
+          {PRESET_ORDER.map((name) => (
+            <PresetCard key={name} name={name} />
+          ))}
+        </div>
       </section>
 
       {LLM_PROFILE_DEFINITIONS.map((def) => (
@@ -239,7 +419,9 @@ export function ProfileDocPage() {
                   const row = def.presets[preset];
                   return (
                     <tr key={preset} className="border-b border-[var(--border)] last:border-0">
-                      <td className="p-2 font-mono text-[var(--foreground)]">{preset}</td>
+                      <td className="p-2 font-mono text-[var(--foreground)]">
+                        <PresetAnchor name={preset} />
+                      </td>
                       {SAMPLING_KEYS.map((k) => (
                         <td key={k} className="p-2 font-mono text-[var(--muted)]">
                           {row[k] ?? "—"}
@@ -254,11 +436,16 @@ export function ProfileDocPage() {
         </section>
       ))}
 
-      <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
+      <section
+        id="unknown"
+        className="scroll-mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm"
+      >
         <h3 className="mb-2 text-sm font-semibold text-[var(--foreground)]">unknown 패밀리</h3>
         <p className="text-sm leading-relaxed text-[var(--muted)]">
           매칭되는 정의가 없을 때의 동작은 벤치 서버의 메타 빌드 로직과 같습니다. UI에서 명시적으로 unknown을 고른 경우도 동일하게
-          내장 테이블 없이 기본값에 가깝게 동작합니다.
+          내장 테이블 없이 기본값에 가깝게 동작합니다. 프리셋 <strong className="text-[var(--foreground)]">이름</strong>은 동일
+          휴리스틱(주로 <PresetAnchor name="thinking_general" /> 등)으로 정해지지만, 정의가 없어 보수적 폴백
+          (<code className="font-mono text-xs">temperature: 0.2, top_p: 1.0</code>)이 적용됩니다.
         </p>
       </section>
     </div>
