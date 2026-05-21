@@ -23,21 +23,31 @@ export function openBenchDatabase(filePath: string): DatabaseSync {
 
 let prodDbCache: DatabaseSync | null | undefined;
 let prodDbOpenError: string | null = null;
+let prodDbLastFailureAt = 0;
+/** 열기 실패 후 다음 재시도까지 최소 간격(ms). 일시적 잠금·권한 문제는 자동 복구되도록 함. */
+const PROD_DB_RETRY_AFTER_MS = 60_000;
 
 /**
- * 기본 경로(`BENCH_DB_PATH` / `data/bench.sqlite`)로 DB를 한 번만 연다.
- * 권한·경로·잠금 오류 등으로 열기 실패 시 null을 반환하고 벤치는 계속할 수 있게 한다.
+ * 기본 경로(`BENCH_DB_PATH` / `data/bench.sqlite`)로 DB를 연다.
+ * - 한 번 성공하면 프로세스 생애 동안 같은 인스턴스를 재사용.
+ * - 열기 실패 시 null을 반환하고 벤치는 계속할 수 있게 함. 최근 실패(< {@link PROD_DB_RETRY_AFTER_MS}ms)면
+ *   파일 I/O를 아끼기 위해 즉시 null 반환, 그 이후 호출에서 자동 재시도.
  */
 export function tryOpenProdBenchDatabase(): DatabaseSync | null {
-  if (prodDbCache !== undefined) return prodDbCache;
+  if (prodDbCache) return prodDbCache;
+  if (prodDbCache === null && Date.now() - prodDbLastFailureAt < PROD_DB_RETRY_AFTER_MS) {
+    return null;
+  }
   try {
     prodDbCache = openBenchDatabase(defaultDbPath());
     prodDbOpenError = null;
+    prodDbLastFailureAt = 0;
     return prodDbCache;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     prodDbOpenError = msg;
     prodDbCache = null;
+    prodDbLastFailureAt = Date.now();
     console.error(
       "[llm-bench-server] SQLite를 열 수 없습니다. 히스토리 API·런 저장이 비활성화됩니다. (DB 경로·권한·잠금 상태를 확인하세요)",
       msg,
@@ -46,13 +56,24 @@ export function tryOpenProdBenchDatabase(): DatabaseSync | null {
   }
 }
 
+/**
+ * @internal 진단/테스트 전용. **클라이언트 응답에 노출하지 말 것** — 경로·errno 등이 새어나간다.
+ * 현재 production 응답은 모두 generic 문구(`SQLITE_PUBLIC_UNAVAILABLE_MSG`)만 보낸다.
+ */
 export function getProdBenchDatabaseOpenError(): string | null {
   return prodDbOpenError;
 }
 
-/** SIGTERM/SIGINT 등 정상 종료 시 호출 — WAL truncate 후 닫음. 미열림 상태면 no-op. */
+/**
+ * SIGTERM/SIGINT 등 정상 종료 시 호출 — WAL truncate 후 닫음. 미열림 상태면 no-op.
+ * 캐시를 `undefined`로 리셋해 같은 프로세스에서 다음 `tryOpenProdBenchDatabase()`가 재시도 없이 즉시 열 수 있게 한다
+ * (테스트 teardown / hot-reload 등에서 유용).
+ */
 export function closeProdBenchDatabase(): void {
   const db = prodDbCache;
+  prodDbCache = undefined;
+  prodDbOpenError = null;
+  prodDbLastFailureAt = 0;
   if (!db) return;
   try {
     db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
@@ -64,7 +85,6 @@ export function closeProdBenchDatabase(): void {
   } catch {
     // 이미 닫힌 경우 등 — 무시
   }
-  prodDbCache = null;
 }
 
 function migrate(db: DatabaseSync): void {
