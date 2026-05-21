@@ -38,6 +38,7 @@ const PrefsSchema = z
     samplingOverridesJson: z.string().optional(),
     profileAdvancedOpen: z.boolean().optional(),
     selectedScenarioIds: z.array(z.string()).optional(),
+    scenarioPickerOpen: z.boolean().optional(),
   })
   .passthrough();
 
@@ -125,6 +126,7 @@ export function readInitialUiState() {
       samplingOverridesText: "",
       profileAdvancedOpen: false,
       selectedScenarioIds: [...DEFAULT_SCENARIO_IDS] as string[],
+      scenarioPickerOpen: true,
     };
   }
   const p = readPrefsFromDisk();
@@ -149,6 +151,7 @@ export function readInitialUiState() {
     samplingOverridesText: p.samplingOverridesJson ?? "",
     profileAdvancedOpen: p.profileAdvancedOpen ?? false,
     selectedScenarioIds: sanitizeSelectedScenarioIds(p.selectedScenarioIds),
+    scenarioPickerOpen: p.scenarioPickerOpen ?? true,
   };
 }
 
@@ -170,6 +173,7 @@ export type SaveUiSnapshot = {
   samplingOverridesText: string;
   profileAdvancedOpen: boolean;
   selectedScenarioIds: string[];
+  scenarioPickerOpen: boolean;
 };
 
 /** Persist snapshot: non-secret prefs always on disk; api key follows opt-in / session. */
@@ -199,6 +203,7 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
     samplingOverridesJson: s.samplingOverridesText.trim() ? s.samplingOverridesText : undefined,
     profileAdvancedOpen: s.profileAdvancedOpen,
     selectedScenarioIds: sanitizeSelectedScenarioIds(s.selectedScenarioIds),
+    scenarioPickerOpen: s.scenarioPickerOpen,
   };
 
   if (s.persistApiKeyToDisk) {
