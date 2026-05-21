@@ -2,10 +2,12 @@ import {
   LLM_PROFILE_DEFINITIONS,
   resolveBenchProfile,
   type LlmProfileDefinition,
+  type LlmProfileFamily,
   type SamplingParams,
   type SamplingPresetName,
 } from "@llm-bench/shared";
 import { BookOpen } from "lucide-react";
+import type { ReactNode } from "react";
 
 const PRESET_ORDER: SamplingPresetName[] = [
   "default",
@@ -26,6 +28,67 @@ const SAMPLING_KEYS: (keyof SamplingParams)[] = [
 
 function formatRegexList(def: LlmProfileDefinition): string {
   return def.match.map((re) => re.source).join(" · ");
+}
+
+function runtimeNotesForFamily(id: LlmProfileFamily): ReactNode[] {
+  const notes: ReactNode[] = [];
+  if (id === "qwen35" || id === "qwen36" || id === "nemotron3") {
+    notes.push(
+      <li key="enable_thinking">
+        thinking <strong className="text-[var(--foreground)]">끄기</strong> 시 요청에{" "}
+        <code className="font-mono text-xs">extra_body.chat_template_kwargs.enable_thinking: false</code>가 실립니다.
+      </li>,
+    );
+  }
+  if (id === "qwen36") {
+    notes.push(
+      <li key="preserve_thinking">
+        UI에서 <code className="font-mono text-xs">preserve_thinking</code>가 켜져 있으면 같은{" "}
+        <code className="font-mono text-xs">chat_template_kwargs</code> 객체에 병합됩니다.
+      </li>,
+    );
+  }
+  if (id === "gpt_oss") {
+    notes.push(
+      <li key="reasoning_effort">
+        OpenAI 호환 <code className="font-mono text-xs">reasoning_effort</code>가 메타에 실립니다. UI에서 단계(minimal~high)를 선택하면 그 값이 우선하며, 미지정 시{" "}
+        <code className="font-mono text-xs">"medium"</code>이 적용됩니다.
+      </li>,
+    );
+  }
+  if (id === "minimax") {
+    notes.push(
+      <li key="reasoning_split">
+        OpenAI 호환 API의 Interleaved 형식을 위해 요청에 <code className="font-mono text-xs">reasoning_split: true</code>가 포함됩니다.
+      </li>,
+      <li key="strip_thinking">
+        네이티브 형식(<code className="font-mono text-xs">content</code> 안의{" "}
+        <code className="font-mono text-xs">&lt;redacted_thinking&gt;</code>)은 히스토리에서 <code className="font-mono text-xs">content</code>를 그대로 두는 것이 전제 — 이 프로젝트는 minimax에 대해 assistant 히스토리의 thinking 블록을 제거하지 않습니다.
+      </li>,
+    );
+  }
+  if (id === "qwen3_coder_next") {
+    notes.push(
+      <li key="default_preset">
+        preset heuristic 예외: taskMode·thinkingIntent와 무관하게 항상{" "}
+        <code className="font-mono text-xs">default</code> 프리셋을 사용합니다.
+      </li>,
+    );
+  }
+  return notes;
+}
+
+function RuntimeNotes({ family }: { family: LlmProfileFamily }) {
+  const notes = runtimeNotesForFamily(family);
+  if (notes.length === 0) return null;
+  return (
+    <>
+      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">런타임 노트</h4>
+      <ul className="mb-4 list-inside list-disc space-y-1 text-sm leading-relaxed text-[var(--muted)]">
+        {notes}
+      </ul>
+    </>
+  );
 }
 
 function PromptRulesSummary({ rules }: { rules: LlmProfileDefinition["promptRules"] }) {
@@ -92,24 +155,21 @@ export function ProfileDocPage() {
             <code className="font-mono text-xs">.complex</code>가 적용됩니다.
           </li>
           <li>
-            Qwen 3.5/3.6 · Nemotron 3에서 thinking <strong className="text-[var(--foreground)]">끄기</strong>는 요청{" "}
-            <code className="font-mono text-xs">extra_body.chat_template_kwargs.enable_thinking: false</code>로 전달됩니다. Qwen 3.6만{" "}
-            <code className="font-mono text-xs">preserve_thinking</code> 옵션이 있으면 같은 객체에 병합됩니다.
-          </li>
-          <li>
-            <strong className="text-[var(--foreground)]">gpt-oss</strong> 패밀리는 OpenAI 호환 <code className="font-mono text-xs">reasoning_effort</code>가
-            메타에 실리며, UI에서 단계(minimal~high)를 고릅니다.
-          </li>
-          <li>
-            <strong className="text-[var(--foreground)]">minimax</strong> 패밀리(MiniMax 계열 모델 id)는 OpenAI 호환 API의 Interleaved 형식을 위해 요청에{" "}
-            <code className="font-mono text-xs">reasoning_split: true</code>가 포함됩니다. 네이티브 형식(<code className="font-mono text-xs">content</code> 안의{" "}
-            <code className="font-mono text-xs">&lt;redacted_thinking&gt;</code>)은 히스토리에서 <code className="font-mono text-xs">content</code>를 그대로 두는 것이
-            전제이며, 이 프로젝트는 해당 패밀리에 대해 assistant 히스토리에서 thinking 블록을 제거하지 않습니다.
+            <strong className="text-[var(--foreground)]">패밀리별 세부 동작</strong> (<code className="font-mono text-xs">enable_thinking</code>,{" "}
+            <code className="font-mono text-xs">reasoning_effort</code>, <code className="font-mono text-xs">reasoning_split</code> 등)은 아래 각 모델 카드의 "런타임 노트"를 참고하세요 (
+            <a className="text-[var(--accent)] hover:underline" href="#qwen36">qwen36</a>,{" "}
+            <a className="text-[var(--accent)] hover:underline" href="#nemotron3">nemotron3</a>,{" "}
+            <a className="text-[var(--accent)] hover:underline" href="#gpt_oss">gpt_oss</a>,{" "}
+            <a className="text-[var(--accent)] hover:underline" href="#minimax">minimax</a>).
           </li>
           <li>
             <strong className="text-[var(--foreground)]">samplingOverrides</strong> JSON은 선택된 프리셋 수치 위에 얕게 덮어씁니다. 서버는{" "}
             <code className="font-mono text-xs">repetition_penalty</code>를 OpenAI 쪽 <code className="font-mono text-xs">frequency_penalty</code>로
             옮겨 실제 요청에 넣습니다.
+          </li>
+          <li>
+            본 페이지는 프로파일(샘플링·런타임 옵션)에만 한정됩니다. 시나리오별 비전 <code className="font-mono text-xs">max_tokens</code> floor /{" "}
+            <code className="font-mono text-xs">truncated_at_max_tokens</code> 라벨 등 벤치 러너 동작은 저장소 README의 "비전 벤치 시나리오" 절을 참고하세요.
           </li>
         </ul>
         <details className="mt-3 border-t border-[var(--border)] pt-3">
@@ -131,7 +191,8 @@ export function ProfileDocPage() {
       {LLM_PROFILE_DEFINITIONS.map((def) => (
         <section
           key={def.id}
-          className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm"
+          id={def.id}
+          className="scroll-mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm"
         >
           <h3 className="mb-1 font-mono text-base font-semibold text-[var(--foreground)]">{def.id}</h3>
           <p className="mb-3 text-xs text-[var(--muted)]">
@@ -159,6 +220,7 @@ export function ProfileDocPage() {
           <div className="mb-4 text-sm">
             <PromptRulesSummary rules={def.promptRules} />
           </div>
+          <RuntimeNotes family={def.id} />
           <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">프리셋별 샘플링</h4>
           <div className="overflow-x-auto rounded border border-[var(--border)] bg-[var(--surface)]">
             <table className="w-full min-w-[36rem] border-collapse text-left text-[11px]">
