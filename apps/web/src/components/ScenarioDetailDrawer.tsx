@@ -118,7 +118,7 @@ export function ScenarioDetailDrawer({
                 </div>
                 <div>
                   <span className="font-semibold text-[var(--foreground)]">합격 / 불합격 기준</span>
-                  <p className="mt-0.5 leading-relaxed text-[var(--muted)]">{benchMeta.criteriaKo}</p>
+                  <p className="mt-0.5 whitespace-pre-line leading-relaxed text-[var(--muted)]">{benchMeta.criteriaKo}</p>
                 </div>
               </div>
             ) : (
