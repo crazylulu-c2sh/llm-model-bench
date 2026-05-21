@@ -339,7 +339,7 @@ describe("runBench vision D5 — upstream_no_vision labelling", () => {
 });
 
 describe("runBench scenario_start emits image_refs/image_delivery for vision", () => {
-  it("includes image_refs (WebP path) and image_delivery (base64 for loopback)", async () => {
+  it("includes image_refs (JPEG path) and image_delivery (base64 for loopback)", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
       if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
@@ -360,7 +360,7 @@ describe("runBench scenario_start emits image_refs/image_delivery for vision", (
       { fetchImpl },
     )) {
       if (ev.type === "scenario_start") {
-        if (ev.image_refs && ev.image_refs[0]?.endsWith(".webp")) sawImageRefs = true;
+        if (ev.image_refs && ev.image_refs[0]?.endsWith(".jpg")) sawImageRefs = true;
         if (ev.image_delivery === "base64") sawDelivery = true;
       }
     }

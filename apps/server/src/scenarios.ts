@@ -580,7 +580,7 @@ export type AnthropicContentPart =
   | {
       type: "image";
       source:
-        | { type: "base64"; media_type: "image/webp"; data: string }
+        | { type: "base64"; media_type: "image/jpeg"; data: string }
         | { type: "url"; url: string };
     };
 

@@ -314,20 +314,20 @@ export function getScenarioSystemPromptPreview(id: string): string {
   }
 }
 
-/** 비전 시나리오 이미지 자산 매핑 — 서버·UI 공통. v1 자산은 모두 WebP. */
-export type ScenarioImageAsset = { url: string; alt: string; mime: "image/webp" };
+/** 비전 시나리오 이미지 자산 매핑 — 서버·UI 공통. v1.2부터 JPEG (LM Studio WebP MIME 거부 우회). */
+export type ScenarioImageAsset = { url: string; alt: string; mime: "image/jpeg" };
 
 const VISION_IMAGE_FILES: Record<string, string> = {
-  vision_table_ocr_a: "table_ocr_a.webp",
-  vision_table_ocr_b: "table_ocr_b.webp",
-  vision_count_red_cars_a: "count_red_cars_a.webp",
-  vision_count_red_cars_b: "count_red_cars_b.webp",
-  vision_chart_peak_a: "chart_peak_a.webp",
-  vision_chart_peak_b: "chart_peak_b.webp",
-  vision_meme_explain_a: "meme_explain_a.webp",
-  vision_meme_explain_b: "meme_explain_b.webp",
-  vision_wireframe_html_a: "wireframe_html_a.webp",
-  vision_wireframe_html_b: "wireframe_html_b.webp",
+  vision_table_ocr_a: "table_ocr_a.jpg",
+  vision_table_ocr_b: "table_ocr_b.jpg",
+  vision_count_red_cars_a: "count_red_cars_a.jpg",
+  vision_count_red_cars_b: "count_red_cars_b.jpg",
+  vision_chart_peak_a: "chart_peak_a.jpg",
+  vision_chart_peak_b: "chart_peak_b.jpg",
+  vision_meme_explain_a: "meme_explain_a.jpg",
+  vision_meme_explain_b: "meme_explain_b.jpg",
+  vision_wireframe_html_a: "wireframe_html_a.jpg",
+  vision_wireframe_html_b: "wireframe_html_b.jpg",
 };
 
 /** 비전 시나리오의 이미지 자산 경로 반환. 텍스트 시나리오는 빈 배열. */
@@ -342,7 +342,7 @@ export function getScenarioImageAssets(
     {
       url: `${base}/vision/${filename}`,
       alt: id,
-      mime: "image/webp",
+      mime: "image/jpeg",
     },
   ];
 }

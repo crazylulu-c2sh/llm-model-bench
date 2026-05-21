@@ -5,7 +5,7 @@ import { isVisionScenario, visionImageFilename, type ScenarioId } from "@llm-ben
 
 export type ImageBytes = {
   bytes: Buffer;
-  mediaType: "image/webp";
+  mediaType: "image/jpeg";
   refPath: string;
 };
 
@@ -19,7 +19,7 @@ export type OpenAiImagePart = {
 export type AnthropicImagePart = {
   type: "image";
   source:
-    | { type: "base64"; media_type: "image/webp"; data: string }
+    | { type: "base64"; media_type: "image/jpeg"; data: string }
     | { type: "url"; url: string };
 };
 
@@ -54,7 +54,7 @@ export function loadVisionImageBytes(id: ScenarioId): ImageBytes {
   }
   const out: ImageBytes = {
     bytes,
-    mediaType: "image/webp",
+    mediaType: "image/jpeg",
     refPath: `/vision/${filename}`,
   };
   cache.set(id, out);
