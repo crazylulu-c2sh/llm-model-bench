@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # 멀티 스테이지: api(Node) + web(nginx 정적 + /api 프록시)
-FROM node:26-bookworm AS build
+FROM node:24-bookworm AS build
 WORKDIR /app
 
 ARG PNPM_VERSION=11.1.1
@@ -18,8 +18,8 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm build
 RUN pnpm --filter @llm-bench/server deploy --prod --legacy /out/server
 
-# --- API (프로덕션 번들 + better-sqlite3)
-FROM node:26-bookworm-slim AS api
+# --- API (프로덕션 번들 + node:sqlite)
+FROM node:24-bookworm-slim AS api
 WORKDIR /srv
 ENV NODE_ENV=production
 ENV PORT=20080

@@ -12,7 +12,7 @@
 
 ## 요구 사항
 
-- Node.js 22+
+- Node.js 24.x (LTS) — 저장소는 [`.nvmrc`](.nvmrc) / `package.json` `volta`로 정확 패치 버전을 고정합니다. nvm/fnm/Volta 중 하나가 있으면 디렉터리 진입 시 자동 활성화됩니다. (`engine-strict=true`라 다른 메이저에선 `pnpm install`이 실패)
 - pnpm 11+ (저장소는 `packageManager` 필드에 고정 버전 명시)
 
 ## 개발
@@ -72,7 +72,7 @@ pnpm build
 
 ### Docker Compose 동작 매트릭스
 
-Compose API 이미지(`node:22-bookworm-slim`)에는 `nvidia-smi`·`lms`가 들어있지 않고, 브라우저 → nginx → API 컨테이너 경유 시 **클라이언트 IP가 docker bridge IP**(`172.x.x.x`)라 loopback이 아님.
+Compose API 이미지(`node:24-bookworm-slim`)에는 `nvidia-smi`·`lms`가 들어있지 않고, 브라우저 → nginx → API 컨테이너 경유 시 **클라이언트 IP가 docker bridge IP**(`172.x.x.x`)라 loopback이 아님.
 
 - snapshot/availability: **200 soft-fail** (`system`/`gpu`는 null, provider HTTP는 시도)
 - load/unload/log-stream: **403 hard fail**
@@ -117,7 +117,7 @@ docker-compose up -d
 
 [`ecosystem.config.cjs`](ecosystem.config.cjs)는 **앱 하나(`llm-bench`)** 만 켭니다. 서버가 `WEB_DIST_PATH`로 지정한 Vite `dist`를 같은 포트에서 함께 서빙하므로, Nginx 없이 **http://호스트:PORT/** 로 UI·`/api`가 모두 동작합니다.
 
-1. 서버에 Node 22+·pnpm·PM2 설치 후 저장소 클론.
+1. 서버에 Node 24.x·pnpm·PM2 설치 후 저장소 클론.
 2. `pnpm install` → `pnpm build`(**웹 `dist`가 반드시 있어야** UI가 열립니다).
 3. 루트에서:
 

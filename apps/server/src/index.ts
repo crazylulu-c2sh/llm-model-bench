@@ -25,7 +25,7 @@ import { detectProvider } from "./detect.js";
 import { registerMonitorRoutes } from "./monitor-routes.js";
 import { runStress, type StressRequest } from "./stress-runner.js";
 
-/** better-sqlite3는 여기서 정적 import하지 않음 — 네이티브 로드 실패 시에도 감지(/api/detect)가 동작하도록 동적 import */
+/** DB 모듈은 정적 import하지 않음 — DB 파일 열기 실패(경로·권한·잠금) 시에도 감지(/api/detect)가 동작하도록 동적 import */
 
 const app = new Hono();
 
