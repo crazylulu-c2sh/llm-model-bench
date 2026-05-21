@@ -27,8 +27,9 @@ import { runStress, type StressRequest } from "./stress-runner.js";
 
 /**
  * DB 모듈은 라우트 핸들러에서 동적 import한다.
- * `tryOpenProdBenchDatabase()`가 throw하더라도(권한·경로·잠금 등) `/api/detect`,
- * `/api/health` 등 DB 무관 엔드포인트는 영향 없이 응답하도록 모듈 평가 자체를 지연시킴.
+ * `tryOpenProdBenchDatabase()` 자체는 null을 반환할 뿐 throw하지 않지만, 모듈 평가 시점(import)이나
+ * 마이그레이션 SQL에서 예기치 못한 throw가 나도 `/api/detect`, `/api/health` 등 DB 무관 엔드포인트는
+ * 영향 없이 응답하도록 모듈 평가 자체를 라우트 진입 시점까지 지연시킴.
  */
 
 const app = new Hono();
@@ -42,6 +43,13 @@ app.use(
   }),
 );
 
+/**
+ * 클라이언트로 내보내는 SQLite 사용 불가 안내 — 원문 오류(DB 경로·errno 등)는 서버 로그에만 남기고
+ * 클라이언트에는 일반화된 문구만 노출. (내부망 도구라도 경로/errno 노출은 줄이는 게 안전.)
+ */
+const SQLITE_PUBLIC_UNAVAILABLE_MSG =
+  "SQLite를 사용할 수 없습니다. 서버 측 DB 경로·권한·잠금 상태를 확인하세요.";
+
 app.get("/api/health", (c) => c.json({ ok: true, service: "llm-bench-server" }));
 
 /** (model_id, base_url)별 최신 finished 런 요약 — 통계 페이지 목록 */
@@ -53,7 +61,7 @@ app.get("/api/stats/model-latest", async (c) => {
       return c.json({
         items: [],
         sqlite_available: false,
-        sqlite_error: dbMod.getProdBenchDatabaseOpenError(),
+        sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG,
       });
     }
     const raw = dbMod.listLatestFinishedRunSummaries(db);
@@ -71,7 +79,7 @@ app.get("/api/stats/model-latest", async (c) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[llm-bench-server] /api/stats/model-latest DB 로드 실패:", msg);
-    return c.json({ items: [], sqlite_available: false, sqlite_error: msg });
+    return c.json({ items: [], sqlite_available: false, sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG });
   }
 });
 
@@ -102,7 +110,7 @@ app.get("/api/runs/latest-by-model", async (c) => {
         base_url: norm,
         items: ids.map((model_id) => ({ model_id, run: null as null })),
         sqlite_available: false,
-        sqlite_error: dbMod.getProdBenchDatabaseOpenError(),
+        sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG,
       });
     }
     const map = dbMod.latestFinishedRunsByModels(db, norm, ids);
@@ -120,7 +128,7 @@ app.get("/api/runs/latest-by-model", async (c) => {
       base_url: norm,
       items: ids.map((model_id) => ({ model_id, run: null as null })),
       sqlite_available: false,
-      sqlite_error: msg,
+      sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG,
     });
   }
 });
@@ -135,7 +143,7 @@ app.get("/api/runs", async (c) => {
       return c.json({
         runs: [],
         sqlite_available: false,
-        sqlite_error: dbMod.getProdBenchDatabaseOpenError(),
+        sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG,
       });
     }
     const rows = dbMod.listRecentRuns(db, parsed.data.limit);
@@ -143,7 +151,7 @@ app.get("/api/runs", async (c) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[llm-bench-server] /api/runs DB 로드 실패:", msg);
-    return c.json({ runs: [], sqlite_available: false, sqlite_error: msg });
+    return c.json({ runs: [], sqlite_available: false, sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG });
   }
 });
 
@@ -158,8 +166,7 @@ app.get("/api/runs/:runId", async (c) => {
       return c.json(
         {
           error: "sqlite_unavailable",
-          message: "SQLite를 사용할 수 없습니다. 히스토리를 조회할 수 없습니다.",
-          detail: dbMod.getProdBenchDatabaseOpenError(),
+          message: SQLITE_PUBLIC_UNAVAILABLE_MSG,
         },
         503,
       );
@@ -170,7 +177,7 @@ app.get("/api/runs/:runId", async (c) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[llm-bench-server] /api/runs/:runId DB 로드 실패:", msg);
-    return c.json({ error: "sqlite_load_failed", message: msg }, 503);
+    return c.json({ error: "sqlite_load_failed", message: SQLITE_PUBLIC_UNAVAILABLE_MSG }, 503);
   }
 });
 
@@ -201,7 +208,7 @@ app.get("/api/stress/runs", async (c) => {
         filter_options: emptyStressFilterOptions(),
         has_more: false,
         sqlite_available: false,
-        sqlite_error: dbMod.getProdBenchDatabaseOpenError(),
+        sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG,
       });
     }
     const rows = dbMod.listStressRunsFiltered(db, {
@@ -234,7 +241,7 @@ app.get("/api/stress/runs", async (c) => {
       filter_options: emptyStressFilterOptions(),
       has_more: false,
       sqlite_available: false,
-      sqlite_error: msg,
+      sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG,
     });
   }
 });
@@ -248,7 +255,7 @@ app.get("/api/stress/runs/:runId", async (c) => {
       return c.json(
         {
           error: "sqlite_unavailable",
-          detail: dbMod.getProdBenchDatabaseOpenError(),
+          message: SQLITE_PUBLIC_UNAVAILABLE_MSG,
         },
         503,
       );
