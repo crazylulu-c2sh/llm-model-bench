@@ -147,6 +147,7 @@ describe("openAiBenchOutputText", () => {
         streamCompleted: true,
         approxOutputTokens: 1,
         usageOutputTokens: null,
+        finishReason: null,
       }),
     ).toBe("visible");
   });
@@ -163,6 +164,7 @@ describe("openAiBenchOutputText", () => {
         streamCompleted: true,
         approxOutputTokens: 4,
         usageOutputTokens: null,
+        finishReason: null,
       }),
     ).toBe("reasoning-only");
   });
@@ -187,6 +189,35 @@ describe("usage capture & onDelta", () => {
     ]);
     const m = await consumeOpenAiChatStream(stream);
     expect(m.usageOutputTokens).toBeNull();
+  });
+
+  it("captures finish_reason='length' for max_tokens truncation", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.finishReason).toBe("length");
+  });
+
+  it("captures finish_reason='stop' on normal completion", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.finishReason).toBe("stop");
+  });
+
+  it("leaves finishReason null when provider omits it", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.finishReason).toBeNull();
   });
 
   it("fires onDelta callback per content chunk when provided", async () => {
@@ -219,6 +250,7 @@ describe("openAiLiveTokenStreamText", () => {
         streamCompleted: true,
         approxOutputTokens: 1,
         usageOutputTokens: null,
+        finishReason: null,
       }),
     ).toBe("inout");
   });

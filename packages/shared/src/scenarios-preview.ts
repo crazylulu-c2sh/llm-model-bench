@@ -384,11 +384,18 @@ export function scoreToRubric(score: number | null | undefined): 0 | 1 | 2 | 3 |
   return best.rubric;
 }
 
-/** 비전 시나리오별 기본 max_tokens. 텍스트는 별도 정책. */
+/**
+ * 비전 시나리오별 기본 max_tokens (bench-runner는 `Math.max`로 floor 역할).
+ *
+ * - wireframe: 4096 — 긴 HTML 출력
+ * - meme: 1024 — 한국어 3~5문장 (reasoning 모델은 사용자 UI에서 더 큰 값 권장)
+ * - chart / OCR / counting: 2048 — JSON 자체는 짧지만(10~50 토큰) reasoning 모델이
+ *   평문 trace를 길게 쏟는 경우 v1.2까지 512로는 JSON 도달 전에 잘렸음. v1.3에서 2048로 상향.
+ */
 export function defaultMaxTokensForVisionScenario(id: string): number | null {
   if (id === "vision_wireframe_html_a" || id === "vision_wireframe_html_b") return 4096;
   if (id === "vision_meme_explain_a" || id === "vision_meme_explain_b") return 1024;
-  if ((VISION_SCENARIO_IDS as readonly string[]).includes(id)) return 512;
+  if ((VISION_SCENARIO_IDS as readonly string[]).includes(id)) return 2048;
   return null;
 }
 
