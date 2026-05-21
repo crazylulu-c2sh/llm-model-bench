@@ -92,7 +92,7 @@ export function ProfileDocPage() {
             <code className="font-mono text-xs">.complex</code>가 적용됩니다.
           </li>
           <li>
-            Qwen 3.5/3.6에서 thinking <strong className="text-[var(--foreground)]">끄기</strong>는 요청{" "}
+            Qwen 3.5/3.6 · Nemotron 3에서 thinking <strong className="text-[var(--foreground)]">끄기</strong>는 요청{" "}
             <code className="font-mono text-xs">extra_body.chat_template_kwargs.enable_thinking: false</code>로 전달됩니다. Qwen 3.6만{" "}
             <code className="font-mono text-xs">preserve_thinking</code> 옵션이 있으면 같은 객체에 병합됩니다.
           </li>

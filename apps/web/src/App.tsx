@@ -1638,7 +1638,7 @@ export function App() {
                 onChange={(e) => setThinkingIntent(e.target.value as ThinkingIntent)}
               >
                 <option value="on">켜기 (기본)</option>
-                <option value="off">끄기 (Qwen: enable_thinking=false)</option>
+                <option value="off">끄기 (Qwen·Nemotron: enable_thinking=false)</option>
               </select>
             </label>
             {profileId === "auto" || profileId === "gpt_oss" ? (

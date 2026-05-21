@@ -234,13 +234,13 @@ export const LLM_PROFILE_DEFINITIONS: LlmProfileDefinition[] = [
   },
   {
     id: "nemotron3",
-    version: 1,
+    version: 2,
     match: [/nemotron[-_]?3/i],
     presets: {
-      default: { temperature: 1.0, top_p: 1.0 },
-      thinking_general: { temperature: 1.0, top_p: 1.0 },
+      default: { temperature: 0.6, top_p: 0.95 },
+      thinking_general: { temperature: 0.6, top_p: 0.95 },
       thinking_coding: { temperature: 0.6, top_p: 0.95 },
-      nonthinking_general: { temperature: 1.0, top_p: 1.0 },
+      nonthinking_general: { temperature: 0.2, top_k: 1 },
       tool_call: { temperature: 0.6, top_p: 0.95 },
     },
     recommendedMaxTokens: { default: 8192, complex: 32_768 },
@@ -364,7 +364,10 @@ export function resolveBenchProfile(input: {
   const sampling: SamplingParams = { ...baseSampling, ...(input.samplingOverrides ?? {}) };
 
   let extraBody: Record<string, unknown> = {};
-  if ((family === "qwen35" || family === "qwen36") && input.thinkingIntent === "off") {
+  if (
+    (family === "qwen35" || family === "qwen36" || family === "nemotron3") &&
+    input.thinkingIntent === "off"
+  ) {
     extraBody = deepMergeObjects(extraBody, { chat_template_kwargs: { enable_thinking: false } });
   }
   if (family === "qwen36" && input.preserveThinking) {

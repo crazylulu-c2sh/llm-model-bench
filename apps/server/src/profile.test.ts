@@ -91,6 +91,43 @@ describe("buildProfileAugmentedMeta", () => {
     expect(meta.profile_id).toBe("minimax");
     expect(meta.extra_body?.reasoning_split).toBe(true);
   });
+
+  it("applies Nemotron3 nonthinking_general preset and extra_body for thinking off", () => {
+    const meta = buildProfileAugmentedMeta(
+      baseMeta("nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"),
+      {
+        modelId: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
+        profile: {
+          profileId: "auto",
+          taskMode: "general",
+          thinkingIntent: "off",
+          preserveThinking: false,
+        },
+        profileMaxTokens: null,
+      },
+    );
+    expect(meta.profile_id).toBe("nemotron3");
+    expect(meta.profile_preset).toBe("nonthinking_general");
+    expect(meta.extra_body?.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(meta.effective_sampling?.temperature).toBe(0.2);
+    expect(meta.effective_sampling?.top_k).toBe(1);
+  });
+
+  it("Nemotron3 thinking on omits enable_thinking and uses thinking_general preset", () => {
+    const meta = buildProfileAugmentedMeta(
+      baseMeta("nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"),
+      {
+        modelId: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
+        profile: { taskMode: "general", thinkingIntent: "on" },
+        profileMaxTokens: null,
+      },
+    );
+    expect(meta.profile_id).toBe("nemotron3");
+    expect(meta.profile_preset).toBe("thinking_general");
+    expect(meta.extra_body?.chat_template_kwargs).toBeUndefined();
+    expect(meta.effective_sampling?.temperature).toBe(0.6);
+    expect(meta.effective_sampling?.top_p).toBe(0.95);
+  });
 });
 
 describe("openAiExtrasFromMeta", () => {
