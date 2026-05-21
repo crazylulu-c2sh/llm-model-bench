@@ -6,6 +6,17 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const portsPath = path.join(root, "scripts", "dev-ports.json");
 
+// engine-strict는 install 시점만 막는다 — 이미 설치된 환경에서 다른 Node로 dev를 띄우면
+// 서버의 `node:sqlite` import가 실패하므로 여기서 한 번 더 게이트.
+const major = Number(process.versions.node.split(".")[0]);
+if (major !== 24) {
+  console.error(
+    `[dev] Node ${process.versions.node} 감지 — 이 저장소는 Node 24.x 가 필요합니다. ` +
+      `\`.nvmrc\`를 참고해 \`nvm use\` / \`fnm use\` / \`volta install node@24\` 등으로 전환하세요.`,
+  );
+  process.exit(1);
+}
+
 function loadPorts() {
   if (process.env.DEV_SERVER_PORT && process.env.VITE_DEV_PORT) {
     return {

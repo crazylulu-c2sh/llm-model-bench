@@ -50,6 +50,23 @@ export function getProdBenchDatabaseOpenError(): string | null {
   return prodDbOpenError;
 }
 
+/** SIGTERM/SIGINT 등 정상 종료 시 호출 — WAL truncate 후 닫음. 미열림 상태면 no-op. */
+export function closeProdBenchDatabase(): void {
+  const db = prodDbCache;
+  if (!db) return;
+  try {
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+  } catch {
+    // checkpoint 실패해도 close는 시도
+  }
+  try {
+    db.close();
+  } catch {
+    // 이미 닫힌 경우 등 — 무시
+  }
+  prodDbCache = null;
+}
+
 function migrate(db: DatabaseSync): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -286,6 +303,7 @@ export type StressFilterOptionsRow = {
 };
 
 export function getStressFilterOptions(db: DatabaseSync): StressFilterOptionsRow {
+  // `col`은 호출부에서 4개 하드코딩 리터럴만 넘김 — 외부 입력에 노출하면 SQL 인젝션 위험.
   const q = (col: string): string[] =>
     (
       db

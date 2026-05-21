@@ -143,6 +143,11 @@ git pull && pnpm install && pnpm build && pm2 reload ecosystem.config.cjs
 
 `reload`는 무중단에 가깝게 프로세스를 교체합니다. 환경을 바꿨다면 `pm2 delete llm-bench` 후 다시 `pm2 start ecosystem.config.cjs`를 쓰거나 `pm2 reload ecosystem.config.cjs --update-env`로 반영합니다. 부팅 시 자동 기동은 `pm2 startup` + `pm2 save`입니다.
 
+### 트러블슈팅
+
+- **SQLite 사용 불가 토스트가 뜬다**: API가 DB 파일을 열지 못한 상태입니다. 파일 경로(`BENCH_DB_PATH` 또는 `apps/server/data/bench.sqlite`)·권한(쓰기 가능)·잠금(`*-wal`/`*-shm` 사이드카가 다른 프로세스에 잡혀 있지 않은지)을 확인하세요. 원인을 해소한 뒤에도 토스트가 계속 보이면 **API 프로세스를 재시작**해야 합니다 (열기 결과를 프로세스 생애 동안 캐시).
+- **`node:sqlite` 안정성**: Node 24에서 플래그 없이 동작하지만 stability는 아직 RC(`ExperimentalWarning` 출력). 동작은 안정적이나 Node 마이너 업그레이드 시 API 미세 변경 가능성을 인지하세요. Node 메이저 핀(`.nvmrc`/`engines`)으로 가드합니다.
+
 ## 서버 API 요약
 
 | 메서드 | 경로 | 설명 |
