@@ -14,7 +14,7 @@
     "@llm-bench/shared": "workspace:*",
     "hono": "^4.12.23",
     "pdf-parse": "2.4.5",
-    "zod": "^3.24.2"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
