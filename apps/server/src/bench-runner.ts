@@ -25,6 +25,7 @@ import {
   openAiBenchOutputText,
   openAiLiveTokenStreamText,
   tpotFromOpenAi,
+  type OpenAiStreamMetrics,
 } from "./openai-stream.js";
 import { openAiChatPostWithUsage } from "./openai-fetch.js";
 import {
@@ -248,6 +249,19 @@ function mergeOpenAiBody(
 ): Record<string, unknown> {
   const extras = openAiExtrasFromMeta(meta);
   return { ...base, ...extras };
+}
+
+/**
+ * max_tokens 도달 추정. 서버가 `finish_reason: "length"`를 주면 그대로 신뢰하고, finish_reason을 아예
+ * 안 주는 OpenAI 호환 서버(LM Studio/vLLM 등)에서는 출력 토큰 수가 한도에 도달했는지로 폴백한다.
+ * usage(include_usage) 정확값을 우선하고, 없을 때만 근사치(approxOutputTokens ≈ len/4)를 쓴다.
+ * 근사치는 stream_options 거부로 usage가 strip된 경로 등에서 과/소추정될 수 있다.
+ */
+function openAiLikelyTruncated(m: OpenAiStreamMetrics, maxTokens: number): boolean {
+  if (m.finishReason === "length") return true;
+  if (m.finishReason != null) return false; // 서버가 다른 사유를 보고 → 잘림 아님
+  const tokens = m.usageOutputTokens ?? m.approxOutputTokens;
+  return tokens >= maxTokens;
 }
 
 function makeScenarioBenchRunMeta(
@@ -566,6 +580,9 @@ export async function* runBench(
               `stop_reason: "max_tokens"`가 감지되면 true. quality.reason에
               `truncated_at_max_tokens=N` prefix를 붙이는 데 사용. */
           let truncated = false;
+          /** Part 3: OpenAI 스트림에서 반복 루프가 감지돼 reader.cancel()로 조기 종료된 경우. measured run에서
+              quality를 `repetition_loop_aborted`로 hard-fail(pass:false, score:0) override 한다. */
+          let repetitionLoopAborted = false;
           const controller = new AbortController();
           const to = setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -636,9 +653,11 @@ export async function* runBench(
                 const m = await consumeOpenAiChatStream(
                   r.body,
                   controller.signal,
+                  { loopGuard: true },
                 );
                 lastOpen = m;
-                if (m.finishReason === "length") truncated = true;
+                if (openAiLikelyTruncated(m, scenarioMeta.max_tokens)) truncated = true;
+                if (m.repetitionLoopDetected) repetitionLoopAborted = true;
                 totalMsAcc += m.totalMs;
                 if (ttft === null) ttft = m.ttftMs;
                 streamCompleted = m.streamCompleted;
@@ -648,6 +667,11 @@ export async function* runBench(
                     scenario_id: scenarioId,
                     text: ch,
                   };
+                }
+                // 반복 루프 감지 시 부분 출력을 기록하고 추가 도구 라운드 없이 즉시 탈출.
+                if (repetitionLoopAborted) {
+                  text = openAiBenchOutputText(m);
+                  break;
                 }
                 if (m.toolCalls?.length) {
                   const assistantContent = sanitizeOpenAiAssistantContent(
@@ -876,12 +900,14 @@ export async function* runBench(
                 const m = await consumeOpenAiChatStream(
                   r.body,
                   controller.signal,
+                  { loopGuard: true },
                 );
                 text = m.text;
                 ttft = m.ttftMs;
                 totalMs = m.totalMs;
                 streamCompleted = m.streamCompleted;
-                if (m.finishReason === "length") truncated = true;
+                if (openAiLikelyTruncated(m, scenarioMeta.max_tokens)) truncated = true;
+                if (m.repetitionLoopDetected) repetitionLoopAborted = true;
                 tpot = tpotFromOpenAi(m);
                 for (const ch of chunkTextForUi(text, 24)) {
                   yield {
@@ -989,10 +1015,26 @@ export async function* runBench(
               void _drop;
               quality = rest;
             }
+            // Part 3: 반복 루프로 조기 종료된 경우 — quality를 hard-fail로 통째 교체(부분 출력에 정답이 있어도
+            // 무효). upstream_no_vision과 동일한 override 패턴이며, 아래 truncated soft prefix보다 우선한다.
+            if (!isWarmup && quality && repetitionLoopAborted && !upstreamNoVisionDetail) {
+              quality = {
+                pass: false,
+                score: 0,
+                reason: "repetition_loop_aborted",
+              };
+            }
             // C-3: max_tokens 잘림이 발생한 경우 quality.reason에 prefix 추가.
             // `upstream_no_vision`은 이미 quality 전체를 교체했으므로 prefix 미적용.
             // `image_too_large`는 try/catch 분기에서 별도 emit 경로라 이 코드를 거치지 않음.
-            if (!isWarmup && quality && truncated && !upstreamNoVisionDetail) {
+            // 반복 루프 hard-fail이 이미 적용된 경우(repetitionLoopAborted)에는 soft prefix를 생략한다.
+            if (
+              !isWarmup &&
+              quality &&
+              truncated &&
+              !upstreamNoVisionDetail &&
+              !repetitionLoopAborted
+            ) {
               const tokens = scenarioMeta.max_tokens;
               const prevReason = quality.reason ?? "";
               quality = {

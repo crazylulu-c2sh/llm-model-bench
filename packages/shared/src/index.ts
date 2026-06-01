@@ -169,6 +169,8 @@ export const BenchRunMetaSchema = z.object({
       repetition_penalty: z.number().optional(),
     })
     .optional(),
+  /** Stop strings sent as OpenAI `stop` (family-specific, e.g. Qwen `<|im_end|>`) */
+  stop: z.array(z.string()).optional(),
   /** OpenAI-compatible servers: merged into request JSON */
   extra_body: z.record(z.unknown()).optional(),
   /** gpt-oss style deployments */

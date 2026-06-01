@@ -60,14 +60,30 @@ describe("buildProfileAugmentedMeta", () => {
     expect(meta.max_tokens).toBe(1234);
   });
 
-  it("maps repetition_penalty to frequency_penalty in effective_sampling", () => {
+  it("preserves repetition_penalty and never emits frequency_penalty (Qwen3.6)", () => {
     const meta = buildProfileAugmentedMeta(baseMeta("Qwen/Qwen3.6-35B-A3B"), {
       modelId: "Qwen/Qwen3.6-35B-A3B",
       profile: { taskMode: "general", thinkingIntent: "on" },
       profileMaxTokens: null,
     });
     expect(meta.effective_sampling?.presence_penalty).toBe(1.5);
-    expect(meta.effective_sampling?.frequency_penalty).toBe(1.0);
+    // 모델카드의 repetition_penalty: 1.0(곱셈, off)이 그대로 보존되고, 강한 frequency_penalty로 둔갑하지 않는다.
+    expect(meta.effective_sampling?.repetition_penalty).toBe(1.0);
+    expect(meta.effective_sampling?.frequency_penalty).toBeUndefined();
+  });
+
+  it("emits repetition_penalty (not frequency_penalty) and stop in OpenAI extras (Qwen3.6)", () => {
+    const meta = buildProfileAugmentedMeta(baseMeta("Qwen/Qwen3.6-35B-A3B"), {
+      modelId: "Qwen/Qwen3.6-35B-A3B",
+      profile: { taskMode: "general", thinkingIntent: "off" },
+      profileMaxTokens: null,
+    });
+    const extras = openAiExtrasFromMeta(meta);
+    expect(extras.presence_penalty).toBe(1.5);
+    expect(extras.repetition_penalty).toBe(1.0);
+    expect("frequency_penalty" in extras).toBe(false);
+    expect(meta.stop).toEqual(["<|im_end|>"]);
+    expect(extras.stop).toEqual(["<|im_end|>"]);
   });
 
   it("uses MiniMax-style defaults for minimax ids", () => {

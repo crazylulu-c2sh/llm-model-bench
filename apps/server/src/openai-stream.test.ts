@@ -148,6 +148,7 @@ describe("openAiBenchOutputText", () => {
         approxOutputTokens: 1,
         usageOutputTokens: null,
         finishReason: null,
+        repetitionLoopDetected: false,
       }),
     ).toBe("visible");
   });
@@ -165,6 +166,7 @@ describe("openAiBenchOutputText", () => {
         approxOutputTokens: 4,
         usageOutputTokens: null,
         finishReason: null,
+        repetitionLoopDetected: false,
       }),
     ).toBe("reasoning-only");
   });
@@ -237,6 +239,43 @@ describe("usage capture & onDelta", () => {
   });
 });
 
+describe("loop guard", () => {
+  const unit = "All work and no play makes Jack a dull boy. ";
+  const looping = unit.repeat(40); // 1760 chars, heavy trailing block repeat
+
+  it("detects a repetition loop and cancels the stream when loopGuard is on", async () => {
+    let canceled = false;
+    const enc = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: looping } }] })}\n\n`),
+        );
+        // [DONE] intentionally appended; guard should break before consuming it.
+        controller.enqueue(enc.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+      cancel() {
+        canceled = true;
+      },
+    });
+    const m = await consumeOpenAiChatStream(stream, undefined, { loopGuard: true });
+    expect(m.repetitionLoopDetected).toBe(true);
+    expect(m.streamCompleted).toBe(false);
+    expect(canceled).toBe(true);
+  });
+
+  it("does NOT detect or cancel when loopGuard is omitted (stress/default behavior unchanged)", async () => {
+    const stream = sse([
+      `data: ${JSON.stringify({ choices: [{ delta: { content: looping } }] })}\n\n`,
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.repetitionLoopDetected).toBe(false);
+    expect(m.streamCompleted).toBe(true);
+  });
+});
+
 describe("openAiLiveTokenStreamText", () => {
   it("concatenates reasoning then assistant content", () => {
     expect(
@@ -251,6 +290,7 @@ describe("openAiLiveTokenStreamText", () => {
         approxOutputTokens: 1,
         usageOutputTokens: null,
         finishReason: null,
+        repetitionLoopDetected: false,
       }),
     ).toBe("inout");
   });
