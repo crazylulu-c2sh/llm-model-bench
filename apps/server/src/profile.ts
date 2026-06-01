@@ -57,11 +57,11 @@ export function buildProfileAugmentedMeta(
     profileFamilyOverride,
   });
 
-  const { repetition_penalty, ...restSampling } = resolved.sampling;
-  const effSampling = {
-    ...restSampling,
-    ...(repetition_penalty != null ? { frequency_penalty: repetition_penalty } : {}),
-  };
+  // 모델카드 의도대로 `repetition_penalty`(곱셈 규약, 1.0=off)를 그대로 보존한다.
+  // 과거에는 이를 OpenAI `frequency_penalty`(덧셈 규약, 0.0=off)로 값까지 그대로 옮겨, 1.0이
+  // 강한 페널티로 둔갑하는 버그가 있었다. 로컬 OpenAI 호환 백엔드(LM Studio/llama.cpp/vLLM)는
+  // `repetition_penalty`를 그대로 수용한다(이미 top_k/min_p도 그렇게 전달).
+  const effSampling = { ...resolved.sampling };
 
   const nextMax = explicitMaxTokens ?? resolved.maxTokensRecommended;
 
@@ -70,6 +70,10 @@ export function buildProfileAugmentedMeta(
     max_tokens: nextMax,
     temperature: resolved.sampling.temperature ?? base.temperature,
     effective_sampling: effSampling,
+    stop:
+      resolved.stopSequences && resolved.stopSequences.length > 0
+        ? [...resolved.stopSequences]
+        : undefined,
     extra_body: Object.keys(resolved.extraBody).length ? resolved.extraBody : undefined,
     reasoning_effort: resolved.reasoningEffort,
     profile_id: family === "unknown" ? "unknown" : (family ?? resolved.family),
@@ -89,8 +93,11 @@ export function openAiExtrasFromMeta(meta: BenchRunMeta): Record<string, unknown
   if (s?.top_k != null) out.top_k = s.top_k;
   if (s?.min_p != null) out.min_p = s.min_p;
   if (s?.presence_penalty != null) out.presence_penalty = s.presence_penalty;
+  if (s?.repetition_penalty != null) out.repetition_penalty = s.repetition_penalty;
+  // frequency_penalty는 프리셋/override로 더 이상 생성되지 않으나(과거 meta·수동 값 호환) 있으면 그대로 전달.
   if (s?.frequency_penalty != null) out.frequency_penalty = s.frequency_penalty;
   if (meta.reasoning_effort) out.reasoning_effort = meta.reasoning_effort;
+  if (meta.stop && meta.stop.length > 0) out.stop = meta.stop;
   if (meta.extra_body && typeof meta.extra_body === "object") {
     return { ...out, ...meta.extra_body };
   }

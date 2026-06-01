@@ -53,6 +53,12 @@ export type LlmProfileDefinition = {
   /** Suggested starting context for responsiveness */
   contextRecommendedStart?: number;
   promptRules: PromptRules;
+  /**
+   * Stop strings sent to OpenAI-compatible backends as `stop`. Only set for families whose
+   * turn terminator is known (Qwen ChatML `<|im_end|>`) — belt-and-suspenders against runaway
+   * generation in single-turn bench. Left undefined where the terminator is unconfirmed.
+   */
+  stopSequences?: string[];
 };
 
 /**
@@ -115,6 +121,7 @@ export const LLM_PROFILE_DEFINITIONS: LlmProfileDefinition[] = [
     id: "qwen36",
     version: 1,
     match: [/qwen3\.?6/i],
+    stopSequences: ["<|im_end|>"],
     presets: {
       default: { temperature: 1.0, top_p: 0.95, top_k: 20, min_p: 0.0, presence_penalty: 1.5, repetition_penalty: 1.0 },
       thinking_general: {
@@ -159,6 +166,7 @@ export const LLM_PROFILE_DEFINITIONS: LlmProfileDefinition[] = [
     id: "qwen35",
     version: 1,
     match: [/qwen3\.?5/i],
+    stopSequences: ["<|im_end|>"],
     presets: {
       default: { temperature: 1.0, top_p: 0.95, top_k: 20, min_p: 0.0, presence_penalty: 1.5, repetition_penalty: 1.0 },
       thinking_general: {
@@ -318,6 +326,8 @@ export type ResolvedBenchProfile = {
   extraBody: Record<string, unknown>;
   reasoningEffort?: "minimal" | "low" | "medium" | "high";
   promptRulesApplied: PromptRules;
+  /** Stop strings to send as OpenAI `stop` (family-specific; see LlmProfileDefinition.stopSequences) */
+  stopSequences?: string[];
 };
 
 function deepMergeObjects(a: Record<string, unknown>, b: Record<string, unknown>): Record<string, unknown> {
@@ -403,5 +413,6 @@ export function resolveBenchProfile(input: {
     extraBody,
     reasoningEffort: reasoningEffort as ResolvedBenchProfile["reasoningEffort"],
     promptRulesApplied,
+    stopSequences: def?.stopSequences,
   };
 }

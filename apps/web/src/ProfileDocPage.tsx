@@ -322,8 +322,10 @@ export function ProfileDocPage() {
           </li>
           <li>
             <strong className="text-[var(--foreground)]">samplingOverrides</strong> JSON은 선택된 프리셋 수치 위에 얕게 덮어씁니다. 서버는{" "}
-            <code className="font-mono text-xs">repetition_penalty</code>를 OpenAI 쪽 <code className="font-mono text-xs">frequency_penalty</code>로
-            옮겨 실제 요청에 넣습니다.
+            <code className="font-mono text-xs">repetition_penalty</code>를 (변환 없이) 그대로 실제 요청에 넣습니다 — OpenAI{" "}
+            <code className="font-mono text-xs">frequency_penalty</code>로 옮기지 않습니다. override 가능한 키는{" "}
+            <code className="font-mono text-xs">SamplingParams</code>와 동일하며, <code className="font-mono text-xs">frequency_penalty</code>는
+            서버 스키마에서 무시(strip)됩니다.
           </li>
           <li>
             본 페이지는 프로파일(샘플링·런타임 옵션)에만 한정됩니다. 시나리오별 비전 <code className="font-mono text-xs">max_tokens</code> floor /{" "}

@@ -244,6 +244,42 @@ describe("runBench OpenAI requests carry stream_options.include_usage", () => {
   });
 });
 
+describe("runBench wire — Qwen3.6 penalty/stop (Part 1+4 regression)", () => {
+  it("sends repetition_penalty + presence_penalty + stop, and NO frequency_penalty", async () => {
+    const qwenModel = "Qwen/Qwen3.6-35B-A3B";
+    let captured: Record<string, unknown> | null = null;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({ models: [{ key: qwenModel, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    for await (const _ of runBench(
+      baseBenchRequest({
+        modelId: qwenModel,
+        scenarioIds: ["chat_ping"],
+        skipModelLoad: true,
+        profile: { profileId: "auto", taskMode: "general", thinkingIntent: "off" },
+      }),
+      { ...lmStudioDetect(), models: [{ id: qwenModel }] },
+      { fetchImpl },
+    )) {
+      void _;
+    }
+    expect(captured).not.toBeNull();
+    const body = captured as unknown as Record<string, unknown>;
+    expect(body.repetition_penalty).toBe(1.0); // 모델카드 값(곱셈, off) 그대로
+    expect(body.presence_penalty).toBe(1.5);
+    expect("frequency_penalty" in body).toBe(false); // 더 이상 둔갑하지 않음
+    expect(body.stop).toEqual(["<|im_end|>"]);
+  });
+});
+
 // Section A — vision-specific behavior (D5/D7) and judge integration
 describe("runBench vision D7 — warmup skips vision scenarios", () => {
   it("does not call upstream for vision scenario during warmup iterations", async () => {

@@ -1,3 +1,5 @@
+import { detectRepetitionLoop } from "./repetition-guard.js";
+
 export type OpenAiToolCallOut = {
   id: string;
   type: "function";
@@ -29,6 +31,8 @@ export type OpenAiStreamMetrics = {
    * 일부 OpenAI 호환 서버(LM Studio·vLLM 등)는 이 필드를 보내지 않으므로 null 가능.
    */
   finishReason: string | null;
+  /** `loopGuard` 활성 시, 반복 루프가 감지돼 `reader.cancel()`로 조기 종료했으면 true. */
+  repetitionLoopDetected: boolean;
 };
 
 /** 증분 콜백 — 델타 도착 시마다 호출. stress-runner CCTV fan-out 용. */
@@ -38,6 +42,11 @@ export type OpenAiStreamDelta =
 
 export type OpenAiStreamOptions = {
   onDelta?: (delta: OpenAiStreamDelta) => void;
+  /**
+   * true면 누적 content에 대해 반복-루프 휴리스틱을 돌리고, 감지 시 `reader.cancel()`로 스트림을 조기 종료한다.
+   * 미지정/false면 탐지·cancel을 전혀 수행하지 않음(기존 호출자 — stress 등 — 거동·오버헤드 불변).
+   */
+  loopGuard?: boolean;
 };
 
 type DeltaToolCall = {
@@ -102,6 +111,7 @@ export async function consumeOpenAiChatStream(
       approxOutputTokens: 0,
       usageOutputTokens: null,
       finishReason: null,
+      repetitionLoopDetected: false,
     };
   }
   const reader = body.getReader();
@@ -120,6 +130,9 @@ export async function consumeOpenAiChatStream(
   let usageOutputTokens: number | null = null;
   let finishReason: string | null = null;
   const onDelta = opts?.onDelta;
+  const loopGuard = opts?.loopGuard === true;
+  let repetitionLoopDetected = false;
+  let lastGuardCheckLen = 0;
 
   const markTtft = () => {
     if (ttft === null) ttft = performance.now() - t0;
@@ -197,6 +210,18 @@ export async function consumeOpenAiChatStream(
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
     for (const line of lines) handleLine(line);
+    // 반복-루프 가드: content가 512자씩 늘 때마다 휴리스틱 검사. 감지 시 다음 read 전에 break해
+    // (대기 중 read가 없어 AbortError 미발생) reader.cancel()로 백엔드 연결을 정상 종료한다.
+    if (loopGuard && contentOnly.length - lastGuardCheckLen >= 512) {
+      lastGuardCheckLen = contentOnly.length;
+      if (detectRepetitionLoop(contentOnly).looping) {
+        repetitionLoopDetected = true;
+        break;
+      }
+    }
+  }
+  if (repetitionLoopDetected) {
+    await reader.cancel().catch(() => undefined);
   }
   const totalMs = performance.now() - t0;
   const toolCallsForApi: OpenAiToolCallOut[] = [...toolByIndex.entries()]
@@ -224,6 +249,7 @@ export async function consumeOpenAiChatStream(
     approxOutputTokens,
     finishReason,
     usageOutputTokens,
+    repetitionLoopDetected,
   };
 }
 
