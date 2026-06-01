@@ -12,15 +12,15 @@
   "dependencies": {
     "@hono/node-server": "^1.13.8",
     "@llm-bench/shared": "workspace:*",
-    "hono": "^4.12.19",
+    "hono": "^4.12.23",
     "pdf-parse": "2.4.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "tsup": "^8.4.0",
-    "tsx": "^4.22.2",
+    "tsx": "^4.22.3",
     "typescript": "^5.7.3",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.7"
   }
 }
