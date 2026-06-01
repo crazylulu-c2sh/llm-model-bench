@@ -139,6 +139,65 @@ describe("consumeAnthropicMessagesStream", () => {
     expect(m.stopReason).toBeNull();
   });
 
+  it("captures thinking_delta into reasoningText, marks TTFT, and keeps text visible-only", async () => {
+    const body = streamFrom([
+      block("content_block_start", {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "thinking" },
+      }),
+      block("content_block_delta", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", thinking: "Let me reason carefully. " },
+      }),
+      block("content_block_delta", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", thinking: "Almost there. " },
+      }),
+      block("content_block_delta", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "Final answer." },
+      }),
+      block("message_stop", { type: "message_stop" }),
+    ]);
+    const m = await consumeAnthropicMessagesStream(body);
+    expect(m.ttftMs).not.toBeNull();
+    expect(m.reasoningText).toBe("Let me reason carefully. Almost there. ");
+    // 채점용 text/assistantText는 추론을 제외한 가시 본문만 — 채점 비오염 보장
+    expect(m.text).toBe("Final answer.");
+    expect(m.assistantText).toBe("Final answer.");
+    // throughput 기준(approxOutputTokens)은 추론 + 본문을 반영
+    expect(m.approxOutputTokens).toBe(
+      Math.ceil((m.reasoningText.length + m.text.length) / 4),
+    );
+  });
+
+  it("emits reasoning deltas via onDelta with kind 'reasoning'", async () => {
+    const body = streamFrom([
+      block("content_block_delta", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", thinking: "hmm" },
+      }),
+      block("content_block_delta", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "ok" },
+      }),
+      block("message_stop", { type: "message_stop" }),
+    ]);
+    const kinds: string[] = [];
+    const m = await consumeAnthropicMessagesStream(body, undefined, {
+      onDelta: (d) => kinds.push(d.kind),
+    });
+    expect(kinds).toEqual(["reasoning", "content"]);
+    expect(m.reasoningText).toBe("hmm");
+    expect(m.text).toBe("ok");
+  });
+
   it("fires onDelta callback per text_delta when provided", async () => {
     const body = streamFrom([
       block("content_block_delta", {

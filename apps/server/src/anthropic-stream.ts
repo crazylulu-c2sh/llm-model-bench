@@ -7,8 +7,12 @@ export type AnthropicToolUseOut = {
 export type AnthropicStreamMetrics = {
   ttftMs: number | null;
   totalMs: number;
+  /** reasoning(thinking) + 본문 content + (있으면) tool_calls JSON — throughput 지표·output_text 기준 */
   text: string;
+  /** content_block_delta text만 (thinking 제외) — 채점용 가시 출력 */
   assistantText: string;
+  /** thinking_delta(추론) 누적 — assistantText와 분리. OpenAI 소비자의 reasoningText와 동일 의미 */
+  reasoningText: string;
   toolUses: AnthropicToolUseOut[] | null;
   streamCompleted: boolean;
   approxOutputTokens: number;
@@ -22,7 +26,9 @@ export type AnthropicStreamMetrics = {
   stopReason: string | null;
 };
 
-export type AnthropicStreamDelta = { kind: "content"; text: string };
+export type AnthropicStreamDelta =
+  | { kind: "content"; text: string }
+  | { kind: "reasoning"; text: string };
 
 export type AnthropicStreamOptions = {
   onDelta?: (delta: AnthropicStreamDelta) => void;
@@ -42,6 +48,7 @@ export async function consumeAnthropicMessagesStream(
       totalMs: 0,
       text: "",
       assistantText: "",
+      reasoningText: "",
       toolUses: null,
       streamCompleted: false,
       approxOutputTokens: 0,
@@ -54,6 +61,7 @@ export async function consumeAnthropicMessagesStream(
   let buffer = "";
   void buffer;
   let text = "";
+  let reasoningText = "";
   const toolUseByIndex = new Map<number, ToolUseAcc>();
   const t0 = performance.now();
   let ttft: number | null = null;
@@ -84,6 +92,8 @@ export async function consumeAnthropicMessagesStream(
         delta?: {
           type?: string;
           text?: string;
+          /** `thinking_delta` 이벤트의 추론 텍스트 */
+          thinking?: string;
           partial_json?: string;
           /** `message_delta` 이벤트에서만 채워짐. `"max_tokens"` 등. */
           stop_reason?: string | null;
@@ -125,6 +135,17 @@ export async function consumeAnthropicMessagesStream(
           if (tu) {
             tu.inputJson += j.delta.partial_json;
             markTtft();
+          }
+          return;
+        }
+        // 추론(thinking) 델타 — 첫 생성 토큰이므로 TTFT를 마킹하고(OpenAI 소비자의 reasoning_content와 동일),
+        // throughput 지표 기준에 포함되도록 reasoningText로 누적한다(가시 본문 text와는 분리 → 채점 비오염).
+        if (j.delta?.type === "thinking_delta") {
+          const r = j.delta.thinking;
+          if (r) {
+            markTtft();
+            reasoningText += r;
+            if (onDelta) onDelta({ kind: "reasoning", text: r });
           }
           return;
         }
@@ -184,14 +205,17 @@ export async function consumeAnthropicMessagesStream(
     outText = outText ? `${outText}\n${serialized}` : serialized;
   }
 
-  const approxOutputTokens = Math.max(0, Math.ceil(outText.length / 4));
+  // throughput(approxOutputTokens·TPOT) 기준은 생성된 전체 토큰(추론 + 가시 본문 + tool JSON)을 반영해
+  // OpenAI 소비자(combined 기반)와 동일하게 맞춘다. `text`/`assistantText`(채점용)는 추론을 포함하지 않는다.
+  const approxOutputTokens = Math.max(0, Math.ceil((reasoningText.length + outText.length) / 4));
   return {
     ttftMs: ttft,
     totalMs,
     text: outText,
     assistantText: text,
+    reasoningText,
     toolUses: toolUses.length ? toolUses : null,
-    streamCompleted: sawMessageDelta || outText.length > 0,
+    streamCompleted: sawMessageDelta || outText.length > 0 || reasoningText.length > 0,
     approxOutputTokens,
     usageOutputTokens,
     stopReason: lastStopReason,
