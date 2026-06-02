@@ -398,7 +398,7 @@ export function resolveBenchProfile(input: {
         : recommended.default;
 
   const reasoningEffort =
-    family === "gpt_oss" ? (input.reasoningEffort ?? "medium") ?? "medium" : undefined;
+    family === "gpt_oss" ? (input.reasoningEffort ?? "medium") : undefined;
 
   const promptRulesApplied: PromptRules = {
     ...(def?.promptRules ?? {}),
