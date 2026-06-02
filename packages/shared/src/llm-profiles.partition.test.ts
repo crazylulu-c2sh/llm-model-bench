@@ -33,6 +33,23 @@ describe("partitionThinkingBlocks", () => {
     expect(partitionThinkingBlocks(raw)).toEqual({ thinking: think, response: "out" });
   });
 
+  it("handles Qwen3 standard <think>...</think> block", () => {
+    const think = "<think>Here is my reasoning\nstep by step</think>";
+    const resp = "Hello!";
+    const raw = `${think}\n${resp}`;
+    const result = partitionThinkingBlocks(raw);
+    expect(result.thinking).toBe(think);
+    expect(result.response).toBe(resp);
+  });
+
+  it("handles <think>...</think> embedded with newlines and markdown", () => {
+    const think = "<think>\n1. Analyze Input\n2. Identify Intent\n</think>";
+    const resp = "Hi there!";
+    const raw = `${think}${resp}`;
+    expect(partitionThinkingBlocks(raw)).toEqual({ thinking: think, response: resp });
+    expect(stripThinkingBlocks(raw)).toBe(resp);
+  });
+
   it("stripThinkingBlocks matches partition response for single block", () => {
     const raw = "<|think|>a<|end|>b";
     const { response } = partitionThinkingBlocks(raw);

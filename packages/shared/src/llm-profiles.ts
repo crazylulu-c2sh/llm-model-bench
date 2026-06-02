@@ -63,14 +63,20 @@ export type LlmProfileDefinition = {
 
 /**
  * Single source for thinking-block detection (strip + UI partition).
+ * - Qwen3 standard <think>...</think> (HTML-style tag)
  * - Qwen-style redacted / think tokens
  * - LM Studio "channel" thought wrappers (see partition tests for samples)
+ *
+ * Ordering matters for alternation: more specific patterns first.
+ * REDACTED_THINK_BLOCK ends with </think>, so it must precede the plain
+ * <think>…</think> arm to avoid the latter stealing a partial match.
  */
 const REDACTED_THINK_BLOCK =
   "<" + "redacted" + "_" + "thinking" + ">" + "[\\s\\S]*?" + "</" + "think" + ">";
 
 export const THINK_BLOCK_PATTERN_SOURCE =
   REDACTED_THINK_BLOCK +
+  "|<think>[\\s\\S]*?</think>" +
   "|<\\|think\\|>[\\s\\S]*?(?:<\\|end_of_thought\\|>|<\\|end\\|>|<\\|start_header_id\\|>|<\\|im_end\\|>|$)" +
   "|<\\|channel\\|>thought[\\s\\S]*?<channel\\|>" +
   "|<\\|channel>thought[\\s\\S]*?<channel\\|>";
