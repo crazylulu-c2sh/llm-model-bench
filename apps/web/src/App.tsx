@@ -1102,7 +1102,7 @@ export function App() {
     } else {
       toast.success("벤치가 모두 완료되었습니다.");
     }
-  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, detect, parallel, unloadOtherModels]);
+  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, detect, parallel, unloadOtherModels, visibleSelectedScenarioIds]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
@@ -1509,11 +1509,11 @@ export function App() {
                   </button>
                   <button
                     type="button"
-                    className="rounded border border-[var(--accent)] bg-[var(--accent)]/10 px-2 py-1 hover:bg-[var(--accent)]/20"
+                    className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
                     onClick={() => setSelectedScenarioIds([...VISION_SCENARIO_IDS])}
                     title="이미 텍스트 벤치 완료한 모델에 비전 10개만 추가로 실행"
                   >
-                    비전만 (10개) · 보완 벤치
+                    비전만 (10개)
                   </button>
                   <button
                     type="button"
