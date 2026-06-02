@@ -413,13 +413,15 @@ export function App() {
 
   const pendingSkeletonRows = useMemo(() => {
     if (!running) return [];
-    const completedKeys = new Set(rows.map((r) => `${r.model_id}|${r.scenario}`));
-    const result: Array<{ rowKey: string; model_id: string; scenario: string }> = [];
+    const completedKeys = new Set(rows.map((r) => r.rowKey));
+    const result: Array<{ rowKey: string; model_id: string; scenario: string; api: string }> = [];
     for (const model of benchQueueDraft) {
       for (const scenarioId of visibleSelectedScenarioIds) {
-        const key = `${model.id}|${scenarioId}`;
-        if (!completedKeys.has(key)) {
-          result.push({ rowKey: key, model_id: model.id, scenario: scenarioId });
+        for (const api of ["chat_completions", "messages"] as const) {
+          const rk = scenarioRowKey(scenarioId, api, model.id);
+          if (!completedKeys.has(rk)) {
+            result.push({ rowKey: rk, model_id: model.id, scenario: scenarioId, api });
+          }
         }
       }
     }

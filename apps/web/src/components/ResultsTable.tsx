@@ -27,7 +27,7 @@ export type ResultRow = {
   reason?: string;
 };
 
-type PendingSkeletonRow = { rowKey: string; model_id: string; scenario: string };
+type PendingSkeletonRow = { rowKey: string; model_id: string; scenario: string; api: string };
 
 const columnHelper = createColumnHelper<ResultRow>();
 
@@ -318,7 +318,9 @@ export function ResultsTable({
                   <td className="p-2">
                     <span className="font-mono text-xs text-[var(--muted)]">{pr.scenario}</span>
                   </td>
-                  <td className="p-2"><div className="h-3 w-16 animate-pulse rounded bg-[var(--border)]" /></td>
+                  <td className="p-2">
+                    <span className="text-xs text-[var(--muted)]">{pr.api}</span>
+                  </td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
