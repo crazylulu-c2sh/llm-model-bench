@@ -375,6 +375,7 @@ const BenchStreamBody = z.object({
         .optional(),
     ),
     profileMaxTokens: z.number().int().positive().optional(),
+    apiRoutes: z.array(z.enum(["chat_completions", "messages"])).optional(),
     taskMode: z.enum(["general", "coding", "tool"]).optional(),
     thinkingIntent: z.enum(["on", "off"]).optional(),
     preserveThinking: z.boolean().optional(),
@@ -408,6 +409,7 @@ app.post("/api/bench/stream", async (c) => {
     autoUnloadAfterBench: bench.autoUnloadAfterBench,
     publicAssetsOrigin: bench.publicAssetsOrigin,
     profileMaxTokens: bench.profileMaxTokens,
+    apiRoutes: bench.apiRoutes,
     profile: {
       profileId: bench.profileId as LlmProfileFamily | "auto" | undefined,
       taskMode: bench.taskMode,

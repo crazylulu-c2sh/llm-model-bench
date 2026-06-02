@@ -21,6 +21,8 @@ export type MetricsAgg = {
     total_ms: number;
     output_text: string;
     stream_completed: boolean;
+    usage_output_tokens?: number | null;
+    reasoning_hidden?: boolean;
     quality?: { pass: boolean; score?: number; reason?: string };
   }>;
 };
@@ -61,7 +63,7 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
       }
       const last = runs[runs.length - 1];
       if (!last) continue;
-      const tpsRaw = tokensPerSecondFromRun(last.total_ms, last.output_text);
+      const tpsRaw = tokensPerSecondFromRun(last.total_ms, last.output_text, last.usage_output_tokens);
       const tps = tpsRaw > 0 ? Math.round(tpsRaw * 10) / 10 : null;
       rows.push({
         rowKey,
@@ -71,6 +73,8 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
         ttft_ms: last.ttft_ms ?? null,
         tpot_ms: last.tpot_ms ?? null,
         tps,
+        tps_source: last.usage_output_tokens != null && last.usage_output_tokens > 0 ? "usage" : "approx",
+        reasoning_hidden: last.reasoning_hidden,
         pass: last.quality?.pass,
         score: last.quality?.score,
         reason: last.quality?.reason,
@@ -98,6 +102,8 @@ export function buildChartRowsFromBenchState(
           model_id: r.model_id,
           total_ms: last?.total_ms,
           output_text: last?.output_text,
+          usage_output_tokens: last?.usage_output_tokens,
+          reasoning_hidden: last?.reasoning_hidden,
         };
       }),
     ),

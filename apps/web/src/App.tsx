@@ -90,6 +90,8 @@ type MetricsAgg = {
     total_ms: number;
     output_text: string;
     stream_completed: boolean;
+    usage_output_tokens?: number | null;
+    reasoning_hidden?: boolean;
     quality?: { pass: boolean; score?: number; reason?: string };
   }>;
 };
@@ -138,6 +140,9 @@ function ThemeIcon({ choice }: { choice: ThemeChoice }) {
   return <Monitor className="size-4 text-[var(--muted)]" aria-hidden />;
 }
 
+/** 성능 측정 모드의 고정 출력 한도(토큰) — 처리량 비교 재현성을 위해 모든 모델 동일. */
+const BENCH_THROUGHPUT_MAX_TOKENS = 512;
+
 export function App() {
   const { choice: themeChoice, setChoice: setThemeChoice, resolved: themeResolved } = useTheme();
   const { pathname } = useLocation();
@@ -182,6 +187,8 @@ export function App() {
   const [profileMaxTokens, setProfileMaxTokens] = useState(boot.profileMaxTokens);
   const [thinkingIntent, setThinkingIntent] = useState<ThinkingIntent>(boot.thinkingIntent);
   const [preserveThinking, setPreserveThinking] = useState(boot.preserveThinking);
+  /** 성능 측정 모드(처리량): 사고 off + chat_completions 단일 라우트 + 고정 max_tokens로 apples-to-apples 측정. */
+  const [benchmarkThroughputMode, setBenchmarkThroughputMode] = useState(boot.benchmarkThroughputMode);
   const [reasoningEffort, setReasoningEffort] = useState<"minimal" | "low" | "medium" | "high">(boot.reasoningEffort);
   const [presetOverride, setPresetOverride] = useState<SamplingPresetName | "">(boot.presetOverride);
   const [samplingOverridesText, setSamplingOverridesText] = useState(boot.samplingOverridesText);
@@ -209,17 +216,21 @@ export function App() {
       const maxTok = profileMaxTokens.trim() ? Number(profileMaxTokens) : NaN;
       const profileMaxTokensNum = Number.isFinite(maxTok) && maxTok > 0 ? Math.floor(maxTok) : undefined;
       const fam = profileId === "auto" ? inferLlmProfileFamily(modelId) : profileId;
+      // 성능 측정 모드: 사고 off + 고정 출력 한도로 처리량을 apples-to-apples 비교. (라우트 제한은 요청 body의 apiRoutes로.)
+      const effectiveThinking: ThinkingIntent = benchmarkThroughputMode ? "off" : thinkingIntent;
+      const effectiveMaxTokens = benchmarkThroughputMode ? BENCH_THROUGHPUT_MAX_TOKENS : profileMaxTokensNum;
       return {
         profileId,
-        profileMaxTokens: profileMaxTokensNum,
-        thinkingIntent,
-        preserveThinking: fam === "qwen36" ? preserveThinking : false,
+        profileMaxTokens: effectiveMaxTokens,
+        thinkingIntent: effectiveThinking,
+        preserveThinking: fam === "qwen36" && !benchmarkThroughputMode ? preserveThinking : false,
         reasoningEffort: fam === "gpt_oss" ? reasoningEffort : undefined,
-        presetOverride: presetOverride || undefined,
+        presetOverride: benchmarkThroughputMode ? undefined : presetOverride || undefined,
         samplingOverrides: samplingOverrides ?? undefined,
       };
     },
     [
+      benchmarkThroughputMode,
       parseSamplingOverridesJson,
       presetOverride,
       preserveThinking,
@@ -287,6 +298,7 @@ export function App() {
         profileAdvancedOpen,
         selectedScenarioIds,
         scenarioPickerOpen,
+        benchmarkThroughputMode,
       });
     }, 350);
     return () => window.clearTimeout(t);
@@ -310,6 +322,7 @@ export function App() {
     profileAdvancedOpen,
     selectedScenarioIds,
     scenarioPickerOpen,
+    benchmarkThroughputMode,
   ]);
 
   // bench → 다른 라우트 전이 시 *즉시 flush*. 게이트가 debounce를 폐기해도 최종 값 보존.
@@ -332,6 +345,7 @@ export function App() {
     profileAdvancedOpen,
     selectedScenarioIds,
     scenarioPickerOpen,
+    benchmarkThroughputMode,
   });
   latestBenchSnapshotRef.current = {
     baseUrl,
@@ -352,6 +366,7 @@ export function App() {
     profileAdvancedOpen,
     selectedScenarioIds,
     scenarioPickerOpen,
+    benchmarkThroughputMode,
   };
   const prevOnBenchPageRef = useRef(onBenchPage);
   useEffect(() => {
@@ -479,6 +494,8 @@ export function App() {
               model_id: r.model_id,
               total_ms: last?.total_ms,
               output_text: last?.output_text,
+              usage_output_tokens: last?.usage_output_tokens,
+              reasoning_hidden: last?.reasoning_hidden,
             };
           }),
         ),
@@ -546,6 +563,7 @@ export function App() {
           liveUserPromptByRowKey[row.rowKey] ??
           defaultScenarioPromptPreview(row.scenario),
         outputText: last?.output_text ?? "",
+        reasoningHidden: row.reasoning_hidden ?? last?.reasoning_hidden,
         measuredRunIndex: n > 0 ? n : undefined,
         measuredRunTotal: n > 0 ? n : undefined,
       });
@@ -585,6 +603,7 @@ export function App() {
           liveUserPromptByRowKey[key] ??
           defaultScenarioPromptPreview(row.scenario),
         outputText: last?.output_text ?? "",
+        reasoningHidden: row.reasoningHidden ?? last?.reasoning_hidden,
         measuredRunIndex: n > 0 ? n : undefined,
         measuredRunTotal: n > 0 ? n : undefined,
       });
@@ -618,6 +637,7 @@ export function App() {
             sc.prompt_system_preview ?? defaultScenarioSystemPromptPreview(scenario),
           userPrompt: sc.prompt_preview ?? defaultScenarioPromptPreview(scenario),
           outputText: last?.output_text ?? "",
+          reasoningHidden: last?.reasoning_hidden,
           measuredRunIndex: n > 0 ? n : undefined,
           measuredRunTotal: n > 0 ? n : undefined,
         });
@@ -677,6 +697,8 @@ export function App() {
                 model_id: it.model_id,
                 total_ms: last.total_ms,
                 output_text: last.output_text,
+                usage_output_tokens: last.usage_output_tokens,
+                reasoning_hidden: last.reasoning_hidden,
               },
             ])[0];
           })
@@ -755,6 +777,7 @@ export function App() {
         systemPrompt: sc.prompt_system_preview ?? defaultScenarioSystemPromptPreview(sc.id),
         userPrompt: sc.prompt_preview ?? defaultScenarioPromptPreview(sc.id),
         outputText: last?.output_text ?? "",
+        reasoningHidden: last?.reasoning_hidden,
         measuredRunIndex: n > 0 ? n : undefined,
         measuredRunTotal: n > 0 ? n : undefined,
       });
@@ -831,6 +854,7 @@ export function App() {
         profileAdvancedOpen,
         selectedScenarioIds,
         scenarioPickerOpen,
+        benchmarkThroughputMode,
       });
     } catch (e) {
       appendLog(String(e));
@@ -919,6 +943,7 @@ export function App() {
               autoUnloadAfterBench,
               publicAssetsOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
               scenarioIds: visibleSelectedScenarioIds,
+              ...(benchmarkThroughputMode ? { apiRoutes: ["chat_completions"] as const } : {}),
               ...buildBenchProfilePayload(m.id),
             },
           }),
@@ -1023,7 +1048,7 @@ export function App() {
             const runs = agg.runs;
             const last = runs[runs.length - 1];
             if (!last) return;
-            const tpsRaw = tokensPerSecondFromRun(last.total_ms, last.output_text);
+            const tpsRaw = tokensPerSecondFromRun(last.total_ms, last.output_text, last.usage_output_tokens);
             const tps = tpsRaw > 0 ? Math.round(tpsRaw * 10) / 10 : null;
             setRows((prev) => {
               const filtered = prev.filter((x) => x.rowKey !== rowKey);
@@ -1037,6 +1062,9 @@ export function App() {
                   ttft_ms: last.ttft_ms ?? null,
                   tpot_ms: last.tpot_ms ?? null,
                   tps,
+                  tps_source:
+                    last.usage_output_tokens != null && last.usage_output_tokens > 0 ? "usage" : "approx",
+                  reasoning_hidden: last.reasoning_hidden,
                   pass: last.quality?.pass,
                   score: last.quality?.score,
                   reason: last.quality?.reason,
@@ -1074,7 +1102,7 @@ export function App() {
     } else {
       toast.success("벤치가 모두 완료되었습니다.");
     }
-  }, [apiKey, appendLog, autoUnloadAfterBench, buildBenchProfilePayload, detect, parallel, unloadOtherModels]);
+  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, detect, parallel, unloadOtherModels]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
@@ -1651,13 +1679,33 @@ export function App() {
             <label className="grid min-w-0 gap-1">
               <span className="text-xs font-medium text-[var(--muted)]">사고(thinking) 의도</span>
               <select
-                className="min-w-0 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)]"
-                value={thinkingIntent}
+                className="min-w-0 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)] disabled:opacity-50"
+                value={benchmarkThroughputMode ? "off" : thinkingIntent}
+                disabled={benchmarkThroughputMode}
+                title={benchmarkThroughputMode ? "성능 측정 모드에서 off로 고정됩니다" : undefined}
                 onChange={(e) => setThinkingIntent(e.target.value as ThinkingIntent)}
               >
                 <option value="on">켜기 (기본)</option>
                 <option value="off">끄기 (Qwen·Nemotron: enable_thinking=false)</option>
               </select>
+            </label>
+            <label className="flex min-w-0 cursor-pointer items-start gap-2 text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
+              <input
+                type="checkbox"
+                className="mt-0.5 shrink-0"
+                checked={benchmarkThroughputMode}
+                disabled={detect != null && !detect.capabilities.openaiChat}
+                onChange={(e) => setBenchmarkThroughputMode(e.target.checked)}
+              />
+              <span className="min-w-0">
+                <span className="font-medium text-[var(--foreground)]">성능 측정 모드(처리량)</span>
+                <span className="mt-0.5 block leading-snug">
+                  처리량 비교용 apples-to-apples 측정 — 사고 <strong>off</strong> · <code className="font-mono">chat_completions</code> 단일 라우트 · max_tokens <strong>{BENCH_THROUGHPUT_MAX_TOKENS}</strong> 고정. 켜면 위 사고·max_tokens·preset 설정은 무시됩니다.
+                  {detect != null && !detect.capabilities.openaiChat ? (
+                    <span className="block text-[var(--danger)]">이 프로바이더는 chat_completions 라우트가 없어 사용할 수 없습니다.</span>
+                  ) : null}
+                </span>
+              </span>
             </label>
             {profileId === "auto" || profileId === "gpt_oss" ? (
               <label className="grid min-w-0 gap-1">
