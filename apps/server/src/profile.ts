@@ -86,6 +86,28 @@ export function buildProfileAugmentedMeta(
   };
 }
 
+/**
+ * Anthropic messages API 요청에 주입할 추가 필드.
+ * `openAiExtrasFromMeta`와 동일 소스에서 파생하되 Anthropic 규약에 맞게 조정한다.
+ * - stop 시퀀스: Anthropic은 `stop_sequences` (OpenAI는 `stop`)
+ * - reasoning_effort: OpenAI 전용이므로 포함하지 않음
+ * - extra_body 스프레드: chat_template_kwargs(enable_thinking 등) 포함 — LM Studio 확장
+ */
+export function anthropicExtrasFromMeta(meta: BenchRunMeta): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const s = meta.effective_sampling;
+  if (s?.top_p != null) out.top_p = s.top_p;
+  if (s?.top_k != null) out.top_k = s.top_k;
+  if (s?.min_p != null) out.min_p = s.min_p;
+  if (s?.repetition_penalty != null) out.repetition_penalty = s.repetition_penalty;
+  if (s?.frequency_penalty != null) out.frequency_penalty = s.frequency_penalty;
+  if (meta.stop && meta.stop.length > 0) out.stop_sequences = meta.stop;
+  if (meta.extra_body && typeof meta.extra_body === "object") {
+    return { ...out, ...meta.extra_body };
+  }
+  return out;
+}
+
 export function openAiExtrasFromMeta(meta: BenchRunMeta): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const s = meta.effective_sampling;

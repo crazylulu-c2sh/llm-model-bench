@@ -45,6 +45,7 @@ import {
   lmStudioUnload,
 } from "./lmstudio.js";
 import {
+  anthropicExtrasFromMeta,
   buildProfileAugmentedMeta,
   openAiExtrasFromMeta,
   type BenchProfileRequestFields,
@@ -761,6 +762,7 @@ export async function* runBench(
                 };
                 if (am.system) body.system = am.system;
                 if (toolsAnthropic) body.tools = toolsAnthropic;
+                Object.assign(body, anthropicExtrasFromMeta(scenarioMeta));
                 const r = await fetchImpl(`${base}/v1/messages`, {
                   method: "POST",
                   headers: headers(input.apiKey, {
@@ -938,6 +940,7 @@ export async function* runBench(
               };
               if (am.system) body.system = am.system;
               if (toolsAnthropic) body.tools = toolsAnthropic;
+              Object.assign(body, anthropicExtrasFromMeta(scenarioMeta));
 
               const r = await fetchImpl(`${base}/v1/messages`, {
                 method: "POST",
