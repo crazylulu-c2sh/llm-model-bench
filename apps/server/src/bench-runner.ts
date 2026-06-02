@@ -588,6 +588,10 @@ export async function* runBench(
 
           try {
             let text = "";
+            /** 채점 전용 텍스트. null이면 `text` 사용. Anthropic 경로에서 추론(thinking)을 제외한
+                가시 본문+tool JSON으로 설정해 채점을 오염시키지 않으면서, `text`(output_text/throughput)는
+                추론을 포함하도록 분리한다. */
+            let scoreText: string | null = null;
             let ttft: number | null = null;
             let totalMs = 0;
             let streamCompleted = false;
@@ -832,7 +836,8 @@ export async function* runBench(
                   });
                   continue;
                 }
-                text = m.assistantText;
+                scoreText = m.assistantText;
+                text = m.reasoningText ? `${m.reasoningText}${m.assistantText}` : m.assistantText;
                 break;
               }
               if (!iterationFailed) {
@@ -965,7 +970,9 @@ export async function* runBench(
                   r.body,
                   controller.signal,
                 );
-                text = m.text;
+                // 채점: 추론 제외(가시 본문 + tool JSON). output_text/throughput: 추론 포함(chat 경로와 동일).
+                scoreText = m.text;
+                text = m.reasoningText ? `${m.reasoningText}${m.text}` : m.text;
                 ttft = m.ttftMs;
                 totalMs = m.totalMs;
                 streamCompleted = m.streamCompleted;
@@ -988,7 +995,7 @@ export async function* runBench(
               | { pass: boolean; score?: number; reason?: string; judge_pending?: true }
               | undefined = isWarmup
               ? undefined
-              : scoreScenario(scenarioId, text, {
+              : scoreScenario(scenarioId, scoreText ?? text, {
                   invokedBenchTools,
                   calendarReferenceIso: ref.toISOString(),
                   calendarTimeZone: "Asia/Seoul",
