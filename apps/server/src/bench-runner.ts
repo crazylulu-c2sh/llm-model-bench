@@ -8,6 +8,7 @@ import type {
 import {
   DEFAULT_SCENARIO_IDS,
   PUBLIC_SCENARIO_IDS,
+  approxOutputTokens,
   defaultMaxTokensForVisionScenario,
   isVisionScenario,
   rubricToScore,
@@ -83,6 +84,11 @@ export type BenchRequest = {
   profile?: BenchProfileRequestFields;
   /** 프로파일 전용 max_tokens (UI). 일반 `max_tokens`와 분리해 시나리오별 권장값과 충돌하지 않게 함 */
   profileMaxTokens?: number;
+  /**
+   * 측정 라우트 제한(예: 성능 측정 모드 = `["chat_completions"]`). 지정 시 감지된 라우트와 교집합만 실행.
+   * 교집합이 비면 무시(감지 라우트 그대로). 미지정이면 감지된 모든 라우트.
+   */
+  apiRoutes?: ("chat_completions" | "messages")[];
 };
 
 const MAX_BENCH_TOOL_ROUNDS = 8;
@@ -147,9 +153,15 @@ export function makeBenchRunMeta(
       ? userScenarioIds
       : (DEFAULT_SCENARIO_IDS as ScenarioId[]);
   const scenarioIds = normalizeScenarioIdsForBench(rawScenarioIds);
-  const routes: ("chat_completions" | "messages")[] = [];
-  if (detect.capabilities.openaiChat) routes.push("chat_completions");
-  if (detect.capabilities.anthropicMessages) routes.push("messages");
+  const detectedRoutes: ("chat_completions" | "messages")[] = [];
+  if (detect.capabilities.openaiChat) detectedRoutes.push("chat_completions");
+  if (detect.capabilities.anthropicMessages) detectedRoutes.push("messages");
+  // 라우트 제한이 오면 감지된 라우트와 교집합만(교집합이 비면 무시 → 감지 라우트 그대로).
+  const restricted =
+    input.apiRoutes && input.apiRoutes.length
+      ? detectedRoutes.filter((r) => input.apiRoutes!.includes(r))
+      : detectedRoutes;
+  const routes = restricted.length ? restricted : detectedRoutes;
   const baseMeta: BenchRunMeta = {
     run_id: rid,
     app_version: "0.0.1",
@@ -500,6 +512,8 @@ export async function* runBench(
           total_ms: number;
           output_text: string;
           stream_completed: boolean;
+          usage_output_tokens: number | null;
+          reasoning_hidden?: boolean;
           quality?: { pass: boolean; score?: number; reason?: string };
         }[] = [];
 
@@ -597,6 +611,10 @@ export async function* runBench(
             let totalMs = 0;
             let streamCompleted = false;
             let tpot: number | null = null;
+            /** provider 보고 출력 토큰 수(없으면 null). TPS/TPOT·reasoning_hidden 계산에 사용. */
+            let usageOutputTokens: number | null = null;
+            /** 가시 추론(reasoning/thinking 델타) 누적 길이. 0이면 추론이 스트림에 노출되지 않음. */
+            let reasoningChars = 0;
             const invokedBenchTools: string[] = [];
 
             if (
@@ -732,6 +750,8 @@ export async function* runBench(
                 totalMs = totalMsAcc;
                 if (lastOpen) {
                   tpot = tpotFromOpenAi(lastOpen);
+                  usageOutputTokens = lastOpen.usageOutputTokens;
+                  reasoningChars = lastOpen.reasoningText.length;
                   if (!text.trim()) text = openAiBenchOutputText(lastOpen);
                 }
               }
@@ -845,10 +865,15 @@ export async function* runBench(
               if (!iterationFailed) {
                 totalMs = totalMsAcc;
                 if (lastAnth) {
+                  usageOutputTokens = lastAnth.usageOutputTokens;
+                  reasoningChars = lastAnth.reasoningText.length;
+                  const tokens =
+                    lastAnth.usageOutputTokens != null && lastAnth.usageOutputTokens > 0
+                      ? lastAnth.usageOutputTokens
+                      : lastAnth.approxOutputTokens;
                   tpot =
-                    lastAnth.ttftMs !== null && lastAnth.approxOutputTokens > 1
-                      ? (lastAnth.totalMs - lastAnth.ttftMs) /
-                        (lastAnth.approxOutputTokens - 1)
+                    lastAnth.ttftMs !== null && tokens > 1
+                      ? (lastAnth.totalMs - lastAnth.ttftMs) / (tokens - 1)
                       : null;
                   if (!text) text = lastAnth.assistantText;
                 }
@@ -913,6 +938,8 @@ export async function* runBench(
                 ttft = m.ttftMs;
                 totalMs = m.totalMs;
                 streamCompleted = m.streamCompleted;
+                usageOutputTokens = m.usageOutputTokens;
+                reasoningChars = m.reasoningText.length;
                 if (openAiLikelyTruncated(m, scenarioMeta.max_tokens)) truncated = true;
                 if (m.repetitionLoopDetected) repetitionLoopAborted = true;
                 tpot = tpotFromOpenAi(m);
@@ -979,11 +1006,16 @@ export async function* runBench(
                 ttft = m.ttftMs;
                 totalMs = m.totalMs;
                 streamCompleted = m.streamCompleted;
+                usageOutputTokens = m.usageOutputTokens;
+                reasoningChars = m.reasoningText.length;
                 if (m.stopReason === "max_tokens") truncated = true;
-                tpot =
-                  ttft !== null && m.approxOutputTokens > 1
-                    ? (totalMs - ttft) / (m.approxOutputTokens - 1)
-                    : null;
+                {
+                  const tokens =
+                    m.usageOutputTokens != null && m.usageOutputTokens > 0
+                      ? m.usageOutputTokens
+                      : m.approxOutputTokens;
+                  tpot = ttft !== null && tokens > 1 ? (totalMs - ttft) / (tokens - 1) : null;
+                }
                 for (const ch of chunkTextForUi(text, 24)) {
                   yield {
                     type: "token_delta",
@@ -1054,6 +1086,15 @@ export async function* runBench(
                   : `truncated_at_max_tokens=${tokens}`,
               };
             }
+            // Part B: messages 라우트에서 provider가 추론을 숨긴 채 측정됐는지 판정.
+            // 가시 추론 없음(reasoningChars===0) + 실토큰이 가시 추정의 2배↑ → 숨은 추론으로 보고
+            // TTFT가 "첫 가시 토큰까지(숨은 추론 포함)"임을 UI에 경고. char/4 과소추정 오탐을 K=2로 방어.
+            const reasoningHidden =
+              api_route === "messages" &&
+              usageOutputTokens != null &&
+              reasoningChars === 0 &&
+              usageOutputTokens >= 2 * approxOutputTokens(text);
+
             if (!isWarmup) {
               runs.push({
                 ttft_ms: ttft,
@@ -1061,6 +1102,8 @@ export async function* runBench(
                 total_ms: totalMs,
                 output_text: text,
                 stream_completed: streamCompleted,
+                usage_output_tokens: usageOutputTokens,
+                ...(reasoningHidden ? { reasoning_hidden: true } : {}),
                 quality,
               });
             }
@@ -1075,6 +1118,7 @@ export async function* runBench(
                 total_ms: totalMs,
                 output_chars: text.length,
                 approx_tokens: Math.ceil(text.length / 4),
+                usage_output_tokens: usageOutputTokens,
                 stream_completed: streamCompleted,
               },
               quality,
@@ -1114,6 +1158,7 @@ export async function* runBench(
                 total_ms: 0,
                 output_text: "",
                 stream_completed: false,
+                usage_output_tokens: null,
                 quality,
               });
               yield {

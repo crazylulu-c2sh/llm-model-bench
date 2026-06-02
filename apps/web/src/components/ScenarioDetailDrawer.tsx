@@ -1,5 +1,5 @@
 import { getScenarioBenchMeta, isVisionScenario, partitionThinkingBlocks, scoreToRubric } from "@llm-bench/shared";
-import { X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import { JsonCodeBlock } from "./JsonCodeBlock";
 
 export type ScenarioDetailPayload = {
@@ -16,6 +16,8 @@ export type ScenarioDetailPayload = {
   systemPrompt: string;
   userPrompt: string;
   outputText: string;
+  /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의 경고 */
+  reasoningHidden?: boolean;
   /** 마지막으로 표시 중인 측정 런(1-based) / 총 측정 런 수 */
   measuredRunIndex?: number;
   measuredRunTotal?: number;
@@ -90,6 +92,12 @@ export function ScenarioDetailDrawer({
                 {payload.ttft_ms != null ? `${Math.round(payload.ttft_ms)} ms` : "—"} ·{" "}
                 {payload.tpot_ms != null ? `${Math.round(payload.tpot_ms)} ms` : "—"}
               </p>
+              {payload.reasoningHidden ? (
+                <p className="mt-1 inline-flex items-start gap-1 text-[11px] leading-snug text-amber-500">
+                  <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
+                  <span>추론 숨김 — TTFT는 첫 가시 토큰까지(숨은 추론 포함). chat·사고 OFF와 직접 비교 주의.</span>
+                </p>
+              ) : null}
             </div>
             <div className="sm:col-span-2">
               <span className="text-[var(--muted)]">품질</span>

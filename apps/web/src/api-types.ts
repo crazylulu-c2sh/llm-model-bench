@@ -5,6 +5,10 @@ export type BenchScenarioRun = {
   total_ms: number;
   output_text: string;
   stream_completed: boolean;
+  /** provider 보고 출력 토큰 수(없으면 null/미존재). 있으면 TPS가 이 값을 사용. */
+  usage_output_tokens?: number | null;
+  /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의. */
+  reasoning_hidden?: boolean;
   quality?: { pass: boolean; score?: number; reason?: string };
 };
 

@@ -7,8 +7,12 @@ export type ChartRow = {
   api: string;
   ttft: number;
   tpot: number;
-  /** 근사 초당 출력 토큰; 0이면 막대 미표시에 가깝게 처리 */
+  /** 초당 출력 토큰(usage 있으면 실토큰, 없으면 글자수/4 근사); 0이면 막대 미표시에 가깝게 처리 */
   tps: number;
+  /** TPS 산정에 provider 실토큰을 썼는지 — 툴팁 표기용 */
+  tpsSource?: "usage" | "approx";
+  /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의 */
+  reasoningHidden?: boolean;
   pass?: boolean;
   modelId?: string;
   /** 막대 차트에서 시나리오·API 그룹 사이 빈 행(멀티 모델 시에만 삽입) */
@@ -74,10 +78,18 @@ export function approxOutputTokens(outputText: string): number {
   return Math.max(0, Math.ceil((outputText ?? "").length / 4));
 }
 
-export function tokensPerSecondFromRun(totalMs: number | null | undefined, outputText: string | null | undefined): number {
+/**
+ * 초당 출력 토큰. provider 보고 실토큰(`usageTokens`)이 있으면(>0) 그것을, 없으면 글자수/4 근사를 쓴다.
+ * (shared `tokensPerSecondFromRun`와 동일 산식 — 웹 차트 경로 전용 복제본.)
+ */
+export function tokensPerSecondFromRun(
+  totalMs: number | null | undefined,
+  outputText: string | null | undefined,
+  usageTokens?: number | null,
+): number {
   const ms = totalMs ?? 0;
   if (!ms || ms <= 0) return 0;
-  const at = approxOutputTokens(outputText ?? "");
+  const at = usageTokens != null && usageTokens > 0 ? usageTokens : approxOutputTokens(outputText ?? "");
   if (at <= 0) return 0;
   return at / (ms / 1000);
 }
@@ -111,12 +123,14 @@ export function rowsToChartData(
     model_id?: string;
     total_ms?: number | null;
     output_text?: string | null;
+    usage_output_tokens?: number | null;
+    reasoning_hidden?: boolean;
   }[],
 ): ChartRow[] {
   return rows.map((r, i) => {
     const modelSuffix = r.model_id ? ` · ${r.model_id}` : "";
     const fullLabel = `${r.scenario} (${apiShort(r.api)})${modelSuffix}`;
-    const tps = tokensPerSecondFromRun(r.total_ms ?? undefined, r.output_text ?? undefined);
+    const tps = tokensPerSecondFromRun(r.total_ms ?? undefined, r.output_text ?? undefined, r.usage_output_tokens);
     return {
       id: scenarioRowKey(r.scenario, r.api, r.model_id) + `|${i}`,
       labelShort: fullLabel.slice(0, 28) + (fullLabel.length > 28 ? "…" : ""),
@@ -126,6 +140,8 @@ export function rowsToChartData(
       ttft: r.ttft_ms ?? 0,
       tpot: r.tpot_ms ?? 0,
       tps,
+      tpsSource: r.usage_output_tokens != null && r.usage_output_tokens > 0 ? "usage" : "approx",
+      reasoningHidden: r.reasoning_hidden,
       pass: r.pass,
       modelId: r.model_id?.trim() || undefined,
     };

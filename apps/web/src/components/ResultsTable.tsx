@@ -8,7 +8,7 @@ import {
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowDownUp, ArrowUp, CircleCheck, CircleX, HelpCircle } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowDownUp, ArrowUp, CircleCheck, CircleX, HelpCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { MetricTableIntro } from "./MetricChartLegend";
 
@@ -19,8 +19,12 @@ export type ResultRow = {
   api: string;
   ttft_ms: number | null;
   tpot_ms: number | null;
-  /** 근사 초당 출력 토큰; 없으면 null */
+  /** 초당 출력 토큰(usage 실토큰 또는 글자수/4 근사); 없으면 null */
   tps?: number | null;
+  /** TPS 산정에 provider 실토큰을 썼는지 — "approx"면 `*`·경고 표기 */
+  tps_source?: "usage" | "approx";
+  /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의 배지 */
+  reasoning_hidden?: boolean;
   pass?: boolean;
   /** 0~1 점수. 비전 시나리오에서 rubric 0~3과 함께 표시. 텍스트 시나리오는 보통 0 또는 1. */
   score?: number;
@@ -67,6 +71,11 @@ export function ResultsTable({
   onRowClick?: (row: ResultRow) => void;
 }) {
   const data = useMemo(() => rows, [rows]);
+  const hasApproxTps = useMemo(
+    () => rows.some((r) => r.tps != null && r.tps_source === "approx"),
+    [rows],
+  );
+  const hasReasoningHidden = useMemo(() => rows.some((r) => r.reasoning_hidden), [rows]);
   const [sorting, setSorting] = useState<SortingState>([{ id: "scenario", desc: false }]);
 
   const table = useReactTable({
@@ -136,11 +145,20 @@ export function ResultsTable({
             {sortDirIcon(column)}
           </button>
         ),
-        cell: (info) => {
-          const v = info.getValue();
+        cell: ({ row, getValue }) => {
+          const v = getValue();
           return (
-            <span className="whitespace-nowrap font-mono text-xs">
+            <span className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-xs">
               {v === null || v === undefined ? "—" : `${Math.round(v)}`}
+              {row.original.reasoning_hidden ? (
+                <span
+                  className="inline-flex items-center text-amber-500"
+                  title="추론 숨김 — TTFT는 첫 가시 토큰까지(숨은 추론 포함)라 다른 라우트와 비교 주의"
+                  aria-label="추론 숨김 — TTFT 비교 주의"
+                >
+                  <AlertTriangle className="size-3 shrink-0" aria-hidden />
+                </span>
+              ) : null}
             </span>
           );
         },
@@ -180,10 +198,23 @@ export function ResultsTable({
             {sortDirIcon(column)}
           </button>
         ),
-        cell: (info) => {
-          const v = info.getValue();
+        cell: ({ row, getValue }) => {
+          const v = getValue();
           if (v === null || v === undefined) return <span className="whitespace-nowrap font-mono text-xs">—</span>;
-          return <span className="whitespace-nowrap font-mono text-xs">{v}</span>;
+          const approx = row.original.tps_source === "approx";
+          return (
+            <span
+              className="whitespace-nowrap font-mono text-xs"
+              title={
+                approx
+                  ? "provider가 usage 토큰 수를 안 줘서 글자수/4 추정치로 계산(approx). CJK·코드에서 오차 큼."
+                  : "provider 보고 실토큰 기반(usage)"
+              }
+            >
+              {v}
+              {approx ? <span className="text-[var(--muted)]">*</span> : null}
+            </span>
+          );
         },
         sortingFn: (a, b) => {
           const x = a.original.tps ?? -1;
@@ -300,6 +331,16 @@ export function ResultsTable({
           ) : null}
         </div>
       )}
+      {hasReasoningHidden ? (
+        <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
+          <span className="text-amber-500">⚠</span> 표시 행은 <code className="font-mono">messages</code> 라우트에서 추론이 숨겨진 채 측정됐습니다 — TTFT가 "첫 가시 토큰까지(숨은 추론 포함)"라 chat_completions·사고 OFF와 직접 비교하면 부풀려 보입니다. TPS는 provider 실토큰으로 보정됩니다.
+        </p>
+      ) : null}
+      {hasApproxTps ? (
+        <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
+          <code className="font-mono">*</code> TPS는 provider가 usage 토큰 수를 보고하지 않아 <code className="font-mono">chars/4</code> 추정치(approx)로 계산됐습니다 — CJK·코드 응답에서 오차가 큽니다.
+        </p>
+      ) : null}
     </div>
   );
 }

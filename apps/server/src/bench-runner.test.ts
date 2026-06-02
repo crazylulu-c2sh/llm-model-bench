@@ -720,3 +720,109 @@ describe("runBench truncation labelling (C)", () => {
     expect(lastQuality?.reason).not.toMatch(/truncated_at_max_tokens/);
   });
 });
+
+describe("makeBenchRunMeta apiRoutes restriction (성능 측정 모드)", () => {
+  function bothRoutesDetect(): DetectResult {
+    return {
+      provider: "lm_studio",
+      baseUrl: "http://127.0.0.1:1234/",
+      models: [{ id: MODEL_ID }],
+      steps: [],
+      capabilities: { openaiChat: true, anthropicMessages: true },
+    };
+  }
+  it("restricts api_routes to the intersection when apiRoutes is given", () => {
+    const meta = makeBenchRunMeta(
+      baseBenchRequest({ apiRoutes: ["chat_completions"] }),
+      bothRoutesDetect(),
+      "rid_routes_1",
+    );
+    expect(meta.api_routes).toEqual(["chat_completions"]);
+  });
+  it("ignores apiRoutes (uses detected) when the intersection is empty", () => {
+    const meta = makeBenchRunMeta(
+      // messages 요청했지만 감지엔 chat만 → 교집합 비어 감지 라우트 유지
+      baseBenchRequest({ apiRoutes: ["messages"] }),
+      lmStudioDetect(),
+      "rid_routes_2",
+    );
+    expect(meta.api_routes).toEqual(["chat_completions"]);
+  });
+  it("uses all detected routes when apiRoutes is omitted", () => {
+    const meta = makeBenchRunMeta(baseBenchRequest(), bothRoutesDetect(), "rid_routes_3");
+    expect(meta.api_routes).toEqual(["chat_completions", "messages"]);
+  });
+});
+
+describe("runBench messages route — usage tokens + reasoning_hidden", () => {
+  function messagesDetect(): DetectResult {
+    return {
+      provider: "lm_studio",
+      baseUrl: "http://127.0.0.1:1234/",
+      models: [{ id: MODEL_ID }],
+      steps: [],
+      capabilities: { openaiChat: false, anthropicMessages: true },
+    };
+  }
+  /** 추론을 숨긴 채(텍스트만, thinking_delta 없음) 큰 usage.output_tokens를 보고하는 messages SSE. */
+  function sseMessagesHiddenReasoning(visible: string, usageTokens: number): Response {
+    const enc = new TextEncoder();
+    const blocks = [
+      `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":${JSON.stringify(visible)}}}`,
+      `event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":${usageTokens}}}`,
+      `event: message_stop\ndata: {"type":"message_stop"}`,
+    ];
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const b of blocks) controller.enqueue(enc.encode(b + "\n\n"));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
+
+  it("threads usage_output_tokens and flags reasoning_hidden when usage ≫ visible with no streamed thinking", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/messages")) return sseMessagesHiddenReasoning("ok", 100);
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let run: Record<string, unknown> | undefined;
+    for await (const ev of runBench(
+      baseBenchRequest({ skipModelLoad: true }),
+      messagesDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "metrics_update") {
+        const agg = ev.aggregate as { runs?: Record<string, unknown>[] };
+        run = agg.runs?.[agg.runs.length - 1];
+      }
+    }
+    expect(run).toBeDefined();
+    expect(run?.usage_output_tokens).toBe(100);
+    expect(run?.reasoning_hidden).toBe(true);
+  });
+
+  it("does NOT flag reasoning_hidden when usage is close to the visible estimate", async () => {
+    // 가시 텍스트 200자(approx 50토큰), usage 60 → 60 < 2*50 → 숨김 아님
+    const big = "x".repeat(200);
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/messages")) return sseMessagesHiddenReasoning(big, 60);
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let run: Record<string, unknown> | undefined;
+    for await (const ev of runBench(
+      baseBenchRequest({ skipModelLoad: true }),
+      messagesDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "metrics_update") {
+        const agg = ev.aggregate as { runs?: Record<string, unknown>[] };
+        run = agg.runs?.[agg.runs.length - 1];
+      }
+    }
+    expect(run?.usage_output_tokens).toBe(60);
+    expect(run?.reasoning_hidden).toBeUndefined();
+  });
+});
