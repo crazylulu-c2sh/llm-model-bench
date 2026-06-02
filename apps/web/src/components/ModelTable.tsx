@@ -9,8 +9,8 @@ import {
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Square } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Search, Square, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -146,7 +146,7 @@ export function ModelTable({
   models: DetectResult["models"];
   selected: Record<string, boolean>;
   onToggle: (id: string) => void;
-  onSelectAll: (next: boolean) => void;
+  onSelectAll: (next: boolean, ids: string[]) => void;
   sorting: SortingState;
   onSortingChange: OnChangeFn<SortingState>;
   /** 현재 정렬 기준으로 표에 보이는 모델 id 순서(전체 행). */
@@ -166,6 +166,26 @@ export function ModelTable({
   const [pendingHash, setPendingHash] = useState<string | null>(null);
   const navigate = useNavigate();
 
+  // 텍스트 필터 — TanStack `data`는 전체 유지하고 렌더 단계에서만 거른다.
+  // (`onSortedModelIdsChange`가 보고하는 id 순서를 줄이면 벤치 큐가 누락되므로 globalFilter는 쓰지 않음.)
+  const [filterText, setFilterText] = useState("");
+  const q = filterText.trim().toLowerCase();
+  const matchesQuery = useCallback(
+    (m: ModelRow) => !q || m.id.toLowerCase().includes(q) || (m.label?.toLowerCase().includes(q) ?? false),
+    [q],
+  );
+  // 모델 목록(=새 감지)이 바뀌면 필터를 초기화해 stale 필터가 새 목록을 가리지 않게 함.
+  useEffect(() => setFilterText(""), [models]);
+  const visibleModels = useMemo(() => models.filter(matchesQuery), [models, matchesQuery]);
+  const allVisibleSelected = visibleModels.length > 0 && visibleModels.every((m) => selected[m.id]);
+  const noVisible = visibleModels.length === 0;
+  const visibleModelIdsRef = useRef<string[]>([]);
+  visibleModelIdsRef.current = visibleModels.map((m) => m.id);
+  const handleSelectAllVisible = useCallback(() => {
+    if (selectionDisabled) return;
+    onSelectAll(!allVisibleSelected, visibleModelIdsRef.current);
+  }, [allVisibleSelected, onSelectAll, selectionDisabled]);
+
   const columns = useMemo(
     () => [
       columnHelper.display({
@@ -174,15 +194,12 @@ export function ModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded p-1 text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-50"
-            aria-label={allSelected ? "전체 해제" : "전체 선택"}
-            title={allSelected ? "전체 해제" : "전체 선택"}
-            disabled={selectionDisabled}
-            onClick={() => {
-              if (selectionDisabled) return;
-              onSelectAll(!allSelected);
-            }}
+            aria-label={allVisibleSelected ? "표시된 항목 해제" : "표시된 항목 선택"}
+            title={allVisibleSelected ? "표시된 항목 해제" : "표시된 항목 선택"}
+            disabled={selectionDisabled || noVisible}
+            onClick={handleSelectAllVisible}
           >
-            {allSelected ? <CheckSquare className="size-4" /> : <Square className="size-4" />}
+            {allVisibleSelected ? <CheckSquare className="size-4" /> : <Square className="size-4" />}
           </button>
         ),
         cell: (ctx) => (
@@ -274,7 +291,7 @@ export function ModelTable({
         enableSorting: false,
       }),
     ],
-    [allSelected, onSelectAll, onToggle, profileHintByModelId, selected, selectionDisabled],
+    [allVisibleSelected, noVisible, handleSelectAllVisible, onToggle, profileHintByModelId, selected, selectionDisabled],
   );
 
   const table = useReactTable({
@@ -290,103 +307,146 @@ export function ModelTable({
     onSortedModelIdsChange?.(table.getRowModel().rows.map((r) => r.original.id));
   }, [data, onSortedModelIdsChange, sorting, table]);
 
+  // 정렬된 전체 행 중 필터에 맞는 행만 표시(데이터/정렬/보고 id는 전체 유지).
+  const visibleRows = table.getRowModel().rows.filter((r) => matchesQuery(r.original));
+
   return (
-    <div className="max-h-64 overflow-auto rounded border border-[var(--border)]">
-      <table className="w-full text-left text-sm">
-        <thead className="sticky top-0 z-[1] bg-[var(--surface)] text-[var(--muted)]">
-          {table.getHeaderGroups().map((hg) => (
-            <tr key={hg.id}>
-              {hg.headers.map((h) => (
-                <th key={h.id} className="p-2">
-                  {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
-                </th>
-              ))}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {table.getRowModel().rows.map((row) => (
-            <tr
-              key={row.id}
-              className={[
-                selectionDisabled
-                  ? "border-t border-[var(--border)] opacity-80"
-                  : "cursor-pointer border-t border-[var(--border)] hover:bg-[var(--surface-2)]",
-                benchActiveModelId != null && row.original.id === benchActiveModelId ? "bench-model-row--active" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              tabIndex={selectionDisabled ? -1 : 0}
-              aria-disabled={selectionDisabled || undefined}
-              aria-label={`${row.original.id} 선택 토글`}
-              onMouseDown={(e) => {
-                if (selectionDisabled) return;
-                const el = e.target as HTMLElement;
-                if (el.closest('input[type="checkbox"]')) return;
-                rowPointerRef.current = {
-                  x: e.clientX,
-                  y: e.clientY,
-                  modelId: row.original.id,
-                };
-              }}
-              onClick={(e) => {
-                if (selectionDisabled) return;
-                const el = e.target as HTMLElement;
-                const start = rowPointerRef.current;
-                rowPointerRef.current = null;
-                if (el.closest('input[type="checkbox"]')) return;
-                if (!start || start.modelId !== row.original.id) return;
-                const tr = e.currentTarget;
-                if (
-                  Math.abs(e.clientX - start.x) > POINTER_MOVE_TOGGLE_THRESHOLD_PX ||
-                  Math.abs(e.clientY - start.y) > POINTER_MOVE_TOGGLE_THRESHOLD_PX
-                ) {
-                  return;
-                }
-                if (selectionWithTextAnchoredInRow(tr)) return;
-                onToggle(row.original.id);
-              }}
-              onKeyDown={(e) => {
-                if (selectionDisabled) return;
-                if (e.key !== "Enter" && e.key !== " ") return;
-                e.preventDefault();
-                onToggle(row.original.id);
-              }}
-            >
-              {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="p-2 align-middle">
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
-        {modelTableSortLine(sorting)}
-        {" · "}
-        선택 {models.filter((m) => selected[m.id]).length} / {models.length}
-        {someSelected && !allSelected ? " · 일부 선택됨" : null}
-        {selectionDisabled ? " · 벤치 실행 중에는 선택을 바꿀 수 없습니다." : null}
-      </p>
-      <ConfirmDialog
-        open={pendingHash !== null}
-        title="프로파일 문서 페이지로 이동"
-        confirmLabel="이동"
-        onConfirm={() => {
-          const h = pendingHash;
-          setPendingHash(null);
-          if (h) navigate({ pathname: "/profile", hash: h });
-        }}
-        onCancel={() => setPendingHash(null)}
-      >
-        <p>현재 화면을 떠나 프로파일 문서 페이지로 이동합니다.</p>
-        {benchRunning ? (
-          <p className="mt-2 text-[var(--muted)]">
-            벤치가 진행 중입니다 — 화면만 바뀌며 실행은 백그라운드에서 계속됩니다.
-          </p>
+    <div className="grid gap-2">
+      <div className="relative">
+        <Search
+          className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--muted)]"
+          aria-hidden
+        />
+        <input
+          type="text"
+          value={filterText}
+          onChange={(e) => setFilterText(e.target.value)}
+          placeholder="모델 id·label 검색 (예: mtp)"
+          aria-label="모델 필터"
+          spellCheck={false}
+          className="w-full rounded border border-[var(--border)] bg-[var(--surface-2)] py-1.5 pl-7 pr-7 font-mono text-xs text-[var(--foreground)]"
+        />
+        {filterText ? (
+          <button
+            type="button"
+            aria-label="필터 지우기"
+            title="필터 지우기"
+            onClick={() => setFilterText("")}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--muted)] hover:text-[var(--foreground)]"
+          >
+            <X className="size-3.5" aria-hidden />
+          </button>
         ) : null}
-      </ConfirmDialog>
+      </div>
+      <div className="max-h-64 overflow-auto rounded border border-[var(--border)]">
+        <table className="w-full text-left text-sm">
+          <thead className="sticky top-0 z-[1] bg-[var(--surface)] text-[var(--muted)]">
+            {table.getHeaderGroups().map((hg) => (
+              <tr key={hg.id}>
+                {hg.headers.map((h) => (
+                  <th key={h.id} className="p-2">
+                    {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {visibleRows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={table.getVisibleLeafColumns().length}
+                  className="p-3 text-center text-xs text-[var(--muted)]"
+                >
+                  일치하는 모델이 없습니다
+                </td>
+              </tr>
+            ) : (
+              visibleRows.map((row) => (
+              <tr
+                key={row.id}
+                className={[
+                  selectionDisabled
+                    ? "border-t border-[var(--border)] opacity-80"
+                    : "cursor-pointer border-t border-[var(--border)] hover:bg-[var(--surface-2)]",
+                  benchActiveModelId != null && row.original.id === benchActiveModelId ? "bench-model-row--active" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                tabIndex={selectionDisabled ? -1 : 0}
+                aria-disabled={selectionDisabled || undefined}
+                aria-label={`${row.original.id} 선택 토글`}
+                onMouseDown={(e) => {
+                  if (selectionDisabled) return;
+                  const el = e.target as HTMLElement;
+                  if (el.closest('input[type="checkbox"]')) return;
+                  rowPointerRef.current = {
+                    x: e.clientX,
+                    y: e.clientY,
+                    modelId: row.original.id,
+                  };
+                }}
+                onClick={(e) => {
+                  if (selectionDisabled) return;
+                  const el = e.target as HTMLElement;
+                  const start = rowPointerRef.current;
+                  rowPointerRef.current = null;
+                  if (el.closest('input[type="checkbox"]')) return;
+                  if (!start || start.modelId !== row.original.id) return;
+                  const tr = e.currentTarget;
+                  if (
+                    Math.abs(e.clientX - start.x) > POINTER_MOVE_TOGGLE_THRESHOLD_PX ||
+                    Math.abs(e.clientY - start.y) > POINTER_MOVE_TOGGLE_THRESHOLD_PX
+                  ) {
+                    return;
+                  }
+                  if (selectionWithTextAnchoredInRow(tr)) return;
+                  onToggle(row.original.id);
+                }}
+                onKeyDown={(e) => {
+                  if (selectionDisabled) return;
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  e.preventDefault();
+                  onToggle(row.original.id);
+                }}
+              >
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id} className="p-2 align-middle">
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                ))}
+              </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+        <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
+          {modelTableSortLine(sorting)}
+          {" · "}
+          선택 {models.filter((m) => selected[m.id]).length} / {models.length}
+          {q ? ` · 필터 "${q}": ${visibleModels.length}개 표시` : null}
+          {someSelected && !allSelected ? " · 일부 선택됨" : null}
+          {selectionDisabled ? " · 벤치 실행 중에는 선택을 바꿀 수 없습니다." : null}
+        </p>
+        <ConfirmDialog
+          open={pendingHash !== null}
+          title="프로파일 문서 페이지로 이동"
+          confirmLabel="이동"
+          onConfirm={() => {
+            const h = pendingHash;
+            setPendingHash(null);
+            if (h) navigate({ pathname: "/profile", hash: h });
+          }}
+          onCancel={() => setPendingHash(null)}
+        >
+          <p>현재 화면을 떠나 프로파일 문서 페이지로 이동합니다.</p>
+          {benchRunning ? (
+            <p className="mt-2 text-[var(--muted)]">
+              벤치가 진행 중입니다 — 화면만 바뀌며 실행은 백그라운드에서 계속됩니다.
+            </p>
+          ) : null}
+        </ConfirmDialog>
+      </div>
     </div>
   );
 }

@@ -843,17 +843,13 @@ export function App() {
 
   const toggle = (id: string) => setSelected((s) => ({ ...s, [id]: !s[id] }));
 
-  const selectAllModels = useCallback(
-    (next: boolean) => {
-      if (!detect) return;
-      setSelected((s) => {
-        const o = { ...s };
-        for (const m of detect.models) o[m.id] = next;
-        return o;
-      });
-    },
-    [detect],
-  );
+  const selectAllModels = useCallback((next: boolean, ids: string[]) => {
+    setSelected((s) => {
+      const o = { ...s };
+      for (const id of ids) o[id] = next;
+      return o;
+    });
+  }, []);
 
   const runBench = useCallback(async (modelsToRun: DetectModel[]) => {
     if (!detect) return;
@@ -1121,12 +1117,17 @@ export function App() {
               {benchQueueDraft.map((m, i) => (
                 <li key={m.id} className="font-mono text-xs">
                   <div className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate">{m.label ?? m.id}</span>
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate">{m.id}</span>
+                      {m.label && m.label !== m.id ? (
+                        <span className="truncate font-sans text-[10px] text-[var(--muted)]">{m.label}</span>
+                      ) : null}
+                    </span>
                     <span className="flex shrink-0 gap-1">
                       <button
                         type="button"
                         className="rounded border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40"
-                        aria-label={`${m.label ?? m.id} 위로 이동`}
+                        aria-label={`${m.id} 위로 이동`}
                         disabled={i === 0}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1138,7 +1139,7 @@ export function App() {
                       <button
                         type="button"
                         className="rounded border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40"
-                        aria-label={`${m.label ?? m.id} 아래로 이동`}
+                        aria-label={`${m.id} 아래로 이동`}
                         disabled={i === benchQueueDraft.length - 1}
                         onClick={(e) => {
                           e.stopPropagation();
