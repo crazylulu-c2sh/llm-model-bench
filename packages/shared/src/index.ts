@@ -172,7 +172,7 @@ export const BenchRunMetaSchema = z.object({
   /** Stop strings sent as OpenAI `stop` (family-specific, e.g. Qwen `<|im_end|>`) */
   stop: z.array(z.string()).optional(),
   /** OpenAI-compatible servers: merged into request JSON */
-  extra_body: z.record(z.unknown()).optional(),
+  extra_body: z.record(z.string(), z.unknown()).optional(),
   /** gpt-oss style deployments */
   reasoning_effort: z.enum(["minimal", "low", "medium", "high"]).optional(),
   profile_id: z.string().optional(),
@@ -265,7 +265,7 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("metrics_update"),
-    aggregate: z.record(z.unknown()),
+    aggregate: z.record(z.string(), z.unknown()),
   }),
   z.object({ type: z.literal("run_finished"), run_id: z.string() }),
   z.object({
@@ -273,7 +273,7 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     layer: z.enum(["upstream", "downstream", "orchestrator"]),
     code: z.string(),
     message: z.string(),
-    partial: z.record(z.unknown()).optional(),
+    partial: z.record(z.string(), z.unknown()).optional(),
   }),
 ]);
 export type StreamEvent = z.infer<typeof StreamEventSchema>;

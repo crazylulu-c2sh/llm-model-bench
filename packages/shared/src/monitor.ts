@@ -8,7 +8,7 @@ export const LoadedModelInfoSchema = z.object({
   ramBytes: z.number().nonnegative().optional(),
   sizeBytes: z.number().nonnegative().optional(),
   contextLength: z.number().int().nonnegative().optional(),
-  raw: z.record(z.unknown()).optional(),
+  raw: z.record(z.string(), z.unknown()).optional(),
 });
 export type LoadedModelInfo = z.infer<typeof LoadedModelInfoSchema>;
 
