@@ -27,6 +27,8 @@ export type ResultRow = {
   reason?: string;
 };
 
+type PendingSkeletonRow = { rowKey: string; model_id: string; scenario: string; api: string };
+
 const columnHelper = createColumnHelper<ResultRow>();
 
 function apiHeaderTitle(api: string): string {
@@ -61,9 +63,14 @@ function resultsSortLine(sorting: SortingState): string {
 
 export function ResultsTable({
   rows,
+  pendingRows = [],
+  maxRows,
   onRowClick,
 }: {
   rows: ResultRow[];
+  pendingRows?: PendingSkeletonRow[];
+  /** 이 수를 초과하면 카드 내부 스크롤 활성화 */
+  maxRows?: number;
   onRowClick?: (row: ResultRow) => void;
 }) {
   const data = useMemo(() => rows, [rows]);
@@ -257,16 +264,24 @@ export function ResultsTable({
     getRowId: (r) => r.rowKey,
   });
 
+  const hasPending = pendingRows.length > 0;
+  const hasRows = rows.length > 0;
+  const totalRows = table.getRowModel().rows.length + pendingRows.length;
+  const shouldScroll = maxRows != null && totalRows > maxRows;
+
   return (
     <div>
       <MetricTableIntro />
-      {rows.length > 0 ? <p className="mb-2 text-xs text-[var(--muted)]">{resultsSortLine(sorting)}</p> : null}
-      {!rows.length ? (
+      {hasRows ? <p className="mb-2 text-xs text-[var(--muted)]">{resultsSortLine(sorting)}</p> : null}
+      {!hasRows && !hasPending ? (
         <p className="text-sm text-[var(--muted)]">결과 행이 없습니다.</p>
       ) : (
-        <div className="max-h-[min(60vh,32rem)] overflow-auto rounded border border-[var(--border)]">
+        <div
+          className={`rounded border border-[var(--border)]${shouldScroll ? " overflow-auto" : ""}`}
+          style={shouldScroll ? { maxHeight: `calc(${maxRows + 2} * 2.25rem)` } : undefined}
+        >
           <table className="w-full min-w-[36rem] text-left text-sm">
-            <thead className="sticky top-0 z-[1] bg-[var(--surface)] text-[var(--muted)]">
+            <thead className={`bg-[var(--surface)] text-[var(--muted)]${shouldScroll ? " sticky top-0 z-[1]" : ""}`}>
               {table.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
                   {hg.headers.map((h) => (
@@ -289,6 +304,27 @@ export function ResultsTable({
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
+                </tr>
+              ))}
+              {pendingRows.map((pr) => (
+                <tr
+                  key={pr.rowKey}
+                  className="border-t border-[var(--border)] opacity-40"
+                  aria-hidden="true"
+                >
+                  <td className="p-2">
+                    <span className="whitespace-nowrap font-mono text-xs text-[var(--muted)]">{pr.model_id}</span>
+                  </td>
+                  <td className="p-2">
+                    <span className="font-mono text-xs text-[var(--muted)]">{pr.scenario}</span>
+                  </td>
+                  <td className="p-2">
+                    <span className="text-xs text-[var(--muted)]">{pr.api}</span>
+                  </td>
+                  <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
+                  <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
+                  <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
+                  <td className="p-2"><div className="h-3 w-12 animate-pulse rounded bg-[var(--border)]" /></td>
                 </tr>
               ))}
             </tbody>

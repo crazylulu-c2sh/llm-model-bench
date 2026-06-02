@@ -411,6 +411,23 @@ export function App() {
     return out;
   }, [detect, modelOrderIds, selected]);
 
+  const pendingSkeletonRows = useMemo(() => {
+    if (!running) return [];
+    const completedKeys = new Set(rows.map((r) => r.rowKey));
+    const result: Array<{ rowKey: string; model_id: string; scenario: string; api: string }> = [];
+    for (const model of benchQueueDraft) {
+      for (const scenarioId of visibleSelectedScenarioIds) {
+        for (const api of ["chat_completions", "messages"] as const) {
+          const rk = scenarioRowKey(scenarioId, api, model.id);
+          if (!completedKeys.has(rk)) {
+            result.push({ rowKey: rk, model_id: model.id, scenario: scenarioId, api });
+          }
+        }
+      }
+    }
+    return result;
+  }, [running, rows, benchQueueDraft, visibleSelectedScenarioIds]);
+
   const profileHintByModelId = useMemo(() => {
     if (!detect) return {} as Record<string, { family: LlmProfileFamily; preset: SamplingPresetName }>;
     const out: Record<string, { family: LlmProfileFamily; preset: SamplingPresetName }> = {};
@@ -1885,7 +1902,12 @@ export function App() {
           className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchMetricsPanelsClass].filter(Boolean).join(" ")}
         >
           <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">결과 테이블</h2>
-          <ResultsTable rows={rows} onRowClick={(r) => openDrawerForRow(r)} />
+          <ResultsTable
+            rows={rows}
+            pendingRows={pendingSkeletonRows}
+            maxRows={visibleSelectedScenarioIds.length * 2}
+            onRowClick={(r) => openDrawerForRow(r)}
+          />
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">
