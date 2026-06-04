@@ -79,6 +79,28 @@ export const PUBLIC_SCENARIO_IDS: ScenarioId[] = [
   "vision_wireframe_html_b",
 ];
 
+/** PDF·툴 시나리오를 항상 마지막에 두어 나머지를 먼저 실행한다(중복 translate는 1개로). */
+export function normalizeScenarioIdsForBench(ids: ScenarioId[]): ScenarioId[] {
+  const translate: ScenarioId = "translate_nist_fips197_pdf_tools";
+  const hasTranslate = ids.includes(translate);
+  const rest = ids.filter((id) => id !== translate);
+  return hasTranslate ? [...rest, translate] : rest;
+}
+
+/** 공개 시나리오의 벤치 실행 순서 — `normalizeScenarioIdsForBench` 규칙 재활용(단일 소스). */
+export const BENCH_PUBLIC_EXECUTION_ORDER_IDS: ScenarioId[] =
+  normalizeScenarioIdsForBench(PUBLIC_SCENARIO_IDS);
+
+const SCENARIO_EXECUTION_ORDER_INDEX: Map<string, number> = new Map(
+  BENCH_PUBLIC_EXECUTION_ORDER_IDS.map((id, i) => [id, i]),
+);
+
+/** 시나리오 ID → 벤치 실행 순서 인덱스(0-based). 미등록 ID(stress 등)는 목록 끝 뒤로. */
+export function scenarioExecutionOrderIndex(id: string): number {
+  const i = SCENARIO_EXECUTION_ORDER_INDEX.get(id);
+  return i === undefined ? BENCH_PUBLIC_EXECUTION_ORDER_IDS.length : i;
+}
+
 /** 비전 시나리오 ID — 카테고리 라벨링·필터링용 */
 export const VISION_SCENARIO_IDS: ScenarioId[] = [
   "vision_table_ocr_a",
