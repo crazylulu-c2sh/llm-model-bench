@@ -1,6 +1,8 @@
 import { isVisionScenario, scenarioExecutionOrderIndex, scoreToRubric } from "@llm-bench/shared";
 import { apiRouteRank } from "./chart-types";
 import { compareModelIdAlphanumeric } from "../lib/model-sort";
+import { buildModelColorMap } from "../lib/model-color";
+import { computeGroupWinners } from "../lib/result-winners";
 import {
   createColumnHelper,
   flexRender,
@@ -104,6 +106,25 @@ export function ResultsTable({
     [rows],
   );
   const hasReasoningHidden = useMemo(() => rows.some((r) => r.reasoning_hidden), [rows]);
+  // 모델별 안정 색 + (시나리오·API) 그룹 내 메트릭 최우수 행. 정렬과 무관하게 원본 rows 기준.
+  const colorByModel = useMemo(() => buildModelColorMap(rows.map((r) => r.model_id)), [rows]);
+  const winners = useMemo(
+    () =>
+      computeGroupWinners(
+        rows.map((r) => ({
+          rowKey: r.rowKey,
+          model_id: r.model_id,
+          scenario: r.scenario,
+          api: r.api,
+          ttft_ms: r.ttft_ms,
+          tpot_ms: r.tpot_ms,
+          tps: r.tps,
+        })),
+      ),
+    [rows],
+  );
+  // 모델이 2개 이상일 때만 색 구별을 적용(단일 모델 테이블은 그대로).
+  const multiModel = colorByModel.size >= 2;
   const [sorting, setSorting] = useState<SortingState>([
     { id: "model_id", desc: false },
     { id: "scenario", desc: false },
@@ -127,7 +148,17 @@ export function ResultsTable({
             {sortDirIcon(column)}
           </button>
         ),
-        cell: (info) => <span className="whitespace-nowrap font-mono text-xs">{info.getValue()}</span>,
+        cell: (info) => {
+          const c = colorByModel.get(info.getValue());
+          return (
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-xs">
+              {multiModel && c ? (
+                <span className="size-2 shrink-0 rounded-full" style={{ background: c }} aria-hidden />
+              ) : null}
+              {info.getValue()}
+            </span>
+          );
+        },
         sortingFn: "alphanumeric",
       }),
       columnHelper.accessor("scenario", {
@@ -189,8 +220,14 @@ export function ResultsTable({
         ),
         cell: ({ row, getValue }) => {
           const v = getValue();
+          const win = winners.get(row.original.rowKey)?.ttft ?? false;
           return (
-            <span className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-xs">
+            <span
+              className={`inline-flex items-center gap-1 whitespace-nowrap font-mono text-xs${win ? " font-bold" : ""}`}
+              style={win ? { color: "var(--dir-lower)" } : undefined}
+              title={win ? "이 시나리오·API 그룹에서 가장 빠른 TTFT" : undefined}
+            >
+              {win ? <span aria-hidden>▾</span> : null}
               {v === null || v === undefined ? "—" : `${Math.round(v)}`}
               {row.original.reasoning_hidden ? (
                 <span
@@ -218,10 +255,16 @@ export function ResultsTable({
             {sortDirIcon(column)}
           </button>
         ),
-        cell: (info) => {
-          const v = info.getValue();
+        cell: ({ row, getValue }) => {
+          const v = getValue();
+          const win = winners.get(row.original.rowKey)?.tpot ?? false;
           return (
-            <span className="whitespace-nowrap font-mono text-xs">
+            <span
+              className={`whitespace-nowrap font-mono text-xs${win ? " font-bold" : ""}`}
+              style={win ? { color: "var(--dir-lower)" } : undefined}
+              title={win ? "이 시나리오·API 그룹에서 가장 빠른 TPOT" : undefined}
+            >
+              {win ? <span aria-hidden className="mr-0.5">▾</span> : null}
               {v === null || v === undefined ? "—" : `${Math.round(v)}`}
             </span>
           );
@@ -244,15 +287,20 @@ export function ResultsTable({
           const v = getValue();
           if (v === null || v === undefined) return <span className="whitespace-nowrap font-mono text-xs">—</span>;
           const approx = row.original.tps_source === "approx";
+          const win = winners.get(row.original.rowKey)?.tps ?? false;
           return (
             <span
-              className="whitespace-nowrap font-mono text-xs"
+              className={`whitespace-nowrap font-mono text-xs${win ? " font-bold" : ""}`}
+              style={win ? { color: "var(--dir-higher)" } : undefined}
               title={
-                approx
-                  ? "provider가 usage 토큰 수를 안 줘서 글자수/4 추정치로 계산(approx). CJK·코드에서 오차 큼."
-                  : "provider 보고 실토큰 기반(usage)"
+                win
+                  ? "이 시나리오·API 그룹에서 가장 높은 TPS"
+                  : approx
+                    ? "provider가 usage 토큰 수를 안 줘서 글자수/4 추정치로 계산(approx). CJK·코드에서 오차 큼."
+                    : "provider 보고 실토큰 기반(usage)"
               }
             >
+              {win ? <span aria-hidden className="mr-0.5">▴</span> : null}
               {v}
               {approx ? <span className="text-[var(--muted)]">*</span> : null}
             </span>
@@ -359,19 +407,32 @@ export function ResultsTable({
               ))}
             </thead>
             <tbody>
-              {table.getRowModel().rows.map((row) => (
-                <tr
-                  key={row.id}
-                  className={`border-t border-[var(--border)] ${onRowClick ? "cursor-pointer hover:bg-[var(--surface)]" : ""}`}
-                  onClick={() => onRowClick?.(row.original)}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="p-2 align-middle">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))}
+              {table.getRowModel().rows.map((row) => {
+                const barColor = multiModel ? colorByModel.get(row.original.model_id) : undefined;
+                return (
+                  <tr
+                    key={row.id}
+                    className={`border-t border-[var(--border)] ${onRowClick ? "cursor-pointer hover:bg-[var(--surface)]" : ""}`}
+                    onClick={() => onRowClick?.(row.original)}
+                  >
+                    {row.getVisibleCells().map((cell, ci) => (
+                      <td
+                        key={cell.id}
+                        className={`p-2 align-middle${ci === 0 ? " relative" : ""}`}
+                      >
+                        {ci === 0 && barColor ? (
+                          <span
+                            className="absolute inset-y-0 left-0 w-[3px]"
+                            style={{ background: barColor }}
+                            aria-hidden
+                          />
+                        ) : null}
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
               {pendingRows.map((pr) => (
                 <tr
                   key={pr.rowKey}
