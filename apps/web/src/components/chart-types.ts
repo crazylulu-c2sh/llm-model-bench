@@ -1,3 +1,5 @@
+import { scenarioExecutionOrderIndex } from "@llm-bench/shared";
+
 export type ChartRow = {
   id: string;
   labelShort: string;
@@ -55,6 +57,15 @@ export function apiRouteRank(api: string): number {
   return 2;
 }
 
+/**
+ * 시나리오 1차 정렬 기준: 벤치 실행 순서(`scenarioExecutionOrderIndex`).
+ * 미등록 ID·동률은 이름순으로 폴백 — `ResultsTable`의 시나리오 정렬과 동일 기준이라
+ * 테이블·레이더·막대 차트의 시나리오 순서가 일치한다.
+ */
+export function compareScenarioExecutionOrder(a: string, b: string): number {
+  return scenarioExecutionOrderIndex(a) - scenarioExecutionOrderIndex(b) || a.localeCompare(b);
+}
+
 /** 비교 시리즈마다 (시나리오·API) 키 집합이 동일한지 — 다르면 레이더에서 모델별로 축이 비는 현상이 난다. */
 export function compareSeriesHaveIdenticalScenarioApiKeys(series: CompareSeries[]): boolean {
   if (series.length < 2) return true;
@@ -102,7 +113,8 @@ export function scenarioRowKey(scenario: string, api: string, modelId?: string):
 /** 라이브 멀티모델 막대 Y축: scenario → API(chat/msg 순) → model → id(안정) */
 export function sortChartRowsForBarOrder(rows: ChartRow[]): ChartRow[] {
   return [...rows].sort((a, b) => {
-    if (a.scenario !== b.scenario) return a.scenario.localeCompare(b.scenario);
+    const s = compareScenarioExecutionOrder(a.scenario, b.scenario);
+    if (s !== 0) return s;
     const d = apiRouteRank(a.api) - apiRouteRank(b.api);
     if (d !== 0) return d;
     if (a.api !== b.api) return a.api.localeCompare(b.api);
@@ -154,14 +166,6 @@ export function avg(nums: number[]): number | undefined {
   return v.reduce((a, b) => a + b, 0) / v.length;
 }
 
-/** 양의 값만 사용해 오름차순 정렬 후 ≈95백분위(레이더 분모 캡). 비어 있으면 1. */
-export function percentile95Cap(values: number[]): number {
-  const v = values.filter((n) => Number.isFinite(n) && n > 0).sort((a, b) => a - b);
-  if (!v.length) return 1;
-  const idx = Math.min(v.length - 1, Math.max(0, Math.ceil(0.95 * v.length) - 1));
-  return Math.max(1, v[idx] ?? 1);
-}
-
 export type PivotCompareRow = {
   label: string;
   scenario: string;
@@ -200,7 +204,8 @@ export function pivotCompareSeries(series: CompareSeries[]): PivotCompareRow[] {
   keyOrder.sort((ka, kb) => {
     const a = keyMeta.get(ka)!;
     const b = keyMeta.get(kb)!;
-    if (a.scenario !== b.scenario) return a.scenario.localeCompare(b.scenario);
+    const s = compareScenarioExecutionOrder(a.scenario, b.scenario);
+    if (s !== 0) return s;
     const d = apiRouteRank(a.api) - apiRouteRank(b.api);
     if (d !== 0) return d;
     return a.api.localeCompare(b.api);
@@ -258,7 +263,8 @@ export function comparePivotToFlatBarData(
     });
   }
   out.sort((a, b) => {
-    if (a.scenario !== b.scenario) return a.scenario.localeCompare(b.scenario);
+    const s = compareScenarioExecutionOrder(a.scenario, b.scenario);
+    if (s !== 0) return s;
     const d = apiRouteRank(a.api) - apiRouteRank(b.api);
     if (d !== 0) return d;
     if (a.api !== b.api) return a.api.localeCompare(b.api);
