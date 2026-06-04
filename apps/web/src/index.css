@@ -25,6 +25,9 @@ html[data-theme="dark"] {
   --chart-fail: #f85149;
   --chart-neutral: #8b949e;
   --chart-ref-line: #6e7681;
+  /* 레이더 방향 강조: 작을수록 우수(지연)=주황, 클수록 우수(처리량)=청록 — 메트릭 색과 구별 */
+  --dir-lower: #e3933c;
+  --dir-higher: #39c5cf;
   --tier-fast: #3fb950;
   --tier-good: #d4a72c;
   --tier-okay: #db6d28;
@@ -57,6 +60,9 @@ html[data-theme="light"] {
   --chart-fail: #cf222e;
   --chart-neutral: #8c959f;
   --chart-ref-line: #656d76;
+  /* 레이더 방향 강조: 작을수록 우수(지연)=주황, 클수록 우수(처리량)=청록 — 메트릭 색과 구별 */
+  --dir-lower: #bc4c00;
+  --dir-higher: #1b7c83;
   --tier-fast: #1a7f37;
   --tier-good: #9a6700;
   --tier-okay: #bc4c00;

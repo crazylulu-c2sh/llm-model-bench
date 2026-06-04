@@ -22,8 +22,8 @@ import {
   apiShort,
   avg,
   comparePivotToFlatBarData,
+  compareScenarioExecutionOrder,
   compareSeriesHaveIdenticalScenarioApiKeys,
-  percentile95Cap,
   pivotCompareSeries,
   sessionChartRowsToCompareSeries,
   type ChartRow,
@@ -144,20 +144,12 @@ type SingleRadarDatum = {
   tickLabel: string;
   fullLabel: string;
   rawValue: number;
-  score: number;
 };
 
 function metricRaw(row: ChartRow, metric: RadarMetric): number {
   if (metric === "ttft") return row.ttft;
   if (metric === "tpot") return row.tpot;
   return row.tps;
-}
-
-function rawToRadarScore(raw: number, cap: number, metric: RadarMetric): number {
-  if (raw <= 0) return 0;
-  const normalized = Math.min(1, raw / Math.max(1, cap));
-  if (metric === "tps") return Math.round(100 * normalized);
-  return Math.round(100 * (1 - normalized));
 }
 
 /** 시나리오·API 키 목록(세 레이더 축 공통) — 피벗과 동일하게 시나리오·API 순으로 정렬. */
@@ -171,14 +163,15 @@ function scenarioApiKeyOrder(rows: ChartRow[]): string[] {
   return [...meta.keys()].sort((ka, kb) => {
     const a = meta.get(ka)!;
     const b = meta.get(kb)!;
-    if (a.scenario !== b.scenario) return a.scenario.localeCompare(b.scenario);
+    const s = compareScenarioExecutionOrder(a.scenario, b.scenario);
+    if (s !== 0) return s;
     const d = apiRouteRank(a.api) - apiRouteRank(b.api);
     if (d !== 0) return d;
     return a.api.localeCompare(b.api);
   });
 }
 
-/** 단일 시리즈(한 모델): 축은 전체 시나리오·API와 동일, 값은 메트릭별 평균(없으면 0). p95 캡 분모, 점수는 바깥이 유리. */
+/** 단일 시리즈(한 모델): 축은 전체 시나리오·API와 동일, 값은 메트릭별 실제 평균(없으면 0)을 그대로 반경에 사용. */
 function buildSingleRadarData(rows: ChartRow[], metric: RadarMetric): SingleRadarDatum[] {
   const keys = scenarioApiKeyOrder(rows);
   const sums = new Map<string, { sum: number; n: number }>();
@@ -192,7 +185,7 @@ function buildSingleRadarData(rows: ChartRow[], metric: RadarMetric): SingleRada
     cur.n += 1;
     sums.set(k, cur);
   }
-  const entries = keys.map((k) => {
+  return keys.map((k) => {
     const agg = sums.get(k);
     const rawValue = agg && agg.n ? agg.sum / agg.n : 0;
     const [scenario, api] = k.split("\t");
@@ -200,9 +193,6 @@ function buildSingleRadarData(rows: ChartRow[], metric: RadarMetric): SingleRada
     const tickLabel = fullLabel.length > 28 ? `${fullLabel.slice(0, 26)}…` : fullLabel;
     return { axisKey: k, tickLabel, fullLabel, rawValue };
   });
-  const positives = entries.map((e) => e.rawValue).filter((x) => x > 0);
-  const cap = percentile95Cap(positives.length ? positives : [1]);
-  return entries.map((e) => ({ ...e, score: rawToRadarScore(e.rawValue, cap, metric) }));
 }
 
 function pickPivotMetric(
@@ -213,51 +203,44 @@ function pickPivotMetric(
   return metric === "ttft" ? v.ttft : metric === "tpot" ? v.tpot : v.tps;
 }
 
-/** 다중 시리즈: 비교에 표시된 모든 모델·축 기준 전역 p95 캡으로 0~100 상대점수(바깥이 유리). */
+/** 다중 시리즈: 축마다 모델별 실제 측정치(raw_m{i})를 그대로 담는다. 반경 스케일은 도메인에서 0 기준 공통화. */
 function buildCompareRadarRows(
   pivoted: PivotCompareRow[],
   compareSeries: CompareSeries[],
   metric: RadarMetric,
 ): Record<string, string | number>[] {
-  const positives: number[] = [];
-  for (const p of pivoted) {
-    for (let i = 0; i < compareSeries.length; i++) {
-      const raw = pickPivotMetric(p.bySeriesIndex[i], metric);
-      if (raw > 0) positives.push(raw);
-    }
-  }
-  const cap = percentile95Cap(positives.length ? positives : [1]);
-
   return pivoted.map((p) => {
     const axisKey = `${p.scenario}\t${p.api}`;
     const fullLabel = `${p.scenario} (${apiShort(p.api)})`;
     const tickLabel = fullLabel.length > 28 ? `${fullLabel.slice(0, 26)}…` : fullLabel;
-    const raws = compareSeries.map((_, i) => pickPivotMetric(p.bySeriesIndex[i], metric));
     const o: Record<string, string | number> = { axisKey, tickLabel, fullLabel };
     compareSeries.forEach((_s, i) => {
-      o[`raw_m${i}`] = raws[i] ?? 0;
-      o[`m${i}`] = rawToRadarScore(raws[i] ?? 0, cap, metric);
+      o[`raw_m${i}`] = pickPivotMetric(p.bySeriesIndex[i], metric);
     });
     return o;
   });
 }
 
-function radarRadiusDomain(data: Record<string, unknown>[], valueKeys: string[]): [number, number] {
-  let lo = Infinity;
-  let hi = -Infinity;
+/** 1·2·5 ×10^k 단위로 올림 — 반경 축 상한을 '깔끔한' 눈금이 떨어지는 값으로. */
+function niceCeil(x: number): number {
+  if (!Number.isFinite(x) || x <= 0) return 1;
+  const exp = Math.floor(Math.log10(x));
+  const base = 10 ** exp;
+  const f = x / base; // 1..10
+  const nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
+  return nice * base;
+}
+
+/** raw 값 레이더 반경 도메인: 0 기준 [0, niceCeil(max)]. 면적이 값에 비례하고 막대 차트와 동일한 읽기. */
+function radarRawDomain(data: Record<string, unknown>[], valueKeys: string[]): [number, number] {
+  let hi = 0;
   for (const row of data) {
     for (const k of valueKeys) {
       const n = Number(row[k]);
-      if (Number.isFinite(n)) {
-        lo = Math.min(lo, n);
-        hi = Math.max(hi, n);
-      }
+      if (Number.isFinite(n) && n > hi) hi = n;
     }
   }
-  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [0, 100];
-  const span = hi - lo;
-  const pad = span > 0 ? Math.max(4, span * 0.12) : 8;
-  return [Math.max(0, lo - pad), Math.min(100, hi + pad)];
+  return [0, hi > 0 ? niceCeil(hi) : 1];
 }
 
 function hasAnyPositiveMetric(rows: ChartRow[], metric: RadarMetric): boolean {
@@ -293,6 +276,42 @@ function formatRadarRaw(metric: RadarMetric, raw: number): string {
   return `${Math.round(raw)} ms`;
 }
 
+/** 반경 축 눈금: 큰 ms는 'Nk'로 축약(작은 fontSize에서 겹침 방지), TPS·작은 값은 정수. */
+function formatRadarTick(metric: RadarMetric, v: number): string {
+  if (metric !== "tps" && v >= 1000) return `${Math.round(v / 100) / 10}k`;
+  return String(Math.round(v));
+}
+
+function metricUnitLabel(metric: RadarMetric): string {
+  return metric === "tps" ? "TPS(tok/s)" : metric === "ttft" ? "TTFT(ms)" : "TPOT(ms)";
+}
+
+/**
+ * 메트릭별 맞춤 레이더 설명 + '클수록/작을수록 우수' 방향 강조.
+ * 작을수록 우수(지연)=주황(--dir-lower), 클수록 우수(TPS)=청록(--dir-higher)으로 색을 구별한다.
+ */
+function RadarSubtitle({ metric, scope }: { metric: RadarMetric; scope: "single" | "compare" }) {
+  const unit = metricUnitLabel(metric);
+  const higher = metric === "tps";
+  const dirText = higher ? "클수록(바깥)이 우수" : "작을수록(안쪽)이 우수";
+  const dirColor = higher ? "var(--dir-higher)" : "var(--dir-lower)";
+  const lead =
+    scope === "compare"
+      ? `축은 시나리오·API. 반경은 모델별 실제 ${unit}를 0 기준 공통 스케일로 그립니다. `
+      : `축은 시나리오·API. 반경은 실제 ${unit}를 0 기준 스케일로 그립니다. `;
+  return (
+    <p className="mb-1 text-[10px] leading-snug text-[var(--muted)]">
+      {lead}
+      <strong
+        className="rounded px-1 py-px font-semibold"
+        style={{ color: dirColor, background: `color-mix(in srgb, ${dirColor} 14%, transparent)` }}
+      >
+        {dirText}
+      </strong>
+    </p>
+  );
+}
+
 function SingleRadarTooltip({
   active,
   payload,
@@ -314,9 +333,7 @@ function SingleRadarTooltip({
       }}
     >
       <div style={{ color: "var(--chart-tooltip-label)", fontWeight: 500, marginBottom: 4 }}>{p.fullLabel}</div>
-      <div>
-        {formatRadarRaw(metric, p.rawValue)} · 비교 {p.score}/100
-      </div>
+      <div>{formatRadarRaw(metric, p.rawValue)}</div>
     </div>
   );
 }
@@ -349,14 +366,13 @@ function CompareRadarTooltip({
       <ul className="space-y-0.5">
         {payload.map((item, i) => {
           const dk = String(item.dataKey ?? "");
-          const mi = dk.match(/^m(\d+)$/);
+          const mi = dk.match(/^raw_m(\d+)$/);
           const idx = mi ? Number(mi[1]) : i;
           const raw = Number(row[`raw_m${idx}`] ?? 0);
           const label = compareSeries[idx]?.label || compareSeries[idx]?.modelId || `model_${idx}`;
           return (
             <li key={`${dk}-${i}`} style={{ color: "var(--chart-tooltip-fg)" }}>
-              <span style={{ color: item.color }}>{label}</span>: {formatRadarRaw(metric, raw)} · 비교{" "}
-              {item.value ?? "—"}/100
+              <span style={{ color: item.color }}>{label}</span>: {formatRadarRaw(metric, raw)}
             </li>
           );
         })}
@@ -367,13 +383,11 @@ function CompareRadarTooltip({
 
 function MetricRadarSingle({
   title,
-  subtitle,
   metric,
   data,
   height,
 }: {
   title: string;
-  subtitle: string;
   metric: RadarMetric;
   data: SingleRadarDatum[];
   height: number;
@@ -382,16 +396,20 @@ function MetricRadarSingle({
     metric === "ttft" ? "var(--chart-ttft)" : metric === "tpot" ? "var(--chart-tpot)" : "var(--chart-tps)";
   const tickFmt = useMemo(() => new Map(data.map((d) => [d.axisKey, d.tickLabel])), [data]);
   const domain = useMemo(
-    () => radarRadiusDomain(data as unknown as Record<string, unknown>[], ["score"]),
+    () => radarRawDomain(data as unknown as Record<string, unknown>[], ["rawValue"]),
     [data],
   );
   const legendName =
-    metric === "ttft" ? "TTFT 상대점수" : metric === "tpot" ? "TPOT 상대점수" : "TPS 상대점수";
+    metric === "tps"
+      ? "TPS (tok/s · 클수록 좋음)"
+      : metric === "ttft"
+        ? "TTFT (ms · 작을수록 좋음)"
+        : "TPOT (ms · 작을수록 좋음)";
 
   return (
     <div className="min-w-0">
       <h3 className="mb-0.5 text-xs font-semibold text-[var(--foreground)]">{title}</h3>
-      <p className="mb-1 text-[10px] leading-snug text-[var(--muted)]">{subtitle}</p>
+      <RadarSubtitle metric={metric} scope="single" />
       <ResponsiveContainer width="100%" height={height}>
         <RadarChart
           data={data}
@@ -407,10 +425,15 @@ function MetricRadarSingle({
             tick={{ fill: "var(--chart-tick)", fontSize: 9 }}
             tickFormatter={(v) => tickFmt.get(String(v)) ?? String(v)}
           />
-          <PolarRadiusAxis angle={30} domain={domain} tick={{ fill: "var(--chart-tick)", fontSize: 8 }} />
+          <PolarRadiusAxis
+            angle={30}
+            domain={domain}
+            tickFormatter={(v) => formatRadarTick(metric, Number(v))}
+            tick={{ fill: "var(--chart-tick)", fontSize: 8 }}
+          />
           <Radar
             name={legendName}
-            dataKey="score"
+            dataKey="rawValue"
             stroke={stroke}
             fill={stroke}
             fillOpacity={0.35}
@@ -432,22 +455,20 @@ function MetricRadarSingle({
 
 function MetricRadarCompare({
   title,
-  subtitle,
   metric,
   data,
   height,
   compareSeries,
 }: {
   title: string;
-  subtitle: string;
   metric: RadarMetric;
   data: Record<string, string | number>[];
   height: number;
   compareSeries: CompareSeries[];
 }) {
-  const valueKeys = useMemo(() => compareSeries.map((_, i) => `m${i}`), [compareSeries]);
+  const valueKeys = useMemo(() => compareSeries.map((_, i) => `raw_m${i}`), [compareSeries]);
   const domain = useMemo(
-    () => radarRadiusDomain(data as Record<string, unknown>[], valueKeys),
+    () => radarRawDomain(data as Record<string, unknown>[], valueKeys),
     [data, valueKeys],
   );
   const tickFmt = useMemo(() => new Map(data.map((d) => [String(d.axisKey), String(d.tickLabel)])), [data]);
@@ -455,7 +476,7 @@ function MetricRadarCompare({
   return (
     <div className="min-w-0">
       <h3 className="mb-0.5 text-xs font-semibold text-[var(--foreground)]">{title}</h3>
-      <p className="mb-1 text-[10px] leading-snug text-[var(--muted)]">{subtitle}</p>
+      <RadarSubtitle metric={metric} scope="compare" />
       <ResponsiveContainer width="100%" height={height}>
         <RadarChart
           data={data}
@@ -471,7 +492,12 @@ function MetricRadarCompare({
             tick={{ fill: "var(--chart-tick)", fontSize: 9 }}
             tickFormatter={(v) => tickFmt.get(String(v)) ?? String(v)}
           />
-          <PolarRadiusAxis angle={30} domain={domain} tick={{ fill: "var(--chart-tick)", fontSize: 8 }} />
+          <PolarRadiusAxis
+            angle={30}
+            domain={domain}
+            tickFormatter={(v) => formatRadarTick(metric, Number(v))}
+            tick={{ fill: "var(--chart-tick)", fontSize: 8 }}
+          />
           <Tooltip content={<CompareRadarTooltip metric={metric} compareSeries={compareSeries} />} />
           <Legend
             verticalAlign="bottom"
@@ -482,7 +508,7 @@ function MetricRadarCompare({
             <Radar
               key={`radar-${metric}-${i}-${s.modelId || "unknown"}`}
               name={s.label || s.modelId || `model_${i}`}
-              dataKey={`m${i}`}
+              dataKey={`raw_m${i}`}
               stroke={modelColor(i, metric)}
               fill={modelColor(i, metric)}
               fillOpacity={0.18}
@@ -545,11 +571,6 @@ function RadarPanelsColumn({
   const compareKeyMismatch =
     mode === "compare" && compareSeries.length >= 2 && !compareSeriesHaveIdenticalScenarioApiKeys(compareSeries);
 
-  const subMs = "축은 시나리오·API. 반경은 해당 메트릭에서 빠를수록(지연) 또는 높을수록(TPS) 바깥이 유리합니다.";
-  const subTps = "축은 시나리오·API. 반경은 TPS가 높을수록 바깥이 유리합니다.";
-  const subCompare =
-    "비교에 표시된 모든 모델의 해당 메트릭 값으로 p95 캡을 잡고, 축마다 동일 분모의 0~100 상대점수로 그립니다. 지연(ms)은 낮을수록, TPS는 높을수록 바깥이 유리합니다.";
-
   return (
     <div className="flex min-h-0 flex-col gap-5">
       {dense ? (
@@ -568,7 +589,6 @@ function RadarPanelsColumn({
         <>
           <MetricRadarCompare
             title="TTFT"
-            subtitle={subCompare}
             metric="ttft"
             data={ttftCmp}
             height={h}
@@ -576,7 +596,6 @@ function RadarPanelsColumn({
           />
           <MetricRadarCompare
             title="TPOT"
-            subtitle={subCompare}
             metric="tpot"
             data={tpotCmp}
             height={h}
@@ -585,8 +604,7 @@ function RadarPanelsColumn({
           {showTpsCompare ? (
             <MetricRadarCompare
               title="TPS"
-              subtitle={subCompare}
-              metric="tps"
+                metric="tps"
               data={tpsCmp}
               height={h}
               compareSeries={compareSeries}
@@ -599,10 +617,10 @@ function RadarPanelsColumn({
         </>
       ) : (
         <>
-          <MetricRadarSingle title="TTFT" subtitle={subMs} metric="ttft" data={ttftSingle} height={h} />
-          <MetricRadarSingle title="TPOT" subtitle={subMs} metric="tpot" data={tpotSingle} height={h} />
+          <MetricRadarSingle title="TTFT" metric="ttft" data={ttftSingle} height={h} />
+          <MetricRadarSingle title="TPOT" metric="tpot" data={tpotSingle} height={h} />
           {showTpsSingle ? (
-            <MetricRadarSingle title="TPS" subtitle={subTps} metric="tps" data={tpsSingle} height={h} />
+            <MetricRadarSingle title="TPS" metric="tps" data={tpsSingle} height={h} />
           ) : (
             <p className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-3 text-center text-xs text-[var(--muted)]">
               TPS 레이더: 표시할 TPS 값이 없습니다.
