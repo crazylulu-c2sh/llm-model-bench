@@ -3,6 +3,7 @@ import { ProviderKindSchema } from "./provider-kind";
 
 export {
   ALL_SCENARIO_IDS,
+  BENCH_PUBLIC_EXECUTION_ORDER_IDS,
   DEFAULT_SCENARIO_IDS,
   PUBLIC_SCENARIO_IDS,
   STRESS_WORKLOAD_IDS,
@@ -16,8 +17,10 @@ export {
   isScenarioId,
   isStressWorkloadId,
   isVisionScenario,
+  normalizeScenarioIdsForBench,
   rubricToScore,
   scenarioCategory,
+  scenarioExecutionOrderIndex,
   scoreToRubric,
   visionImageFilename,
   type ScenarioCategory,

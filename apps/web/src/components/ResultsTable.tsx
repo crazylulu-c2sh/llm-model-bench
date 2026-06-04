@@ -1,4 +1,6 @@
-import { isVisionScenario, scoreToRubric } from "@llm-bench/shared";
+import { isVisionScenario, scenarioExecutionOrderIndex, scoreToRubric } from "@llm-bench/shared";
+import { apiRouteRank } from "./chart-types";
+import { compareModelIdAlphanumeric } from "../lib/model-sort";
 import {
   createColumnHelper,
   flexRender,
@@ -58,11 +60,17 @@ const RESULT_SORT_LABELS: Record<string, string> = {
 };
 
 function resultsSortLine(sorting: SortingState): string {
-  const first = sorting[0];
-  if (!first) return "현재 정렬: 없음";
-  const name = RESULT_SORT_LABELS[first.id] ?? first.id;
-  const dir = first.desc ? "내림차순" : "오름차순";
-  return `현재 정렬: ${name} · ${dir}`;
+  if (sorting.length === 0) return "현재 정렬: 없음";
+  const dirOf = (desc: boolean) => (desc ? "내림차순" : "오름차순");
+  const allSameDir = sorting.every((s) => s.desc === sorting[0]!.desc);
+  if (allSameDir) {
+    const chain = sorting.map((s) => RESULT_SORT_LABELS[s.id] ?? s.id).join(" → ");
+    return `현재 정렬: ${chain} · ${dirOf(sorting[0]!.desc)}`;
+  }
+  const chain = sorting
+    .map((s) => `${RESULT_SORT_LABELS[s.id] ?? s.id}(${dirOf(s.desc)})`)
+    .join(" → ");
+  return `현재 정렬: ${chain}`;
 }
 
 export function ResultsTable({
@@ -77,13 +85,30 @@ export function ResultsTable({
   maxRows?: number;
   onRowClick?: (row: ResultRow) => void;
 }) {
-  const data = useMemo(() => rows, [rows]);
+  // 기본 정렬과 동일한 키(모델 → 시나리오 실행 순서 → API)로 베이스 행을 미리 정렬한다.
+  // 단일 컬럼(예: 모델) 정렬 시 동률 행의 안정 정렬 폴백이 항상 실행 순서를 따르도록 해
+  // "모델 순"과 "시나리오 순"의 시나리오 배열이 일치하게 만든다.
+  const data = useMemo(
+    () =>
+      [...rows].sort(
+        (a, b) =>
+          compareModelIdAlphanumeric(a.model_id, b.model_id) ||
+          scenarioExecutionOrderIndex(a.scenario) - scenarioExecutionOrderIndex(b.scenario) ||
+          apiRouteRank(a.api) - apiRouteRank(b.api) ||
+          a.api.localeCompare(b.api),
+      ),
+    [rows],
+  );
   const hasApproxTps = useMemo(
     () => rows.some((r) => r.tps != null && r.tps_source === "approx"),
     [rows],
   );
   const hasReasoningHidden = useMemo(() => rows.some((r) => r.reasoning_hidden), [rows]);
-  const [sorting, setSorting] = useState<SortingState>([{ id: "scenario", desc: false }]);
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "model_id", desc: false },
+    { id: "scenario", desc: false },
+    { id: "api", desc: false },
+  ]);
 
   const table = useReactTable({
     data,
@@ -118,6 +143,11 @@ export function ResultsTable({
           </button>
         ),
         cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span>,
+        sortingFn: (a, b) => {
+          const d = scenarioExecutionOrderIndex(a.original.scenario) - scenarioExecutionOrderIndex(b.original.scenario);
+          if (d !== 0) return d;
+          return a.original.scenario.localeCompare(b.original.scenario);
+        },
       }),
       columnHelper.accessor("api", {
         header: ({ column }) => (
@@ -138,6 +168,11 @@ export function ResultsTable({
               {v}
             </span>
           );
+        },
+        sortingFn: (a, b) => {
+          const d = apiRouteRank(a.original.api) - apiRouteRank(b.original.api);
+          if (d !== 0) return d;
+          return a.original.api.localeCompare(b.original.api);
         },
       }),
       columnHelper.accessor("ttft_ms", {

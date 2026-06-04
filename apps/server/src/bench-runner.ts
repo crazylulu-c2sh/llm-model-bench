@@ -11,6 +11,7 @@ import {
   approxOutputTokens,
   defaultMaxTokensForVisionScenario,
   isVisionScenario,
+  normalizeScenarioIdsForBench,
   rubricToScore,
   stripThinkingBlocks,
 } from "@llm-bench/shared";
@@ -123,13 +124,7 @@ function runId(): string {
   return `run_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/** PDF·툴 시나리오를 항상 마지막에 두어 나머지 시나리오를 먼저 실행한다. */
-export function normalizeScenarioIdsForBench(ids: ScenarioId[]): ScenarioId[] {
-  const translate: ScenarioId = "translate_nist_fips197_pdf_tools";
-  const hasTranslate = ids.includes(translate);
-  const rest = ids.filter((id) => id !== translate);
-  return hasTranslate ? [...rest, translate] : rest;
-}
+export { normalizeScenarioIdsForBench };
 
 /** DB/SSE와 동일한 메타 스냅샷(런 ID만 외부에서 주입). */
 export function makeBenchRunMeta(
