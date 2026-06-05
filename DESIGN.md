@@ -34,7 +34,7 @@
 ## 아이콘·차트
 
 - **아이콘**: `lucide-react` (outline, `currentColor` / 시맨틱 변수).
-- **차트**: `recharts`. 막대·레이더 색은 `--chart-ttft`, `--chart-tpot`, `--chart-tps`, `--chart-pass`, `--chart-fail` 등 토큰 우선.
+- **차트**: `recharts`. 막대·레이더 색은 `--chart-ttft`, `--chart-tps`, `--chart-pass`, `--chart-fail` 등 토큰 우선.
 - **코드 하이라이트(선택)**: `prism-react-renderer` + `prismjs`는 lazy chunk로만 로드.
 
 ## 컴포넌트
@@ -52,7 +52,7 @@
 
 ## Do / Don’t
 
-- **Do** 차트에서 TTFT(블루 톤) vs TPOT(그린 톤) 대비 유지.
+- **Do** 차트에서 TTFT(블루 톤, 지연) vs TPS(청록 톤, 처리량) 대비 유지.
 - **Don’t** UI에 비밀을 장기 평문 저장하지 않기.
 
 ## 에이전트용 한 줄 프롬프트

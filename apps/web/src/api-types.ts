@@ -1,7 +1,6 @@
 /** GET /api/runs/:runId · GET .../latest-by-model 의 run 블록 */
 export type BenchScenarioRun = {
   ttft_ms: number | null;
-  tpot_ms: number | null;
   total_ms: number;
   output_text: string;
   stream_completed: boolean;

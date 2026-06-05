@@ -257,11 +257,10 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     api_route: z.enum(["chat_completions", "messages"]).optional(),
     metrics: z.object({
       ttft_ms: z.number().nullable().optional(),
-      tpot_ms: z.number().nullable().optional(),
       total_ms: z.number(),
       output_chars: z.number(),
       approx_tokens: z.number().optional(),
-      /** provider 보고 출력 토큰 수(없으면 null). 있으면 TPS/TPOT가 이 값을 사용. */
+      /** provider 보고 출력 토큰 수(없으면 null). 있으면 TPS가 이 값을 사용. */
       usage_output_tokens: z.number().nullable().optional(),
       stream_completed: z.boolean(),
     }),
@@ -297,11 +296,10 @@ export const BenchResultSchema = z.object({
       runs: z.array(
         z.object({
           ttft_ms: z.number().nullable(),
-          tpot_ms: z.number().nullable(),
           total_ms: z.number(),
           output_text: z.string(),
           stream_completed: z.boolean(),
-          /** provider 보고 출력 토큰 수(없으면 null/미존재). 있으면 TPS/TPOT가 이 값을 사용. */
+          /** provider 보고 출력 토큰 수(없으면 null/미존재). 있으면 TPS가 이 값을 사용. */
           usage_output_tokens: z.number().nullable().optional(),
           /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의(서버 계산). */
           reasoning_hidden: z.boolean().optional(),

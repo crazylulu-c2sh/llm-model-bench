@@ -6,23 +6,20 @@ function row(p: Partial<WinnerInput> & { rowKey: string; model_id: string }): Wi
     scenario: "s1",
     api: "chat_completions",
     ttft_ms: null,
-    tpot_ms: null,
     tps: null,
     ...p,
   };
 }
 
 describe("computeGroupWinners", () => {
-  it("marks min ttft/tpot and max tps within a (scenario,api) group", () => {
+  it("marks min ttft and max tps within a (scenario,api) group", () => {
     const w = computeGroupWinners([
-      row({ rowKey: "a", model_id: "A", ttft_ms: 200, tpot_ms: 10, tps: 30 }),
-      row({ rowKey: "b", model_id: "B", ttft_ms: 100, tpot_ms: 20, tps: 50 }),
+      row({ rowKey: "a", model_id: "A", ttft_ms: 200, tps: 30 }),
+      row({ rowKey: "b", model_id: "B", ttft_ms: 100, tps: 50 }),
     ]);
     expect(w.get("b")?.ttft).toBe(true); // 100 < 200
-    expect(w.get("a")?.tpot).toBe(true); // 10 < 20
     expect(w.get("b")?.tps).toBe(true); // 50 > 30
     expect(w.get("a")?.ttft).toBeFalsy();
-    expect(w.get("b")?.tpot).toBeFalsy();
   });
 
   it("returns no winners when the group has only one distinct model", () => {

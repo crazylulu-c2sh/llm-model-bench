@@ -54,6 +54,7 @@ import { DEFAULT_MODEL_TABLE_SORTING, ModelTable } from "./components/ModelTable
 import { ProviderSummary } from "./components/ProviderSummary";
 import type { ResultRow } from "./components/ResultsTable";
 import { ResultsTable } from "./components/ResultsTable";
+import { Scoreboard } from "./components/Scoreboard";
 import {
   BenchProgressPanel,
   formatBenchRunningLine,
@@ -86,7 +87,6 @@ type MetricsAgg = {
   user_prompt?: string;
   runs: Array<{
     ttft_ms: number | null;
-    tpot_ms: number | null;
     total_ms: number;
     output_text: string;
     stream_completed: boolean;
@@ -489,7 +489,6 @@ export function App() {
               scenario: r.scenario,
               api: r.api,
               ttft_ms: r.ttft_ms,
-              tpot_ms: r.tpot_ms,
               pass: r.pass,
               model_id: r.model_id,
               total_ms: last?.total_ms,
@@ -550,7 +549,6 @@ export function App() {
         api: row.api,
         modelId: row.model_id,
         ttft_ms: row.ttft_ms,
-        tpot_ms: row.tpot_ms,
         pass: row.pass,
         score: row.score ?? last?.quality?.score,
         qualityReason: row.reason ?? last?.quality?.reason,
@@ -590,7 +588,6 @@ export function App() {
         api: row.api,
         modelId: row.modelId,
         ttft_ms: row.ttft > 0 ? row.ttft : null,
-        tpot_ms: row.tpot > 0 ? row.tpot : null,
         pass: row.pass,
         score: last?.quality?.score,
         qualityReason: last?.quality?.reason,
@@ -629,7 +626,6 @@ export function App() {
           api,
           modelId: it.model_id,
           ttft_ms: last?.ttft_ms ?? null,
-          tpot_ms: last?.tpot_ms ?? null,
           pass: last?.quality?.pass,
           score: last?.quality?.score,
           qualityReason: last?.quality?.reason,
@@ -692,7 +688,6 @@ export function App() {
                 scenario: sc.id,
                 api: sc.api_route,
                 ttft_ms: last.ttft_ms,
-                tpot_ms: last.tpot_ms,
                 pass: last.quality?.pass,
                 model_id: it.model_id,
                 total_ms: last.total_ms,
@@ -770,7 +765,6 @@ export function App() {
         api: sc.api_route,
         modelId: String(detail.meta.model_id),
         ttft_ms: last?.ttft_ms ?? null,
-        tpot_ms: last?.tpot_ms ?? null,
         pass: last?.quality?.pass,
         score: last?.quality?.score,
         qualityReason: last?.quality?.reason,
@@ -1060,7 +1054,6 @@ export function App() {
                   scenario: agg.scenario_id,
                   api: agg.api_route,
                   ttft_ms: last.ttft_ms ?? null,
-                  tpot_ms: last.tpot_ms ?? null,
                   tps,
                   tps_source:
                     last.usage_output_tokens != null && last.usage_output_tokens > 0 ? "usage" : "approx",
@@ -1859,6 +1852,8 @@ export function App() {
             </button>
           }
         />
+
+        <Scoreboard rows={rows} detailAggregate={detailAggregate} />
 
         <section
           className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchMetricsPanelsClass].filter(Boolean).join(" ")}

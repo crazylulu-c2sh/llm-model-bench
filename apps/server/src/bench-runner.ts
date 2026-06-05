@@ -26,7 +26,6 @@ import {
   consumeOpenAiChatStream,
   openAiBenchOutputText,
   openAiLiveTokenStreamText,
-  tpotFromOpenAi,
   type OpenAiStreamMetrics,
 } from "./openai-stream.js";
 import { openAiChatPostWithUsage } from "./openai-fetch.js";
@@ -503,7 +502,6 @@ export async function* runBench(
         }
         const runs: {
           ttft_ms: number | null;
-          tpot_ms: number | null;
           total_ms: number;
           output_text: string;
           stream_completed: boolean;
@@ -605,8 +603,7 @@ export async function* runBench(
             let ttft: number | null = null;
             let totalMs = 0;
             let streamCompleted = false;
-            let tpot: number | null = null;
-            /** provider 보고 출력 토큰 수(없으면 null). TPS/TPOT·reasoning_hidden 계산에 사용. */
+            /** provider 보고 출력 토큰 수(없으면 null). TPS·reasoning_hidden 계산에 사용. */
             let usageOutputTokens: number | null = null;
             /** 가시 추론(reasoning/thinking 델타) 누적 길이. 0이면 추론이 스트림에 노출되지 않음. */
             let reasoningChars = 0;
@@ -744,7 +741,6 @@ export async function* runBench(
               if (!iterationFailed) {
                 totalMs = totalMsAcc;
                 if (lastOpen) {
-                  tpot = tpotFromOpenAi(lastOpen);
                   usageOutputTokens = lastOpen.usageOutputTokens;
                   reasoningChars = lastOpen.reasoningText.length;
                   if (!text.trim()) text = openAiBenchOutputText(lastOpen);
@@ -862,14 +858,6 @@ export async function* runBench(
                 if (lastAnth) {
                   usageOutputTokens = lastAnth.usageOutputTokens;
                   reasoningChars = lastAnth.reasoningText.length;
-                  const tokens =
-                    lastAnth.usageOutputTokens != null && lastAnth.usageOutputTokens > 0
-                      ? lastAnth.usageOutputTokens
-                      : lastAnth.approxOutputTokens;
-                  tpot =
-                    lastAnth.ttftMs !== null && tokens > 1
-                      ? (lastAnth.totalMs - lastAnth.ttftMs) / (tokens - 1)
-                      : null;
                   if (!text) text = lastAnth.assistantText;
                 }
               }
@@ -937,7 +925,6 @@ export async function* runBench(
                 reasoningChars = m.reasoningText.length;
                 if (openAiLikelyTruncated(m, scenarioMeta.max_tokens)) truncated = true;
                 if (m.repetitionLoopDetected) repetitionLoopAborted = true;
-                tpot = tpotFromOpenAi(m);
                 for (const ch of chunkTextForUi(text, 24)) {
                   yield {
                     type: "token_delta",
@@ -1004,13 +991,6 @@ export async function* runBench(
                 usageOutputTokens = m.usageOutputTokens;
                 reasoningChars = m.reasoningText.length;
                 if (m.stopReason === "max_tokens") truncated = true;
-                {
-                  const tokens =
-                    m.usageOutputTokens != null && m.usageOutputTokens > 0
-                      ? m.usageOutputTokens
-                      : m.approxOutputTokens;
-                  tpot = ttft !== null && tokens > 1 ? (totalMs - ttft) / (tokens - 1) : null;
-                }
                 for (const ch of chunkTextForUi(text, 24)) {
                   yield {
                     type: "token_delta",
@@ -1093,7 +1073,6 @@ export async function* runBench(
             if (!isWarmup) {
               runs.push({
                 ttft_ms: ttft,
-                tpot_ms: tpot,
                 total_ms: totalMs,
                 output_text: text,
                 stream_completed: streamCompleted,
@@ -1109,7 +1088,6 @@ export async function* runBench(
               api_route,
               metrics: {
                 ttft_ms: ttft,
-                tpot_ms: tpot,
                 total_ms: totalMs,
                 output_chars: text.length,
                 approx_tokens: Math.ceil(text.length / 4),
@@ -1149,7 +1127,6 @@ export async function* runBench(
               };
               runs.push({
                 ttft_ms: null,
-                tpot_ms: null,
                 total_ms: 0,
                 output_text: "",
                 stream_completed: false,
@@ -1162,7 +1139,6 @@ export async function* runBench(
                 api_route,
                 metrics: {
                   ttft_ms: null,
-                  tpot_ms: null,
                   total_ms: 0,
                   output_chars: 0,
                   approx_tokens: 0,

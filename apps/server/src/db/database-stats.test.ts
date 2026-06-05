@@ -114,7 +114,7 @@ describe("listLatestFinishedRunSummaries", () => {
       aggregate_json: JSON.stringify({
         scenario_id: "chat_ping",
         api_route: "chat_completions",
-        runs: [{ ttft_ms: 1, tpot_ms: 2, total_ms: 10, output_text: "x", stream_completed: true }],
+        runs: [{ ttft_ms: 1, total_ms: 10, output_text: "x", stream_completed: true }],
       }),
       prompt_preview: "p",
       prompt_system_preview: "sp",

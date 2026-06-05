@@ -1,5 +1,5 @@
 /** 그룹 내 각 메트릭에서 이 행이 최우수인지. */
-export type WinnerFlags = { ttft: boolean; tpot: boolean; tps: boolean };
+export type WinnerFlags = { ttft: boolean; tps: boolean };
 
 /** 우수값 계산 입력(결과 행의 최소 부분집합). */
 export type WinnerInput = {
@@ -8,20 +8,18 @@ export type WinnerInput = {
   scenario: string;
   api: string;
   ttft_ms: number | null | undefined;
-  tpot_ms: number | null | undefined;
   tps: number | null | undefined;
 };
 
-type MetricKey = "ttft" | "tpot" | "tps";
+type MetricKey = "ttft" | "tps";
 
-const METRIC_FIELD: Record<MetricKey, "ttft_ms" | "tpot_ms" | "tps"> = {
+const METRIC_FIELD: Record<MetricKey, "ttft_ms" | "tps"> = {
   ttft: "ttft_ms",
-  tpot: "tpot_ms",
   tps: "tps",
 };
-/** 방향: ttft·tpot은 낮을수록, tps는 높을수록 좋음. */
-const HIGHER_IS_BETTER: Record<MetricKey, boolean> = { ttft: false, tpot: false, tps: true };
-const METRICS: readonly MetricKey[] = ["ttft", "tpot", "tps"];
+/** 방향: ttft은 낮을수록, tps는 높을수록 좋음. */
+const HIGHER_IS_BETTER: Record<MetricKey, boolean> = { ttft: false, tps: true };
+const METRICS: readonly MetricKey[] = ["ttft", "tps"];
 
 /**
  * (시나리오·API) 그룹별로 각 메트릭의 최우수 행을 찾아 rowKey→플래그 맵으로 반환한다.
@@ -43,7 +41,7 @@ export function computeGroupWinners(rows: readonly WinnerInput[]): Map<string, W
   const flagOf = (rowKey: string): WinnerFlags => {
     let f = out.get(rowKey);
     if (!f) {
-      f = { ttft: false, tpot: false, tps: false };
+      f = { ttft: false, tps: false };
       out.set(rowKey, f);
     }
     return f;

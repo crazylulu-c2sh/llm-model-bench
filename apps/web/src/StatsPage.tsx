@@ -9,6 +9,7 @@ import { scenarioRowKey, type ChartRow } from "./components/chart-types";
 import { HighlightToggle } from "./components/JsonCodeBlock";
 import type { ResultRow } from "./components/ResultsTable";
 import { ResultsTable } from "./components/ResultsTable";
+import { Scoreboard } from "./components/Scoreboard";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
 import { compareModelIdAlphanumeric, compareModelKey, normalizeBaseUrl } from "./lib/model-sort";
@@ -213,7 +214,6 @@ export function StatsPage() {
         api: row.api,
         modelId: row.model_id,
         ttft_ms: row.ttft_ms,
-        tpot_ms: row.tpot_ms,
         pass: row.pass,
         score: row.score ?? last?.quality?.score,
         qualityReason: row.reason ?? last?.quality?.reason,
@@ -252,7 +252,6 @@ export function StatsPage() {
         api: row.api,
         modelId: row.modelId,
         ttft_ms: row.ttft > 0 ? row.ttft : null,
-        tpot_ms: row.tpot > 0 ? row.tpot : null,
         pass: row.pass,
         score: last?.quality?.score,
         qualityReason: last?.quality?.reason,
@@ -322,6 +321,8 @@ export function StatsPage() {
           </>
         )}
       </section>
+
+      <Scoreboard rows={rows} detailAggregate={detailAggregate} />
 
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">

@@ -8,7 +8,6 @@ export type ScenarioDetailPayload = {
   api: string;
   modelId?: string;
   ttft_ms: number | null;
-  tpot_ms: number | null;
   pass?: boolean;
   /** 0~1 점수. 비전 시나리오에서 rubric 0~3과 함께 표시. */
   score?: number;
@@ -87,10 +86,9 @@ export function ScenarioDetailDrawer({
               </div>
             ) : null}
             <div>
-              <span className="text-[var(--muted)]">TTFT / TPOT</span>
+              <span className="text-[var(--muted)]">TTFT</span>
               <p className="font-mono text-[var(--foreground)]">
-                {payload.ttft_ms != null ? `${Math.round(payload.ttft_ms)} ms` : "—"} ·{" "}
-                {payload.tpot_ms != null ? `${Math.round(payload.tpot_ms)} ms` : "—"}
+                {payload.ttft_ms != null ? `${Math.round(payload.ttft_ms)} ms` : "—"}
               </p>
               {payload.reasoningHidden ? (
                 <p className="mt-1 inline-flex items-start gap-1 text-[11px] leading-snug text-amber-500">
