@@ -51,20 +51,19 @@ const rechartsTooltipShell = {
   cursor: { fill: "var(--chart-cursor)" },
 } as const;
 
-function barFill(pass: boolean | undefined, kind: "ttft" | "tpot" | "tps"): string {
+function barFill(pass: boolean | undefined, kind: "ttft" | "tps"): string {
   if (pass === false) return "var(--chart-fail)";
   if (pass === true) {
     if (kind === "ttft") return "var(--chart-ttft)";
-    if (kind === "tpot") return "var(--chart-tpot)";
     return "var(--chart-tps)";
   }
   return "var(--chart-neutral)";
 }
 
-function modelColor(i: number, kind: "ttft" | "tpot" | "tps"): string {
+function modelColor(i: number, kind: "ttft" | "tps"): string {
   const hues = [200, 145, 280, 35, 12, 320];
   const h = hues[i % hues.length];
-  const l = kind === "ttft" ? 55 : kind === "tpot" ? 45 : 62;
+  const l = kind === "ttft" ? 55 : 62;
   return `hsl(${h} 70% ${l}%)`;
 }
 
@@ -94,7 +93,6 @@ function insertCompareGroupSpacers(rows: FlatBarDatum[], groupSize: number): Fla
         modelId: undefined,
         seriesIndex: 0,
         ttft: 0,
-        tpot: 0,
         tps: 0,
         pass: undefined,
       });
@@ -128,7 +126,6 @@ function insertSessionGroupSpacers(rows: ChartRow[], multiModel: boolean): Chart
         scenario: "",
         api: "",
         ttft: 0,
-        tpot: 0,
         tps: 0,
         categorySpacer: true,
       });
@@ -137,7 +134,7 @@ function insertSessionGroupSpacers(rows: ChartRow[], multiModel: boolean): Chart
   return out;
 }
 
-type RadarMetric = "ttft" | "tpot" | "tps";
+type RadarMetric = "ttft" | "tps";
 
 type SingleRadarDatum = {
   axisKey: string;
@@ -148,7 +145,6 @@ type SingleRadarDatum = {
 
 function metricRaw(row: ChartRow, metric: RadarMetric): number {
   if (metric === "ttft") return row.ttft;
-  if (metric === "tpot") return row.tpot;
   return row.tps;
 }
 
@@ -196,11 +192,11 @@ function buildSingleRadarData(rows: ChartRow[], metric: RadarMetric): SingleRada
 }
 
 function pickPivotMetric(
-  v: { ttft: number; tpot: number; tps: number } | undefined,
+  v: { ttft: number; tps: number } | undefined,
   metric: RadarMetric,
 ): number {
   if (!v) return 0;
-  return metric === "ttft" ? v.ttft : metric === "tpot" ? v.tpot : v.tps;
+  return metric === "ttft" ? v.ttft : v.tps;
 }
 
 /** 다중 시리즈: 축마다 모델별 실제 측정치(raw_m{i})를 그대로 담는다. 반경 스케일은 도메인에서 0 기준 공통화. */
@@ -283,7 +279,7 @@ function formatRadarTick(metric: RadarMetric, v: number): string {
 }
 
 function metricUnitLabel(metric: RadarMetric): string {
-  return metric === "tps" ? "TPS(tok/s)" : metric === "ttft" ? "TTFT(ms)" : "TPOT(ms)";
+  return metric === "tps" ? "TPS(tok/s)" : "TTFT(ms)";
 }
 
 /**
@@ -392,19 +388,14 @@ function MetricRadarSingle({
   data: SingleRadarDatum[];
   height: number;
 }) {
-  const stroke =
-    metric === "ttft" ? "var(--chart-ttft)" : metric === "tpot" ? "var(--chart-tpot)" : "var(--chart-tps)";
+  const stroke = metric === "tps" ? "var(--chart-tps)" : "var(--chart-ttft)";
   const tickFmt = useMemo(() => new Map(data.map((d) => [d.axisKey, d.tickLabel])), [data]);
   const domain = useMemo(
     () => radarRawDomain(data as unknown as Record<string, unknown>[], ["rawValue"]),
     [data],
   );
   const legendName =
-    metric === "tps"
-      ? "TPS (tok/s · 클수록 좋음)"
-      : metric === "ttft"
-        ? "TTFT (ms · 작을수록 좋음)"
-        : "TPOT (ms · 작을수록 좋음)";
+    metric === "tps" ? "TPS (tok/s · 클수록 좋음)" : "TTFT (ms · 작을수록 좋음)";
 
   return (
     <div className="min-w-0">
@@ -543,10 +534,6 @@ function RadarPanelsColumn({
     () => (mode === "compare" ? buildCompareRadarRows(pivoted, compareSeries, "ttft") : []),
     [mode, pivoted, compareSeries],
   );
-  const tpotCmp = useMemo(
-    () => (mode === "compare" ? buildCompareRadarRows(pivoted, compareSeries, "tpot") : []),
-    [mode, pivoted, compareSeries],
-  );
   const tpsCmp = useMemo(
     () => (mode === "compare" ? buildCompareRadarRows(pivoted, compareSeries, "tps") : []),
     [mode, pivoted, compareSeries],
@@ -554,10 +541,6 @@ function RadarPanelsColumn({
 
   const ttftSingle = useMemo(
     () => (singleRows ? buildSingleRadarData(singleRows, "ttft") : []),
-    [singleRows],
-  );
-  const tpotSingle = useMemo(
-    () => (singleRows ? buildSingleRadarData(singleRows, "tpot") : []),
     [singleRows],
   );
   const tpsSingle = useMemo(
@@ -594,13 +577,6 @@ function RadarPanelsColumn({
             height={h}
             compareSeries={compareSeries}
           />
-          <MetricRadarCompare
-            title="TPOT"
-            metric="tpot"
-            data={tpotCmp}
-            height={h}
-            compareSeries={compareSeries}
-          />
           {showTpsCompare ? (
             <MetricRadarCompare
               title="TPS"
@@ -618,7 +594,6 @@ function RadarPanelsColumn({
       ) : (
         <>
           <MetricRadarSingle title="TTFT" metric="ttft" data={ttftSingle} height={h} />
-          <MetricRadarSingle title="TPOT" metric="tpot" data={tpotSingle} height={h} />
           {showTpsSingle ? (
             <MetricRadarSingle title="TPS" metric="tps" data={tpsSingle} height={h} />
           ) : (
@@ -695,10 +670,8 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
     );
 
     const ttftsCmp = flatRows.map((r) => r.ttft).filter((n) => n > 0);
-    const tpotsCmp = flatRows.map((r) => r.tpot).filter((n) => n > 0);
     const tpssCmp = flatRows.map((r) => r.tps).filter((n) => n > 0);
     const avgTtftCmp = avg(ttftsCmp);
-    const avgTpotCmp = avg(tpotsCmp);
     const avgTpsCmp = avg(tpssCmp);
 
     const fireCompareClick = (payload: FlatBarDatum | undefined) => {
@@ -749,39 +722,17 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
                   label={{ value: "avg TTFT", fill: "var(--chart-tick)", fontSize: 10, position: "top" }}
                 />
               ) : null}
-              {avgTpotCmp !== undefined ? (
-                <ReferenceLine
-                  x={avgTpotCmp}
-                  stroke="var(--chart-ref-line)"
-                  strokeDasharray="2 6"
-                  label={{ value: "avg TPOT", fill: "var(--chart-tick)", fontSize: 10, position: "bottom" }}
-                />
-              ) : null}
               <Bar
                 stackId="latency"
                 dataKey="ttft"
                 name="TTFT (ms)"
                 fill="var(--chart-ttft)"
-                radius={[0, 0, 0, 0]}
+                radius={[0, 2, 2, 0]}
               >
                 {flatRowsSpaced.map((entry, i) => (
                   <Cell
                     key={`cmp-ttft-${i}`}
                     fill={entry.categorySpacer ? "transparent" : barFill(entry.pass, "ttft")}
-                  />
-                ))}
-              </Bar>
-              <Bar
-                stackId="latency"
-                dataKey="tpot"
-                name="TPOT (ms)"
-                fill="var(--chart-tpot)"
-                radius={[0, 2, 2, 0]}
-              >
-                {flatRowsSpaced.map((entry, i) => (
-                  <Cell
-                    key={`cmp-tpot-${i}`}
-                    fill={entry.categorySpacer ? "transparent" : barFill(entry.pass, "tpot")}
                   />
                 ))}
               </Bar>
@@ -874,10 +825,8 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
   }
 
   const ttfts = chartRows.map((r) => r.ttft).filter((n) => n > 0);
-  const tpots = chartRows.map((r) => r.tpot).filter((n) => n > 0);
   const tpss = chartRows.map((r) => r.tps).filter((n) => n > 0);
   const avgTtft = avg(ttfts);
-  const avgTpot = avg(tpots);
   const avgTps = avg(tpss);
   const sessionSeries = sessionChartRowsToCompareSeries(chartRows);
   const useSessionMultiRadar = sessionSeries.length >= 2;
@@ -946,39 +895,17 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
                 label={{ value: "avg TTFT", fill: "var(--chart-tick)", fontSize: 10, position: "top" }}
               />
             ) : null}
-            {avgTpot !== undefined ? (
-              <ReferenceLine
-                x={avgTpot}
-                stroke="var(--chart-ref-line)"
-                strokeDasharray="2 6"
-                label={{ value: "avg TPOT", fill: "var(--chart-tick)", fontSize: 10, position: "bottom" }}
-              />
-            ) : null}
             <Bar
               stackId="latency"
               dataKey="ttft"
               name="TTFT (ms)"
               fill="var(--chart-ttft)"
-              radius={[0, 0, 0, 0]}
+              radius={[0, 2, 2, 0]}
             >
               {sessionBarData.map((entry) => (
                 <Cell
                   key={`ttft-${entry.id}`}
                   fill={entry.categorySpacer ? "transparent" : barFill(entry.pass, "ttft")}
-                />
-              ))}
-            </Bar>
-            <Bar
-              stackId="latency"
-              dataKey="tpot"
-              name="TPOT (ms)"
-              fill="var(--chart-tpot)"
-              radius={[0, 2, 2, 0]}
-            >
-              {sessionBarData.map((entry) => (
-                <Cell
-                  key={`tpot-${entry.id}`}
-                  fill={entry.categorySpacer ? "transparent" : barFill(entry.pass, "tpot")}
                 />
               ))}
             </Bar>

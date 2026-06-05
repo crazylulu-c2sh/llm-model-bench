@@ -8,7 +8,6 @@ export type ChartRow = {
   scenario: string;
   api: string;
   ttft: number;
-  tpot: number;
   /** 초당 출력 토큰(usage 있으면 실토큰, 없으면 글자수/4 근사); 0이면 막대 미표시에 가깝게 처리 */
   tps: number;
   /** TPS 산정에 provider 실토큰을 썼는지 — 툴팁 표기용 */
@@ -130,7 +129,6 @@ export function rowsToChartData(
     scenario: string;
     api: string;
     ttft_ms: number | null;
-    tpot_ms: number | null;
     pass?: boolean;
     model_id?: string;
     total_ms?: number | null;
@@ -150,7 +148,6 @@ export function rowsToChartData(
       scenario: r.scenario,
       api: r.api,
       ttft: r.ttft_ms ?? 0,
-      tpot: r.tpot_ms ?? 0,
       tps,
       tpsSource: r.usage_output_tokens != null && r.usage_output_tokens > 0 ? "usage" : "approx",
       reasoningHidden: r.reasoning_hidden,
@@ -170,15 +167,14 @@ export type PivotCompareRow = {
   label: string;
   scenario: string;
   api: string;
-  byModel: Record<string, { ttft: number; tpot: number; tps: number; pass?: boolean }>;
+  byModel: Record<string, { ttft: number; tps: number; pass?: boolean }>;
   /** `compareSeries` 배열 인덱스와 동일 순서 — 모델 id 문자열 불일치 시에도 레이더·막대가 안정적으로 조회됨 */
-  bySeriesIndex: Array<{ ttft: number; tpot: number; tps: number; pass?: boolean } | undefined>;
+  bySeriesIndex: Array<{ ttft: number; tps: number; pass?: boolean } | undefined>;
 };
 
-function rowMetrics(row: ChartRow): { ttft: number; tpot: number; tps: number; pass?: boolean } {
+function rowMetrics(row: ChartRow): { ttft: number; tps: number; pass?: boolean } {
   return {
     ttft: Number(row.ttft) || 0,
-    tpot: Number(row.tpot) || 0,
     tps: Number(row.tps) || 0,
     pass: row.pass,
   };
@@ -212,7 +208,7 @@ export function pivotCompareSeries(series: CompareSeries[]): PivotCompareRow[] {
   });
   return keyOrder.map((k) => {
     const meta = keyMeta.get(k)!;
-    const byModel: Record<string, { ttft: number; tpot: number; tps: number; pass?: boolean }> = {};
+    const byModel: Record<string, { ttft: number; tps: number; pass?: boolean }> = {};
     const bySeriesIndex: PivotCompareRow["bySeriesIndex"] = series.map((s) => {
       const row = s.rows.find((r) => r.scenario === meta.scenario && r.api === meta.api);
       if (!row) return undefined;
@@ -233,7 +229,6 @@ export type FlatBarDatum = {
   /** 비교 시리즈 인덱스 — TPS 막대 색 구분 등 */
   seriesIndex: number;
   ttft: number;
-  tpot: number;
   tps: number;
   pass?: boolean;
   /** 시나리오·API 그룹 사이 빈 Y축 카테고리(비교 멀티 모델 시 삽입) */
@@ -256,7 +251,6 @@ export function comparePivotToFlatBarData(
         modelId: s.modelId || undefined,
         seriesIndex: si,
         ttft: v?.ttft ?? 0,
-        tpot: v?.tpot ?? 0,
         tps: v?.tps ?? 0,
         pass: v?.pass,
       });

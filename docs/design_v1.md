@@ -21,7 +21,7 @@ https://github.com/ollama/ollama/blob/main/docs/api.md
 
 #### 성능 지표
 
-로딩 시간, TTFT (Time To First Token), TPOT (Time Per Output Token) 등 수치로 표현 가능한 지표
+로딩 시간, TTFT (Time To First Token), TPS (Tokens Per Second) 등 수치로 표현 가능한 지표
 
 #### 품질 지표
 

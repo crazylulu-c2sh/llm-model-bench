@@ -205,7 +205,7 @@ export async function consumeAnthropicMessagesStream(
     outText = outText ? `${outText}\n${serialized}` : serialized;
   }
 
-  // throughput(approxOutputTokens·TPOT) 기준은 생성된 전체 토큰(추론 + 가시 본문 + tool JSON)을 반영해
+  // throughput(approxOutputTokens) 기준은 생성된 전체 토큰(추론 + 가시 본문 + tool JSON)을 반영해
   // OpenAI 소비자(combined 기반)와 동일하게 맞춘다. `text`/`assistantText`(채점용)는 추론을 포함하지 않는다.
   const approxOutputTokens = Math.max(0, Math.ceil((reasoningText.length + outText.length) / 4));
   return {

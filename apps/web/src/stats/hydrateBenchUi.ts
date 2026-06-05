@@ -17,7 +17,6 @@ export type MetricsAgg = {
   user_prompt?: string;
   runs: Array<{
     ttft_ms: number | null;
-    tpot_ms: number | null;
     total_ms: number;
     output_text: string;
     stream_completed: boolean;
@@ -71,7 +70,6 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
         scenario: sc.id,
         api: sc.api_route,
         ttft_ms: last.ttft_ms ?? null,
-        tpot_ms: last.tpot_ms ?? null,
         tps,
         tps_source: last.usage_output_tokens != null && last.usage_output_tokens > 0 ? "usage" : "approx",
         reasoning_hidden: last.reasoning_hidden,
@@ -97,7 +95,6 @@ export function buildChartRowsFromBenchState(
           scenario: r.scenario,
           api: r.api,
           ttft_ms: r.ttft_ms,
-          tpot_ms: r.tpot_ms,
           pass: r.pass,
           model_id: r.model_id,
           total_ms: last?.total_ms,

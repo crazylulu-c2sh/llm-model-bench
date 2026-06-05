@@ -1,6 +1,6 @@
 # llm-model-bench
 
-내부망 로컬 LLM(LM Studio, Ollama, OpenAI 호환) 벤치마크 UI + API. `POST /v1/chat/completions` 및 `POST /v1/messages`(Anthropic 호환) 스트리밍으로 TTFT/TPOT 등을 측정합니다.
+내부망 로컬 LLM(LM Studio, Ollama, OpenAI 호환) 벤치마크 UI + API. `POST /v1/chat/completions` 및 `POST /v1/messages`(Anthropic 호환) 스트리밍으로 TTFT/TPS 등을 측정합니다.
 
 ## 구성
 

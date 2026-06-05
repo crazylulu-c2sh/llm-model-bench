@@ -44,7 +44,6 @@ describe("BenchRunPersistence + sqlite", () => {
         runs: [
           {
             ttft_ms: 10,
-            tpot_ms: 2,
             total_ms: 100,
             output_text: "pong",
             stream_completed: true,

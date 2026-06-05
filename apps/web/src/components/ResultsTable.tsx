@@ -22,7 +22,6 @@ export type ResultRow = {
   scenario: string;
   api: string;
   ttft_ms: number | null;
-  tpot_ms: number | null;
   /** 초당 출력 토큰(usage 실토큰 또는 글자수/4 근사); 없으면 null */
   tps?: number | null;
   /** TPS 산정에 provider 실토큰을 썼는지 — "approx"면 `*`·경고 표기 */
@@ -57,7 +56,6 @@ const RESULT_SORT_LABELS: Record<string, string> = {
   scenario: "시나리오",
   api: "API",
   ttft_ms: "TTFT (ms)",
-  tpot_ms: "TPOT (ms)",
   tps: "TPS (tok/s)",
 };
 
@@ -117,7 +115,6 @@ export function ResultsTable({
           scenario: r.scenario,
           api: r.api,
           ttft_ms: r.ttft_ms,
-          tpot_ms: r.tpot_ms,
           tps: r.tps,
         })),
       ),
@@ -238,34 +235,6 @@ export function ResultsTable({
                   <AlertTriangle className="size-3 shrink-0" aria-hidden />
                 </span>
               ) : null}
-            </span>
-          );
-        },
-        sortingFn: "basic",
-      }),
-      columnHelper.accessor("tpot_ms", {
-        header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            title="Time Per Output Token — 첫 토큰 이후 출력 토큰당 평균 시간(밀리초)"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            TPOT (ms)
-            {sortDirIcon(column)}
-          </button>
-        ),
-        cell: ({ row, getValue }) => {
-          const v = getValue();
-          const win = winners.get(row.original.rowKey)?.tpot ?? false;
-          return (
-            <span
-              className={`whitespace-nowrap font-mono text-xs${win ? " font-bold" : ""}`}
-              style={win ? { color: "var(--dir-lower)" } : undefined}
-              title={win ? "이 시나리오·API 그룹에서 가장 빠른 TPOT" : undefined}
-            >
-              {win ? <span aria-hidden className="mr-0.5">▾</span> : null}
-              {v === null || v === undefined ? "—" : `${Math.round(v)}`}
             </span>
           );
         },
@@ -448,7 +417,6 @@ export function ResultsTable({
                   <td className="p-2">
                     <span className="text-xs text-[var(--muted)]">{pr.api}</span>
                   </td>
-                  <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-12 animate-pulse rounded bg-[var(--border)]" /></td>

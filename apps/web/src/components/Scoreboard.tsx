@@ -1,0 +1,252 @@
+import { useMemo } from "react";
+import type { ResultRow } from "./ResultsTable";
+import { buildModelColorMap } from "../lib/model-color";
+import { scoreboardFromRows, type ScoringAggregate } from "../lib/scoreboard";
+import type { QualityGroupScore } from "../lib/quality-score";
+import type { SpeedGroup } from "../lib/speed-score";
+
+const CAP_TITLE =
+  "비전 meme/wireframe rubric이 LLM_JUDGE_ENABLED=1 없이 캡됨 — 비전·총합 품질이 낮게 나올 수 있음";
+const APPROX_TITLE = "provider가 usage 토큰을 안 줘 chars/4 추정(approx) — CJK·코드에서 오차 큼";
+
+/** 절대 점수 밴드 → 색(기존 tps-tier 토큰 재사용; 비교 상대값 아님). */
+type ScoreBand = "high" | "good" | "mid" | "low";
+const BAND_COLOR: Record<ScoreBand, string> = {
+  high: "var(--tier-fast)", // 초록
+  good: "var(--tier-good)", // 노랑
+  mid: "var(--tier-okay)", // 주황
+  low: "var(--tier-slow)", // 빨강
+};
+/** 품질 밴드: ≥90 / 70~89 / 50~69 / <50. */
+function qualityBand(v: number): ScoreBand {
+  if (v >= 90) return "high";
+  if (v >= 70) return "good";
+  if (v >= 50) return "mid";
+  return "low";
+}
+/** 속도 밴드: ≥90 / 70~89 / 40~69 / <40 (tps-tier 30·15·5 → 점수 90·70·40과 정렬). */
+function speedBand(v: number): ScoreBand {
+  if (v >= 90) return "high";
+  if (v >= 70) return "good";
+  if (v >= 40) return "mid";
+  return "low";
+}
+
+/** 0~100 절대 길이 채움 막대. */
+function ScoreBar({ value, color }: { value: number; color: string }) {
+  const pct = Math.max(0, Math.min(100, value));
+  return (
+    <span className="mx-auto mt-1 block h-1 w-full max-w-[3.25rem] overflow-hidden rounded-full bg-[var(--border)]">
+      <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: color }} aria-hidden />
+    </span>
+  );
+}
+
+function Caveat({ title }: { title: string }) {
+  return (
+    <span className="text-[var(--muted)]" title={title}>
+      *
+    </span>
+  );
+}
+
+/** 품질 셀: 밴드색 숫자 + 막대 + (커버리지) + judge-cap `*`. */
+function QualityCell({ g, capped }: { g: QualityGroupScore; capped: boolean }) {
+  const coverage = g.expected > 0 ? `${g.covered}/${g.expected}` : null;
+  if (g.value == null) {
+    return (
+      <span className="inline-flex flex-col items-center leading-tight">
+        <span className="font-mono text-xs text-[var(--muted)]">
+          —{capped ? <Caveat title={CAP_TITLE} /> : null}
+        </span>
+        {coverage ? <span className="text-[10px] text-[var(--muted)]">({coverage})</span> : null}
+      </span>
+    );
+  }
+  const color = BAND_COLOR[qualityBand(g.value)];
+  return (
+    <span className="inline-flex w-full flex-col items-center leading-tight">
+      <span className="font-mono text-xs font-semibold" style={{ color }}>
+        {Math.round(g.value)}
+        {capped ? <Caveat title={CAP_TITLE} /> : null}
+      </span>
+      <ScoreBar value={g.value} color={color} />
+      {coverage ? <span className="mt-0.5 text-[10px] text-[var(--muted)]">({coverage})</span> : null}
+    </span>
+  );
+}
+
+/** 속도 셀: 밴드색 숫자 + 막대 + approx `*`. */
+function SpeedCell({ g }: { g: SpeedGroup }) {
+  if (g.score == null) return <span className="font-mono text-xs text-[var(--muted)]">—</span>;
+  const color = BAND_COLOR[speedBand(g.score)];
+  return (
+    <span className="inline-flex w-full flex-col items-center leading-tight">
+      <span className="font-mono text-xs font-semibold" style={{ color }}>
+        {g.score}
+        {g.approxRows > 0 ? <Caveat title={APPROX_TITLE} /> : null}
+      </span>
+      <ScoreBar value={g.score} color={color} />
+    </span>
+  );
+}
+
+const GROUP_BORDER = "border-l border-[var(--border)]";
+
+/**
+ * 모델별 텍스트/비전/총합 × 품질/속도 절대 점수(0~100) 리더보드.
+ * 점수는 모든 측정 런 평균으로 산출하며 표·차트 위에 요약으로 표시한다.
+ */
+export function Scoreboard({
+  rows,
+  detailAggregate,
+  title = "스코어보드",
+}: {
+  rows: ResultRow[];
+  detailAggregate: ScoringAggregate;
+  title?: string;
+}) {
+  const board = useMemo(() => scoreboardFromRows(rows, detailAggregate), [rows, detailAggregate]);
+  const colorByModel = useMemo(() => buildModelColorMap(rows.map((r) => r.model_id)), [rows]);
+
+  if (rows.length === 0 || board.length === 0) return null;
+
+  const multiModel = colorByModel.size >= 2;
+  const anyJudgeCap = board.some((b) => b.quality.caveats.includes("judge_capped"));
+  const anyApprox = board.some((b) => b.speed.approxCaveat);
+  const anyTextOnly = board.some((b) => b.textOnly);
+
+  return (
+    <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
+      <h2 className="mb-1 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
+        {title}
+      </h2>
+      <p className="mb-2 text-xs text-[var(--muted)]">
+        모델별 절대 점수(0~100). 측정 런 평균 · 텍스트/비전은 시나리오 동일 가중, 총합은 전체 풀링. 정렬: 총합 품질순.
+      </p>
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--muted)]">
+        <span>색상 = 절대 점수 밴드(높을수록 좋음):</span>
+        {(
+          [
+            ["var(--tier-fast)", "우수"],
+            ["var(--tier-good)", "양호"],
+            ["var(--tier-okay)", "보통"],
+            ["var(--tier-slow)", "낮음"],
+          ] as const
+        ).map(([c, label]) => (
+          <span key={label} className="inline-flex items-center gap-1">
+            <span className="size-2 shrink-0 rounded-full" style={{ background: c }} aria-hidden />
+            {label}
+          </span>
+        ))}
+      </div>
+      <div className="overflow-x-auto rounded border border-[var(--border)]">
+        <table className="w-full min-w-[34rem] text-left text-sm">
+          <thead className="bg-[var(--surface)] text-[var(--muted)]">
+            <tr>
+              <th rowSpan={2} className="p-2 align-bottom font-medium">
+                모델
+              </th>
+              <th colSpan={2} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+                텍스트
+              </th>
+              <th colSpan={2} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+                비전
+              </th>
+              <th colSpan={2} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+                총합
+              </th>
+            </tr>
+            <tr>
+              <th className={`px-2 pb-2 text-center text-[11px] font-normal ${GROUP_BORDER}`} title="정답률·루브릭(0~100)">
+                품질
+              </th>
+              <th className="px-2 pb-2 text-center text-[11px] font-normal" title="TPS·TTFT 절대 점수(0~100)">
+                속도
+              </th>
+              <th className={`px-2 pb-2 text-center text-[11px] font-normal ${GROUP_BORDER}`} title="정답률·루브릭(0~100)">
+                품질
+              </th>
+              <th className="px-2 pb-2 text-center text-[11px] font-normal" title="TPS·TTFT 절대 점수(0~100)">
+                속도
+              </th>
+              <th className={`px-2 pb-2 text-center text-[11px] font-normal ${GROUP_BORDER}`} title="정답률·루브릭(0~100)">
+                품질
+              </th>
+              <th className="px-2 pb-2 text-center text-[11px] font-normal" title="TPS·TTFT 절대 점수(0~100)">
+                속도
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {board.map((b, i) => {
+              const cap = b.quality.caveats.includes("judge_capped");
+              const barColor = multiModel ? colorByModel.get(b.model_id) : undefined;
+              return (
+                <tr key={b.model_id} className="border-t border-[var(--border)]">
+                  <td className="relative p-2">
+                    {barColor ? (
+                      <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: barColor }} aria-hidden />
+                    ) : null}
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-xs">
+                      <span className="text-[var(--muted)]">{i + 1}.</span>
+                      {multiModel && barColor ? (
+                        <span className="size-2 shrink-0 rounded-full" style={{ background: barColor }} aria-hidden />
+                      ) : null}
+                      <span className="text-[var(--foreground)]">{b.model_id}</span>
+                      {b.textOnly ? (
+                        <span
+                          className="rounded border border-[var(--border)] px-1 py-px text-[10px] text-[var(--muted)]"
+                          title="비전 시나리오 미실행 — 총합은 텍스트 점수와 동일"
+                        >
+                          text-only
+                        </span>
+                      ) : null}
+                    </span>
+                  </td>
+                  <td className={`p-2 text-center ${GROUP_BORDER}`}>
+                    <QualityCell g={b.quality.text} capped={false} />
+                  </td>
+                  <td className="p-2 text-center">
+                    <SpeedCell g={b.speed.text} />
+                  </td>
+                  <td className={`p-2 text-center ${GROUP_BORDER}`}>
+                    <QualityCell g={b.quality.vision} capped={cap} />
+                  </td>
+                  <td className="p-2 text-center">
+                    <SpeedCell g={b.speed.vision} />
+                  </td>
+                  <td className={`p-2 text-center ${GROUP_BORDER}`}>
+                    <QualityCell g={b.quality.total} capped={cap} />
+                  </td>
+                  <td className="p-2 text-center">
+                    <SpeedCell g={b.speed.total} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {anyJudgeCap || anyApprox || anyTextOnly ? (
+        <div className="mt-2 space-y-1 text-xs leading-relaxed text-[var(--muted)]">
+          {anyJudgeCap ? (
+            <p>
+              <code className="font-mono">*</code> (품질) {CAP_TITLE}.
+            </p>
+          ) : null}
+          {anyApprox ? (
+            <p>
+              <code className="font-mono">*</code> (속도) {APPROX_TITLE}.
+            </p>
+          ) : null}
+          {anyTextOnly ? (
+            <p>
+              <code className="font-mono">text-only</code> 비전 시나리오를 실행하지 않아 총합이 텍스트 점수로만 계산됐습니다.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}

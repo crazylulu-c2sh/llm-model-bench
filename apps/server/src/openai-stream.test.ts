@@ -4,7 +4,6 @@ import {
   consumeOpenAiChatStream,
   openAiBenchOutputText,
   openAiLiveTokenStreamText,
-  tpotFromOpenAi,
 } from "./openai-stream.js";
 
 function sse(chunks: string[]) {
@@ -31,8 +30,6 @@ describe("consumeOpenAiChatStream", () => {
     expect(m.toolCalls).toBeNull();
     expect(m.ttftMs).not.toBeNull();
     expect(m.streamCompleted).toBe(true);
-    const tpot = tpotFromOpenAi(m);
-    expect(tpot).not.toBeNull();
   });
 
   it("merges streaming tool_calls into JSON and sets TTFT without content", async () => {

@@ -7,7 +7,7 @@ export function approxOutputTokens(outputText: string | null | undefined): numbe
 }
 
 /**
- * 처리량(TPS/TPOT) 산식에 쓸 출력 토큰 수.
+ * 처리량(TPS) 산식에 쓸 출력 토큰 수.
  * provider 보고 실토큰(`usageTokens`)이 있으면(>0) 그것을, 없으면 글자수/4 근사를 쓴다.
  * 보고된 `0`/`null`은 신뢰하지 않고 근사로 폴백(stress-runner의 `>0` 가드와 동일).
  */

@@ -253,16 +253,6 @@ export async function consumeOpenAiChatStream(
   };
 }
 
-export function tpotFromOpenAi(m: OpenAiStreamMetrics): number | null {
-  if (m.ttftMs === null) return null;
-  // provider 보고 실토큰(있으면) 우선, 없으면 글자수/4 근사. 숨은 추론 토큰도 usage에 포함되므로
-  // messages 라우트처럼 추론이 output_text에 없을 때 TPOT가 비정상적으로 커지는 것을 막는다.
-  const tokens =
-    m.usageOutputTokens != null && m.usageOutputTokens > 0 ? m.usageOutputTokens : m.approxOutputTokens;
-  if (tokens <= 1) return null;
-  return (m.totalMs - m.ttftMs) / (tokens - 1);
-}
-
 /**
  * 채점·집계 `output_text`용: `delta.content`만 있는 `assistantText`를 우선하고,
  * 비어 있으면 `text`(reasoning + content + 필요 시 tool_calls JSON)로 폴백.
