@@ -1,14 +1,15 @@
 version: 2
+# 버전 업데이트(version updates)는 비활성화하고 보안 업데이트(security updates)에만 반응.
+# open-pull-requests-limit: 0 → 해당 생태계의 버전 업데이트 PR을 끔.
+# 보안 업데이트는 이 설정의 영향을 받지 않으며, 별도 내부 한도(10개)로 계속 동작함.
+# (단, 보안 업데이트 자체는 저장소 Settings → Code security → "Dependabot security updates" 토글이 켜져 있어야 함)
 updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
+    open-pull-requests-limit: 0
     labels: ["dependencies"]
 
   - package-ecosystem: "docker"
@@ -16,4 +17,5 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    open-pull-requests-limit: 0
     labels: ["dependencies", "docker"]
