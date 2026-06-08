@@ -244,4 +244,53 @@ describe("runBench contention guard", () => {
     expect(t).not.toContain("iteration_discarded");
     expect(chatCall).toBe(2); // warmup + measured both issued requests
   });
+
+  it("(10) between-iteration wait timeout aborts but keeps prior clean aggregate", async () => {
+    let chatCall = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      if (requestUrl(input).endsWith("/v1/chat/completions")) {
+        chatCall++;
+        return sseChatOk();
+      }
+      return new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+    // pre-bench idle, iter0 between-gate idle, iter1 between-gate permanently busy → times out.
+    const events = await collect(
+      req({ measuredRuns: 2, contentionBetweenIterationTimeoutMs: 2000, contentionPollIntervalMs: 1000 }),
+      fetchImpl,
+      fakeProbe({ idleActiveSeq: [false, false, true, true, true, true, true, true] }),
+    );
+    expect(events.some((e) => e.type === "error" && e.code === "between_iteration_wait_timeout")).toBe(true);
+    // (MEDIUM 수정) 대기 타임아웃 abort라도 그 이전에 깨끗이 끝난 iter0 집계는 유지된다.
+    const mu = events.find((e) => e.type === "metrics_update") as { aggregate: { runs: unknown[] } } | undefined;
+    expect(mu).toBeTruthy();
+    expect(mu!.aggregate.runs).toHaveLength(1);
+    expect(events.filter((e) => e.type === "contention_summary")).toHaveLength(1);
+    expect(chatCall).toBe(1); // iter1 요청 전에 게이트가 막음
+  });
+
+  it("(9b) enabled but no active signal → guard ineffective, no discards, normal run", async () => {
+    let chatCall = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      if (requestUrl(input).endsWith("/v1/chat/completions")) {
+        chatCall++;
+        return sseChatOk();
+      }
+      return new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+    // hasActiveSignal=false → effective=false → monitor never armed even though probe "would" contend.
+    const events = await collect(
+      req(),
+      fetchImpl,
+      fakeProbe({ hasActiveSignal: false, inflightContendedSeq: [true, true, true] }),
+    );
+    const t = types(events);
+    expect(t).not.toContain("iteration_discarded");
+    expect(t).toContain("metrics_update");
+    const summary = events.find((e) => e.type === "contention_summary") as
+      | { guard_effective: boolean }
+      | undefined;
+    expect(summary?.guard_effective).toBe(false);
+    expect(chatCall).toBe(1);
+  });
 });
