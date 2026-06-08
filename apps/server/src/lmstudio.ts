@@ -15,7 +15,8 @@ function apiRoot(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
 }
 
-function baseKey(modelKey: string): string {
+/** LM Studio 모델 키 정규화: `:quant`/`:N` 접미를 제거해 bench modelId·CLI ps 키 매칭에 사용. */
+export function baseKey(modelKey: string): string {
   return modelKey.replace(/:\d+$/, "");
 }
 

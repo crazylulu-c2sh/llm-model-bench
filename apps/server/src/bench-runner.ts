@@ -17,6 +17,17 @@ import {
 } from "@llm-bench/shared";
 import { isJudgeEnabled, runLlmJudge } from "./judge.js";
 import {
+  type Clock,
+  type ContentionConfig,
+  type ContentionProbe,
+  type InFlightBaseline,
+  defaultSleep,
+  makeContentionProbe,
+  resolveContentionConfig,
+  runIdleGate,
+  startInflightMonitor,
+} from "./contention-probe.js";
+import {
   isLoopbackOrPrivateOrigin,
   loadVisionImageBytes,
   visionImageRefs,
@@ -89,6 +100,17 @@ export type BenchRequest = {
    * 교집합이 비면 무시(감지 라우트 그대로). 미지정이면 감지된 모든 라우트.
    */
   apiRoutes?: ("chat_completions" | "messages")[];
+  /** 오염 가드(다른 추론 감지 시 대기/폐기·재측정). 미지정 시 기본 ON(단 manual/parallel은 비활성). */
+  contentionGuardEnabled?: boolean;
+  contentionPollIntervalMs?: number;
+  contentionMaxRetriesPerIteration?: number;
+  contentionPreBenchTimeoutMs?: number;
+  contentionBetweenIterationTimeoutMs?: number;
+  contentionTotalWaitBudgetMs?: number;
+  contentionGpuUtilThresholdPct?: number;
+  contentionRequiredConsecutiveIdle?: number;
+  contentionServerMetricsEnabled?: boolean;
+  contentionLmsCliActivityEnabled?: boolean;
 };
 
 const MAX_BENCH_TOOL_ROUNDS = 8;
@@ -156,6 +178,20 @@ export function makeBenchRunMeta(
       ? detectedRoutes.filter((r) => input.apiRoutes!.includes(r))
       : detectedRoutes;
   const routes = restricted.length ? restricted : detectedRoutes;
+  const cc = resolveContentionConfig({
+    provider: input.provider,
+    parallel: input.parallel,
+    contentionGuardEnabled: input.contentionGuardEnabled,
+    contentionPollIntervalMs: input.contentionPollIntervalMs,
+    contentionMaxRetriesPerIteration: input.contentionMaxRetriesPerIteration,
+    contentionPreBenchTimeoutMs: input.contentionPreBenchTimeoutMs,
+    contentionBetweenIterationTimeoutMs: input.contentionBetweenIterationTimeoutMs,
+    contentionTotalWaitBudgetMs: input.contentionTotalWaitBudgetMs,
+    contentionGpuUtilThresholdPct: input.contentionGpuUtilThresholdPct,
+    contentionRequiredConsecutiveIdle: input.contentionRequiredConsecutiveIdle,
+    contentionServerMetricsEnabled: input.contentionServerMetricsEnabled,
+    contentionLmsCliActivityEnabled: input.contentionLmsCliActivityEnabled,
+  });
   const baseMeta: BenchRunMeta = {
     run_id: rid,
     app_version: "0.0.1",
@@ -174,6 +210,16 @@ export function makeBenchRunMeta(
     unload_other_models: !!input.unloadOtherModels,
     auto_unload_after_bench: !!input.autoUnloadAfterBench,
     public_assets_origin: resolvePublicAssetsOrigin(input),
+    contention_guard_enabled: cc.enabled,
+    contention_poll_interval_ms: cc.pollIntervalMs,
+    contention_max_retries_per_iteration: cc.maxRetriesPerIteration,
+    contention_pre_bench_timeout_ms: cc.preBenchTimeoutMs,
+    contention_between_iteration_timeout_ms: cc.betweenIterationTimeoutMs,
+    contention_total_wait_budget_ms: cc.totalWaitBudgetMs,
+    contention_gpu_util_threshold_pct: cc.gpuUtilThresholdPct,
+    contention_required_consecutive_idle: cc.requiredConsecutiveIdle,
+    contention_server_metrics_enabled: cc.serverMetricsEnabled,
+    contention_lms_cli_activity_enabled: cc.lmsCliActivityEnabled,
     created_at: new Date().toISOString(),
   };
   if (!input.profile) return baseMeta;
@@ -403,7 +449,15 @@ function prepareAnthropicScenario(
 export async function* runBench(
   input: BenchRequest,
   detect: DetectResult,
-  opts: { fetchImpl?: typeof fetch } = {},
+  opts: {
+    fetchImpl?: typeof fetch;
+    /** 테스트 전용 주입: 결정적 probe. */
+    probeImpl?: ContentionProbe;
+    /** 테스트 전용 주입: 가짜 시계. */
+    now?: () => number;
+    /** 테스트 전용 주입: 즉시 resolve sleep. */
+    sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  } = {},
 ): AsyncGenerator<StreamEvent> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const base = detect.baseUrl.replace(/\/+$/, "");
@@ -411,6 +465,44 @@ export async function* runBench(
   if (!serial && input.parallel) {
     /* parallel batching left minimal: still sequential model loop in v1 */
   }
+
+  // STEP 0: 오염 가드 config·probe·clock. config는 BenchRequest로 흐르고(opts는 테스트 주입 전용).
+  const contentionCfg: ContentionConfig = resolveContentionConfig({
+    provider: input.provider,
+    parallel: input.parallel,
+    contentionGuardEnabled: input.contentionGuardEnabled,
+    contentionPollIntervalMs: input.contentionPollIntervalMs,
+    contentionMaxRetriesPerIteration: input.contentionMaxRetriesPerIteration,
+    contentionPreBenchTimeoutMs: input.contentionPreBenchTimeoutMs,
+    contentionBetweenIterationTimeoutMs: input.contentionBetweenIterationTimeoutMs,
+    contentionTotalWaitBudgetMs: input.contentionTotalWaitBudgetMs,
+    contentionGpuUtilThresholdPct: input.contentionGpuUtilThresholdPct,
+    contentionRequiredConsecutiveIdle: input.contentionRequiredConsecutiveIdle,
+    contentionServerMetricsEnabled: input.contentionServerMetricsEnabled,
+    contentionLmsCliActivityEnabled: input.contentionLmsCliActivityEnabled,
+  });
+  const clock: Clock = {
+    now: opts.now ?? (() => Date.now()),
+    sleep: opts.sleep ?? defaultSleep,
+  };
+  const contentionProbe: ContentionProbe =
+    opts.probeImpl ??
+    makeContentionProbe({
+      provider: input.provider,
+      baseUrl: base,
+      apiKey: input.apiKey,
+      modelId: input.modelId,
+      cfg: contentionCfg,
+      fetchImpl,
+    });
+  // 런 전역 오염 가드 상태.
+  const waitAccum = { total: 0 };
+  let guardEffective = false;
+  let gpuSignalAvailable = false;
+  let totalDiscarded = 0;
+  let maxPreWait = 0;
+  let maxBetweenWait = 0;
+  let contentionAbortReason: string | undefined;
 
   const rid = runId();
   const assetOrigin = resolvePublicAssetsOrigin(input);
@@ -491,6 +583,39 @@ export async function* runBench(
     ...(lmStudioPrepare != null ? { lm_studio_prepare: lmStudioPrepare } : {}),
   };
 
+  // STEP 1: 사전 대기 게이트 — 다른 추론이 실행 중이면 유휴까지 대기. 타임아웃/예산 초과면
+  // 오염 수치를 만들지 않고 즉시 중단(단일 요약 인라인 — 이 경로는 STEP 7에 도달 못 함).
+  if (contentionCfg.enabled) {
+    const pre = yield* runIdleGate(contentionProbe, contentionCfg, clock, {
+      phase: "pre_bench",
+      waitAccum,
+    });
+    guardEffective = pre.effective;
+    gpuSignalAvailable = pre.gpuSignalAvailable;
+    maxPreWait = Math.max(maxPreWait, pre.waitedMs);
+    if (!pre.idle) {
+      const code = pre.code ?? "pre_bench_wait_timeout";
+      yield {
+        type: "error",
+        layer: "orchestrator",
+        code,
+        message: `다른 추론이 실행 중이라 대기 한도(${code})를 넘겨 벤치를 시작하지 못했습니다.`,
+      };
+      yield {
+        type: "contention_summary",
+        total_iterations_discarded: 0,
+        max_pre_bench_wait_ms: maxPreWait,
+        max_between_iteration_wait_ms: 0,
+        total_wait_ms: waitAccum.total,
+        guard_effective: guardEffective,
+        gpu_signal_available: gpuSignalAvailable,
+        abort_reason: code,
+      };
+      return;
+    }
+  }
+  const guardActive = contentionCfg.enabled && guardEffective;
+
   try {
     let fatalStop = false;
     for (const api_route of meta.api_routes) {
@@ -515,7 +640,10 @@ export async function* runBench(
         let lastUserPromptForAggregate = "";
         /** 집계 `runs`의 마지막 측정 런과 동일한 system 프롬프트 스냅샷 */
         let lastSystemPromptForAggregate = "";
-        for (let i = 0; i < totalIterations; i++) {
+        // 오염 가드: i를 수동 증가시켜 폐기 시 같은 i를 재실행한다(STEP 2/6).
+        let i = 0;
+        let contentionRetries = 0;
+        while (i < totalIterations) {
           const isWarmup = i < meta.warmup_runs;
           const ref = new Date();
           const visionThisRun = isVisionScenario(scenarioId);
@@ -523,8 +651,38 @@ export async function* runBench(
           // D7: 비전 시나리오는 warmup 단계에서 호출하지 않는다 — 이미지
           // 인코딩·멀티모달 API 비용을 warmup에서 중복시키지 않음.
           if (isWarmup && visionThisRun) {
+            i++;
             continue;
           }
+          // STEP 3: 이터레이션 간 유휴 게이트(워밍업 포함 모든 이터). 타임아웃/예산 초과면 런 중단.
+          let segBaseline: InFlightBaseline | null = null;
+          if (contentionCfg.enabled) {
+            const gate = yield* runIdleGate(contentionProbe, contentionCfg, clock, {
+              phase: "between_iterations",
+              scenarioId,
+              apiRoute: api_route,
+              waitAccum,
+            });
+            maxBetweenWait = Math.max(maxBetweenWait, gate.waitedMs);
+            if (!gate.idle) {
+              contentionAbortReason = gate.code ?? "between_iteration_wait_timeout";
+              yield {
+                type: "error",
+                layer: "orchestrator",
+                code: contentionAbortReason,
+                message: `다른 추론 대기 한도(${contentionAbortReason})를 넘겨 벤치를 중단합니다.`,
+                partial: { scenarioId, api_route },
+              };
+              fatalStop = true;
+              break;
+            }
+            segBaseline = gate.baseline ?? null;
+          }
+          const measuredGuarded = guardActive && !isWarmup && segBaseline != null;
+          /** STEP 5/6: 이번 이터가 경합으로 오염됐는가(측정 런에서만 true 가능). */
+          let contentionThisIteration = false;
+          const contentionController = new AbortController();
+          const contentionMonitor = { detected: false, reasons: [] as string[] };
 
           const promptCtx = {
             publicAssetsOrigin: assetOrigin,
@@ -593,6 +751,26 @@ export async function* runBench(
           let repetitionLoopAborted = false;
           const controller = new AbortController();
           const to = setTimeout(() => controller.abort(), requestTimeoutMs);
+          // STEP 4: 결합 시그널 — 타임아웃 OR 오염 감지로 in-flight 요청을 중단.
+          const reqSignal: AbortSignal = measuredGuarded
+            ? AbortSignal.any([controller.signal, contentionController.signal])
+            : controller.signal;
+          // STEP 4: 구간-스코프 in-flight 모니터. upstream 요청/스트림 구간에만 켜고
+          // 채점·judge 전에 끈다(오탐 차단). teardown은 stopMonitor()가 책임.
+          let stopMonitor = (): void => {};
+          if (measuredGuarded && segBaseline) {
+            stopMonitor = startInflightMonitor({
+              probe: contentionProbe,
+              baseline: segBaseline,
+              cfg: contentionCfg,
+              clock,
+              onDetect: (reasons) => {
+                contentionMonitor.detected = true;
+                contentionMonitor.reasons = reasons;
+                contentionController.abort();
+              },
+            });
+          }
 
           try {
             let text = "";
@@ -640,7 +818,7 @@ export async function* runBench(
                   base,
                   headers(input.apiKey),
                   body,
-                  controller.signal,
+                  reqSignal,
                 );
                 if (r.status === 429) {
                   yield {
@@ -667,7 +845,7 @@ export async function* runBench(
                 }
                 const m = await consumeOpenAiChatStream(
                   r.body,
-                  controller.signal,
+                  reqSignal,
                   { loopGuard: true },
                 );
                 lastOpen = m;
@@ -780,7 +958,7 @@ export async function* runBench(
                     "anthropic-version": "2023-06-01",
                   }),
                   body: JSON.stringify(body),
-                  signal: controller.signal,
+                  signal: reqSignal,
                 });
                 if (!r.ok || !r.body) {
                   const errText = await r.text().catch(() => "");
@@ -796,7 +974,7 @@ export async function* runBench(
                 }
                 const m = await consumeAnthropicMessagesStream(
                   r.body,
-                  controller.signal,
+                  reqSignal,
                 );
                 lastAnth = m;
                 if (m.stopReason === "max_tokens") truncated = true;
@@ -881,7 +1059,7 @@ export async function* runBench(
                 base,
                 headers(input.apiKey),
                 body,
-                controller.signal,
+                reqSignal,
               );
               if (r.status === 429) {
                 yield {
@@ -914,7 +1092,7 @@ export async function* runBench(
               if (!iterationFailed) {
                 const m = await consumeOpenAiChatStream(
                   r.body,
-                  controller.signal,
+                  reqSignal,
                   { loopGuard: true },
                 );
                 text = m.text;
@@ -957,7 +1135,7 @@ export async function* runBench(
                   "anthropic-version": "2023-06-01",
                 }),
                 body: JSON.stringify(body),
-                signal: controller.signal,
+                signal: reqSignal,
               });
               if (!r.ok || !r.body) {
                 const errText = await r.text().catch(() => "");
@@ -980,7 +1158,7 @@ export async function* runBench(
               if (!iterationFailed) {
                 const m = await consumeAnthropicMessagesStream(
                   r.body,
-                  controller.signal,
+                  reqSignal,
                 );
                 // 채점: 추론 제외(가시 본문 + tool JSON). output_text/throughput: 추론 포함(chat 경로와 동일).
                 scoreText = m.text;
@@ -1001,6 +1179,12 @@ export async function* runBench(
               }
             }
 
+            // STEP 4/5: 스트리밍 종료 → 모니터 정지(채점·judge는 감시 안 함). 경합 감지 시 측정 폐기.
+            stopMonitor();
+            if (measuredGuarded && contentionMonitor.detected) {
+              contentionThisIteration = true;
+            }
+            if (!contentionThisIteration) {
             let quality:
               | { pass: boolean; score?: number; reason?: string; judge_pending?: true }
               | undefined = isWarmup
@@ -1096,7 +1280,13 @@ export async function* runBench(
               },
               quality,
             };
+            }
           } catch (e) {
+            stopMonitor();
+            if (measuredGuarded && isAbortLikeError(e) && contentionMonitor.detected) {
+              // STEP 5: 오염 abort는 request_timeout으로 매핑하지 않고 폐기·재측정 경로로.
+              contentionThisIteration = true;
+            } else {
             const errMsg = String(e);
             // A5: vision-assets가 1MB 초과 자산에서 throw하는 `image_too_large:` prefix를
             // 캐치해 quality로 라벨링한다. 일반 `upstream_exception`과 구분.
@@ -1147,8 +1337,42 @@ export async function* runBench(
                 quality,
               };
             }
+            }
           } finally {
+            stopMonitor();
             clearTimeout(to);
+          }
+
+          // STEP 6: 오염 폐기·재측정. measured 런에서만 도달(워밍업 모니터 OFF).
+          if (contentionThisIteration) {
+            totalDiscarded++;
+            const willRetry = contentionRetries < contentionCfg.maxRetriesPerIteration;
+            yield {
+              type: "iteration_discarded",
+              scenario_id: scenarioId,
+              api_route,
+              measured_index: i - meta.warmup_runs,
+              retry_count: contentionRetries,
+              max_retries: contentionCfg.maxRetriesPerIteration,
+              will_retry: willRetry,
+              reason: contentionMonitor.reasons[0] ?? "contention",
+              reasons: contentionMonitor.reasons,
+            };
+            if (willRetry) {
+              contentionRetries++;
+              continue; // 같은 i 재실행(runs 무손상, i 미증가)
+            }
+            // 재시도 한도 초과 → 런 중단. contention_summary는 STEP 7 단일 발행.
+            contentionAbortReason = "contention_max_retries_exceeded";
+            yield {
+              type: "error",
+              layer: "orchestrator",
+              code: contentionAbortReason,
+              message: `시나리오 ${scenarioId}/${api_route} 측정 런 ${i - meta.warmup_runs}이(가) 반복 오염되어 벤치를 중단합니다.`,
+              partial: { scenarioId, api_route },
+            };
+            fatalStop = true;
+            break;
           }
 
           if (iterationFailed) {
@@ -1169,11 +1393,18 @@ export async function* runBench(
               fatalStop = true;
               break;
             }
+            i++;
+            contentionRetries = 0;
             continue;
           }
+
+          // 정상 완료: 다음 이터레이션으로.
+          i++;
+          contentionRetries = 0;
         }
 
-        if (runs.length > 0) {
+        // 오염 재시도 한도 초과로 중단한 시나리오는 집계를 내보내지 않는다.
+        if (runs.length > 0 && !contentionAbortReason) {
           yield {
             type: "metrics_update",
             aggregate: {
@@ -1186,6 +1417,20 @@ export async function* runBench(
           };
         }
       }
+    }
+
+    // STEP 7: 단일 contention_summary 발행 지점(STEP 1 조기 return 경로 제외 모든 경로가 도달).
+    if (contentionCfg.enabled) {
+      yield {
+        type: "contention_summary",
+        total_iterations_discarded: totalDiscarded,
+        max_pre_bench_wait_ms: maxPreWait,
+        max_between_iteration_wait_ms: maxBetweenWait,
+        total_wait_ms: waitAccum.total,
+        guard_effective: guardEffective,
+        gpu_signal_available: gpuSignalAvailable,
+        abort_reason: contentionAbortReason,
+      };
     }
 
     yield { type: "run_finished", run_id: rid };

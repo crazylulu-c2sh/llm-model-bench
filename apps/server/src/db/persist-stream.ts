@@ -1,7 +1,7 @@
 import type { BenchRunMeta, StreamEvent } from "@llm-bench/shared";
 import { getScenarioSystemPromptPreview, getScenarioUserPromptPreview } from "@llm-bench/shared";
 import type { DatabaseSync } from "node:sqlite";
-import { appendTextLog, finishRun, insertRun, markRunErrorPartial, upsertScenarioAggregate } from "./database.js";
+import { appendTextLog, finishRun, insertRun, markRunErrorPartial, updateRunMetaJson, upsertScenarioAggregate } from "./database.js";
 
 function promptPreviewForScenario(scenarioId: string, meta: BenchRunMeta | null): string {
   if (scenarioId === "translate_nist_fips197_pdf_tools") {
@@ -101,6 +101,21 @@ export class BenchRunPersistence {
           `scenario_end ${ev.scenario_id} ttft=${ev.metrics.ttft_ms ?? "null"} pass=${ev.quality?.pass ?? "n/a"}`,
         );
         break;
+      case "iteration_discarded":
+        this.logLine(
+          `iteration_discarded ${ev.scenario_id} idx=${ev.measured_index} retry=${ev.retry_count}/${ev.max_retries} ${ev.reason}`,
+        );
+        break;
+      case "contention_summary": {
+        // effective 등 사전 probe 후에야 확정되는 값을 meta_json에 patch(INSERT엔 없음).
+        const { type: _t, ...summary } = ev;
+        void _t;
+        updateRunMetaJson(this.db, this.runId, { contention_summary: summary });
+        this.logLine(
+          `contention_summary discarded=${ev.total_iterations_discarded} effective=${ev.guard_effective} abort=${ev.abort_reason ?? "-"}`,
+        );
+        break;
+      }
       case "run_finished":
         this.logLine(`run_finished ${ev.run_id}`);
         break;

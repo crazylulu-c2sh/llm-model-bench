@@ -205,6 +205,17 @@ export const BenchRunMetaSchema = z.object({
   auto_unload_after_bench: z.boolean().optional(),
   /** Vite 등에서 서빙하는 public 자산 베이스 (예: http://127.0.0.1:21104) — nist.fips.197.pdf URL 허용용 */
   public_assets_origin: z.string().optional(),
+  /** 오염 가드: 해석·클램프된 config (INSERT 시점 기록; `effective`는 사전 probe 후 결정되어 meta엔 없음 → contention_summary로). */
+  contention_guard_enabled: z.boolean().optional(),
+  contention_poll_interval_ms: z.number().optional(),
+  contention_max_retries_per_iteration: z.number().optional(),
+  contention_pre_bench_timeout_ms: z.number().optional(),
+  contention_between_iteration_timeout_ms: z.number().optional(),
+  contention_total_wait_budget_ms: z.number().optional(),
+  contention_gpu_util_threshold_pct: z.number().optional(),
+  contention_required_consecutive_idle: z.number().optional(),
+  contention_server_metrics_enabled: z.boolean().optional(),
+  contention_lms_cli_activity_enabled: z.boolean().optional(),
   created_at: z.string(),
 });
 export type BenchRunMeta = z.infer<typeof BenchRunMetaSchema>;
@@ -283,6 +294,50 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     code: z.string(),
     message: z.string(),
     partial: z.record(z.string(), z.unknown()).optional(),
+  }),
+  /** 오염 가드: 다른 추론이 실행 중이라 사전/이터레이션 간 대기 중. */
+  z.object({
+    type: z.literal("contention_waiting"),
+    phase: z.enum(["pre_bench", "between_iterations"]),
+    waiting_reason: z.string(),
+    reasons: z.array(z.string()),
+    gpu_util_pct: z.number().nullable().optional(),
+    gpu_signal_available: z.boolean(),
+    elapsed_ms: z.number(),
+    scenario_id: z.string().optional(),
+    api_route: z.enum(["chat_completions", "messages"]).optional(),
+  }),
+  /** 오염 가드: 대기 후 유휴 확인되어 진행 재개. */
+  z.object({
+    type: z.literal("contention_resumed"),
+    phase: z.enum(["pre_bench", "between_iterations"]),
+    waited_ms: z.number(),
+    scenario_id: z.string().optional(),
+    api_route: z.enum(["chat_completions", "messages"]).optional(),
+  }),
+  /** 오염 가드: 측정 런이 경합으로 오염되어 폐기(재측정 여부 포함). */
+  z.object({
+    type: z.literal("iteration_discarded"),
+    scenario_id: z.string(),
+    api_route: z.enum(["chat_completions", "messages"]),
+    /** 측정 phase 인덱스 = i - warmup_runs */
+    measured_index: z.number(),
+    retry_count: z.number(),
+    max_retries: z.number(),
+    will_retry: z.boolean(),
+    reason: z.string(),
+    reasons: z.array(z.string()),
+  }),
+  /** 오염 가드: 런 종료 시(또는 사전 중단 시) 단일 요약. */
+  z.object({
+    type: z.literal("contention_summary"),
+    total_iterations_discarded: z.number(),
+    max_pre_bench_wait_ms: z.number(),
+    max_between_iteration_wait_ms: z.number(),
+    total_wait_ms: z.number(),
+    guard_effective: z.boolean(),
+    gpu_signal_available: z.boolean(),
+    abort_reason: z.string().optional(),
   }),
 ]);
 export type StreamEvent = z.infer<typeof StreamEventSchema>;

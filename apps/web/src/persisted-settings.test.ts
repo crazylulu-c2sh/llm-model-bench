@@ -4,6 +4,7 @@ import {
   PREFS_STORAGE_KEY,
   readInitialMonitorState,
   readInitialStressState,
+  readInitialUiState,
   saveMonitorSnapshot,
   saveStressSnapshot,
   STRESS_PREFS_STORAGE_KEY,
@@ -34,13 +35,19 @@ class MemoryStorage implements Storage {
 
 beforeEach(() => {
   const storage = new MemoryStorage();
+  const session = new MemoryStorage();
   Object.defineProperty(globalThis, "window", {
-    value: { localStorage: storage },
+    value: { localStorage: storage, sessionStorage: session },
     writable: true,
     configurable: true,
   });
   Object.defineProperty(globalThis, "localStorage", {
     value: storage,
+    writable: true,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, "sessionStorage", {
+    value: session,
     writable: true,
     configurable: true,
   });
@@ -182,5 +189,44 @@ describe("readInitialMonitorState", () => {
     );
     const s = readInitialMonitorState();
     expect(s.intervalMs).toBe(5000);
+  });
+});
+
+describe("readInitialUiState contention guard + v2→v3 migration", () => {
+  it("defaults: guard enabled, 120s pre-bench wait, 2 retries", () => {
+    const s = readInitialUiState();
+    expect(s.contentionGuardEnabled).toBe(true);
+    expect(s.contentionPreBenchTimeoutSec).toBe("120");
+    expect(s.contentionMaxRetries).toBe("2");
+  });
+
+  it("preserves v2 prefs (re-stamped to v3) without losing fields", () => {
+    window.localStorage.setItem(
+      PREFS_STORAGE_KEY,
+      JSON.stringify({ v: 2, baseUrl: "http://10.0.0.9:1234", parallel: true, unloadOtherModels: true }),
+    );
+    const s = readInitialUiState();
+    expect(s.baseUrl).toBe("http://10.0.0.9:1234");
+    expect(s.parallel).toBe(true);
+    expect(s.unloadOtherModels).toBe(true);
+    // 새 필드는 기본값으로
+    expect(s.contentionGuardEnabled).toBe(true);
+    expect(s.contentionMaxRetries).toBe("2");
+  });
+
+  it("reads persisted v3 contention fields", () => {
+    window.localStorage.setItem(
+      PREFS_STORAGE_KEY,
+      JSON.stringify({
+        v: 3,
+        contentionGuardEnabled: false,
+        contentionPreBenchTimeoutMs: 30000,
+        contentionMaxRetriesPerIteration: 4,
+      }),
+    );
+    const s = readInitialUiState();
+    expect(s.contentionGuardEnabled).toBe(false);
+    expect(s.contentionPreBenchTimeoutSec).toBe("30");
+    expect(s.contentionMaxRetries).toBe("4");
   });
 });

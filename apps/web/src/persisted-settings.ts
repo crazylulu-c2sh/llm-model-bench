@@ -12,7 +12,7 @@ import {
 export const PREFS_STORAGE_KEY = "llm-bench-ui-prefs";
 export const SESSION_API_KEY = "llm-bench-api-key";
 
-const STORAGE_VERSION = 2 as const;
+const STORAGE_VERSION = 3 as const;
 
 const PrefsSchema = z
   .object({
@@ -40,6 +40,9 @@ const PrefsSchema = z
     selectedScenarioIds: z.array(z.string()).optional(),
     scenarioPickerOpen: z.boolean().optional(),
     benchmarkThroughputMode: z.boolean().optional(),
+    contentionGuardEnabled: z.boolean().optional(),
+    contentionPreBenchTimeoutMs: z.number().int().nonnegative().optional(),
+    contentionMaxRetriesPerIteration: z.number().int().nonnegative().optional(),
   })
   .passthrough();
 
@@ -53,7 +56,8 @@ function safeParsePrefs(raw: string | null): Partial<UiPrefs> {
     const j = JSON.parse(raw) as unknown;
     if (typeof j !== "object" || j === null) return {};
     const obj = j as Record<string, unknown>;
-    if (!("v" in obj)) obj.v = STORAGE_VERSION;
+    // v2 → v3는 필드 추가뿐(하위호환) — 재스탬프로 기존 prefs 보존. v1은 아래 legacy 경로.
+    if (!("v" in obj) || obj.v === 2) obj.v = STORAGE_VERSION;
     if (obj.profileId === "minimax_m27") obj.profileId = "minimax";
     const parsed = PrefsSchema.safeParse(obj);
     if (parsed.success) return parsed.data;
@@ -129,6 +133,9 @@ export function readInitialUiState() {
       selectedScenarioIds: [...DEFAULT_SCENARIO_IDS] as string[],
       scenarioPickerOpen: true,
       benchmarkThroughputMode: false,
+      contentionGuardEnabled: true,
+      contentionPreBenchTimeoutSec: "120",
+      contentionMaxRetries: "2",
     };
   }
   const p = readPrefsFromDisk();
@@ -155,6 +162,11 @@ export function readInitialUiState() {
     selectedScenarioIds: sanitizeSelectedScenarioIds(p.selectedScenarioIds),
     scenarioPickerOpen: p.scenarioPickerOpen ?? true,
     benchmarkThroughputMode: p.benchmarkThroughputMode ?? false,
+    contentionGuardEnabled: p.contentionGuardEnabled ?? true,
+    contentionPreBenchTimeoutSec:
+      p.contentionPreBenchTimeoutMs != null ? String(Math.round(p.contentionPreBenchTimeoutMs / 1000)) : "120",
+    contentionMaxRetries:
+      p.contentionMaxRetriesPerIteration != null ? String(p.contentionMaxRetriesPerIteration) : "2",
   };
 }
 
@@ -178,6 +190,9 @@ export type SaveUiSnapshot = {
   selectedScenarioIds: string[];
   scenarioPickerOpen: boolean;
   benchmarkThroughputMode: boolean;
+  contentionGuardEnabled: boolean;
+  contentionPreBenchTimeoutSec: string;
+  contentionMaxRetries: string;
 };
 
 /** Persist snapshot: non-secret prefs always on disk; api key follows opt-in / session. */
@@ -209,6 +224,15 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
     selectedScenarioIds: sanitizeSelectedScenarioIds(s.selectedScenarioIds),
     scenarioPickerOpen: s.scenarioPickerOpen,
     benchmarkThroughputMode: s.benchmarkThroughputMode,
+    contentionGuardEnabled: s.contentionGuardEnabled,
+    contentionPreBenchTimeoutMs: (() => {
+      const n = Number(s.contentionPreBenchTimeoutSec.trim());
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n * 1000) : undefined;
+    })(),
+    contentionMaxRetriesPerIteration: (() => {
+      const n = Number(s.contentionMaxRetries.trim());
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+    })(),
   };
 
   if (s.persistApiKeyToDisk) {

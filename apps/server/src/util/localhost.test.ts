@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { isLocalhostBaseUrl, isLoopbackRemoteAddr } from "./localhost";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  _setLocalAddressesForTest,
+  isLocalhostBaseUrl,
+  isLoopbackRemoteAddr,
+  isTargetOnServerHost,
+} from "./localhost";
 
 describe("isLocalhostBaseUrl", () => {
   it("matches common loopback forms", () => {
@@ -43,5 +48,35 @@ describe("isLoopbackRemoteAddr", () => {
     expect(isLoopbackRemoteAddr(null)).toBe(false);
     expect(isLoopbackRemoteAddr(undefined)).toBe(false);
     expect(isLoopbackRemoteAddr("")).toBe(false);
+  });
+});
+
+describe("isTargetOnServerHost", () => {
+  afterEach(() => _setLocalAddressesForTest(null));
+
+  it("matches loopback regardless of server interfaces", () => {
+    _setLocalAddressesForTest(["192.168.0.50"]);
+    expect(isTargetOnServerHost("http://localhost:1234")).toBe(true);
+    expect(isTargetOnServerHost("http://127.0.0.1:1234")).toBe(true);
+  });
+
+  it("matches a target on one of the server's own interface IPs (LAN, non-loopback)", () => {
+    // 서버 .50 → 대상 .50:1234 (포트 무관) ⇒ 동일 머신
+    _setLocalAddressesForTest(["127.0.0.1", "192.168.0.50"]);
+    expect(isTargetOnServerHost("http://192.168.0.50:1234")).toBe(true);
+  });
+
+  it("rejects a target on a different LAN machine even if private", () => {
+    // 서버 .50 → 대상 .51:1234 (타 머신) ⇒ CLI 무효
+    _setLocalAddressesForTest(["127.0.0.1", "192.168.0.50"]);
+    expect(isTargetOnServerHost("http://192.168.0.51:1234")).toBe(false);
+  });
+
+  it("rejects public hosts and bad input", () => {
+    _setLocalAddressesForTest(["192.168.0.50"]);
+    expect(isTargetOnServerHost("http://api.example.com:443")).toBe(false);
+    expect(isTargetOnServerHost("")).toBe(false);
+    // @ts-expect-error 잘못된 타입은 false
+    expect(isTargetOnServerHost(undefined)).toBe(false);
   });
 });

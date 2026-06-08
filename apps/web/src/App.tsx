@@ -101,6 +101,14 @@ function benchErrorHint(code: string): string | null {
   if (code === "upstream_exception") return "업스트림 처리 예외";
   if (code === "provider_or_model_unavailable")
     return "프로바이더/모델 준비 상태 불가";
+  if (code === "pre_bench_wait_timeout")
+    return "사전 대기 시간 초과 — 다른 추론이 계속 실행 중";
+  if (code === "between_iteration_wait_timeout")
+    return "이터레이션 간 대기 시간 초과 — 다른 추론이 계속 실행 중";
+  if (code === "total_wait_budget_exceeded")
+    return "누적 대기 예산 초과로 중단";
+  if (code === "contention_max_retries_exceeded")
+    return "오염 재시도 한도 초과로 런 중단";
   return null;
 }
 
@@ -189,6 +197,10 @@ export function App() {
   const [preserveThinking, setPreserveThinking] = useState(boot.preserveThinking);
   /** 성능 측정 모드(처리량): 사고 off + chat_completions 단일 라우트 + 고정 max_tokens로 apples-to-apples 측정. */
   const [benchmarkThroughputMode, setBenchmarkThroughputMode] = useState(boot.benchmarkThroughputMode);
+  /** 오염 가드: 다른 추론 감지 시 대기/폐기·재측정. */
+  const [contentionGuardEnabled, setContentionGuardEnabled] = useState(boot.contentionGuardEnabled);
+  const [contentionPreBenchTimeoutSec, setContentionPreBenchTimeoutSec] = useState(boot.contentionPreBenchTimeoutSec);
+  const [contentionMaxRetries, setContentionMaxRetries] = useState(boot.contentionMaxRetries);
   const [reasoningEffort, setReasoningEffort] = useState<"minimal" | "low" | "medium" | "high">(boot.reasoningEffort);
   const [presetOverride, setPresetOverride] = useState<SamplingPresetName | "">(boot.presetOverride);
   const [samplingOverridesText, setSamplingOverridesText] = useState(boot.samplingOverridesText);
@@ -299,6 +311,9 @@ export function App() {
         selectedScenarioIds,
         scenarioPickerOpen,
         benchmarkThroughputMode,
+        contentionGuardEnabled,
+        contentionPreBenchTimeoutSec,
+        contentionMaxRetries,
       });
     }, 350);
     return () => window.clearTimeout(t);
@@ -323,6 +338,9 @@ export function App() {
     selectedScenarioIds,
     scenarioPickerOpen,
     benchmarkThroughputMode,
+    contentionGuardEnabled,
+    contentionPreBenchTimeoutSec,
+    contentionMaxRetries,
   ]);
 
   // bench → 다른 라우트 전이 시 *즉시 flush*. 게이트가 debounce를 폐기해도 최종 값 보존.
@@ -346,6 +364,9 @@ export function App() {
     selectedScenarioIds,
     scenarioPickerOpen,
     benchmarkThroughputMode,
+    contentionGuardEnabled,
+    contentionPreBenchTimeoutSec,
+    contentionMaxRetries,
   });
   latestBenchSnapshotRef.current = {
     baseUrl,
@@ -367,6 +388,9 @@ export function App() {
     selectedScenarioIds,
     scenarioPickerOpen,
     benchmarkThroughputMode,
+    contentionGuardEnabled,
+    contentionPreBenchTimeoutSec,
+    contentionMaxRetries,
   };
   const prevOnBenchPageRef = useRef(onBenchPage);
   useEffect(() => {
@@ -849,6 +873,9 @@ export function App() {
         selectedScenarioIds,
         scenarioPickerOpen,
         benchmarkThroughputMode,
+        contentionGuardEnabled,
+        contentionPreBenchTimeoutSec,
+        contentionMaxRetries,
       });
     } catch (e) {
       appendLog(String(e));
@@ -917,6 +944,8 @@ export function App() {
       let streamMeta: BenchRunMeta | null = null;
       let lastScenarioStart: { sid: string; api: string } | null = null;
       let iterInScenario = 0;
+      // 오염 폐기 후 같은 측정 인덱스를 재실행할 때 다음 scenario_start가 iter를 다시 올리지 않게 한다.
+      let pendingRetry = false;
       const pushBenchLine = (kind: BenchStepKind, text: string) => {
         setBenchStepLines((prev) => [...prev.slice(-79), { ts: Date.now(), kind, text }]);
       };
@@ -938,6 +967,13 @@ export function App() {
               publicAssetsOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
               scenarioIds: visibleSelectedScenarioIds,
               ...(benchmarkThroughputMode ? { apiRoutes: ["chat_completions"] as const } : {}),
+              contentionGuardEnabled,
+              ...(Number.isFinite(Number(contentionPreBenchTimeoutSec)) && contentionPreBenchTimeoutSec.trim()
+                ? { contentionPreBenchTimeoutMs: Math.max(0, Math.floor(Number(contentionPreBenchTimeoutSec) * 1000)) }
+                : {}),
+              ...(Number.isFinite(Number(contentionMaxRetries)) && contentionMaxRetries.trim()
+                ? { contentionMaxRetriesPerIteration: Math.max(0, Math.floor(Number(contentionMaxRetries))) }
+                : {}),
               ...buildBenchProfilePayload(m.id),
             },
           }),
@@ -954,6 +990,7 @@ export function App() {
             streamMeta = ev.meta ?? null;
             lastScenarioStart = null;
             iterInScenario = 0;
+            pendingRetry = false;
             const ridShort = ev.run_id.length > 28 ? `${ev.run_id.slice(0, 28)}…` : ev.run_id;
             pushBenchLine("info", `런 시작 · ${ridShort}`);
             setBenchCurrent({ modelId: m.id });
@@ -997,9 +1034,12 @@ export function App() {
             if (!lastScenarioStart || lastScenarioStart.sid !== p.sid || lastScenarioStart.api !== p.api) {
               iterInScenario = 1;
               lastScenarioStart = p;
+            } else if (pendingRetry) {
+              // 오염 재측정 — 같은 인덱스 재실행이므로 iter를 올리지 않는다.
             } else {
               iterInScenario += 1;
             }
+            pendingRetry = false;
             const wr = streamMeta?.warmup_runs ?? 1;
             const mr = streamMeta?.measured_runs ?? 3;
             const phase: BenchCurrent["phase"] = iterInScenario <= wr ? "warmup" : "measured";
@@ -1022,6 +1062,41 @@ export function App() {
           }
           if (ev.type === "token_delta") {
             setPreview((p) => (p + ev.text).slice(-8000));
+          }
+          if (ev.type === "contention_waiting") {
+            const where = ev.phase === "pre_bench" ? "사전" : "반복간";
+            const gpu = ev.gpu_util_pct != null ? ` · GPU ${ev.gpu_util_pct}%` : "";
+            pushBenchLine(
+              "warn",
+              `대기 · ${where} · ${ev.waiting_reason}${gpu} (${ev.elapsed_ms}ms)`,
+            );
+          }
+          if (ev.type === "contention_resumed") {
+            pushBenchLine("ok", `재개 · ${ev.waited_ms}ms 대기 후`);
+          }
+          if (ev.type === "iteration_discarded") {
+            // 폐기된 부분 출력 미리보기 초기화 + 다음 scenario_start를 재측정으로 표시.
+            setPreview("");
+            if (ev.will_retry) pendingRetry = true;
+            pushBenchLine(
+              "warn",
+              `오염 폐기 · 재측정 ${ev.retry_count + 1}/${ev.max_retries} · ${ev.scenario_id} · ${ev.reason}`,
+            );
+          }
+          if (ev.type === "contention_summary") {
+            if (
+              ev.total_iterations_discarded > 0 ||
+              ev.max_pre_bench_wait_ms > 0 ||
+              ev.max_between_iteration_wait_ms > 0 ||
+              ev.abort_reason
+            ) {
+              const maxWait = Math.max(ev.max_pre_bench_wait_ms, ev.max_between_iteration_wait_ms);
+              const eff = ev.guard_effective ? "" : " · 가드 비실효(신호 없음)";
+              pushBenchLine(
+                "info",
+                `오염 요약 · 폐기 ${ev.total_iterations_discarded}회 · 최대대기 ${maxWait}ms${eff}`,
+              );
+            }
           }
           if (ev.type === "metrics_update") {
             const agg = ev.aggregate as MetricsAgg;
@@ -1095,7 +1170,7 @@ export function App() {
     } else {
       toast.success("벤치가 모두 완료되었습니다.");
     }
-  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, detect, parallel, unloadOtherModels, visibleSelectedScenarioIds]);
+  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, parallel, unloadOtherModels, visibleSelectedScenarioIds]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
@@ -1619,6 +1694,48 @@ export function App() {
               </span>
             </span>
           </label>
+          <label
+            className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
+            title="다른 추론(같은/다른 모델)이 실행 중이면 시작 전 대기하고, 벤치 중 감지되면 오염된 측정 런만 폐기 후 재측정합니다."
+          >
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={contentionGuardEnabled}
+              onChange={(e) => setContentionGuardEnabled(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium text-[var(--foreground)]">오염 가드 (다른 추론 감지 시 대기·재측정)</span>
+              <span className="mt-0.5 block text-xs leading-snug">
+                GPU util·/metrics·lms ps로 활성 추론을 감지합니다. 신호가 없는 환경에서는 자동으로 비실효 처리됩니다.
+              </span>
+            </span>
+          </label>
+          {contentionGuardEnabled ? (
+            <div className="mt-2 ml-6 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
+              <label className="flex items-center gap-1.5">
+                사전 대기 한도(초)
+                <input
+                  type="number"
+                  min={0}
+                  className="w-20 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
+                  value={contentionPreBenchTimeoutSec}
+                  onChange={(e) => setContentionPreBenchTimeoutSec(e.target.value)}
+                />
+              </label>
+              <label className="flex items-center gap-1.5">
+                런당 재시도 횟수
+                <input
+                  type="number"
+                  min={0}
+                  max={5}
+                  className="w-16 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
+                  value={contentionMaxRetries}
+                  onChange={(e) => setContentionMaxRetries(e.target.value)}
+                />
+              </label>
+            </div>
+          ) : null}
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
