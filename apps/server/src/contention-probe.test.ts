@@ -4,11 +4,13 @@ import {
   type Clock,
   type ContentionProbe,
   type InFlightBaseline,
+  defaultClock,
   makeContentionProbe,
   parseLmsPsActivity,
   parsePrometheusRunningWaiting,
   resolveContentionConfig,
   runIdleGate,
+  startInflightMonitor,
 } from "./contention-probe";
 import { _resetLmsCliCacheForTest, LMS_ENV_FLAG } from "./lms-cli";
 
@@ -318,5 +320,73 @@ describe("runIdleGate", () => {
     });
     const { result } = await drainGate(gen);
     expect((result as { code?: string }).code).toBe("total_wait_budget_exceeded");
+  });
+});
+
+describe("startInflightMonitor teardown (lost-detection race)", () => {
+  function idleProbe(sampleInFlight: ContentionProbe["sampleInFlight"]): ContentionProbe {
+    return {
+      async sampleIdle() {
+        return { active: false, reasons: ["idle"], gpuUtilPct: null, gpuSignalAvailable: false, hasActiveSignal: true };
+      },
+      async segmentBaseline() {
+        return { loadedIds: [], expiresById: {} };
+      },
+      sampleInFlight,
+    };
+  }
+
+  it("awaits an in-flight sample on teardown and honors a late contended result", async () => {
+    let resolveSample: (v: { contended: boolean; reasons: string[] }) => void = () => {};
+    const probe = idleProbe(() => new Promise((res) => {
+      resolveSample = res;
+    }));
+    // abortable real-ish sleep (resolves on next macrotask) so the monitor parks at sampleInFlight.
+    const clock: Clock = {
+      now: () => 0,
+      sleep: (_ms, signal) =>
+        new Promise<void>((res, rej) => {
+          if (signal?.aborted) return rej(new DOMException("Aborted", "AbortError"));
+          const t = setTimeout(res, 0);
+          signal?.addEventListener("abort", () => {
+            clearTimeout(t);
+            rej(new DOMException("Aborted", "AbortError"));
+          }, { once: true });
+        }),
+    };
+    let detected: string[] | null = null;
+    const stop = startInflightMonitor({
+      probe,
+      baseline: { loadedIds: [], expiresById: {} },
+      cfg: baseCfg,
+      clock,
+      onDetect: (r) => {
+        detected = r;
+      },
+    });
+    await new Promise((r) => setTimeout(r, 5)); // let it park at sampleInFlight
+    const stopP = stop();
+    // resolve the in-flight sample as contended AFTER teardown was requested
+    resolveSample({ contended: true, reasons: ["server_running=2"] });
+    await stopP;
+    expect(detected).toEqual(["server_running=2"]);
+  });
+
+  it("returns promptly when sleeping (no pending sample) without false detection", async () => {
+    const probe = idleProbe(async () => ({ contended: false, reasons: [] }));
+    let detected = false;
+    const stop = startInflightMonitor({
+      probe,
+      baseline: { loadedIds: [], expiresById: {} },
+      cfg: baseCfg, // pollIntervalMs 1000 → monitor is sleeping when we stop
+      clock: defaultClock,
+      onDetect: () => {
+        detected = true;
+      },
+    });
+    const t0 = Date.now();
+    await stop(); // sleepCtrl.abort() must cut the 1s sleep short
+    expect(Date.now() - t0).toBeLessThan(500);
+    expect(detected).toBe(false);
   });
 });

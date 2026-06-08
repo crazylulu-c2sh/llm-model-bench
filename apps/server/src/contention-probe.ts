@@ -558,10 +558,10 @@ export async function* runIdleGate(
     }
     polls++;
 
-    if (params.waitAccum.total > cfg.totalWaitBudgetMs) {
+    if (params.waitAccum.total >= cfg.totalWaitBudgetMs) {
       return { idle: false, waitedMs: waited, effective, gpuSignalAvailable, code: "total_wait_budget_exceeded" };
     }
-    if (clock.now() - start > thisTimeout) {
+    if (clock.now() - start >= thisTimeout) {
       return {
         idle: false,
         waitedMs: waited,
@@ -586,20 +586,23 @@ export function startInflightMonitor(opts: {
   cfg: ContentionConfig;
   clock: Clock;
   onDetect: (reasons: string[]) => void;
-}): () => void {
-  let stopped = false;
-  const ctrl = new AbortController();
-  void (async () => {
+}): () => Promise<void> {
+  let stopRequested = false;
+  // 슬립만 중단하는 컨트롤러 — teardown 시 빠르게 깨우되, 진행 중인 sampleInFlight는
+  // 끝까지 기다려 양성 탐지를 잃지 않는다(자체 타임아웃 3~5s로 bounded).
+  const sleepCtrl = new AbortController();
+  const done = (async () => {
     for (;;) {
       try {
-        await opts.clock.sleep(opts.cfg.pollIntervalMs, ctrl.signal);
+        await opts.clock.sleep(opts.cfg.pollIntervalMs, sleepCtrl.signal);
       } catch {
-        return; // aborted (teardown)
+        /* 슬립이 teardown으로 중단됨 — 아래 stopRequested 확인으로 종료 */
       }
-      if (stopped) return;
+      if (stopRequested) return;
       try {
-        const s = await opts.probe.sampleInFlight(opts.baseline, ctrl.signal);
-        if (stopped) return;
+        // abort signal을 넘기지 않는다: teardown이 진행 중 in-flight 샘플을 abort해
+        // 양성 탐지를 catch로 삼키는 것을 방지. 양성이면 stopRequested여도 honor한다.
+        const s = await opts.probe.sampleInFlight(opts.baseline);
         if (s.contended) {
           opts.onDetect(s.reasons);
           return;
@@ -607,10 +610,13 @@ export function startInflightMonitor(opts: {
       } catch {
         /* 일시적 probe 오류 무시 — 다음 폴에서 재시도 */
       }
+      if (stopRequested) return;
     }
   })();
-  return () => {
-    stopped = true;
-    ctrl.abort();
+  // stop()은 async — 호출자는 await로 in-flight 샘플 결과까지 반영한 뒤 detected를 읽어야 한다.
+  return async () => {
+    stopRequested = true;
+    sleepCtrl.abort();
+    await done;
   };
 }

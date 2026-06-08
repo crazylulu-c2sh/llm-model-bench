@@ -757,7 +757,8 @@ export async function* runBench(
             : controller.signal;
           // STEP 4: 구간-스코프 in-flight 모니터. upstream 요청/스트림 구간에만 켜고
           // 채점·judge 전에 끈다(오탐 차단). teardown은 stopMonitor()가 책임.
-          let stopMonitor = (): void => {};
+          // async — in-flight 샘플이 teardown과 경쟁하더라도 양성 탐지를 잃지 않도록 await한다.
+          let stopMonitor: () => Promise<void> = async () => {};
           if (measuredGuarded && segBaseline) {
             stopMonitor = startInflightMonitor({
               probe: contentionProbe,
@@ -1180,7 +1181,7 @@ export async function* runBench(
             }
 
             // STEP 4/5: 스트리밍 종료 → 모니터 정지(채점·judge는 감시 안 함). 경합 감지 시 측정 폐기.
-            stopMonitor();
+            await stopMonitor();
             if (measuredGuarded && contentionMonitor.detected) {
               contentionThisIteration = true;
             }
@@ -1282,7 +1283,7 @@ export async function* runBench(
             };
             }
           } catch (e) {
-            stopMonitor();
+            await stopMonitor();
             if (measuredGuarded && isAbortLikeError(e) && contentionMonitor.detected) {
               // STEP 5: 오염 abort는 request_timeout으로 매핑하지 않고 폐기·재측정 경로로.
               contentionThisIteration = true;
@@ -1339,7 +1340,7 @@ export async function* runBench(
             }
             }
           } finally {
-            stopMonitor();
+            await stopMonitor();
             clearTimeout(to);
           }
 
@@ -1403,8 +1404,9 @@ export async function* runBench(
           contentionRetries = 0;
         }
 
-        // 오염 재시도 한도 초과로 중단한 시나리오는 집계를 내보내지 않는다.
-        if (runs.length > 0 && !contentionAbortReason) {
+        // 오염 재시도 한도 초과로 중단한 시나리오만 집계를 생략한다(불완전·신뢰불가).
+        // 사전/이터레이션 간 대기 타임아웃은 그 이전에 깨끗이 완료된 런들의 집계를 유지한다.
+        if (runs.length > 0 && contentionAbortReason !== "contention_max_retries_exceeded") {
           yield {
             type: "metrics_update",
             aggregate: {
