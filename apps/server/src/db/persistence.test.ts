@@ -1,7 +1,14 @@
 import type { DetectResult, StreamEvent } from "@llm-bench/shared";
 import { describe, expect, it } from "vitest";
 import { makeBenchRunMeta, type BenchRequest } from "../bench-runner.js";
-import { finishRun, insertRun, latestFinishedRunsByModels, openBenchDatabase } from "./database.js";
+import {
+  finishRun,
+  getRunMetaJson,
+  insertRun,
+  latestFinishedRunsByModels,
+  openBenchDatabase,
+  updateRunMetaJson,
+} from "./database.js";
 import { BenchRunPersistence } from "./persist-stream.js";
 import { benchResultDetailFromDb } from "./run-queries.js";
 
@@ -94,5 +101,42 @@ describe("BenchRunPersistence + sqlite", () => {
 
     const map = latestFinishedRunsByModels(db, "http://localhost:8080", ["mx"]);
     expect(map.get("mx")?.run_id).toBe(meta2.run_id);
+  });
+
+  it("updateRunMetaJson merges a partial into meta_json (contention_summary patch)", () => {
+    const db = openBenchDatabase(":memory:");
+    const meta = makeBenchRunMeta(req("m-a"), detect, "run_patch");
+    insertRun(db, {
+      run_id: meta.run_id,
+      created_at: meta.created_at,
+      base_url: meta.base_url.replace(/\/+$/, ""),
+      provider: meta.provider,
+      model_id: meta.model_id,
+      meta,
+      status: "running",
+    });
+    // effective는 INSERT 시점 meta엔 없다.
+    const before = JSON.parse(getRunMetaJson(db, meta.run_id)!) as Record<string, unknown>;
+    expect(before.contention_summary).toBeUndefined();
+    expect(before.model_id).toBe("m-a");
+
+    const changed = updateRunMetaJson(db, meta.run_id, {
+      contention_summary: { guard_effective: true, total_iterations_discarded: 2 },
+    });
+    expect(changed).toBe(1);
+
+    const after = JSON.parse(getRunMetaJson(db, meta.run_id)!) as {
+      model_id: string;
+      contention_summary?: { guard_effective: boolean; total_iterations_discarded: number };
+    };
+    // 기존 필드 보존 + patch 머지
+    expect(after.model_id).toBe("m-a");
+    expect(after.contention_summary?.guard_effective).toBe(true);
+    expect(after.contention_summary?.total_iterations_discarded).toBe(2);
+  });
+
+  it("updateRunMetaJson is a no-op for unknown run_id", () => {
+    const db = openBenchDatabase(":memory:");
+    expect(updateRunMetaJson(db, "nope", { x: 1 })).toBe(0);
   });
 });

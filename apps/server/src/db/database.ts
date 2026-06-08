@@ -478,6 +478,31 @@ export function getRunMetaJson(db: DatabaseSync, run_id: string): string | null 
   return r?.meta_json ?? null;
 }
 
+/**
+ * 기존 `meta_json`에 partial을 얕게 머지해 UPDATE한다. 오염 가드의 `contention_summary`처럼
+ * INSERT 시점에 알 수 없고 런 종료 시 확정되는 값을 영속화하는 데 사용. 행이 없거나 meta_json
+ * 파싱 실패면 no-op(베스트 에포트). 반환값 = 갱신된 행 수.
+ */
+export function updateRunMetaJson(
+  db: DatabaseSync,
+  run_id: string,
+  partial: Record<string, unknown>,
+): number {
+  const current = getRunMetaJson(db, run_id);
+  if (current == null) return 0;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(current) as Record<string, unknown>;
+  } catch {
+    return 0;
+  }
+  const merged = JSON.stringify({ ...parsed, ...partial });
+  const info = db
+    .prepare(`UPDATE bench_runs SET meta_json = @meta_json WHERE run_id = @run_id`)
+    .run({ run_id, meta_json: merged });
+  return Number(info.changes ?? 0);
+}
+
 export type ScenarioRow = {
   scenario_id: string;
   api_route: string;
