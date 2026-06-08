@@ -193,6 +193,28 @@ describe("collectOllamaLoaded", () => {
     expect(r.loaded[0].sizeBytes).toBe(8_000_000_000);
   });
 
+  it("uses injected fetchImpl and carries expires_at into raw", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => "",
+      json: async () => ({
+        models: [
+          {
+            name: "qwen:7b",
+            model: "qwen:7b",
+            size_vram: 1,
+            size: 2,
+            expires_at: "2099-01-01T00:00:00Z",
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+    const r = await collectOllamaLoaded("http://127.0.0.1:11434", { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(r.loaded[0].raw?.expires_at).toBe("2099-01-01T00:00:00Z");
+  });
+
   it("returns none on non-200", async () => {
     globalThis.fetch = vi.fn(async () => ({
       ok: false,

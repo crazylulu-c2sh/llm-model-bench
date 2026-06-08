@@ -22,12 +22,16 @@ type LmStudioInstance = Record<string, unknown>;
  */
 export async function collectLmStudioLoaded(
   baseUrl: string,
-  opts: { apiKey?: string; allowCli: boolean },
+  opts: { apiKey?: string; allowCli: boolean; fetchImpl?: typeof fetch },
 ): Promise<ProviderLoadedResult> {
   let listed: Awaited<ReturnType<typeof lmStudioListModels>>;
   try {
     // 5초 timeout — Ollama 경로와 일관, 죽은 호스트에서 snapshot 전체가 hang 안 되게.
-    listed = await lmStudioListModels(baseUrl, { apiKey: opts.apiKey, timeoutMs: 5000 });
+    listed = await lmStudioListModels(baseUrl, {
+      apiKey: opts.apiKey,
+      timeoutMs: 5000,
+      fetchImpl: opts.fetchImpl,
+    });
   } catch (e) {
     listed = { ok: false, status: 0, models: [], body: (e as Error).message };
   }
@@ -157,11 +161,15 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string | unde
   return undefined;
 }
 
-export async function collectOllamaLoaded(baseUrl: string): Promise<ProviderLoadedResult> {
+export async function collectOllamaLoaded(
+  baseUrl: string,
+  opts: { fetchImpl?: typeof fetch } = {},
+): Promise<ProviderLoadedResult> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
   const root = baseUrl.replace(/\/+$/, "");
   try {
     // 5초 timeout — 죽은 호스트에서 snapshot 전체가 hang하는 것을 방지.
-    const r = await fetch(`${root}/api/ps`, { signal: AbortSignal.timeout(5000) });
+    const r = await fetchImpl(`${root}/api/ps`, { signal: AbortSignal.timeout(5000) });
     if (!r.ok) {
       const text = await r.text().catch(() => "");
       return {
@@ -176,6 +184,7 @@ export async function collectOllamaLoaded(baseUrl: string): Promise<ProviderLoad
         model?: string;
         size_vram?: number;
         size?: number;
+        expires_at?: string;
         details?: { parameter_size?: string };
       }>;
     };
@@ -189,6 +198,8 @@ export async function collectOllamaLoaded(baseUrl: string): Promise<ProviderLoad
           name: m.name ?? m.model,
           vramBytes: typeof m.size_vram === "number" ? m.size_vram : undefined,
           sizeBytes: typeof m.size === "number" ? m.size : undefined,
+          // raw는 expires_at 등 활성 추론 추정용 필드를 contention-probe로 전달.
+          raw: m as Record<string, unknown>,
         };
       })
       .filter((m): m is LoadedModelInfo => m !== null);
