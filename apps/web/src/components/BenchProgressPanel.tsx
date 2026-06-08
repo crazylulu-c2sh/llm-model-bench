@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef } from "react";
 import { Activity, Loader2 } from "lucide-react";
 import { formatTimeWithMs } from "../lib/time-format";
 
-export type BenchStepKind = "info" | "ok" | "err";
+export type BenchStepKind = "info" | "ok" | "err" | "warn";
 
 export type BenchStepLine = { ts: number; kind: BenchStepKind; text: string };
 
@@ -55,6 +55,7 @@ export function formatBenchProgressSummary({
 function lineClass(kind: BenchStepKind): string {
   if (kind === "err") return "text-[var(--danger)]";
   if (kind === "ok") return "text-[var(--chart-pass)]";
+  if (kind === "warn") return "text-[var(--warning,#d97706)]";
   return "text-[var(--muted)]";
 }
 
