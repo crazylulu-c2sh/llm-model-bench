@@ -34,7 +34,7 @@ export function ScenarioDetailDrawer({
   hlPreview: boolean;
   onClose: () => void;
 }) {
-  useScrollLock(open);
+  useScrollLock(open && payload != null);
 
   if (!open || !payload) return null;
 
