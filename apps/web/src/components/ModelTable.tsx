@@ -340,11 +340,11 @@ export function ModelTable({
       </div>
       <div className="max-h-64 overflow-auto rounded border border-[var(--border)]">
         <table className="w-full text-left text-sm">
-          <thead className="sticky top-0 z-[1] bg-[var(--surface)] text-[var(--muted)]">
+          <thead className="text-[var(--muted)]">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((h) => (
-                  <th key={h.id} className="p-2">
+                  <th key={h.id} className="sticky top-0 z-[1] bg-[var(--surface)] p-2">
                     {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
                   </th>
                 ))}

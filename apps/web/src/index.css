@@ -74,6 +74,54 @@ body {
   color: var(--foreground);
 }
 
+/* ── iOS/macOS Safari 대응 (레이어 밖에 두어 Tailwind utilities 레이어보다 우선 적용) ──────── */
+
+/* iOS: font-size < 16px 입력란 포커스 시 화면 확대 방지 — 편집 가능한 텍스트 컨트롤만. (select는 줌 안 됨) */
+@media (width < 640px) {
+  input,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* 밀집 탭 타겟의 더블탭-줌 모호성 제거 */
+button,
+[role="button"],
+a,
+summary,
+label {
+  touch-action: manipulation;
+}
+
+/* 체크박스/라디오를 시스템 파랑 대신 테마 그린으로 (밝은 --accent-2로 흰 체크 대비 확보) */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent-2);
+}
+
+/* sticky 헤더 아래로 해시 앵커가 묻히지 않도록. 모바일 헤더는 2행이라 더 큼 → 반응형. */
+html {
+  scroll-padding-top: 9rem;
+}
+@media (width >= 640px) {
+  html {
+    scroll-padding-top: 5rem;
+  }
+}
+
+/* 네이티브 select 외형 통일 (Safari 네이티브 높이/chevron 제거). 배경/글자색은 per-element 유틸리티에 위임. */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%238b949e' stroke-width='1.5'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  padding-right: 1.75rem;
+}
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* Bench live UI: border / glow pulse (semantic tokens) — deliberately strong for visibility. */
 @keyframes bench-panel-border-soft {
   0%,

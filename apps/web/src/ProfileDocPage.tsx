@@ -255,9 +255,10 @@ export function ProfileDocPage() {
     if (!location.hash) return;
     const id = decodeURIComponent(location.hash.slice(1));
     let r2 = 0;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const r1 = requestAnimationFrame(() => {
       r2 = requestAnimationFrame(() => {
-        document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+        document.getElementById(id)?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
       });
     });
     return () => {

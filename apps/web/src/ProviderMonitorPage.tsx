@@ -102,6 +102,7 @@ export function ProviderMonitorPage() {
             <span className="text-[var(--muted)]">Base URL</span>
             <input
               type="text"
+              inputMode="url"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
               className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 font-mono text-sm"

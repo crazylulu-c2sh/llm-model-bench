@@ -1,6 +1,7 @@
 import { getScenarioBenchMeta, isVisionScenario, partitionThinkingBlocks, scoreToRubric } from "@llm-bench/shared";
 import { AlertTriangle, X } from "lucide-react";
 import { JsonCodeBlock } from "./JsonCodeBlock";
+import { useScrollLock } from "../useScrollLock";
 
 export type ScenarioDetailPayload = {
   title: string;
@@ -33,6 +34,8 @@ export function ScenarioDetailDrawer({
   hlPreview: boolean;
   onClose: () => void;
 }) {
+  useScrollLock(open && payload != null);
+
   if (!open || !payload) return null;
 
   const benchMeta = getScenarioBenchMeta(payload.scenario);
@@ -48,11 +51,12 @@ export function ScenarioDetailDrawer({
     >
       <button
         type="button"
+        tabIndex={-1}
         className="absolute inset-0 bg-black/50"
         aria-label="닫기"
         onClick={onClose}
       />
-      <div className="relative z-10 flex max-h-[min(92vh,720px)] w-full max-w-2xl flex-col rounded-t-lg border border-[var(--border)] bg-[var(--surface-2)] shadow-xl sm:rounded-lg">
+      <div className="relative z-10 flex max-h-[min(92svh,720px)] w-full max-w-2xl flex-col rounded-t-lg border border-[var(--border)] bg-[var(--surface-2)] shadow-xl sm:rounded-lg">
         <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
           <div>
             <h2 id="scenario-detail-title" className="text-sm font-semibold text-[var(--foreground)]">
@@ -69,7 +73,7 @@ export function ScenarioDetailDrawer({
             <X className="size-5" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 text-sm">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 text-sm">
           <div className="grid gap-2 text-xs sm:grid-cols-2">
             <div>
               <span className="text-[var(--muted)]">시나리오</span>
