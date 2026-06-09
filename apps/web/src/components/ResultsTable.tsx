@@ -364,11 +364,11 @@ export function ResultsTable({
           style={shouldScroll ? { maxHeight: `calc(${maxRows + 2} * 2.25rem)` } : undefined}
         >
           <table className="w-full min-w-[36rem] text-left text-sm">
-            <thead className={`bg-[var(--surface)] text-[var(--muted)]${shouldScroll ? " sticky top-0 z-[1]" : ""}`}>
+            <thead className="bg-[var(--surface)] text-[var(--muted)]">
               {table.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
                   {hg.headers.map((h) => (
-                    <th key={h.id} className="p-2">
+                    <th key={h.id} className={`p-2${shouldScroll ? " sticky top-0 z-[1] bg-[var(--surface)]" : ""}`}>
                       {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
                     </th>
                   ))}

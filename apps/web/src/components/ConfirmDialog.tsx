@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useScrollLock } from "../useScrollLock";
 
 export type ConfirmDialogProps = {
   open: boolean;
@@ -28,6 +29,8 @@ export function ConfirmDialog({
   const descId = useId();
   const confirmRef = useRef<HTMLButtonElement>(null);
 
+  useScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -49,16 +52,15 @@ export function ConfirmDialog({
       : "rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50";
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !pending) onCancel();
-      }}
-    >
-      <div
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label="닫기"
         className="absolute inset-0 bg-black/50"
-        aria-hidden
+        onClick={() => {
+          if (!pending) onCancel();
+        }}
       />
       <div
         role="dialog"

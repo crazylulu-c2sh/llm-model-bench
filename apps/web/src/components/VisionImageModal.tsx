@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { useScrollLock } from "../useScrollLock";
 
 export type VisionImageModalProps = {
   open: boolean;
@@ -26,6 +27,8 @@ export function VisionImageModal({
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
 
+  useScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -44,21 +47,20 @@ export function VisionImageModal({
   const altText = categoryLabel ? `${categoryLabel} · ${scenarioId}` : scenarioId;
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-      role="presentation"
-      onMouseDown={(e) => {
-        // backdrop이 pointer-events-none이라 click이 outer로 통과한다 — target===currentTarget로 backdrop 영역 클릭 판정.
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      {/* backdrop은 시각용. pointer-events-none으로 두어야 outer onMouseDown이 backdrop 영역 클릭을 받는다. */}
-      <div className="pointer-events-none absolute inset-0 bg-black/70" aria-hidden />
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      {/* 백드롭은 실제 button — iOS 터치에서 탭→클릭이 확실히 합성된다. */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label="닫기"
+        className="absolute inset-0 bg-black/70"
+        onClick={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative z-[101] flex max-h-[92vh] max-w-[92vw] flex-col rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-lg"
+        className="relative z-[101] flex max-h-[92svh] max-w-[92vw] flex-col rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-lg"
       >
         <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2">
           <h2 id={titleId} className="flex items-baseline gap-2 text-sm font-semibold text-[var(--foreground)]">
@@ -80,11 +82,11 @@ export function VisionImageModal({
             닫기
           </button>
         </header>
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-2">
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto overscroll-contain p-2">
           <img
             src={imageUrl}
             alt={altText}
-            className="max-h-[80vh] max-w-[88vw] object-contain"
+            className="max-h-[80svh] max-w-[88vw] object-contain"
           />
         </div>
         <footer className="border-t border-[var(--border)] px-3 py-1.5 text-[10px] text-[var(--muted)]">

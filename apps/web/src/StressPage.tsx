@@ -447,6 +447,7 @@ export function StressPage() {
           <label className="flex flex-col gap-1 text-xs">
             <span className="text-[var(--muted)]">base URL</span>
             <input
+              inputMode="url"
               className="min-w-[20rem] rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
@@ -543,6 +544,7 @@ export function StressPage() {
             <span className="text-[var(--muted)]">시작 동시성</span>
             <input
               type="number"
+              inputMode="numeric"
               min={1}
               max={256}
               className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm"
@@ -555,6 +557,7 @@ export function StressPage() {
             <span className="text-[var(--muted)]">최대 동시성</span>
             <input
               type="number"
+              inputMode="numeric"
               min={1}
               max={256}
               className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm"
@@ -567,6 +570,7 @@ export function StressPage() {
             <span className="text-[var(--muted)]">스텝</span>
             <input
               type="number"
+              inputMode="numeric"
               min={1}
               max={64}
               className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm"
@@ -579,6 +583,7 @@ export function StressPage() {
             <span className="text-[var(--muted)]">단계 duration (ms)</span>
             <input
               type="number"
+              inputMode="numeric"
               min={1000}
               max={600000}
               step={500}
@@ -592,6 +597,7 @@ export function StressPage() {
             <span className="text-[var(--muted)]">요청 timeout (ms)</span>
             <input
               type="number"
+              inputMode="numeric"
               min={5000}
               max={600000}
               step={1000}
@@ -605,6 +611,7 @@ export function StressPage() {
             <span className="text-[var(--muted)]">max_tokens (override)</span>
             <input
               type="number"
+              inputMode="numeric"
               min={1}
               max={4096}
               placeholder={String(defaultMaxTokensForWorkload(workloadId))}

@@ -1226,7 +1226,7 @@ export function App() {
               {detect.provider === "lm_studio" ? " · LM Studio에서 로드/언로드가 동작할 수 있습니다." : ""}
             </p>
             <p className="mt-1 text-xs text-[var(--muted)]">위/아래로 직렬 실행 순서를 바꿀 수 있습니다.</p>
-            <ol className="mt-2 max-h-48 list-decimal space-y-1.5 overflow-y-auto pl-5 text-[var(--foreground)]">
+            <ol className="mt-2 max-h-48 list-decimal space-y-1.5 overflow-y-auto overscroll-contain pl-5 text-[var(--foreground)]">
               {benchQueueDraft.map((m, i) => (
                 <li key={m.id} className="font-mono text-xs">
                   <div className="flex items-center gap-2">
@@ -1480,6 +1480,7 @@ export function App() {
                 Base URL
               </span>
               <input
+                inputMode="url"
                 className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-sm"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
@@ -1717,6 +1718,7 @@ export function App() {
                 사전 대기 한도(초)
                 <input
                   type="number"
+                  inputMode="numeric"
                   min={0}
                   className="w-20 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
                   value={contentionPreBenchTimeoutSec}
@@ -1727,6 +1729,7 @@ export function App() {
                 런당 재시도 횟수
                 <input
                   type="number"
+                  inputMode="numeric"
                   min={0}
                   max={5}
                   className="w-16 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
