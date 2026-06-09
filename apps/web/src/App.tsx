@@ -1209,6 +1209,20 @@ export function App() {
   const benchPreviewPanelClass = running && preview.length > 0 ? benchLiveSoft : "";
   const benchProgressClass = running ? benchLiveSoft : "";
 
+  const detectButton = (
+    <button
+      type="button"
+      className="inline-flex items-center gap-2 rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
+      onClick={() => void runDetect()}
+      disabled={detecting}
+      aria-busy={detecting}
+      aria-label="연결 및 프로바이더 감지"
+    >
+      {detecting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Link2 className="size-4" aria-hidden />}
+      연결 / 감지
+    </button>
+  );
+
   return (
     <div className="min-h-screen bg-[var(--surface)] text-[var(--foreground)]">
       <Toaster richColors theme={themeResolved} position="bottom-right" closeButton />
@@ -1739,19 +1753,6 @@ export function App() {
               </label>
             </div>
           ) : null}
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
-              onClick={() => void runDetect()}
-              disabled={detecting}
-              aria-busy={detecting}
-              aria-label="연결 및 프로바이더 감지"
-            >
-              {detecting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Link2 className="size-4" aria-hidden />}
-              연결 / 감지
-            </button>
-          </div>
           {detect ? <ProviderSummary detect={detect} /> : null}
         </section>
 
@@ -1903,30 +1904,38 @@ export function App() {
               프로바이더 감지 중…
             </p>
           ) : detect && detect.models.length > 0 ? (
-            <ModelTable
-              models={detect.models}
-              selected={selected}
-              onToggle={toggle}
-              onSelectAll={selectAllModels}
-              sorting={modelTableSorting}
-              onSortingChange={setModelTableSorting}
-              onSortedModelIdsChange={handleSortedModelIdsChange}
-              selectionDisabled={running}
-              profileHintByModelId={profileHintByModelId}
-              benchActiveModelId={running ? benchCurrent?.modelId ?? null : null}
-              benchRunning={running}
-            />
+            <>
+              <div className="mb-3 flex justify-end">{detectButton}</div>
+              <ModelTable
+                models={detect.models}
+                selected={selected}
+                onToggle={toggle}
+                onSelectAll={selectAllModels}
+                sorting={modelTableSorting}
+                onSortingChange={setModelTableSorting}
+                onSortedModelIdsChange={handleSortedModelIdsChange}
+                selectionDisabled={running}
+                profileHintByModelId={profileHintByModelId}
+                benchActiveModelId={running ? benchCurrent?.modelId ?? null : null}
+                benchRunning={running}
+              />
+            </>
           ) : detect && detect.models.length === 0 ? (
-            <p className="py-8 text-center text-sm text-[var(--muted)]">
-              감지된 모델이 없습니다. Base URL·API 키를 확인한 뒤 다시 <strong className="text-[var(--foreground)]">연결 / 감지</strong>를 실행하세요.
-            </p>
+            <div className="flex flex-col items-center gap-3 py-8 text-center text-sm text-[var(--muted)]">
+              <p>
+                감지된 모델이 없습니다. Base URL·API 키를 확인한 뒤 다시 <strong className="text-[var(--foreground)]">연결 / 감지</strong>를 실행하세요.
+              </p>
+              {detectButton}
+            </div>
           ) : (
             <div
-              className="rounded-md border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]"
+              className="flex flex-col items-center gap-3 rounded-md border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-10 text-center text-sm text-[var(--muted)]"
               aria-live="polite"
             >
-              아직 모델 목록이 없습니다. 위에서{" "}
-              <strong className="text-[var(--foreground)]">연결 / 감지</strong>를 실행하면 목록이 여기에 표시됩니다.
+              <p>
+                아직 모델 목록이 없습니다. <strong className="text-[var(--foreground)]">연결 / 감지</strong>를 실행하면 목록이 여기에 표시됩니다.
+              </p>
+              {detectButton}
             </div>
           )}
         </section>
