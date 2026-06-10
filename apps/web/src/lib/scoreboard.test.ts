@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { buildScoringRows, computeScoreboard, scoreboardFromRows, type ScoringRow } from "./scoreboard";
+import {
+  buildScoringRows,
+  computeScoreboard,
+  DEFAULT_SCOREBOARD_SORT,
+  naturalDir,
+  sameSortKey,
+  scoreboardFromRows,
+  sortEquals,
+  sortScoreboard,
+  type ScoringRow,
+} from "./scoreboard";
 import type { ResultRow } from "../components/ResultsTable";
 
 function rrow(p: Partial<ResultRow> & { rowKey: string; model_id: string; scenario: string }): ResultRow {
@@ -91,6 +101,158 @@ describe("computeScoreboard", () => {
 
   it("empty input -> []", () => {
     expect(computeScoreboard([])).toEqual([]);
+  });
+});
+
+describe("기본 정렬 동등성(컴포넌트 short-circuit)", () => {
+  it("DEFAULT_SCOREBOARD_SORT는 sortEquals로 자기 자신과 같다", () => {
+    expect(sortEquals(DEFAULT_SCOREBOARD_SORT, { ...DEFAULT_SCOREBOARD_SORT })).toBe(true);
+  });
+
+  // 총합 품질 동점 + 속도 상이: computeScoreboard는 속도 desc로 tie-break하지만,
+  // sortScoreboard(DEFAULT)는 그 2차 키가 없어 model_id로 갈린다 → 컴포넌트는 기본 정렬 시
+  // 재정렬을 건너뛰고 board를 그대로 써서 속도 tie-break를 보존한다.
+  it("sortScoreboard(DEFAULT)는 속도 tie-break를 잃으므로 short-circuit가 필요하다", () => {
+    const board = computeScoreboard([
+      srow({ model_id: "a_slow", scenario: "chat_hello", ttft_ms: 300, tps: 30, score: 1 }), // spd1000
+      srow({ model_id: "z_fast", scenario: "chat_hello", ttft_ms: 300, tps: 60, score: 1 }), // spd2000
+    ]);
+    // computeScoreboard: 총합 품질 동점 → 속도 desc → z_fast 먼저
+    expect(board.map((b) => b.model_id)).toEqual(["z_fast", "a_slow"]);
+    // sortScoreboard(DEFAULT): 품질 동점 → model_id asc → a_slow 먼저(속도 무시)
+    expect(sortScoreboard(board, DEFAULT_SCOREBOARD_SORT).map((b) => b.model_id)).toEqual([
+      "a_slow",
+      "z_fast",
+    ]);
+  });
+});
+
+describe("sortScoreboard", () => {
+  // a: q50 spd2000 ttft100 / b: q100 spd1000 ttft300 / c: 모두 null
+  const board = computeScoreboard([
+    srow({ model_id: "a", scenario: "chat_hello", ttft_ms: 100, tps: 60, score: 0.5 }),
+    srow({ model_id: "b", scenario: "chat_hello", ttft_ms: 300, tps: 30, score: 1 }),
+    srow({ model_id: "c", scenario: "chat_hello", ttft_ms: null, tps: null, score: null }),
+  ]);
+  const ids = (sort: Parameters<typeof sortScoreboard>[1]) =>
+    sortScoreboard(board, sort).map((b) => b.model_id);
+
+  it("품질 desc: 높은 품질 먼저, null 맨 아래", () => {
+    expect(ids({ key: { kind: "metric", group: "total", metric: "quality" }, dir: "desc" })).toEqual([
+      "b",
+      "a",
+      "c",
+    ]);
+  });
+
+  it("품질 asc: 비-null 역순, null은 여전히 맨 아래", () => {
+    expect(ids({ key: { kind: "metric", group: "total", metric: "quality" }, dir: "asc" })).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  it("속도 desc/asc, null 맨 아래", () => {
+    expect(ids({ key: { kind: "metric", group: "total", metric: "speed" }, dir: "desc" })).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(ids({ key: { kind: "metric", group: "total", metric: "speed" }, dir: "asc" })).toEqual([
+      "b",
+      "a",
+      "c",
+    ]);
+  });
+
+  it("지연 asc(자연 방향): 가장 낮은 ttft 먼저, null 맨 아래", () => {
+    const key = { kind: "metric", group: "total", metric: "latency" } as const;
+    expect(ids({ key, dir: naturalDir(key) })).toEqual(["a", "b", "c"]);
+  });
+
+  it("지연 desc: 가장 높은 ttft 먼저, null 맨 아래", () => {
+    expect(ids({ key: { kind: "metric", group: "total", metric: "latency" }, dir: "desc" })).toEqual([
+      "b",
+      "a",
+      "c",
+    ]);
+  });
+
+  it("모델 asc/desc는 alphanumeric", () => {
+    expect(ids({ key: { kind: "model" }, dir: "asc" })).toEqual(["a", "b", "c"]);
+    expect(ids({ key: { kind: "model" }, dir: "desc" })).toEqual(["c", "b", "a"]);
+  });
+
+  it("동점이면 model_id alphanumeric으로 tie-break(numeric-aware: m2 < m10)", () => {
+    const tie = computeScoreboard([
+      srow({ model_id: "m10", scenario: "chat_hello", ttft_ms: 200, tps: 30, score: 1 }),
+      srow({ model_id: "m2", scenario: "chat_hello", ttft_ms: 200, tps: 30, score: 1 }),
+    ]);
+    expect(
+      sortScoreboard(tie, { key: { kind: "metric", group: "total", metric: "quality" }, dir: "desc" }).map(
+        (b) => b.model_id,
+      ),
+    ).toEqual(["m2", "m10"]);
+  });
+
+  it("그룹 독립성: text 품질 정렬 ≠ vision 품질 정렬", () => {
+    const g = computeScoreboard([
+      srow({ model_id: "x", scenario: "chat_hello", score: 1 }), // text q100
+      srow({ model_id: "x", scenario: "vision_meme_explain_a", score: 0 }), // vision q0
+      srow({ model_id: "y", scenario: "chat_hello", score: 0 }), // text q0
+      srow({ model_id: "y", scenario: "vision_meme_explain_a", score: 1 }), // vision q100
+    ]);
+    expect(
+      sortScoreboard(g, { key: { kind: "metric", group: "text", metric: "quality" }, dir: "desc" }).map(
+        (b) => b.model_id,
+      ),
+    ).toEqual(["x", "y"]);
+    expect(
+      sortScoreboard(g, { key: { kind: "metric", group: "vision", metric: "quality" }, dir: "desc" }).map(
+        (b) => b.model_id,
+      ),
+    ).toEqual(["y", "x"]);
+  });
+
+  it("입력 배열을 변형하지 않는다(비파괴)", () => {
+    const before = board.map((b) => b.model_id);
+    sortScoreboard(board, { key: { kind: "model" }, dir: "desc" });
+    expect(board.map((b) => b.model_id)).toEqual(before);
+  });
+});
+
+describe("naturalDir / sameSortKey", () => {
+  it("naturalDir: 품질·속도=desc, 지연·모델=asc", () => {
+    expect(naturalDir({ kind: "metric", group: "total", metric: "quality" })).toBe("desc");
+    expect(naturalDir({ kind: "metric", group: "text", metric: "speed" })).toBe("desc");
+    expect(naturalDir({ kind: "metric", group: "vision", metric: "latency" })).toBe("asc");
+    expect(naturalDir({ kind: "model" })).toBe("asc");
+  });
+
+  it("sameSortKey: group+metric 일치/불일치, model끼리 일치", () => {
+    expect(
+      sameSortKey(
+        { kind: "metric", group: "total", metric: "quality" },
+        { kind: "metric", group: "total", metric: "quality" },
+      ),
+    ).toBe(true);
+    expect(
+      sameSortKey(
+        { kind: "metric", group: "total", metric: "quality" },
+        { kind: "metric", group: "total", metric: "speed" },
+      ),
+    ).toBe(false);
+    expect(
+      sameSortKey(
+        { kind: "metric", group: "text", metric: "quality" },
+        { kind: "metric", group: "vision", metric: "quality" },
+      ),
+    ).toBe(false);
+    expect(sameSortKey({ kind: "model" }, { kind: "model" })).toBe(true);
+    expect(sameSortKey({ kind: "model" }, { kind: "metric", group: "total", metric: "quality" })).toBe(
+      false,
+    );
   });
 });
 
