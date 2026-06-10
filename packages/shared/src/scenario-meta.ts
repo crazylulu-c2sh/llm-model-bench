@@ -1,5 +1,23 @@
 import type { ScenarioId } from "./scenarios-preview";
 
+const VISION_ROUTES_KO =
+  "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). " +
+  "loopback·사설망(RFC1918) origin은 자동 base64 인라인, 공개 origin은 URL.";
+
+const VISION_JSON_EXTRACT_KO =
+  "서버가 응답에서 fenced ```json``` 블록 우선 → 마지막 balanced `{...}` → 첫 balanced `{...}` 순으로 JSON 객체를 추출";
+
+const JUDGE_OPS_KO =
+  "(c) 켜는 방법: 환경변수 `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. " +
+  "기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n";
+
+const MEME_PREFILTER_KO =
+  "(b) 서버 prefilter (4종 모두 통과해야 judge로 진행):\n" +
+  "  ① 한글 포함\n" +
+  "  ② 서버·데이터센터 단서 (`서버`, `데이터센터`, `랙`, `server`, `datacenter`, `data center`)\n" +
+  "  ③ 당나귀·수레 단서 (`당나귀`, `수레`, `짐마차`, `donkey`, `cart`)\n" +
+  "  ④ 대비·기대·현실 단서 (`대비`, `차이`, `기대`, `현실`, `약속`, `실제`, `promise`, `reality`, `expect`, `expectation`)\n";
+
 /** UI용: 시나리오 목적·품질 기준(서버 `scoreScenario`와 같은 맥락으로 유지) */
 export type ScenarioBenchMeta = {
   purposeKo: string;
@@ -34,25 +52,29 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
   code_sort_js: {
     purposeKo: "코드만 출력하도록 지시했을 때 펜스 코드 블록과 퀵소트 구현을 따르는지 봅니다.",
     criteriaKo:
-      "마크다운 ```js … ``` 안에 sortNums(또는 동등), 퀵소트 단서(partition·pivot·quicksort 등)가 있고 `.sort(` 가 없으면 합격입니다.",
+      "사고 블록 제거 후 ```js … ``` 펜스가 있으면 그 안의 코드를, 없으면 전체 본문을 채점합니다. " +
+      "sortNums(또는 동등), 퀵소트 단서(partition·pivot·quicksort 등)가 있고 `.sort(` 가 없으면 합격입니다.",
     promptNotesKo: "숫자 배열 퀵소트 구현을 ```js 펜스 안에만 제출하라는 시스템+유저 지시입니다.",
     toolsSummaryKo: "없음.",
     routesKo: "일반 텍스트 completion 스타일; 지원 라우트마다 별도 측정됩니다.",
-    implementationKo: "서버가 출력 문자열에서 펜스·금지 API·퀵소트 키워드를 정규식/휴리스틱으로 검사합니다.",
+    implementationKo:
+      "사고 블록 제거 후 ```js``` 펜스를 우선 추출하고, 펜스가 없으면 전체 본문으로 폴백한 뒤 금지 API·퀵소트 키워드를 검사합니다.",
   },
   code_sort_py: {
     purposeKo: "Python 코드만 펜스 블록으로 내도록 할 때 형식·퀵소트 구현을 봅니다.",
     criteriaKo:
-      "```python … ``` 안에 def sort_nums, 퀵소트 단서(partition·pivot·quicksort 등)가 있고 `sorted(`·`.sort(` 가 없으면 합격입니다.",
+      "사고 블록 제거 후 ```python … ``` 펜스가 있으면 그 안의 코드를, 없으면 전체 본문을 채점합니다. " +
+      "def sort_nums, 퀵소트 단서(partition·pivot·quicksort 등)가 있고 `sorted(`·`.sort(` 가 없으면 합격입니다.",
     promptNotesKo: "JS 시나리오와 대응하는 Python 버전입니다.",
     toolsSummaryKo: "없음.",
     routesKo: "code_sort_js와 동일.",
-    implementationKo: "Python 펜스와 함수명·내장 정렬 금지 규칙으로 채점합니다.",
+    implementationKo:
+      "사고 블록 제거 후 ```python``` 펜스를 우선 추출하고, 펜스가 없으면 전체 본문으로 폴백한 뒤 함수명·내장 정렬 금지 규칙으로 채점합니다.",
   },
   chat_time_calendar: {
     purposeKo: "프롬프트에 주입된 기준 시각을 바탕으로 어제·오늘·내일 날짜를 맞게 말하는지 봅니다.",
     criteriaKo:
-      "지정 타임존(기본 Asia/Seoul) 달력 기준 어제·오늘·내일의 YYYY-MM-DD 세 값이 모두 출력에 포함되면 합격입니다.",
+      "벤치 러너가 `Asia/Seoul`로 고정한 달력 기준 어제·오늘·내일의 YYYY-MM-DD 세 값이 모두 출력에 포함되면 합격입니다.",
     promptNotesKo:
       "벤치 실행 시점의 `referenceAt`(ISO)과 `calendarTimeZone`이 프롬프트에 포함됩니다. 미리보기는 문서/통계 화면에서 현재 시각·Asia/Seoul로 예시를 둡니다.",
     toolsSummaryKo: "없음.",
@@ -61,12 +83,14 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
   },
   tool_weather: {
     purposeKo: "날씨 질문에 대해 제공된 get_weather 도구를 호출하는지 봅니다.",
-    criteriaKo: "응답/스트림에 get_weather 도구 호출 신호(JSON tool_calls 등)가 있으면 합격입니다.",
+    criteriaKo:
+      "응답 본문에 `get_weather` 문자열 언급(`\\bget_weather\\b`) 또는 JSON `tool_calls`/`\"name\":\"get_weather\"` 패턴이 있으면 합격입니다.",
     promptNotesKo: "도시 날씨를 묻는 단일 턴 사용자 메시지입니다.",
     toolsSummaryKo:
       "OpenAI 형식: `get_weather(city: string)`. Anthropic 형식: 동일 이름·input_schema. 실제 HTTP 날씨 API는 호출하지 않고 호출 여부만 검사합니다.",
     routesKo: "도구 스키마가 붙은 chat / messages 요청.",
-    implementationKo: "스트림 이벤트에서 tool_calls / tool_use 유사 패턴을 텍스트로 스캔해 합격을 판정합니다.",
+    implementationKo:
+      "완료된 출력 문자열을 정규식으로 스캔합니다(`get_weather` 단어·JSON tool_calls 패턴). 스트림 이벤트를 직접 파싱하지 않습니다.",
   },
   structured_action: {
     purposeKo: "프로즈 없이 유효한 JSON 한 객체만 내도록 할 때 스키마 준수를 봅니다.",
@@ -74,7 +98,8 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     promptNotesKo: "프로즈 없이 출력 전체가 하나의 JSON 객체여야 한다고 명시합니다.",
     toolsSummaryKo: "없음.",
     routesKo: "일반 텍스트 응답을 JSON으로 파싱 시도.",
-    implementationKo: "사고 블록을 제거한 뒤 첫 유효 JSON 객체를 찾아 필드 타입·범위를 검증합니다.",
+    implementationKo:
+      "사고 블록을 제거한 뒤 greedy `\\{[\\s\\S]*\\}` 1회 매칭으로 JSON을 추출하고 `JSON.parse`·스키마 검증합니다(복수 JSON·중첩 시 비전용 balanced 추출과 다름).",
   },
   vision_table_ocr_a: {
     purposeKo: "복잡한 재무 표 이미지에서 'Net Income' 행의 2024 Actual 값과 YoY 변화율을 정확히 추출하는지 평가합니다 (ChatGPT 생성 이미지).",
@@ -84,9 +109,9 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     promptNotesKo:
       "이미지에 'Net Income'과 'Net Income Attributable to Shareholders' 두 행이 별도 존재합니다 — 프롬프트는 정확한 'Net Income' 행을 요구합니다(case-insensitive 매칭 허용).",
     toolsSummaryKo: "없음. 이미지 1장이 user 메시지에 image_url(또는 base64) 파트로 포함됩니다.",
-    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
+    routesKo: VISION_ROUTES_KO,
     implementationKo:
-      "서버가 응답에서 첫 JSON 객체를 추출 → 두 키 모두 number로 정규화(콤마·$·% strip) → 오차 검사. 루브릭 0~3을 score 0~1로 매핑.",
+      `${VISION_JSON_EXTRACT_KO} → 두 키 모두 number로 정규화(콤마·$·% strip) → 오차 검사. 루브릭 0~3을 score 0~1로 매핑.`,
   },
   vision_table_ocr_b: {
     purposeKo: "복잡한 재무 표 이미지에서 'NET INCOME' 행의 2024 Actual 값과 YoY 변화율을 정확히 추출하는지 평가합니다 (Gemini 생성 이미지).",
@@ -96,9 +121,9 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     promptNotesKo:
       "B 이미지는 AI 생성 아티팩트로 COGS·R&D·OPERATING INCOME 등 여러 행이 동일 숫자(410.55/+20.7%)를 공유합니다. v1 채점은 숫자만 보므로 *행 식별 실패*와 *정확 식별*을 구분하지 못합니다.",
     toolsSummaryKo: "없음. 이미지 1장이 user 메시지에 image_url(또는 base64) 파트로 포함됩니다.",
-    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
+    routesKo: VISION_ROUTES_KO,
     implementationKo:
-      "서버가 응답에서 첫 JSON 객체를 추출 → 두 키 모두 number로 정규화(콤마·$·% strip) → 오차 검사. 루브릭 0~3을 score 0~1로 매핑.",
+      `${VISION_JSON_EXTRACT_KO} → 두 키 모두 number로 정규화(콤마·$·% strip) → 오차 검사. 루브릭 0~3을 score 0~1로 매핑.`,
   },
   vision_count_red_cars_a: {
     purposeKo: "밀집된 항공 주차장 사진에서 빨간색 차량 수를 정확히 카운팅하는지 평가합니다 (ChatGPT 생성 이미지).",
@@ -108,8 +133,9 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     promptNotesKo:
       "사람이 직접 카운트한 범위가 ground truth. 생성 모델 프롬프트는 '대략 15~20대'를 요구했지만 실제로는 두 이미지 모두 30대+ — 모델이 프롬프트 사양을 기억해서 답하면 0점으로 떨어집니다(이미지 인식 vs 사전지식 변별 신호).",
     toolsSummaryKo: "없음.",
-    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
-    implementationKo: "서버가 응답에서 첫 JSON 객체를 추출 → red_cars 정수 변환 → 범위 단계 비교. 루브릭 0~3을 score 0~1로 매핑.",
+    routesKo: VISION_ROUTES_KO,
+    implementationKo:
+      `${VISION_JSON_EXTRACT_KO} → red_cars 정수 변환 → 범위 단계 비교. 루브릭 0~3을 score 0~1로 매핑.`,
   },
   vision_count_red_cars_b: {
     purposeKo: "밀집된 항공 주차장 사진에서 빨간색 차량 수를 정확히 카운팅하는지 평가합니다 (Gemini 생성 이미지).",
@@ -119,8 +145,9 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     promptNotesKo:
       "Gemini가 자체 이미지를 16/18~22로 자체 평가했지만 인간 카운트와 크게 어긋남 — 사용자 수동 카운트의 중요성을 입증.",
     toolsSummaryKo: "없음.",
-    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
-    implementationKo: "서버가 응답에서 첫 JSON 객체를 추출 → red_cars 정수 변환 → 범위 단계 비교. 루브릭 0~3을 score 0~1로 매핑.",
+    routesKo: VISION_ROUTES_KO,
+    implementationKo:
+      `${VISION_JSON_EXTRACT_KO} → red_cars 정수 변환 → 범위 단계 비교. 루브릭 0~3을 score 0~1로 매핑.`,
   },
   vision_chart_peak_a: {
     purposeKo: "다중 라인 차트에서 전체 최고점의 제품·분기·값을 추출하는지 평가합니다 (ChatGPT 생성 이미지).",
@@ -130,8 +157,9 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     promptNotesKo:
       "A 이미지에는 'Peak Comparison (Q2 2024): Product C: 45.8%, Product A: 45.2%' 콜아웃 박스가 직접 적혀 있어 모델이 그래프 추론 없이 박스 텍스트 OCR만으로 만점 가능 — 순수 차트 해석과 텍스트 인식이 구분되지 않습니다.",
     toolsSummaryKo: "없음.",
-    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
-    implementationKo: "서버가 응답에서 첫 JSON 객체를 추출 → product/quarter는 정규화(trim·대문자·`Q2 2024`/`Q2'24`/`2024 Q2` canonicalize) 후 exact 매칭, value_percent는 parseSignedPercent로 number 통일. 루브릭 0~3을 score 0~1로 매핑.",
+    routesKo: VISION_ROUTES_KO,
+    implementationKo:
+      `${VISION_JSON_EXTRACT_KO} → product/quarter는 정규화(trim·대문자·\`Q2 2024\`/\`Q2'24\`/\`2024 Q2\` canonicalize) 후 exact 매칭, value_percent는 parseSignedPercent로 number 통일. 루브릭 0~3을 score 0~1로 매핑.`,
   },
   vision_chart_peak_b: {
     purposeKo: "다중 라인 차트에서 전체 최고점의 제품·분기·값을 추출하는지 평가합니다 (Gemini 생성 이미지).",
@@ -141,20 +169,17 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     promptNotesKo:
       "참고: Product A 최고는 Q3 2024 / 61.1% (피크 비교 시 혼동 주의). 정답 62.4는 커서·Gemini 두 독립 리뷰가 모두 확정.",
     toolsSummaryKo: "없음.",
-    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
-    implementationKo: "서버가 응답에서 첫 JSON 객체를 추출 → product/quarter는 정규화(trim·대문자·`Q2 2024`/`Q2'24`/`2024 Q2` canonicalize) 후 exact 매칭, value_percent는 parseSignedPercent로 number 통일. 루브릭 0~3을 score 0~1로 매핑.",
+    routesKo: VISION_ROUTES_KO,
+    implementationKo:
+      `${VISION_JSON_EXTRACT_KO} → product/quarter는 정규화(trim·대문자·\`Q2 2024\`/\`Q2'24\`/\`2024 Q2\` canonicalize) 후 exact 매칭, value_percent는 parseSignedPercent로 number 통일. 루브릭 0~3을 score 0~1로 매핑.`,
   },
   vision_meme_explain_a: {
     purposeKo: "두 패널 밈의 시각적 대비와 풍자 의도를 한국어로 정확히 설명하는지 평가합니다 (ChatGPT 생성 이미지).",
     criteriaKo:
       "한 줄 요약: 정답 텍스트 고정 없음(주관 채점) · LLM-as-Judge 필수 · judge 비활성 시 최대 rubric 1 (score 0.33, pass=false).\n\n" +
       "(a) 왜 judge가 필요한가: 한국어 자유 서술 응답이라 결정론 채점 불가, 풍자 의도 해석은 외부 모델에 위임한다.\n" +
-      "(b) 서버 prefilter (4종 모두 통과해야 judge로 진행):\n" +
-      "  ① 한글 포함\n" +
-      "  ② 서버·데이터센터 단서 (`서버`, `데이터센터`, `랙`, `server`, `datacenter`)\n" +
-      "  ③ 당나귀·수레 단서 (`당나귀`, `수레`, `짐마차`, `donkey`, `cart`)\n" +
-      "  ④ 대비·기대·현실 단서 (`대비`, `차이`, `기대`, `현실`, `약속`, `실제`, `promise`, `reality`, `expect`)\n" +
-      "(c) 켜는 방법: 환경변수 `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. 기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n" +
+      MEME_PREFILTER_KO +
+      JUDGE_OPS_KO +
       "(d) Judge 활성 시 rubric:\n" +
       "  • 3 = 두 패널 텍스트 인용 + 시각 묘사(서버 랙 vs 당나귀 수레) + \"LLM 클라우드 약속 vs 로컬 PC 현실\" 풍자 의도 모두 정확.\n" +
       "  • 2 = OCR·시각은 정확하나 기술 맥락(LLM/PC 연결) 약함.\n" +
@@ -163,7 +188,7 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
       "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo: "A는 상하 분할, B는 좌우 분할. prompt는 '두 패널'로 방향 무관.",
     toolsSummaryKo: "없음.",
-    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
+    routesKo: VISION_ROUTES_KO,
     implementationKo:
       "scoreScenario는 prefilter + 잠정 rubric 1만 산출(내부 `judge_pending` 플래그). bench-runner가 judge enable + prefilter 통과 시 Claude Opus 4.7 호출 후 0~3 rubric으로 덮어쓴다. judge 실패는 rubric 0. emit 직전 `judge_pending` 플래그는 SSE/DB에서 제거.",
   },
@@ -172,12 +197,8 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     criteriaKo:
       "한 줄 요약: 정답 텍스트 고정 없음(주관 채점) · LLM-as-Judge 필수 · judge 비활성 시 최대 rubric 1 (score 0.33, pass=false).\n\n" +
       "(a) 왜 judge가 필요한가: 한국어 자유 서술 응답이라 결정론 채점 불가, 풍자 의도 해석은 외부 모델에 위임한다.\n" +
-      "(b) 서버 prefilter (4종 모두 통과해야 judge로 진행):\n" +
-      "  ① 한글 포함\n" +
-      "  ② 서버·데이터센터 단서 (`서버`, `데이터센터`, `랙`, `server`, `datacenter`)\n" +
-      "  ③ 당나귀·수레 단서 (`당나귀`, `수레`, `짐마차`, `donkey`, `cart`)\n" +
-      "  ④ 대비·기대·현실 단서 (`대비`, `차이`, `기대`, `현실`, `약속`, `실제`, `promise`, `reality`, `expect`)\n" +
-      "(c) 켜는 방법: 환경변수 `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. 기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n" +
+      MEME_PREFILTER_KO +
+      JUDGE_OPS_KO +
       "(d) Judge 활성 시 rubric:\n" +
       "  • 3 = 두 패널 텍스트 인용 + 시각 묘사(서버 랙 vs 당나귀 수레) + \"LLM 클라우드 약속 vs 로컬 PC 현실\" 풍자 의도 모두 정확.\n" +
       "  • 2 = OCR·시각은 정확하나 기술 맥락(LLM/PC 연결) 약함.\n" +
@@ -186,7 +207,7 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
       "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo: "B는 가로 분할(좌우). prompt가 방향을 명시하지 않아 두 변형이 같은 prompt를 공유.",
     toolsSummaryKo: "없음.",
-    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인.",
+    routesKo: VISION_ROUTES_KO,
     implementationKo:
       "scoreScenario는 prefilter + 잠정 rubric 1만 산출(내부 `judge_pending` 플래그). bench-runner가 judge enable + prefilter 통과 시 Claude Opus 4.7 호출 후 0~3 rubric으로 덮어쓴다. judge 실패는 rubric 0. emit 직전 `judge_pending` 플래그는 SSE/DB에서 제거.",
   },
@@ -199,7 +220,7 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
       "  ① ```html``` 펜스 또는 일반 ``` 코드 펜스 존재\n" +
       "  ② 시맨틱 태그(<header>·<nav>·<main>·<section>·<footer>) 중 3개 이상\n" +
       "  ③ 필수 단서 `Sign Up`, `Learn More`, `Feature` 모두 포함\n" +
-      "(c) 켜는 방법: `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. 기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n" +
+      JUDGE_OPS_KO +
       "(d) Judge 활성 시 rubric:\n" +
       "  • 3 = grid/flex 사용, 모든 라벨 섹션이 올바른 수직 순서, 라벨된 요소(버튼·내비·폼 필드) 모두 재현.\n" +
       "  • 2 = 레이아웃 대체로 맞으나 정렬 어긋남 또는 1~2개 사소한 누락.\n" +
@@ -208,7 +229,7 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
       "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. 비전 미지원 모델 400은 `upstream_no_vision`으로 별도 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo: "A 와이어프레임: Header(Logo+Nav 5개), Hero(Sign Up+Learn More), Features Grid 3개, Testimonials, Footer 4열.",
     toolsSummaryKo: "없음.",
-    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인. 기본 max_tokens 4096(긴 HTML 출력).",
+    routesKo: `${VISION_ROUTES_KO} 기본 max_tokens 4096(긴 HTML 출력).`,
     implementationKo:
       "scoreScenario: 펜스 추출 + substring 매칭(prefilter, case-insensitive) + 잠정 rubric 1(`judge_pending` 플래그). bench-runner가 judge enable + prefilter 통과 시 Claude Opus 4.7 호출 후 0~3 rubric으로 덮어쓴다. judge 실패는 rubric 0.",
   },
@@ -221,7 +242,7 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
       "  ① ```html``` 펜스 또는 일반 ``` 코드 펜스 존재\n" +
       "  ② 시맨틱 태그(<header>·<nav>·<main>·<section>·<footer>) 중 3개 이상\n" +
       "  ③ 필수 단서 `Get Started`, `Learn More`, `Feature title` 모두 포함\n" +
-      "(c) 켜는 방법: `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 둘 다 설정. 기본 judge 모델 `claude-opus-4-7` (`LLM_JUDGE_MODEL`로 교체 가능). 호출 스펙: temperature 0, timeout 30s, 재시도 0회.\n" +
+      JUDGE_OPS_KO +
       "(d) Judge 활성 시 rubric:\n" +
       "  • 3 = grid/flex 사용, 모든 라벨 섹션이 올바른 수직 순서, 라벨된 요소(버튼·내비·폼 필드) 모두 재현.\n" +
       "  • 2 = 레이아웃 대체로 맞으나 정렬 어긋남 또는 1~2개 사소한 누락.\n" +
@@ -230,7 +251,7 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
       "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. 비전 미지원 모델 400은 `upstream_no_vision`으로 별도 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
     promptNotesKo: "B 와이어프레임: Header(Logo+Nav 4개), Hero(Get Started + Hero Image/Video), Features Grid 3개, Testimonials 2개, Footer 3열.",
     toolsSummaryKo: "없음.",
-    routesKo: "비전 지원 모델만: OpenAI Chat Completions(image_url) / Anthropic Messages(image source). loopback origin은 자동 base64 인라인. 기본 max_tokens 4096(긴 HTML 출력).",
+    routesKo: `${VISION_ROUTES_KO} 기본 max_tokens 4096(긴 HTML 출력).`,
     implementationKo:
       "scoreScenario: 펜스 추출 + substring 매칭(prefilter, case-insensitive) + 잠정 rubric 1(`judge_pending` 플래그). bench-runner가 judge enable + prefilter 통과 시 Claude Opus 4.7 호출 후 0~3 rubric으로 덮어쓴다. judge 실패는 rubric 0.",
   },
