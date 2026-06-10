@@ -24,17 +24,9 @@ function qualityBand(v: number): ScoreBand {
   if (v >= 50) return "mid";
   return "low";
 }
-/** 속도 밴드: ≥90 / 70~89 / 40~69 / <40 (tps-tier 30·15·5 → 점수 90·70·40과 정렬). */
-function speedBand(v: number): ScoreBand {
-  if (v >= 90) return "high";
-  if (v >= 70) return "good";
-  if (v >= 40) return "mid";
-  return "low";
-}
-
-/** 0~100 절대 길이 채움 막대. */
-function ScoreBar({ value, color }: { value: number; color: string }) {
-  const pct = Math.max(0, Math.min(100, value));
+/** max 기준 상대 길이 채움 막대(기본 max=100=절대). */
+function ScoreBar({ value, color, max = 100 }: { value: number; color: string; max?: number }) {
+  const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
   return (
     <span className="mx-auto mt-1 block h-1 w-full max-w-[3.25rem] overflow-hidden rounded-full bg-[var(--border)]">
       <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: color }} aria-hidden />
@@ -76,25 +68,33 @@ function QualityCell({ g, capped }: { g: QualityGroupScore; capped: boolean }) {
   );
 }
 
-/** 속도 셀: 밴드색 숫자 + 막대 + approx `*`. */
-function SpeedCell({ g }: { g: SpeedGroup }) {
+/** 속도 셀: 디코드 TPS 절대 점수(상한 없음) + 열별 최고점 대비 상대 막대 + approx `*`. */
+function SpeedCell({ g, max }: { g: SpeedGroup; max: number }) {
   if (g.score == null) return <span className="font-mono text-xs text-[var(--muted)]">—</span>;
-  const color = BAND_COLOR[speedBand(g.score)];
   return (
     <span className="inline-flex w-full flex-col items-center leading-tight">
-      <span className="font-mono text-xs font-semibold" style={{ color }}>
+      <span className="font-mono text-xs font-semibold text-[var(--foreground)]">
         {g.score}
         {g.approxRows > 0 ? <Caveat title={APPROX_TITLE} /> : null}
       </span>
-      <ScoreBar value={g.score} color={color} />
+      <ScoreBar value={g.score} color="var(--foreground)" max={max} />
     </span>
+  );
+}
+
+/** 지연 셀: raw TTFT 평균(ms, 낮을수록 좋음). 점수·막대·밴드 없음. */
+function TtftCell({ g }: { g: SpeedGroup }) {
+  return g.ttftMs == null ? (
+    <span className="font-mono text-xs text-[var(--muted)]">—</span>
+  ) : (
+    <span className="font-mono text-xs text-[var(--muted)]">{g.ttftMs}ms</span>
   );
 }
 
 const GROUP_BORDER = "border-l border-[var(--border)]";
 
 /**
- * 모델별 텍스트/비전/총합 × 품질/속도 절대 점수(0~100) 리더보드.
+ * 모델별 텍스트/비전/총합 리더보드 — 품질(0~100) · 속도(상한 없는 디코드 TPS 절대 점수) · 지연(TTFT ms).
  * 점수는 모든 측정 런 평균으로 산출하며 표·차트 위에 요약으로 표시한다.
  */
 export function Scoreboard({
@@ -108,6 +108,16 @@ export function Scoreboard({
 }) {
   const board = useMemo(() => scoreboardFromRows(rows, detailAggregate), [rows, detailAggregate]);
   const colorByModel = useMemo(() => buildModelColorMap(rows.map((r) => r.model_id)), [rows]);
+  // 속도 막대는 각 열(텍스트/비전/총합) 최고 속도점 대비 상대 길이 — 열별 max를 미리 구한다.
+  const maxSpeed = useMemo(() => {
+    const m = { text: 0, vision: 0, total: 0 };
+    for (const b of board) {
+      if (b.speed.text.score != null) m.text = Math.max(m.text, b.speed.text.score);
+      if (b.speed.vision.score != null) m.vision = Math.max(m.vision, b.speed.vision.score);
+      if (b.speed.total.score != null) m.total = Math.max(m.total, b.speed.total.score);
+    }
+    return m;
+  }, [board]);
 
   if (rows.length === 0 || board.length === 0) return null;
 
@@ -122,10 +132,12 @@ export function Scoreboard({
         {title}
       </h2>
       <p className="mb-2 text-xs text-[var(--muted)]">
-        모델별 절대 점수(0~100). 측정 런 평균 · 텍스트/비전은 시나리오 동일 가중, 총합은 전체 풀링. 정렬: 총합 품질순.
+        품질은 절대 점수(0~100), 속도는 상한 없는 디코드 TPS 절대 점수(기준 30 tok/s = 1000). 지연(TTFT)은 첫
+        토큰까지 ms로 낮을수록 좋음(점수 미포함). 측정 런 평균 · 텍스트/비전은 시나리오 동일 가중, 총합은 전체
+        풀링. 정렬: 총합 품질순.
       </p>
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--muted)]">
-        <span>색상 = 절대 점수 밴드(높을수록 좋음):</span>
+        <span>품질 색상 = 절대 점수 밴드:</span>
         {(
           [
             ["var(--tier-fast)", "우수"],
@@ -139,21 +151,24 @@ export function Scoreboard({
             {label}
           </span>
         ))}
+        <span className="w-full text-[var(--muted)]">
+          속도 = 상한 없는 점수(막대는 각 열 최고점 대비) · 지연 = TTFT ms(낮을수록 좋음)
+        </span>
       </div>
       <div className="overflow-x-auto rounded border border-[var(--border)]">
-        <table className="w-full min-w-[34rem] text-left text-sm">
+        <table className="w-full min-w-[46rem] text-left text-sm">
           <thead className="bg-[var(--surface)] text-[var(--muted)]">
             <tr>
               <th rowSpan={2} className="p-2 align-bottom font-medium">
                 모델
               </th>
-              <th colSpan={2} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+              <th colSpan={3} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
                 텍스트
               </th>
-              <th colSpan={2} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+              <th colSpan={3} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
                 비전
               </th>
-              <th colSpan={2} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+              <th colSpan={3} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
                 총합
               </th>
             </tr>
@@ -161,20 +176,29 @@ export function Scoreboard({
               <th className={`px-2 pb-2 text-center text-[11px] font-normal ${GROUP_BORDER}`} title="정답률·루브릭(0~100)">
                 품질
               </th>
-              <th className="px-2 pb-2 text-center text-[11px] font-normal" title="TPS·TTFT 절대 점수(0~100)">
+              <th className="px-2 pb-2 text-center text-[11px] font-normal" title="디코드 TPS 절대 점수(기준 1000, 상한 없음)">
                 속도
+              </th>
+              <th className="px-2 pb-2 text-center text-[11px] font-normal" title="Time-To-First-Token, 첫 토큰까지 ms(낮을수록 좋음, 점수 비포함)">
+                지연
               </th>
               <th className={`px-2 pb-2 text-center text-[11px] font-normal ${GROUP_BORDER}`} title="정답률·루브릭(0~100)">
                 품질
               </th>
-              <th className="px-2 pb-2 text-center text-[11px] font-normal" title="TPS·TTFT 절대 점수(0~100)">
+              <th className="px-2 pb-2 text-center text-[11px] font-normal" title="디코드 TPS 절대 점수(기준 1000, 상한 없음)">
                 속도
+              </th>
+              <th className="px-2 pb-2 text-center text-[11px] font-normal" title="Time-To-First-Token, 첫 토큰까지 ms(낮을수록 좋음, 점수 비포함)">
+                지연
               </th>
               <th className={`px-2 pb-2 text-center text-[11px] font-normal ${GROUP_BORDER}`} title="정답률·루브릭(0~100)">
                 품질
               </th>
-              <th className="px-2 pb-2 text-center text-[11px] font-normal" title="TPS·TTFT 절대 점수(0~100)">
+              <th className="px-2 pb-2 text-center text-[11px] font-normal" title="디코드 TPS 절대 점수(기준 1000, 상한 없음)">
                 속도
+              </th>
+              <th className="px-2 pb-2 text-center text-[11px] font-normal" title="Time-To-First-Token, 첫 토큰까지 ms(낮을수록 좋음, 점수 비포함)">
+                지연
               </th>
             </tr>
           </thead>
@@ -208,19 +232,28 @@ export function Scoreboard({
                     <QualityCell g={b.quality.text} capped={false} />
                   </td>
                   <td className="p-2 text-center">
-                    <SpeedCell g={b.speed.text} />
+                    <SpeedCell g={b.speed.text} max={maxSpeed.text} />
+                  </td>
+                  <td className="p-2 text-center">
+                    <TtftCell g={b.speed.text} />
                   </td>
                   <td className={`p-2 text-center ${GROUP_BORDER}`}>
                     <QualityCell g={b.quality.vision} capped={cap} />
                   </td>
                   <td className="p-2 text-center">
-                    <SpeedCell g={b.speed.vision} />
+                    <SpeedCell g={b.speed.vision} max={maxSpeed.vision} />
+                  </td>
+                  <td className="p-2 text-center">
+                    <TtftCell g={b.speed.vision} />
                   </td>
                   <td className={`p-2 text-center ${GROUP_BORDER}`}>
                     <QualityCell g={b.quality.total} capped={cap} />
                   </td>
                   <td className="p-2 text-center">
-                    <SpeedCell g={b.speed.total} />
+                    <SpeedCell g={b.speed.total} max={maxSpeed.total} />
+                  </td>
+                  <td className="p-2 text-center">
+                    <TtftCell g={b.speed.total} />
                   </td>
                 </tr>
               );

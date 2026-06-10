@@ -123,7 +123,7 @@ function cmpNullableDesc(a: number | null, b: number | null): number {
 }
 
 function emptySpeed(id: string): ModelSpeedScore {
-  const g = { score: null, scoredRows: 0, approxRows: 0 } as const;
+  const g = { score: null, ttftMs: null, scoredRows: 0, approxRows: 0 } as const;
   return { model_id: id, text: g, vision: g, total: g, textOnly: false, approxCaveat: false };
 }
 
