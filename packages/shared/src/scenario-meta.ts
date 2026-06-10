@@ -54,7 +54,8 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     criteriaKo:
       "사고 블록 제거 후 ```js … ``` 펜스가 있으면 그 안의 코드를, 없으면 전체 본문을 채점합니다. " +
       "sortNums(또는 동등), 퀵소트 단서(partition·pivot·quicksort 등)가 있고 `.sort(` 가 없으면 합격입니다.",
-    promptNotesKo: "숫자 배열 퀵소트 구현을 ```js 펜스 안에만 제출하라는 시스템+유저 지시입니다.",
+    promptNotesKo:
+      "system: ```js``` 펜스·no prose·내장 sort 금지. user: sortNums 퀵소트 구현 과제만(형식 지시는 system에만).",
     toolsSummaryKo: "없음.",
     routesKo: "일반 텍스트 completion 스타일; 지원 라우트마다 별도 측정됩니다.",
     implementationKo:
@@ -65,7 +66,8 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     criteriaKo:
       "사고 블록 제거 후 ```python … ``` 펜스가 있으면 그 안의 코드를, 없으면 전체 본문을 채점합니다. " +
       "def sort_nums, 퀵소트 단서(partition·pivot·quicksort 등)가 있고 `sorted(`·`.sort(` 가 없으면 합격입니다.",
-    promptNotesKo: "JS 시나리오와 대응하는 Python 버전입니다.",
+    promptNotesKo:
+      "code_sort_js와 동일 역할 분리 — system: ```python``` 펜스·형식, user: def sort_nums 퀵소트 과제만.",
     toolsSummaryKo: "없음.",
     routesKo: "code_sort_js와 동일.",
     implementationKo:
@@ -95,7 +97,8 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
   structured_action: {
     purposeKo: "프로즈 없이 유효한 JSON 한 객체만 내도록 할 때 스키마 준수를 봅니다.",
     criteriaKo: '{"action":"문자열","confidence":0~1 숫자} 형태의 JSON이 파싱·검증되면 합격입니다.',
-    promptNotesKo: "프로즈 없이 출력 전체가 하나의 JSON 객체여야 한다고 명시합니다.",
+    promptNotesKo:
+      "system: JSON 스키마·형식(프로즈·펜스 금지). user: 분기 보고서 검토 후 submit/revise/hold 선택 과제.",
     toolsSummaryKo: "없음.",
     routesKo: "일반 텍스트 응답을 JSON으로 파싱 시도.",
     implementationKo:
@@ -186,7 +189,8 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
       "  • 1 = 묘사만 하고 '왜 웃긴지' 미설명.\n" +
       "  • 0 = OCR 실패 / 무관한 설명.\n" +
       "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
-    promptNotesKo: "A는 상하 분할, B는 좌우 분할. prompt는 '두 패널'로 방향 무관.",
+    promptNotesKo:
+      "A는 상하 분할, B는 좌우 분할. system: 한국어·3~5문장·패널 구체성. user: 풍자·패널 대비 태스크만.",
     toolsSummaryKo: "없음.",
     routesKo: VISION_ROUTES_KO,
     implementationKo:
@@ -205,7 +209,8 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
       "  • 1 = 묘사만 하고 '왜 웃긴지' 미설명.\n" +
       "  • 0 = OCR 실패 / 무관한 설명.\n" +
       "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
-    promptNotesKo: "B는 가로 분할(좌우). prompt가 방향을 명시하지 않아 두 변형이 같은 prompt를 공유.",
+    promptNotesKo:
+      "B는 가로 분할(좌우). vision_meme_explain_a와 동일 프롬프트·역할 분리(스타일은 system, 태스크는 user).",
     toolsSummaryKo: "없음.",
     routesKo: VISION_ROUTES_KO,
     implementationKo:
@@ -227,7 +232,9 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
       "  • 1 = 단일 컬럼으로 무너짐 OR 핵심 버튼·내비 누락.\n" +
       "  • 0 = 코드 생성 거부 / 무관한 코드.\n" +
       "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. 비전 미지원 모델 400은 `upstream_no_vision`으로 별도 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
-    promptNotesKo: "A 와이어프레임: Header(Logo+Nav 5개), Hero(Sign Up+Learn More), Features Grid 3개, Testimonials, Footer 4열.",
+    promptNotesKo:
+      "A 와이어프레임: Header(Logo+Nav 5개), Hero(Sign Up+Learn More), Features Grid 3개, Testimonials, Footer 4열. " +
+      "system: semantic HTML5·Tailwind·```html``` 펜스. user: 와이어프레임 재구성·라벨 유지 과제만.",
     toolsSummaryKo: "없음.",
     routesKo: `${VISION_ROUTES_KO} 기본 max_tokens 4096(긴 HTML 출력).`,
     implementationKo:
@@ -249,7 +256,9 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
       "  • 1 = 단일 컬럼으로 무너짐 OR 핵심 버튼·내비 누락.\n" +
       "  • 0 = 코드 생성 거부 / 무관한 코드.\n" +
       "(e) Judge 실패(timeout 30s / parse error / 5xx / API 키 없음): rubric 0 + reason에 `judge_timeout` / `judge_parse_error` / `judge_network_error` 라벨. 비전 미지원 모델 400은 `upstream_no_vision`으로 별도 라벨. pass는 score ≥ 0.67 (rubric ≥ 2).",
-    promptNotesKo: "B 와이어프레임: Header(Logo+Nav 4개), Hero(Get Started + Hero Image/Video), Features Grid 3개, Testimonials 2개, Footer 3열.",
+    promptNotesKo:
+      "B 와이어프레임: Header(Logo+Nav 4개), Hero(Get Started + Hero Image/Video), Features Grid 3개, Testimonials 2개, Footer 3열. " +
+      "vision_wireframe_html_a와 동일 역할 분리.",
     toolsSummaryKo: "없음.",
     routesKo: `${VISION_ROUTES_KO} 기본 max_tokens 4096(긴 HTML 출력).`,
     implementationKo:
@@ -260,7 +269,7 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     criteriaKo:
       "fetch_pdf_text 도구가 실제로 호출되고, 사고 블록을 제외한 최종 응답에 한글이 있으며 그 길이가 1000자 미만이면 합격입니다.",
     promptNotesKo:
-      "PDF URL은 벤치 메타의 `public_assets_origin`(또는 브라우저 origin) 아래 공개 자산 경로로 주어집니다. 일반 웹 페이지용 `fetch_url`과 PDF 전용 `fetch_pdf_text`를 구분하라는 지시가 포함됩니다.",
+      "system: PDF는 `fetch_pdf_text` 필수·한국어 1000자 상한·인용 금지. user: NIST FIPS 197 PDF URL + 한국어 요약 태스크만.",
     toolsSummaryKo:
       "`fetch_url`: UTF-8 텍스트(비PDF). `fetch_pdf_text`: PDF에서 추출한 평문(잘림). 벤치 러너가 도구 실행기를 붙여 실제 GET/PDF 파싱을 수행합니다.",
     routesKo: "도구가 포함된 chat / messages.",

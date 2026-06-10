@@ -70,5 +70,58 @@ describe("scenario prompt previews", () => {
     });
     expect(user).toContain("http://127.0.0.1:21104");
     expect(user).toContain("nist.fips.197.pdf");
+    expect(user).not.toContain("fetch_pdf_text");
+    expect(user).not.toMatch(/1\)/);
+    const sys = getScenarioSystemPromptPreview("translate_nist_fips197_pdf_tools");
+    expect(sys).toContain("fetch_pdf_text");
+    expect(sys).toContain("1000");
+  });
+
+  it("structured_action: schema in system, quarterly report task in user", () => {
+    const sys = getScenarioSystemPromptPreview("structured_action");
+    const user = getScenarioUserPromptPreview("structured_action");
+    expect(sys).toContain('"action"');
+    expect(sys).toContain("confidence");
+    expect(user).toContain("quarterly report");
+    expect(user).not.toContain('{"action":"string"');
+  });
+
+  it("code_sort_js: format rules in system only, quicksort task in user", () => {
+    const sys = getScenarioSystemPromptPreview("code_sort_js");
+    const user = getScenarioUserPromptPreview("code_sort_js");
+    expect(sys).toContain("```js```");
+    expect(user).toContain("quicksort");
+    expect(user).not.toMatch(/Output ONLY/i);
+    expect(user).not.toContain("fenced");
+  });
+
+  it("code_sort_py: format rules in system only, quicksort task in user", () => {
+    const sys = getScenarioSystemPromptPreview("code_sort_py");
+    const user = getScenarioUserPromptPreview("code_sort_py");
+    expect(sys).toContain("```python```");
+    expect(user).toContain("quicksort");
+    expect(user).not.toMatch(/Output ONLY/i);
+  });
+
+  it("vision_meme_explain: style in system, satire/panel task in user", () => {
+    const sys = getScenarioSystemPromptPreview("vision_meme_explain_a");
+    const user = getScenarioUserPromptPreview("vision_meme_explain_a");
+    expect(sys).toMatch(/3.5/);
+    expect(sys).toContain("sentences");
+    expect(user).toContain("풍자");
+    expect(user).toContain("패널");
+    expect(user).not.toMatch(/3.5/);
+    expect(user).not.toContain("sentences");
+  });
+
+  it("vision_wireframe_html: format in system, recreation task in user", () => {
+    const sys = getScenarioSystemPromptPreview("vision_wireframe_html_a");
+    const user = getScenarioUserPromptPreview("vision_wireframe_html_a");
+    expect(sys).toContain("```html```");
+    expect(sys).toContain("Tailwind");
+    expect(user).toContain("wireframe");
+    expect(user).toContain("labels");
+    expect(user).not.toMatch(/fenced/i);
+    expect(user).not.toMatch(/no prose/i);
   });
 });
