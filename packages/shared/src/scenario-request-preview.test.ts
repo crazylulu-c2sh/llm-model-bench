@@ -15,6 +15,11 @@ describe("getScenarioBenchRequestPreview", () => {
     });
     const names = (p.openAiChatCompletions?.tools as { function: { name: string } }[]).map((t) => t.function.name);
     expect(names).toEqual(["fetch_url", "fetch_pdf_text"]);
+    const user = p.openAiChatCompletions?.messages[1] as { content: string };
+    const system = p.openAiChatCompletions?.messages[0] as { content: string };
+    expect(user.content).toContain("nist.fips.197.pdf");
+    expect(user.content).not.toContain("fetch_pdf_text");
+    expect(system.content).toContain("fetch_pdf_text");
   });
 
   it("vision scenario includes multimodal user content and image_refs", () => {

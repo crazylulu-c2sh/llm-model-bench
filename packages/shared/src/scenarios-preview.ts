@@ -193,13 +193,11 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
       return [
         "Write a JavaScript function sortNums(arr) that returns a new array of numbers sorted in ascending order using quicksort that you implement yourself.",
         "Do not use Array.prototype.sort, .sort(, or any other built-in sort.",
-        "Output ONLY a single fenced code block ```js ... ``` with no prose.",
       ].join(" ");
     case "code_sort_py":
       return [
         "Write Python def sort_nums(arr) that returns a new list of numbers sorted in ascending order using quicksort that you implement yourself.",
         "Do not use sorted(), list.sort(), or any other built-in sort.",
-        "Output ONLY a single fenced code block ```python ... ``` with no prose.",
       ].join(" ");
     case "chat_time_calendar": {
       const iso = opts?.referenceIso ?? new Date().toISOString();
@@ -213,15 +211,14 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
     case "tool_weather":
       return "What is the weather in Seattle? Use the provided tool.";
     case "structured_action":
-      return 'Reply with ONLY valid JSON (no markdown) matching: {"action":"string","confidence":number} where confidence is 0-1.';
+      return [
+        "You are reviewing a draft quarterly report. Choose an action (submit, revise, or hold)",
+        "and your confidence in that decision. Reply with JSON only.",
+      ].join(" ");
     case "translate_nist_fips197_pdf_tools": {
       const base = opts?.publicAssetBaseUrl?.replace(/\/+$/, "") ?? "<PUBLIC_ASSET_BASE>";
       const pdfUrl = `${base}/nist.fips.197.pdf`;
-      return [
-        "You have tools fetch_url and fetch_pdf_text (bench server executes them).",
-        `1) Call fetch_pdf_text with url exactly: ${pdfUrl}`,
-        "2) From the returned English text, write a concise Korean summary within 1000 characters. Korean only. No quotes, no English, do not paste the full PDF.",
-      ].join("\n");
+      return `Summarize the NIST FIPS 197 (AES) standard from this PDF in Korean:\n${pdfUrl}`;
     }
     case "vision_table_ocr_a":
     case "vision_table_ocr_b":
@@ -248,16 +245,12 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
       ].join(" ");
     case "vision_meme_explain_a":
     case "vision_meme_explain_b":
-      return [
-        "이 밈이 풍자하는 바를 한국어로 3~5문장으로 설명하세요.",
-        "두 패널이 각각 무엇을 보여주고, 왜 대비가 우스운지 짚어 주세요.",
-      ].join(" ");
+      return "이 밈이 풍자하는 바와 두 패널의 대비를 설명하세요.";
     case "vision_wireframe_html_a":
     case "vision_wireframe_html_b":
       return [
-        "Recreate this hand-drawn website wireframe in semantic HTML5 using Tailwind CSS utility classes.",
+        "Recreate this hand-drawn website wireframe.",
         "Include every labeled section with the same text labels.",
-        "Output one fenced ```html``` block only — no prose, no commentary.",
       ].join(" ");
     default:
       return `Unknown scenario: ${id}`;
@@ -297,7 +290,8 @@ export function getScenarioSystemPromptPreview(id: string): string {
     case "structured_action":
       return [
         "You are a strict JSON assistant.",
-        "Output must be valid JSON only, with no markdown fences, no prose, and no extra keys unless requested.",
+        "Output must be valid JSON only — no markdown fences, no prose, and no extra keys.",
+        'Respond with a single object: {"action":"<string>","confidence":<number>} where confidence is between 0 and 1 inclusive.',
       ].join(" ");
     case "code_sort_js":
       return [
@@ -314,7 +308,9 @@ export function getScenarioSystemPromptPreview(id: string): string {
     case "translate_nist_fips197_pdf_tools":
       return [
         "You are a tool-using translation assistant.",
-        "Use the provided fetch tools to read source text first, then produce a concise Korean-only summary.",
+        "For PDF sources you MUST call fetch_pdf_text (not fetch_url).",
+        "Read the full source first, then write a concise Korean-only summary under 1000 characters.",
+        "No quotes, no English, do not paste the full document.",
       ].join(" ");
     case "vision_table_ocr_a":
     case "vision_table_ocr_b":
@@ -327,10 +323,18 @@ export function getScenarioSystemPromptPreview(id: string): string {
       return "You are a strict chart-reading assistant. Output a single JSON object only.";
     case "vision_meme_explain_a":
     case "vision_meme_explain_b":
-      return "You are an image-reading assistant. Briefly explain the joke in this meme in Korean. 3–5 sentences. Be concrete about both panels.";
+      return [
+        "You are an image-reading assistant.",
+        "Reply in Korean only, in 3–5 concrete sentences.",
+        "Be specific about both panels.",
+      ].join(" ");
     case "vision_wireframe_html_a":
     case "vision_wireframe_html_b":
-      return "You are a frontend assistant. Reply with a single fenced ```html``` block using Tailwind CSS utility classes. No prose.";
+      return [
+        "You are a frontend assistant.",
+        "Recreate wireframes as semantic HTML5 using Tailwind CSS utility classes.",
+        "Reply with a single fenced ```html``` block only — no prose or commentary.",
+      ].join(" ");
     default:
       return "You are a helpful assistant. Follow the user instruction exactly.";
   }
