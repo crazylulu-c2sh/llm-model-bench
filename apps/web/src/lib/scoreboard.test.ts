@@ -61,7 +61,16 @@ describe("computeScoreboard", () => {
     ]);
     expect(board.map((b) => b.model_id)).toEqual(["high", "low"]);
     expect(board[0]!.quality.total.value).toBe(100);
-    expect(board[0]!.speed.total.score).toBe(93); // 0.7*90 + 0.3*100
+    expect(board[0]!.speed.total.score).toBe(1000); // tps 30 -> 1000×30/30 (디코드 TPS-only)
+  });
+
+  it("동일 품질이면 속도(디코드 TPS) desc로 tie-break", () => {
+    const board = computeScoreboard([
+      srow({ model_id: "slow", scenario: "chat_hello", ttft_ms: 300, tps: 30, score: 1 }), // 1000
+      srow({ model_id: "fast", scenario: "chat_hello", ttft_ms: 300, tps: 60, score: 1 }), // 2000
+    ]);
+    expect(board.map((b) => b.model_id)).toEqual(["fast", "slow"]);
+    expect(board[0]!.speed.total.score).toBe(2000);
   });
 
   it("nulls sort last", () => {
@@ -99,6 +108,6 @@ describe("scoreboardFromRows (end-to-end)", () => {
     const board = scoreboardFromRows(rows, agg);
     expect(board).toHaveLength(1);
     expect(board[0]!.quality.total.value).toBe(100); // averaged 1, not row's 0
-    expect(board[0]!.speed.total.score).toBe(93); // tps 30 -> 90, ttft 300 -> 100
+    expect(board[0]!.speed.total.score).toBe(1000); // tps 30 -> 1000×30/30 (TTFT 점수 무관)
   });
 });
