@@ -33,6 +33,37 @@ export {
 export { getScenarioBenchMeta, type ScenarioBenchMeta } from "./scenario-meta";
 
 export {
+  CHART_VALUE_ABS_TOL,
+  COUNT_RED_CARS_TOL_FAR,
+  COUNT_RED_CARS_TOL_NEAR,
+  OCR_VALUE_REL_TOL,
+  OCR_YOY_ABS_TOL,
+  VISION_SCORING_GROUND_TRUTH,
+  type VisionScoringGroundTruthId,
+} from "./scenario-scoring-constants";
+
+export { visionSubcategoryLabel } from "./vision-category";
+
+export {
+  anthropicToolsForScenario,
+  openAiToolsForScenario,
+  TRANSLATE_TOOLS_ANTHROPIC,
+  TRANSLATE_TOOLS_OPENAI,
+} from "./scenario-tools";
+
+export {
+  chooseImageDelivery,
+  isLoopbackOrPrivateOrigin,
+  type ImageDelivery,
+} from "./vision-origin";
+
+export {
+  getScenarioBenchRequestPreview,
+  type ScenarioBenchRequestPreview,
+  type ScenarioRequestPreviewOpts,
+} from "./scenario-request-preview";
+
+export {
   approxOutputTokens,
   effectiveOutputTokens,
   tokensPerSecondFromRun,
