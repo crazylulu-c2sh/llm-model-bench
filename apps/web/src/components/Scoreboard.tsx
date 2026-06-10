@@ -24,6 +24,14 @@ function qualityBand(v: number): ScoreBand {
   if (v >= 50) return "mid";
   return "low";
 }
+/** 속도 밴드(상대): 상한 없는 점수라 절대 임계 대신 열 내 최고점 대비 비율로 색칠. ≥0.9 / 0.75 / 0.5. */
+function speedRelativeBand(value: number, max: number): ScoreBand {
+  const r = max > 0 ? value / max : 0;
+  if (r >= 0.9) return "high";
+  if (r >= 0.75) return "good";
+  if (r >= 0.5) return "mid";
+  return "low";
+}
 /** max 기준 상대 길이 채움 막대(기본 max=100=절대). */
 function ScoreBar({ value, color, max = 100 }: { value: number; color: string; max?: number }) {
   const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
@@ -68,16 +76,17 @@ function QualityCell({ g, capped }: { g: QualityGroupScore; capped: boolean }) {
   );
 }
 
-/** 속도 셀: 디코드 TPS 절대 점수(상한 없음) + 열별 최고점 대비 상대 막대 + approx `*`. */
+/** 속도 셀: 디코드 TPS 절대 점수(상한 없음) + 열별 최고점 대비 상대 막대·색 + approx `*`. */
 function SpeedCell({ g, max }: { g: SpeedGroup; max: number }) {
   if (g.score == null) return <span className="font-mono text-xs text-[var(--muted)]">—</span>;
+  const color = BAND_COLOR[speedRelativeBand(g.score, max)];
   return (
     <span className="inline-flex w-full flex-col items-center leading-tight">
-      <span className="font-mono text-xs font-semibold text-[var(--foreground)]">
+      <span className="font-mono text-xs font-semibold" style={{ color }}>
         {g.score}
         {g.approxRows > 0 ? <Caveat title={APPROX_TITLE} /> : null}
       </span>
-      <ScoreBar value={g.score} color="var(--foreground)" max={max} />
+      <ScoreBar value={g.score} color={color} max={max} />
     </span>
   );
 }
@@ -152,7 +161,7 @@ export function Scoreboard({
           </span>
         ))}
         <span className="w-full text-[var(--muted)]">
-          속도 = 상한 없는 점수(막대는 각 열 최고점 대비) · 지연 = TTFT ms(낮을수록 좋음)
+          속도 = 상한 없는 점수(막대 길이·색 모두 각 열 최고점 대비 상대) · 지연 = TTFT ms(낮을수록 좋음)
         </span>
       </div>
       <div className="overflow-x-auto rounded border border-[var(--border)]">
