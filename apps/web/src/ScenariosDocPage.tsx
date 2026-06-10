@@ -12,11 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { HighlightToggle, JsonCodeBlock } from "./components/JsonCodeBlock";
 import { VisionImageModal } from "./components/VisionImageModal";
-import {
-  defaultScenarioBenchRequestPreview,
-  defaultScenarioPromptPreview,
-  defaultScenarioSystemPromptPreview,
-} from "./lib/scenario-prompt-preview";
+import { defaultScenarioBenchRequestPreview } from "./lib/scenario-prompt-preview";
 
 function formatRequestJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -53,8 +49,6 @@ function ScenarioArticle({
     }),
     [calendarReferenceIso, baseUrl],
   );
-  const userPreview = defaultScenarioPromptPreview(id, previewOpts);
-  const systemPreview = defaultScenarioSystemPromptPreview(id);
   const requestPreview = useMemo(
     () => defaultScenarioBenchRequestPreview(id, previewOpts),
     [id, previewOpts],
@@ -163,18 +157,6 @@ function ScenarioArticle({
                 ) : null}
               </dl>
             )}
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div>
-                <h5 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">System Prompt</h5>
-                <JsonCodeBlock code={systemPreview} enabled={hlPreview} maxHeight={200} language="markdown" />
-              </div>
-              <div>
-                <h5 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  User Prompt {isVision ? "(텍스트 파트)" : ""}
-                </h5>
-                <JsonCodeBlock code={userPreview} enabled={hlPreview} maxHeight={320} language="markdown" />
-              </div>
-            </div>
             {requestPreview.openAiChatCompletions ? (
               <div className="mt-3">
                 <h5 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
@@ -237,7 +219,7 @@ export function ScenariosDocPage() {
         </h2>
         <p className="text-sm leading-relaxed text-[var(--muted)]">
           벤치 화면의 시나리오 카드는 목적·합격 기준만 요약합니다. 여기서는 동일 메타데이터를 확장 필드로 풀고, 실제 벤치와 같은 규칙으로 생성되는{" "}
-          <strong className="text-[var(--foreground)]">프롬프트·요청 미리보기</strong>(system·user·도구·멀티모달·라우트별 JSON)를 둡니다. 비전 시나리오는 입력 이미지 썸네일을 클릭하면 확대해 볼 수 있습니다.
+          <strong className="text-[var(--foreground)]">요청 미리보기</strong>(OpenAI/Anthropic 라우트별 JSON — 메시지·도구·멀티모달 포함)를 둡니다. 비전 시나리오는 입력 이미지 썸네일을 클릭하면 확대해 볼 수 있습니다.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <HighlightToggle on={hlPreview} onChange={setHlPreview} />
