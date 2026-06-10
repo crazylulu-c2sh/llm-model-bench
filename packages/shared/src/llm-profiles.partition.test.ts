@@ -55,4 +55,24 @@ describe("partitionThinkingBlocks", () => {
     const { response } = partitionThinkingBlocks(raw);
     expect(stripThinkingBlocks(raw)).toBe(response);
   });
+
+  it("strips Gemma 4 thinking-OFF orphan channel prefix (no close tag)", () => {
+    const raw = "<|channel>thought\n Hello";
+    expect(stripThinkingBlocks(raw)).toBe("Hello");
+    expect(partitionThinkingBlocks(raw)).toEqual({
+      thinking: "<|channel>thought\n ",
+      response: "Hello",
+    });
+  });
+
+  it("strips GLM-4.7-style closing-only redacted_thinking at start", () => {
+    const raw = "step1\nstep2</think>The answer";
+    expect(stripThinkingBlocks(raw)).toBe("The answer");
+    expect(partitionThinkingBlocks(raw).response).toBe("The answer");
+  });
+
+  it("regression: Gemma 4 official channel with close tag", () => {
+    const raw = "<|channel>thought\nreason<channel|>Hello";
+    expect(stripThinkingBlocks(raw)).toBe("Hello");
+  });
 });
