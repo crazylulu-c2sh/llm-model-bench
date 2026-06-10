@@ -3,19 +3,11 @@ import {
   getScenarioBenchMeta,
   getScenarioImageAssets,
   isVisionScenario,
+  visionSubcategoryLabel,
 } from "@llm-bench/shared";
 import { Layers, ZoomIn } from "lucide-react";
 import { useState } from "react";
 import { VisionImageModal } from "./VisionImageModal";
-
-function visionCategoryLabel(id: string): string | undefined {
-  if (id.startsWith("vision_table_ocr")) return "OCR";
-  if (id.startsWith("vision_count_red_cars")) return "카운트";
-  if (id.startsWith("vision_chart_peak")) return "차트";
-  if (id.startsWith("vision_meme_explain")) return "밈";
-  if (id.startsWith("vision_wireframe_html")) return "와이어프레임";
-  return undefined;
-}
 
 export function ScenarioGuideCards({
   currentScenario,
@@ -76,7 +68,7 @@ export function ScenarioGuideCards({
                     setModal({
                       url: images[0].url,
                       scenarioId: id,
-                      category: visionCategoryLabel(id),
+                      category: visionSubcategoryLabel(id),
                     })
                   }
                   aria-label={`${id} 이미지 확대`}

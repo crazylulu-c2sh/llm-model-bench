@@ -1943,7 +1943,11 @@ export function App() {
         <div className="space-y-2">
           <div className="flex justify-end">
             <NavLink
-              to="/scenarios"
+              to={
+                running && benchCurrent?.scenario
+                  ? `/scenarios#${benchCurrent.scenario}`
+                  : "/scenarios"
+              }
               className="text-xs text-[var(--accent)] no-underline hover:underline"
             >
               시나리오 상세 문서

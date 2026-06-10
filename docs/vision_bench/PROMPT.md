@@ -26,10 +26,10 @@
 
 | 생성기 | 파일 | 해상도 | 정답(밝은 빨간 차) |
 |--------|------|--------|-------------------|
-| ChatGPT (DALL·E) | [`ChatGPT Image 공간 지각 밀집된 객체 카운팅 (Dense Object Counting).png`](./ChatGPT%20Image%20%EA%B3%B5%EA%B0%84%20%EC%A7%80%EA%B0%81%20%EB%B0%80%EC%A7%91%EB%90%9C%20%EA%B0%9D%EC%B2%B4%20%EC%B9%B4%EC%9A%B4%ED%8C%85%20(Dense%20Object%20Counting).png) | 1536×1024 | **36** |
-| Gemini | [`Gemini_Generated_Image 공간 지각 밀집된 객체 카운팅 (Dense Object Counting).png`](./Gemini_Generated_Image%20%EA%B3%B5%EA%B0%84%20%EC%A7%80%EA%B0%81%20%EB%B0%80%EC%A7%91%ED%90%9C%20%EA%B0%9D%EC%B2%B4%20%EC%B9%B4%EC%9A%B4%ED%8C%85%20(Dense%20Object%20Counting).png) | 2816×1536 | **58** (블록·육안 합산; 빨강 연결요소 스크립트는 약 68) |
+| ChatGPT (DALL·E) | [`ChatGPT Image 공간 지각 밀집된 객체 카운팅 (Dense Object Counting).png`](./ChatGPT%20Image%20%EA%B3%B5%EA%B0%84%20%EC%A7%80%EA%B0%81%20%EB%B0%80%EC%A7%91%EB%90%9C%20%EA%B0%9D%EC%B2%B4%20%EC%B9%B4%EC%9A%B4%ED%8C%85%20(Dense%20Object%20Counting).png) | 1536×1024 | **31~37** (`vision_count_red_cars_a`) |
+| Gemini | [`Gemini_Generated_Image 공간 지각 밀집된 객체 카운팅 (Dense Object Counting).png`](./Gemini_Generated_Image%20%EA%B3%B5%EA%B0%84%20%EC%A7%80%EA%B0%81%20%EB%B0%80%EC%A7%91%ED%90%9C%20%EA%B0%9D%EC%B2%B4%20%EC%B9%B4%EC%9A%B4%ED%8C%85%20(Dense%20Object%20Counting).png) | 2816×1536 | **40~48** (`vision_count_red_cars_b`) |
 
-정답은 “밝은 빨간색(bright red)” 승용차만 센 값이며, 주차장 전체 차량 수는 세지 않습니다. ChatGPT 이미지는 블록 단위로 대략 1대씩 흩어져 있어 육안·연결요소 분석 모두 **36**으로 일치합니다. Gemini 이미지는 프롬프트의 15–20대보다 훨씬 많은 빨간 차가 생성되었고, 일부 블록에 2–4대가 뭉쳐 있으며 상단·도로에 추가 빨간 차가 있어 **개수 고정 벤치**로 쓰기 전에 재생성·수동 보정·정답 확정(58 vs 68)을 권장합니다.
+정답은 “밝은 빨간색(bright red)” 승용차만 센 값이며, 주차장 전체 차량 수는 세지 않습니다. ChatGPT 이미지(`vision_count_red_cars_a`)는 인간 수동 카운트 기준 **31~37**입니다. Gemini 이미지(`vision_count_red_cars_b`)는 프롬프트의 15–20대보다 훨씬 많은 빨간 차가 생성되었으며, v1.2 출하 정답은 인간 수동 카운트 기준 **40~48대**입니다. 초기 자동 스크립트 추정(58/~68)은 폐기되었습니다.
 
 **VLM 평가 질문 (권장):**
 
@@ -39,7 +39,7 @@
 
 **채점:** 정답과 **정확히 일치** 또는 합의된 허용 오차(예: ±2) — 이미지별로 정답 표를 따릅니다. 과대/과소 추정·회색·주황을 빨강으로 오인하는 경우를 로그에 남깁니다.
 
-**생성 프롬프트 준수도 메모:** 두 생성기 모두 “countable number … approximately 15–20” 지시를 잘 따르지 않았습니다(ChatGPT **36**, Gemini **약 58–68**). 정확한 개수가 중요하면 `exactly N bright red cars`처럼 숫자를 고정하거나, 생성 후 스크립트·육안으로 개수를 검증한 뒤 벤치에 포함하세요.
+**생성 프롬프트 준수도 메모:** 두 생성기 모두 “countable number … approximately 15–20” 지시를 잘 따르지 않았습니다(ChatGPT **31~37**, Gemini **40~48**). 정확한 개수가 중요하면 `exactly N bright red cars`처럼 숫자를 고정하거나, 생성 후 스크립트·육안으로 개수를 검증한 뒤 벤치에 포함하세요.
 
 #### 3. 논리적 추론: 복잡한 차트 해석 (Complex Chart Interpretation)
 

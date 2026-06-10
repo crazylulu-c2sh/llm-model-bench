@@ -384,7 +384,7 @@ export function rubricToScore(n: 0 | 1 | 2 | 3): { score: number; pass: boolean 
 
 /**
  * `rubricToScore`의 역함수 — 비전 시나리오의 score(0/0.33/0.67/1)로부터 루브릭 0~3 복원.
- * 부동소수점 오차 허용을 위해 ±0.02 tolerance로 가장 가까운 단계를 선택.
+ * 부동소수점 오차 허용을 위해 ±0.05 tolerance로 가장 가까운 단계를 선택.
  * 입력 범위 밖이거나 NaN이면 null. UI 표시(`ResultsTable`, `ScenarioDetailDrawer`)에서 사용.
  */
 export function scoreToRubric(score: number | null | undefined): 0 | 1 | 2 | 3 | null {

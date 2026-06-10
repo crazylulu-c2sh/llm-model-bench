@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { defaultMaxTokensForVisionScenario, VISION_SCENARIO_IDS } from "./scenarios-preview.js";
+import {
+  defaultMaxTokensForVisionScenario,
+  getScenarioSystemPromptPreview,
+  getScenarioUserPromptPreview,
+  VISION_SCENARIO_IDS,
+} from "./scenarios-preview.js";
 
 describe("defaultMaxTokensForVisionScenario", () => {
   it("chart / OCR / counting scenarios → 2048 (reasoning headroom)", () => {
@@ -31,5 +36,39 @@ describe("defaultMaxTokensForVisionScenario", () => {
     for (const id of VISION_SCENARIO_IDS) {
       expect(defaultMaxTokensForVisionScenario(id)).not.toBeNull();
     }
+  });
+});
+
+describe("scenario prompt previews", () => {
+  it("chat_hello user prompt is stable fixed text", () => {
+    expect(getScenarioUserPromptPreview("chat_hello")).toContain("hello");
+  });
+
+  it("code_sort_js system prompt mentions fenced js block", () => {
+    const sys = getScenarioSystemPromptPreview("code_sort_js");
+    expect(sys).toContain("```js```");
+    expect(sys).not.toMatch(/^\s*$/);
+  });
+
+  it("chat_time_calendar injects referenceIso and calendarTimeZone deterministically", () => {
+    const ref = "2025-06-10T12:00:00.000Z";
+    const user = getScenarioUserPromptPreview("chat_time_calendar", {
+      referenceIso: ref,
+      calendarTimeZone: "Asia/Seoul",
+    });
+    expect(user).toContain(ref);
+    expect(user).toContain("Asia/Seoul");
+    expect(getScenarioUserPromptPreview("chat_time_calendar", {
+      referenceIso: ref,
+      calendarTimeZone: "Asia/Seoul",
+    })).toBe(user);
+  });
+
+  it("translate_nist_fips197_pdf_tools includes public asset origin when provided", () => {
+    const user = getScenarioUserPromptPreview("translate_nist_fips197_pdf_tools", {
+      publicAssetBaseUrl: "http://127.0.0.1:21104",
+    });
+    expect(user).toContain("http://127.0.0.1:21104");
+    expect(user).toContain("nist.fips.197.pdf");
   });
 });

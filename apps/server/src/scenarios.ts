@@ -1,10 +1,18 @@
 import {
   ALL_SCENARIO_IDS as SHARED_ALL_SCENARIO_IDS,
+  anthropicToolsForScenario,
   getScenarioSystemPromptPreview,
   getScenarioUserPromptPreview,
   isVisionScenario,
+  openAiToolsForScenario,
   rubricToScore,
   stripThinkingBlocks,
+  CHART_VALUE_ABS_TOL,
+  COUNT_RED_CARS_TOL_FAR,
+  COUNT_RED_CARS_TOL_NEAR,
+  OCR_VALUE_REL_TOL,
+  OCR_YOY_ABS_TOL,
+  VISION_SCORING_GROUND_TRUTH,
   type ScenarioId,
 } from "@llm-bench/shared";
 import { z } from "zod";
@@ -20,104 +28,11 @@ import { buildImagePart } from "./vision-assets.js";
 export type { ScenarioId };
 export const ALL_SCENARIO_IDS = SHARED_ALL_SCENARIO_IDS;
 
-const translateToolsOpenAi = [
-  {
-    type: "function",
-    function: {
-      name: "fetch_url",
-      description:
-        "HTTP GET the URL and return the body decoded as UTF-8 text (truncated). Do not use for PDF files; use fetch_pdf_text instead.",
-      parameters: {
-        type: "object",
-        properties: { url: { type: "string", description: "Absolute http(s) URL" } },
-        required: ["url"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "fetch_pdf_text",
-      description:
-        "HTTP GET a PDF document and return extracted plain text (truncated). Required to read the NIST FIPS 197 PDF.",
-      parameters: {
-        type: "object",
-        properties: { url: { type: "string", description: "Absolute http(s) URL to a .pdf" } },
-        required: ["url"],
-      },
-    },
-  },
-] as const;
-
-const translateToolsAnthropic = [
-  {
-    name: "fetch_url",
-    description:
-      "HTTP GET the URL and return the body decoded as UTF-8 text (truncated). Do not use for PDF files; use fetch_pdf_text instead.",
-    input_schema: {
-      type: "object",
-      properties: { url: { type: "string" } },
-      required: ["url"],
-    },
-  },
-  {
-    name: "fetch_pdf_text",
-    description:
-      "HTTP GET a PDF document and return extracted plain text (truncated). Required to read the NIST FIPS 197 PDF.",
-    input_schema: {
-      type: "object",
-      properties: { url: { type: "string" } },
-      required: ["url"],
-    },
-  },
-] as const;
-
 export function isTranslateNistFips197PdfToolsScenario(id: ScenarioId): boolean {
   return id === "translate_nist_fips197_pdf_tools";
 }
 
-export function openAiToolsForScenario(id: ScenarioId): unknown[] | undefined {
-  if (id === "tool_weather") {
-    return [
-      {
-        type: "function",
-        function: {
-          name: "get_weather",
-          description: "Get weather for a city",
-          parameters: {
-            type: "object",
-            properties: { city: { type: "string" } },
-            required: ["city"],
-          },
-        },
-      },
-    ];
-  }
-  if (isTranslateNistFips197PdfToolsScenario(id)) {
-    return [...translateToolsOpenAi];
-  }
-  return undefined;
-}
-
-export function anthropicToolsForScenario(id: ScenarioId): unknown[] | undefined {
-  if (id === "tool_weather") {
-    return [
-      {
-        name: "get_weather",
-        description: "Get weather for a city",
-        input_schema: {
-          type: "object",
-          properties: { city: { type: "string" } },
-          required: ["city"],
-        },
-      },
-    ];
-  }
-  if (isTranslateNistFips197PdfToolsScenario(id)) {
-    return [...translateToolsAnthropic];
-  }
-  return undefined;
-}
+export { anthropicToolsForScenario, openAiToolsForScenario };
 
 export type ScenarioPromptContext = {
   publicAssetsOrigin?: string;
@@ -403,25 +318,47 @@ export function scoreScenario(
         return { pass: false, reason: String(e) };
       }
     }
-    case "vision_table_ocr_a":
-      return scoreVisionTableOcr(output, { net_income_2024: 2373.9, net_income_yoy_percent: 11.3 });
-    case "vision_table_ocr_b":
-      return scoreVisionTableOcr(output, { net_income_2024: 410.55, net_income_yoy_percent: 20.7 });
+    case "vision_table_ocr_a": {
+      const gt = VISION_SCORING_GROUND_TRUTH.vision_table_ocr_a;
+      return scoreVisionTableOcr(output, {
+        net_income_2024: gt.net_income_2024,
+        net_income_yoy_percent: gt.net_income_yoy_percent,
+      });
+    }
+    case "vision_table_ocr_b": {
+      const gt = VISION_SCORING_GROUND_TRUTH.vision_table_ocr_b;
+      return scoreVisionTableOcr(output, {
+        net_income_2024: gt.net_income_2024,
+        net_income_yoy_percent: gt.net_income_yoy_percent,
+      });
+    }
     case "vision_count_red_cars_a":
-      return scoreVisionCountRedCars(output, [31, 37]);
+      return scoreVisionCountRedCars(output, [...VISION_SCORING_GROUND_TRUTH.vision_count_red_cars_a.range]);
     case "vision_count_red_cars_b":
-      return scoreVisionCountRedCars(output, [40, 48]);
-    case "vision_chart_peak_a":
-      return scoreVisionChartPeak(output, { product: "C", quarter: "Q2 2024", value_percent: 45.8 });
-    case "vision_chart_peak_b":
-      return scoreVisionChartPeak(output, { product: "C", quarter: "Q2 2024", value_percent: 62.4 });
+      return scoreVisionCountRedCars(output, [...VISION_SCORING_GROUND_TRUTH.vision_count_red_cars_b.range]);
+    case "vision_chart_peak_a": {
+      const gt = VISION_SCORING_GROUND_TRUTH.vision_chart_peak_a;
+      return scoreVisionChartPeak(output, {
+        product: gt.product,
+        quarter: gt.quarter,
+        value_percent: gt.value_percent,
+      });
+    }
+    case "vision_chart_peak_b": {
+      const gt = VISION_SCORING_GROUND_TRUTH.vision_chart_peak_b;
+      return scoreVisionChartPeak(output, {
+        product: gt.product,
+        quarter: gt.quarter,
+        value_percent: gt.value_percent,
+      });
+    }
     case "vision_meme_explain_a":
     case "vision_meme_explain_b":
       return scoreVisionMemeExplain(output);
     case "vision_wireframe_html_a":
-      return scoreVisionWireframe(output, ["sign up", "learn more", "feature"]);
+      return scoreVisionWireframe(output, [...VISION_SCORING_GROUND_TRUTH.vision_wireframe_html_a.cues]);
     case "vision_wireframe_html_b":
-      return scoreVisionWireframe(output, ["get started", "learn more", "feature title"]);
+      return scoreVisionWireframe(output, [...VISION_SCORING_GROUND_TRUTH.vision_wireframe_html_b.cues]);
     default:
       return { pass: false, reason: "unknown scenario" };
   }
@@ -466,8 +403,9 @@ function scoreVisionTableOcr(
   const value = parseSignedPercent(obj.net_income_2024 as string | number | null | undefined);
   const yoy = parseSignedPercent(obj.net_income_yoy_percent as string | number | null | undefined);
   if (value == null || yoy == null) return rubricResult(0, "missing keys");
-  const valueOk = Math.abs(value - expected.net_income_2024) / Math.abs(expected.net_income_2024) <= 0.02;
-  const yoyOk = Math.abs(yoy - expected.net_income_yoy_percent) <= 0.5;
+  const valueOk =
+    Math.abs(value - expected.net_income_2024) / Math.abs(expected.net_income_2024) <= OCR_VALUE_REL_TOL;
+  const yoyOk = Math.abs(yoy - expected.net_income_yoy_percent) <= OCR_YOY_ABS_TOL;
   if (valueOk && yoyOk)
     return rubricResult(3, `value=${value} yoy=${yoy}`);
   if (valueOk || yoyOk)
@@ -499,8 +437,10 @@ function scoreVisionCountRedCars(
   if (n >= 100) return rubricResult(0, `red_cars=${n} (excessive hallucination)`);
   const [lo, hi] = range;
   if (n >= lo && n <= hi) return rubricResult(3, `predicted=${n} range=[${lo},${hi}]`);
-  if (n >= lo - 3 && n <= hi + 3) return rubricResult(2, `predicted=${n} range=[${lo},${hi}]`);
-  if (n >= lo - 5 && n <= hi + 5) return rubricResult(1, `predicted=${n} range=[${lo},${hi}]`);
+  if (n >= lo - COUNT_RED_CARS_TOL_NEAR && n <= hi + COUNT_RED_CARS_TOL_NEAR)
+    return rubricResult(2, `predicted=${n} range=[${lo},${hi}]`);
+  if (n >= lo - COUNT_RED_CARS_TOL_FAR && n <= hi + COUNT_RED_CARS_TOL_FAR)
+    return rubricResult(1, `predicted=${n} range=[${lo},${hi}]`);
   return rubricResult(0, `predicted=${n} range=[${lo},${hi}]`);
 }
 
@@ -523,7 +463,7 @@ function scoreVisionChartPeak(
     return rubricResult(0, "missing keys");
   const productOk = product === expected.product;
   const quarterOk = quarter === expected.quarter;
-  const valueOk = Math.abs(value - expected.value_percent) <= 1.5;
+  const valueOk = Math.abs(value - expected.value_percent) <= CHART_VALUE_ABS_TOL;
   const passes = [productOk, quarterOk, valueOk].filter(Boolean).length;
   const tag = `product=${product}(${productOk}) quarter=${quarter}(${quarterOk}) value=${value}(${valueOk})`;
   if (passes === 3) return rubricResult(3, tag);

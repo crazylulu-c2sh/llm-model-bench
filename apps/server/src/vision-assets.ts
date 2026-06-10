@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isVisionScenario, visionImageFilename, type ScenarioId } from "@llm-bench/shared";
+import {
+  chooseImageDelivery,
+  isLoopbackOrPrivateOrigin,
+  isVisionScenario,
+  visionImageFilename,
+  type ImageDelivery,
+  type ScenarioId,
+} from "@llm-bench/shared";
 
 export type ImageBytes = {
   bytes: Buffer;
@@ -9,7 +16,7 @@ export type ImageBytes = {
   refPath: string;
 };
 
-export type ImageDelivery = "base64" | "url";
+export type { ImageDelivery };
 
 export type OpenAiImagePart = {
   type: "image_url";
@@ -61,26 +68,7 @@ export function loadVisionImageBytes(id: ScenarioId): ImageBytes {
   return out;
 }
 
-/** loopback / 사설망 origin인지 판정. base64 인라인 분기에 사용. */
-export function isLoopbackOrPrivateOrigin(origin: string): boolean {
-  let host: string;
-  try {
-    host = new URL(origin).hostname;
-  } catch {
-    return true; // 파싱 실패는 보수적으로 base64
-  }
-  const h = host.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
-  if (h === "localhost" || h === "127.0.0.1" || h === "::1") return true;
-  if (/^127\./.test(h)) return true;
-  if (/^10\./.test(h)) return true;
-  if (/^192\.168\./.test(h)) return true;
-  if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(h)) return true;
-  return false;
-}
-
-export function chooseImageDelivery(origin: string): ImageDelivery {
-  return isLoopbackOrPrivateOrigin(origin) ? "base64" : "url";
-}
+export { chooseImageDelivery, isLoopbackOrPrivateOrigin };
 
 /** 라우트별 image part — D1 분기·MIME을 한 곳에서. */
 export function buildImagePart(
