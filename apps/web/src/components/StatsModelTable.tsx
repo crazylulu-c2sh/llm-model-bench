@@ -9,8 +9,8 @@ import {
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Square } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Search, Square, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export const DEFAULT_STATS_MODEL_SORTING: SortingState = [{ id: "model_id", desc: false }];
 
@@ -66,7 +66,8 @@ export function StatsModelTable({
   models: StatsModelLatestItem[];
   selected: Record<string, boolean>;
   onToggle: (runId: string) => void;
-  onSelectAll: (next: boolean) => void;
+  /** 현재 표에 보이는(필터 통과) 선택 가능한 run_id만 토글합니다. */
+  onSelectAll: (next: boolean, runIds: string[]) => void;
   sorting: SortingState;
   onSortingChange: OnChangeFn<SortingState>;
   /** 현재 정렬 기준으로 표에 보이는 행의 run_id 순서(전체 행). */
@@ -74,10 +75,42 @@ export function StatsModelTable({
   canSelectRow: (row: StatsModelLatestItem) => boolean;
 }) {
   const data = useMemo(() => models.map((m) => ({ ...m })), [models]);
+
+  // 텍스트 필터 — TanStack `data`는 전체 유지하고 렌더 단계에서만 거른다.
+  // (`onSortedRunIdsChange`가 보고하는 run_id 순서를 줄이면 차트 정렬이 어긋나므로 globalFilter는 쓰지 않음.)
+  const [filterText, setFilterText] = useState("");
+  const q = filterText.trim().toLowerCase();
+  const matchesQuery = useCallback(
+    (m: StatsModelLatestItem) =>
+      !q ||
+      m.model_id.toLowerCase().includes(q) ||
+      m.base_url.toLowerCase().includes(q) ||
+      m.provider.toLowerCase().includes(q),
+    [q],
+  );
+  // 목록이 바뀌면 필터를 초기화해 stale 필터가 새 목록을 가리지 않게 함.
+  useEffect(() => setFilterText(""), [models]);
+  const visibleModels = useMemo(() => data.filter(matchesQuery), [data, matchesQuery]);
+
   const selectableRows = useMemo(() => data.filter(canSelectRow), [data, canSelectRow]);
   const allSelectableSelected =
     selectableRows.length > 0 && selectableRows.every((m) => selected[m.run_id]);
   const someSelectableSelected = selectableRows.some((m) => selected[m.run_id]);
+
+  // 전체 선택 토글은 "표시된(필터 통과) 선택 가능 행"만 대상으로 한다.
+  const visibleSelectable = useMemo(
+    () => visibleModels.filter(canSelectRow),
+    [visibleModels, canSelectRow],
+  );
+  const allVisibleSelectableSelected =
+    visibleSelectable.length > 0 && visibleSelectable.every((m) => selected[m.run_id]);
+  const noVisibleSelectable = visibleSelectable.length === 0;
+  const visibleSelectableRunIdsRef = useRef<string[]>([]);
+  visibleSelectableRunIdsRef.current = visibleSelectable.map((m) => m.run_id);
+  const handleSelectAllVisible = useCallback(() => {
+    onSelectAll(!allVisibleSelectableSelected, visibleSelectableRunIdsRef.current);
+  }, [allVisibleSelectableSelected, onSelectAll]);
+
   const rowPointerRef = useRef<{ x: number; y: number; runId: string } | null>(null);
 
   const columns = useMemo(
@@ -88,15 +121,12 @@ export function StatsModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded p-1 text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-50"
-            aria-label={allSelectableSelected ? "선택 가능 항목 전체 해제" : "선택 가능 항목 전체 선택"}
-            title={allSelectableSelected ? "선택 가능 항목 전체 해제" : "선택 가능 항목 전체 선택"}
-            disabled={selectableRows.length === 0}
-            onClick={() => {
-              if (selectableRows.length === 0) return;
-              onSelectAll(!allSelectableSelected);
-            }}
+            aria-label={allVisibleSelectableSelected ? "표시된 선택 가능 항목 전체 해제" : "표시된 선택 가능 항목 전체 선택"}
+            title={allVisibleSelectableSelected ? "표시된 선택 가능 항목 전체 해제" : "표시된 선택 가능 항목 전체 선택"}
+            disabled={noVisibleSelectable}
+            onClick={handleSelectAllVisible}
           >
-            {allSelectableSelected ? <CheckSquare className="size-4" /> : <Square className="size-4" />}
+            {allVisibleSelectableSelected ? <CheckSquare className="size-4" /> : <Square className="size-4" />}
           </button>
         ),
         cell: (ctx) => {
@@ -207,7 +237,7 @@ export function StatsModelTable({
         sortingFn: "basic",
       }),
     ],
-    [allSelectableSelected, canSelectRow, onSelectAll, onToggle, selectableRows.length, selected],
+    [allVisibleSelectableSelected, canSelectRow, handleSelectAllVisible, noVisibleSelectable, onToggle, selected],
   );
 
   const table = useReactTable({
@@ -224,9 +254,39 @@ export function StatsModelTable({
     onSortedRunIdsChange?.(table.getRowModel().rows.map((r) => r.original.run_id));
   }, [data, onSortedRunIdsChange, sorting, table]);
 
+  // 정렬된 전체 행 중 필터에 맞는 행만 표시(데이터/정렬/보고 run_id는 전체 유지).
+  const visibleRows = table.getRowModel().rows.filter((r) => matchesQuery(r.original));
+
   return (
-    <div className="max-h-64 overflow-auto rounded border border-[var(--border)]">
-      <table className="w-full text-left text-sm">
+    <div className="grid gap-2">
+      <div className="relative">
+        <Search
+          className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--muted)]"
+          aria-hidden
+        />
+        <input
+          type="text"
+          value={filterText}
+          onChange={(e) => setFilterText(e.target.value)}
+          placeholder="모델 id·Base URL·provider 검색 (예: gemma)"
+          aria-label="저장된 모델 필터"
+          spellCheck={false}
+          className="w-full rounded border border-[var(--border)] bg-[var(--surface-2)] py-1.5 pl-7 pr-7 font-mono text-xs text-[var(--foreground)]"
+        />
+        {filterText ? (
+          <button
+            type="button"
+            aria-label="필터 지우기"
+            title="필터 지우기"
+            onClick={() => setFilterText("")}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--muted)] hover:text-[var(--foreground)]"
+          >
+            <X className="size-3.5" aria-hidden />
+          </button>
+        ) : null}
+      </div>
+      <div className="max-h-64 overflow-auto rounded border border-[var(--border)]">
+        <table className="w-full text-left text-sm">
         <thead className="text-[var(--muted)]">
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id}>
@@ -239,7 +299,17 @@ export function StatsModelTable({
           ))}
         </thead>
         <tbody>
-          {table.getRowModel().rows.map((row) => {
+          {visibleRows.length === 0 ? (
+            <tr>
+              <td
+                colSpan={table.getVisibleLeafColumns().length}
+                className="p-3 text-center text-xs text-[var(--muted)]"
+              >
+                일치하는 모델이 없습니다
+              </td>
+            </tr>
+          ) : (
+            visibleRows.map((row) => {
             const ok = canSelectRow(row.original);
             return (
               <tr
@@ -292,15 +362,18 @@ export function StatsModelTable({
                 ))}
               </tr>
             );
-          })}
+          })
+          )}
         </tbody>
       </table>
-      <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
-        {statsModelSortLine(sorting)}
-        {" · "}
-        선택 {selectableRows.filter((m) => selected[m.run_id]).length} / {selectableRows.length}
-        {someSelectableSelected && !allSelectableSelected ? " · 일부 선택됨" : null}
-      </p>
+        <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
+          {statsModelSortLine(sorting)}
+          {" · "}
+          선택 {selectableRows.filter((m) => selected[m.run_id]).length} / {selectableRows.length}
+          {q ? ` · 필터 "${q}": ${visibleModels.length}개 표시` : null}
+          {someSelectableSelected && !allSelectableSelected ? " · 일부 선택됨" : null}
+        </p>
+      </div>
     </div>
   );
 }

@@ -184,22 +184,22 @@ export function StatsPage() {
   }, [listItems]);
 
   const handleSelectAllStats = useCallback(
-    (next: boolean) => {
-      if (!next) {
-        setSelectedIds([]);
-        return;
-      }
-      const ordered =
-        sortedRunIdsFromTable.length > 0
-          ? sortedRunIdsFromTable
-          : [...listItems].sort((a, b) => compareModelKey(a, b)).map((i) => i.run_id);
-      const ids = ordered.filter((id) => {
-        const it = listItems.find((x) => x.run_id === id);
-        return it != null && statsItemHasResults(it);
+    (next: boolean, runIds: string[]) => {
+      setSelectedIds((prev) => {
+        if (!next) {
+          const remove = new Set(runIds);
+          return prev.filter((id) => !remove.has(id));
+        }
+        const existing = new Set(prev);
+        const additions = runIds.filter((id) => {
+          if (existing.has(id)) return false;
+          const it = listItems.find((x) => x.run_id === id);
+          return it != null && statsItemHasResults(it);
+        });
+        return additions.length > 0 ? [...prev, ...additions] : prev;
       });
-      setSelectedIds(ids);
     },
-    [listItems, sortedRunIdsFromTable],
+    [listItems],
   );
 
   const openDrawerForRow = useCallback(
