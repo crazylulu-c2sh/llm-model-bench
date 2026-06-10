@@ -65,21 +65,31 @@ export type LlmProfileDefinition = {
  * Single source for thinking-block detection (strip + UI partition).
  * - Qwen3 standard <think>...</think> (HTML-style tag)
  * - Qwen-style redacted / think tokens
- * - LM Studio "channel" thought wrappers (see partition tests for samples)
+ * - LM Studio / Gemma 4 "channel" thought wrappers (see partition tests)
+ * - GLM-4.7-Flash / Nemotron 30B: closing </think> only at string start
+ *   (opening tag injected in chat template, not always present in streamed text)
  *
- * Ordering matters for alternation: more specific patterns first.
+ * Streaming APIs may split reasoning (`reasoning_content`, `thinking_delta`, MiniMax
+ * `reasoning_split`) before text reaches these helpers; inline regex is the fallback for
+ * `chat_completions` combined bodies and misconfigured LM Studio parsers.
+ *
+ * Ordering matters for alternation: full pairs before closing-only / channel arms.
  * REDACTED_THINK_BLOCK ends with </think>, so it must precede the plain
  * <think>…</think> arm to avoid the latter stealing a partial match.
  */
 const REDACTED_THINK_BLOCK =
   "<" + "redacted" + "_" + "thinking" + ">" + "[\\s\\S]*?" + "</" + "think" + ">";
 
+/** Gemma 4 thinking-OFF (12B+): empty <|channel>thought\n prefix without <channel|> close. */
+const GEMMA_ORPHAN_THOUGHT_PREFIX = /^<\|channel>thought\n\s*/i;
+
 export const THINK_BLOCK_PATTERN_SOURCE =
   REDACTED_THINK_BLOCK +
   "|<think>[\\s\\S]*?</think>" +
   "|<\\|think\\|>[\\s\\S]*?(?:<\\|end_of_thought\\|>|<\\|end\\|>|<\\|start_header_id\\|>|<\\|im_end\\|>|$)" +
   "|<\\|channel\\|>thought[\\s\\S]*?<channel\\|>" +
-  "|<\\|channel>thought[\\s\\S]*?<channel\\|>";
+  "|<\\|channel>thought[\\s\\S]*?<channel\\|>" +
+  "|^[\\s\\S]*?</think>";
 
 export const THINK_BLOCK_RE = new RegExp(THINK_BLOCK_PATTERN_SOURCE, "gi");
 
@@ -87,9 +97,16 @@ function thinkBlockMatcher(): RegExp {
   return new RegExp(THINK_BLOCK_PATTERN_SOURCE, "gi");
 }
 
+function peelGemmaOrphanThoughtPrefix(text: string): { rest: string; prefix: string } {
+  const m = text.match(GEMMA_ORPHAN_THOUGHT_PREFIX);
+  if (!m) return { rest: text, prefix: "" };
+  return { rest: text.replace(GEMMA_ORPHAN_THOUGHT_PREFIX, ""), prefix: m[0] };
+}
+
 export function stripThinkingBlocks(text: string): string {
   if (!text) return text;
-  return text.replace(thinkBlockMatcher(), "").trim();
+  const afterRegex = text.replace(thinkBlockMatcher(), "");
+  return peelGemmaOrphanThoughtPrefix(afterRegex).rest.trim();
 }
 
 /** Extracts thinking spans vs remainder for UI (e.g. scenario detail). */
@@ -99,10 +116,13 @@ export function partitionThinkingBlocks(text: string): { thinking: string; respo
   const spans: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) spans.push(m[0]);
-  const response = text.replace(thinkBlockMatcher(), "").trim();
+  let response = text.replace(thinkBlockMatcher(), "");
+  const { rest, prefix } = peelGemmaOrphanThoughtPrefix(response);
+  if (prefix) spans.push(prefix);
   return {
-    thinking: spans.join("\n\n").trim(),
-    response,
+    // Do not .trim() thinking — Gemma orphan prefix ends with \n and must stay visible in UI.
+    thinking: spans.join("\n\n"),
+    response: rest.trim(),
   };
 }
 
@@ -381,7 +401,10 @@ export function resolveBenchProfile(input: {
 
   let extraBody: Record<string, unknown> = {};
   if (
-    (family === "qwen35" || family === "qwen36" || family === "nemotron3") &&
+    (family === "qwen35" ||
+      family === "qwen36" ||
+      family === "nemotron3" ||
+      family === "gemma4") &&
     input.thinkingIntent === "off"
   ) {
     extraBody = deepMergeObjects(extraBody, { chat_template_kwargs: { enable_thinking: false } });

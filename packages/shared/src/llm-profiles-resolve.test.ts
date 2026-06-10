@@ -55,6 +55,26 @@ describe("resolveBenchProfile", () => {
     expect(r.sampling.top_k).toBe(1);
   });
 
+  it("sets enable_thinking=false for Gemma 4 when thinking off", () => {
+    const r = resolveBenchProfile({
+      modelId: "google/gemma-4-12b-it-qat",
+      taskMode: "general",
+      thinkingIntent: "off",
+    });
+    expect(r.family).toBe("gemma4");
+    expect(r.extraBody.chat_template_kwargs).toEqual({ enable_thinking: false });
+  });
+
+  it("omits chat_template_kwargs for Gemma 4 when thinking on", () => {
+    const r = resolveBenchProfile({
+      modelId: "google/gemma-4-26b-a4b-it",
+      taskMode: "general",
+      thinkingIntent: "on",
+    });
+    expect(r.family).toBe("gemma4");
+    expect(r.extraBody.chat_template_kwargs).toBeUndefined();
+  });
+
   it("omits chat_template_kwargs for Nemotron 3 when thinking on", () => {
     const r = resolveBenchProfile({
       modelId: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
