@@ -1,3 +1,4 @@
+import { outputTokensFromRun } from "@llm-bench/shared";
 import type { BenchRunDetailResponse } from "../api-types";
 import type { ResultRow } from "../components/ResultsTable";
 import {
@@ -62,6 +63,9 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
       }
       const last = runs[runs.length - 1];
       if (!last) continue;
+      const tpsSource =
+        last.usage_output_tokens != null && last.usage_output_tokens > 0 ? "usage" : "approx";
+      const outputTokens = outputTokensFromRun(last.output_text, last.usage_output_tokens);
       const tpsRaw = tokensPerSecondFromRun(last.total_ms, last.output_text, last.usage_output_tokens);
       const tps = tpsRaw > 0 ? Math.round(tpsRaw * 10) / 10 : null;
       rows.push({
@@ -70,8 +74,9 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
         scenario: sc.id,
         api: sc.api_route,
         ttft_ms: last.ttft_ms ?? null,
+        output_tokens: outputTokens,
         tps,
-        tps_source: last.usage_output_tokens != null && last.usage_output_tokens > 0 ? "usage" : "approx",
+        tps_source: tpsSource,
         reasoning_hidden: last.reasoning_hidden,
         pass: last.quality?.pass,
         score: last.quality?.score,

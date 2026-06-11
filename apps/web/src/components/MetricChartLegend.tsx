@@ -47,8 +47,10 @@ export function MetricTableIntro() {
       <p>
         <strong className="text-[var(--foreground)]">TTFT</strong>(ms)는 HTTP 요청 발신부터 첫 출력 토큰(텍스트·추론·tool_call)까지
         시간입니다(100ms 미만은 소수 1자리).{" "}
-        <strong className="text-[var(--foreground)]">TPS</strong>(tok/s)는 출력 토큰 수(provider 실토큰 또는 글자수/4 근사)를 요청
-        발신부터 스트림 완료까지 총 소요 시간(초)으로 나눈 값입니다.
+        <strong className="text-[var(--foreground)]">출력 토큰</strong>·<strong className="text-[var(--foreground)]">TPS</strong>는
+        동일한 토큰 수(provider <code className="font-mono text-[11px]">usage.completion_tokens</code> 또는 글자수/4 근사,
+        근사 시 <code className="font-mono text-[11px]">*</code>)를 쓰며, TPS는 이를 요청 발신부터 스트림 완료까지 총 시간(초)으로 나눈
+        값입니다.
       </p>
     </div>
   );

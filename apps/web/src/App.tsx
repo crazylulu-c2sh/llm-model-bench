@@ -6,6 +6,7 @@ import {
   getScenarioBenchMeta,
   inferLlmProfileFamily,
   isVisionScenario,
+  outputTokensFromRun,
   resolveBenchProfile,
 } from "@llm-bench/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1079,6 +1080,9 @@ export function App() {
             const runs = agg.runs;
             const last = runs[runs.length - 1];
             if (!last) return;
+            const tpsSource =
+              last.usage_output_tokens != null && last.usage_output_tokens > 0 ? "usage" : "approx";
+            const outputTokens = outputTokensFromRun(last.output_text, last.usage_output_tokens);
             const tpsRaw = tokensPerSecondFromRun(last.total_ms, last.output_text, last.usage_output_tokens);
             const tps = tpsRaw > 0 ? Math.round(tpsRaw * 10) / 10 : null;
             setRows((prev) => {
@@ -1091,9 +1095,9 @@ export function App() {
                   scenario: agg.scenario_id,
                   api: agg.api_route,
                   ttft_ms: last.ttft_ms ?? null,
+                  output_tokens: outputTokens,
                   tps,
-                  tps_source:
-                    last.usage_output_tokens != null && last.usage_output_tokens > 0 ? "usage" : "approx",
+                  tps_source: tpsSource,
                   reasoning_hidden: last.reasoning_hidden,
                   pass: last.quality?.pass,
                   score: last.quality?.score,

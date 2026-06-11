@@ -66,6 +66,7 @@ export {
 export {
   approxOutputTokens,
   effectiveOutputTokens,
+  outputTokensFromRun,
   tokensPerSecondFromRun,
   tpsSourceFromUsage,
 } from "./tps";

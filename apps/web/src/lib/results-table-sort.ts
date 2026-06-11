@@ -33,6 +33,7 @@ const RESULT_SORT_LABELS: Record<string, string> = {
   scenario: "시나리오",
   api: "API",
   ttft_ms: "TTFT (ms)",
+  output_tokens: "출력 토큰",
   tps: "TPS (tok/s)",
 };
 
