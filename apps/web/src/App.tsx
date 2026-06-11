@@ -48,8 +48,6 @@ import { ResultsTable } from "./components/ResultsTable";
 import { Scoreboard } from "./components/Scoreboard";
 import {
   BenchProgressPanel,
-  formatBenchRunningLine,
-  type BenchCompletedItem,
   type BenchCurrent,
   type BenchStepKind,
   type BenchStepLine,
@@ -145,7 +143,6 @@ export function App() {
   const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
   const [apiKey, setApiKey] = useState(boot.apiKey);
   const [persistApiKeyToDisk, setPersistApiKeyToDisk] = useState(boot.persistApiKeyToDisk);
-  const [parallel, setParallel] = useState(boot.parallel);
   const [unloadOtherModels, setUnloadOtherModels] = useState(boot.unloadOtherModels);
   const [autoUnloadAfterBench, setAutoUnloadAfterBench] = useState(boot.autoUnloadAfterBench);
   const [selectedScenarioIds, setSelectedScenarioIds] = useState<string[]>(boot.selectedScenarioIds);
@@ -262,7 +259,6 @@ export function App() {
   const [serverRunsLoading, setServerRunsLoading] = useState(false);
   const [benchStepLines, setBenchStepLines] = useState<BenchStepLine[]>([]);
   const [benchCurrent, setBenchCurrent] = useState<BenchCurrent | null>(null);
-  const [benchCompleted, setBenchCompleted] = useState<BenchCompletedItem[]>([]);
   /** 이번 벤치 런에서 `scenario_start`가 있었던 시나리오 id */
   const [touchedScenarioIds, setTouchedScenarioIds] = useState<string[]>([]);
 
@@ -273,7 +269,6 @@ export function App() {
     const t = window.setTimeout(() => {
       saveUiSnapshot({
         baseUrl,
-        parallel,
         unloadOtherModels,
         autoUnloadAfterBench,
         hlPreview,
@@ -303,7 +298,6 @@ export function App() {
     baseUrl,
     hlLog,
     hlPreview,
-    parallel,
     persistApiKeyToDisk,
     unloadOtherModels,
     autoUnloadAfterBench,
@@ -326,7 +320,6 @@ export function App() {
   // bench → 다른 라우트 전이 시 *즉시 flush*. 게이트가 debounce를 폐기해도 최종 값 보존.
   const latestBenchSnapshotRef = useRef({
     baseUrl,
-    parallel,
     unloadOtherModels,
     autoUnloadAfterBench,
     hlPreview,
@@ -350,7 +343,6 @@ export function App() {
   });
   latestBenchSnapshotRef.current = {
     baseUrl,
-    parallel,
     unloadOtherModels,
     autoUnloadAfterBench,
     hlPreview,
@@ -835,7 +827,6 @@ export function App() {
       }
       saveUiSnapshot({
         baseUrl: d.baseUrl,
-        parallel,
         unloadOtherModels,
         autoUnloadAfterBench,
         hlPreview,
@@ -869,7 +860,6 @@ export function App() {
     baseUrl,
     hlLog,
     hlPreview,
-    parallel,
     persistApiKeyToDisk,
     unloadOtherModels,
     autoUnloadAfterBench,
@@ -901,9 +891,6 @@ export function App() {
       toast.error("벤치할 모델을 하나 이상 선택하세요.");
       return;
     }
-    if (parallel) {
-      appendLog("경고: 병렬 실행은 GPU/단일 로드 전제를 깨뜨릴 수 있습니다.");
-    }
     setRunning(true);
     setRows([]);
     setDetailAggregate({});
@@ -912,7 +899,6 @@ export function App() {
     setPreview("");
     setBenchStepLines([]);
     setBenchCurrent(null);
-    setBenchCompleted([]);
     setTouchedScenarioIds([]);
     let anyHttpFail = false;
     let streamErrorCount = 0;
@@ -940,7 +926,6 @@ export function App() {
               apiKey: apiKey || undefined,
               provider: detect.provider,
               modelId: m.id,
-              parallel,
               skipModelLoad: detect.provider !== "lm_studio",
               unloadOtherModels,
               autoUnloadAfterBench,
@@ -1089,9 +1074,6 @@ export function App() {
               phase: "aggregate",
             });
             pushBenchLine("ok", `집계 완료 · ${agg.scenario_id} · ${apiLabel}`);
-            const doneKey = `${m.id}|${agg.scenario_id}|${agg.api_route}`;
-            const doneLabel = `${agg.scenario_id} (${apiLabel})`;
-            setBenchCompleted((prev) => (prev.some((x) => x.key === doneKey) ? prev : [...prev, { key: doneKey, label: doneLabel }]));
             const rowKey = scenarioRowKey(agg.scenario_id, agg.api_route, m.id);
             setDetailAggregate((prev) => ({ ...prev, [rowKey]: agg }));
             const runs = agg.runs;
@@ -1150,7 +1132,7 @@ export function App() {
     } else {
       toast.success("벤치가 모두 완료되었습니다.");
     }
-  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, parallel, unloadOtherModels, visibleSelectedScenarioIds]);
+  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, unloadOtherModels, visibleSelectedScenarioIds]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
@@ -1183,11 +1165,18 @@ export function App() {
   }, []);
 
   const logText = log.join("\n");
-  const benchHeaderLine = useMemo(() => formatBenchRunningLine(benchCurrent), [benchCurrent]);
+  const benchProgress = useMemo(() => {
+    const total = benchQueueDraft.length * visibleSelectedScenarioIds.length * 2;
+    const completed = rows.length;
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { completed, total, pct };
+  }, [benchQueueDraft.length, visibleSelectedScenarioIds.length, rows.length]);
   const benchLiveSoft = "bench-live-panel--soft";
   const benchMetricsPanelsClass = running && rows.length > 0 ? benchLiveSoft : "";
   const benchPreviewPanelClass = running && preview.length > 0 ? benchLiveSoft : "";
   const benchProgressClass = running ? benchLiveSoft : "";
+  const benchStartReady = !running && !!detect && visibleSelectedScenarioIds.length > 0;
+  const benchStartEmphasis = benchStartReady || running;
 
   const detectButton = (
     <button
@@ -1261,9 +1250,6 @@ export function App() {
               ))}
             </ol>
             <ul className="mt-2 space-y-1 text-xs">
-              {parallel ? (
-                <li className="text-[var(--danger)]">병렬 실행이 켜져 있습니다. GPU 부하에 유의하세요.</li>
-              ) : null}
               {unloadOtherModels && detect.provider === "lm_studio" ? (
                 <li>벤치 대상 외 모델 언로드가 켜져 있습니다(감지 목록 기준).</li>
               ) : null}
@@ -1278,8 +1264,7 @@ export function App() {
         themeChoice={themeChoice}
         setThemeChoice={setThemeChoice}
         running={running}
-        benchHeaderLine={benchHeaderLine}
-        benchLiveSoft={benchLiveSoft}
+        benchProgress={running ? benchProgress : undefined}
       />
 
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
@@ -1295,12 +1280,15 @@ export function App() {
                 <Link2 className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
                 Base URL
               </span>
-              <input
-                inputMode="url"
-                className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-sm"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-              />
+              <div className="flex min-w-0 flex-wrap items-stretch gap-2">
+                <input
+                  inputMode="url"
+                  className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-sm"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                />
+                {detectButton}
+              </div>
             </label>
             <label className="grid gap-1 text-sm">
               <span className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
@@ -1332,10 +1320,6 @@ export function App() {
                 <code className="rounded bg-[var(--surface)] px-1">localStorage</code> 평문으로 남으며 XSS 등에 노출될 수 있습니다.
               </span>
             </span>
-          </label>
-          <label className="mt-3 flex items-center gap-2 text-sm text-[var(--muted)]">
-            <input type="checkbox" checked={parallel} onChange={(e) => setParallel(e.target.checked)} />
-            병렬 실행 (기본은 직렬; 켜면 경고)
           </label>
           <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
             <button
@@ -1767,11 +1751,16 @@ export function App() {
           running={running}
           current={benchCurrent}
           lines={benchStepLines}
-          completed={benchCompleted}
+          progress={running ? benchProgress : undefined}
           benchAction={
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-medium shadow-sm disabled:opacity-50"
+              className={[
+                "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold shadow-sm disabled:opacity-50",
+                benchStartEmphasis
+                  ? "bg-[var(--accent)] text-white"
+                  : "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]",
+              ].join(" ")}
               onClick={requestBench}
               disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
               aria-busy={running}
@@ -1788,7 +1777,12 @@ export function App() {
           }
         />
 
-        <Scoreboard rows={rows} detailAggregate={detailAggregate} />
+        <Scoreboard
+          rows={rows}
+          detailAggregate={detailAggregate}
+          loading={running}
+          benchModelOrder={benchQueueDraft.map((m) => m.id)}
+        />
 
         <section
           className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchMetricsPanelsClass].filter(Boolean).join(" ")}
@@ -1882,6 +1876,7 @@ export function App() {
           <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">결과 테이블</h2>
           <ResultsTable
             rows={rows}
+            benchModelOrder={benchQueueDraft.map((m) => m.id)}
             pendingRows={pendingSkeletonRows}
             maxRows={visibleSelectedScenarioIds.length * 2}
             onRowClick={(r) => openDrawerForRow(r)}

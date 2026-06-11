@@ -10,6 +10,16 @@ export function compareModelIdAlphanumeric(a: string, b: string): number {
   return a.localeCompare(b, undefined, alphanumericOpts);
 }
 
+/** 벤치 큐 순서 우선, 미등록 ID는 alphanumeric 폴백 */
+export function compareModelBenchQueueOrder(a: string, b: string, queue: readonly string[]): number {
+  const ia = queue.indexOf(a);
+  const ib = queue.indexOf(b);
+  if (ia !== -1 && ib !== -1) return ia - ib;
+  if (ia !== -1) return -1;
+  if (ib !== -1) return 1;
+  return compareModelIdAlphanumeric(a, b);
+}
+
 /** `model_id` 우선, 동률이면 `base_url` */
 export function compareModelKey(
   a: { model_id: string; base_url: string },

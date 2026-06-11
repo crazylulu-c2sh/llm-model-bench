@@ -1,8 +1,14 @@
 import { isVisionScenario, scenarioExecutionOrderIndex, scoreToRubric } from "@llm-bench/shared";
 import { apiRouteRank } from "./chart-types";
-import { compareModelIdAlphanumeric } from "../lib/model-sort";
+import { compareModelBenchQueueOrder } from "../lib/model-sort";
 import { buildModelColorMap } from "../lib/model-color";
 import { computeGroupWinners } from "../lib/result-winners";
+import {
+  BENCH_EXECUTION_SORT,
+  cycleColumnSort,
+  isBenchExecutionSort,
+  resultsSortLine,
+} from "../lib/results-table-sort";
 import {
   createColumnHelper,
   flexRender,
@@ -13,7 +19,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { AlertTriangle, ArrowDown, ArrowDownUp, ArrowUp, CircleCheck, CircleX, HelpCircle } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { MetricTableIntro } from "./MetricChartLegend";
 
 export type ResultRow = {
@@ -44,67 +50,49 @@ function apiHeaderTitle(api: string): string {
   return `API: ${api}`;
 }
 
-function sortDirIcon(column: Column<ResultRow, unknown>) {
+function sortDirIcon(column: Column<ResultRow, unknown>, sorting: SortingState) {
+  if (isBenchExecutionSort(sorting)) {
+    return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
+  }
   const s = column.getIsSorted();
   if (s === "asc") return <ArrowUp className="size-3.5 shrink-0 opacity-90" aria-hidden />;
   if (s === "desc") return <ArrowDown className="size-3.5 shrink-0 opacity-90" aria-hidden />;
   return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
 }
 
-const RESULT_SORT_LABELS: Record<string, string> = {
-  model_id: "모델",
-  scenario: "시나리오",
-  api: "API",
-  ttft_ms: "TTFT (ms)",
-  tps: "TPS (tok/s)",
-};
-
-function resultsSortLine(sorting: SortingState): string {
-  if (sorting.length === 0) return "현재 정렬: 없음";
-  const dirOf = (desc: boolean) => (desc ? "내림차순" : "오름차순");
-  const allSameDir = sorting.every((s) => s.desc === sorting[0]!.desc);
-  if (allSameDir) {
-    const chain = sorting.map((s) => RESULT_SORT_LABELS[s.id] ?? s.id).join(" → ");
-    return `현재 정렬: ${chain} · ${dirOf(sorting[0]!.desc)}`;
-  }
-  const chain = sorting
-    .map((s) => `${RESULT_SORT_LABELS[s.id] ?? s.id}(${dirOf(s.desc)})`)
-    .join(" → ");
-  return `현재 정렬: ${chain}`;
-}
-
 export function ResultsTable({
   rows,
   pendingRows = [],
   maxRows,
+  benchModelOrder = [],
   onRowClick,
 }: {
   rows: ResultRow[];
   pendingRows?: PendingSkeletonRow[];
   /** 이 수를 초과하면 카드 내부 스크롤 활성화 */
   maxRows?: number;
+  /** 벤치 큐 순서 — 미전달 시 모델 ID alphanumeric 폴백 */
+  benchModelOrder?: string[];
   onRowClick?: (row: ResultRow) => void;
 }) {
-  // 기본 정렬과 동일한 키(모델 → 시나리오 실행 순서 → API)로 베이스 행을 미리 정렬한다.
-  // 단일 컬럼(예: 모델) 정렬 시 동률 행의 안정 정렬 폴백이 항상 실행 순서를 따르도록 해
-  // "모델 순"과 "시나리오 순"의 시나리오 배열이 일치하게 만든다.
+  const modelQueue = benchModelOrder;
+  // 기본 정렬과 동일한 키(모델 큐 → 시나리오 실행 순서 → API)로 베이스 행을 미리 정렬한다.
   const data = useMemo(
     () =>
       [...rows].sort(
         (a, b) =>
-          compareModelIdAlphanumeric(a.model_id, b.model_id) ||
+          compareModelBenchQueueOrder(a.model_id, b.model_id, modelQueue) ||
           scenarioExecutionOrderIndex(a.scenario) - scenarioExecutionOrderIndex(b.scenario) ||
           apiRouteRank(a.api) - apiRouteRank(b.api) ||
           a.api.localeCompare(b.api),
       ),
-    [rows],
+    [rows, modelQueue],
   );
   const hasApproxTps = useMemo(
     () => rows.some((r) => r.tps != null && r.tps_source === "approx"),
     [rows],
   );
   const hasReasoningHidden = useMemo(() => rows.some((r) => r.reasoning_hidden), [rows]);
-  // 모델별 안정 색 + (시나리오·API) 그룹 내 메트릭 최우수 행. 정렬과 무관하게 원본 rows 기준.
   const colorByModel = useMemo(() => buildModelColorMap(rows.map((r) => r.model_id)), [rows]);
   const winners = useMemo(
     () =>
@@ -120,13 +108,18 @@ export function ResultsTable({
       ),
     [rows],
   );
-  // 모델이 2개 이상일 때만 색 구별을 적용(단일 모델 테이블은 그대로).
   const multiModel = colorByModel.size >= 2;
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "model_id", desc: false },
-    { id: "scenario", desc: false },
-    { id: "api", desc: false },
-  ]);
+  const [sorting, setSorting] = useState<SortingState>(BENCH_EXECUTION_SORT);
+
+  const onColumnSort = useCallback((columnId: string) => {
+    setSorting((prev) => cycleColumnSort(columnId, prev));
+  }, []);
+
+  const modelSortFn = useCallback(
+    (a: { original: ResultRow }, b: { original: ResultRow }) =>
+      compareModelBenchQueueOrder(a.original.model_id, b.original.model_id, modelQueue),
+    [modelQueue],
+  );
 
   const table = useReactTable({
     data,
@@ -139,10 +132,10 @@ export function ResultsTable({
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
             title="이 행 벤치에 사용된 모델 ID"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onColumnSort(column.id)}
           >
             모델
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: (info) => {
@@ -156,7 +149,7 @@ export function ResultsTable({
             </span>
           );
         },
-        sortingFn: "alphanumeric",
+        sortingFn: modelSortFn,
       }),
       columnHelper.accessor("scenario", {
         header: ({ column }) => (
@@ -164,10 +157,10 @@ export function ResultsTable({
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
             title="벤치 시나리오 식별자"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onColumnSort(column.id)}
           >
             시나리오
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span>,
@@ -183,10 +176,10 @@ export function ResultsTable({
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
             title="호출한 API 종류"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onColumnSort(column.id)}
           >
             API
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: (info) => {
@@ -209,10 +202,10 @@ export function ResultsTable({
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
             title="Time To First Token — 첫 출력 토큰이 나오기까지 걸린 시간(밀리초)"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onColumnSort(column.id)}
           >
             TTFT (ms)
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: ({ row, getValue }) => {
@@ -246,10 +239,10 @@ export function ResultsTable({
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
             title="Tokens Per Second (근사) — 출력 텍스트 길이 기반 토큰 추정 ÷ 총 소요 시간(초)"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onColumnSort(column.id)}
           >
             TPS (tok/s)
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: ({ row, getValue }) => {
@@ -294,7 +287,6 @@ export function ResultsTable({
 
           if (vision && typeof score === "number") {
             const rubric = scoreToRubric(score);
-            // 색상 토큰 — 4단계: 3/2 = pass 톤, 0 = fail 톤, 1 = muted (부분 인식).
             const colorClass =
               rubric === 3 || rubric === 2
                 ? "text-[var(--chart-pass)] border-[var(--chart-pass)]"

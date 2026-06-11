@@ -16,7 +16,7 @@ export type BenchCurrent = {
   iterLabel?: string;
 };
 
-export type BenchCompletedItem = { key: string; label: string };
+export type BenchProgressStats = { completed: number; total: number; pct: number };
 
 function apiShort(api: string): string {
   if (api === "chat_completions") return "chat";
@@ -63,14 +63,14 @@ export function BenchProgressPanel({
   running,
   current,
   lines,
-  completed,
+  progress,
   benchAction,
   className,
 }: {
   running: boolean;
   current: BenchCurrent | null;
   lines: BenchStepLine[];
-  completed: BenchCompletedItem[];
+  progress?: BenchProgressStats;
   benchAction?: ReactNode;
   /** 부모에서 벤치 라이브 테두리 등 유틸 클래스 주입 */
   className?: string;
@@ -106,19 +106,27 @@ export function BenchProgressPanel({
         {summary}
       </div>
 
-      {completed.length > 0 ? (
+      {progress && progress.total > 0 ? (
         <div className="mb-3">
-          <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">집계 완료</h3>
-          <ul className="flex flex-wrap gap-1.5" aria-label="집계 완료된 시나리오">
-            {completed.map((c) => (
-              <li
-                key={c.key}
-                className="rounded-full border border-[var(--chart-pass)]/35 bg-[var(--chart-pass)]/10 px-2 py-0.5 font-mono text-[11px] text-[var(--foreground)]"
-              >
-                {c.label}
-              </li>
-            ))}
-          </ul>
+          <div className="mb-1 flex items-center justify-between gap-2 text-xs text-[var(--muted)]">
+            <span className="font-semibold uppercase tracking-wide">실행률</span>
+            <span className="font-mono tabular-nums text-[var(--foreground)]">
+              {progress.pct}% · {progress.completed}/{progress.total}
+            </span>
+          </div>
+          <div
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress.pct}
+            aria-valuetext={`실행률 ${progress.pct}% · ${progress.completed}/${progress.total}`}
+            className="h-1.5 overflow-hidden rounded-full bg-[var(--border)]"
+          >
+            <div
+              className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-300 ease-out"
+              style={{ width: `${progress.pct}%` }}
+            />
+          </div>
         </div>
       ) : null}
 

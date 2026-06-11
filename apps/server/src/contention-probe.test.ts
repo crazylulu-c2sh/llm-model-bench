@@ -83,9 +83,8 @@ describe("resolveContentionConfig", () => {
     expect(c.gpuUtilThresholdPct).toBe(1);
     expect(c.enabled).toBe(true);
   });
-  it("disables for manual provider and for parallel runs", () => {
+  it("disables for manual provider", () => {
     expect(resolveContentionConfig({ provider: "manual" }).enabled).toBe(false);
-    expect(resolveContentionConfig({ provider: "ollama", parallel: true }).enabled).toBe(false);
   });
 });
 

@@ -18,7 +18,6 @@ const PrefsSchema = z
   .object({
     v: z.literal(STORAGE_VERSION),
     baseUrl: z.string().min(1).optional(),
-    parallel: z.boolean().optional(),
     unloadOtherModels: z.boolean().optional(),
     autoUnloadAfterBench: z.boolean().optional(),
     hlPreview: z.boolean().optional(),
@@ -66,7 +65,6 @@ function safeParsePrefs(raw: string | null): Partial<UiPrefs> {
       return {
         v: STORAGE_VERSION,
         baseUrl: typeof legacy.baseUrl === "string" ? legacy.baseUrl : undefined,
-        parallel: typeof legacy.parallel === "boolean" ? legacy.parallel : undefined,
         unloadOtherModels: typeof legacy.unloadOtherModels === "boolean" ? legacy.unloadOtherModels : undefined,
         autoUnloadAfterBench:
           typeof legacy.autoUnloadAfterBench === "boolean" ? legacy.autoUnloadAfterBench : undefined,
@@ -115,7 +113,6 @@ export function readInitialUiState() {
   if (typeof window === "undefined") {
     return {
       baseUrl: DEFAULT_BASE,
-      parallel: false,
       unloadOtherModels: false,
       autoUnloadAfterBench: false,
       hlPreview: false,
@@ -143,7 +140,6 @@ export function readInitialUiState() {
   const apiKey = persist ? (p.apiKey ?? "") : readSessionApiKey();
   return {
     baseUrl: typeof p.baseUrl === "string" && p.baseUrl.length ? p.baseUrl : DEFAULT_BASE,
-    parallel: p.parallel ?? false,
     unloadOtherModels: p.unloadOtherModels ?? false,
     autoUnloadAfterBench: p.autoUnloadAfterBench ?? false,
     hlPreview: p.hlPreview ?? false,
@@ -172,7 +168,6 @@ export function readInitialUiState() {
 
 export type SaveUiSnapshot = {
   baseUrl: string;
-  parallel: boolean;
   unloadOtherModels: boolean;
   autoUnloadAfterBench: boolean;
   hlPreview: boolean;
@@ -202,7 +197,6 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
   const prefs: UiPrefs = {
     v: STORAGE_VERSION,
     baseUrl: s.baseUrl,
-    parallel: s.parallel,
     unloadOtherModels: s.unloadOtherModels,
     autoUnloadAfterBench: s.autoUnloadAfterBench,
     hlPreview: s.hlPreview,

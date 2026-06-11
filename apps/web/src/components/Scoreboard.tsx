@@ -13,6 +13,7 @@ import {
   type ScoreboardSortKey,
   type ScoreGroup,
   type ScoreMetric,
+  type ScoreboardRow,
   type ScoringAggregate,
   type SortDir,
 } from "../lib/scoreboard";
@@ -226,17 +227,121 @@ function GroupSortHeaders({
   );
 }
 
-/**
- * 모델별 텍스트/비전/총합 리더보드 — 품질(0~100) · 속도(상한 없는 디코드 TPS 절대 점수) · 지연(TTFT ms).
- * 점수는 모든 측정 런 평균으로 산출하며 표·차트 위에 요약으로 표시한다.
- */
+/** 벤치 큐에 있으나 아직 집계되지 않은 모델 행 — 결과 테이블 pendingRows 패턴. */
+function ScoreboardSkeletonRow({
+  modelId,
+  rank,
+  barColor,
+  multiModel,
+}: {
+  modelId: string;
+  rank: number;
+  barColor?: string;
+  multiModel: boolean;
+}) {
+  const pulse = "mx-auto h-3 w-10 animate-pulse rounded bg-[var(--border)]";
+  return (
+    <tr className="border-t border-[var(--border)] opacity-40" aria-hidden="true">
+      <td className="relative p-2">
+        {barColor ? (
+          <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: barColor }} aria-hidden />
+        ) : null}
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-xs text-[var(--muted)]">
+          <span>{rank}.</span>
+          {multiModel && barColor ? (
+            <span className="size-2 shrink-0 rounded-full" style={{ background: barColor }} aria-hidden />
+          ) : null}
+          {modelId}
+        </span>
+      </td>
+      {Array.from({ length: 9 }, (_, ci) => (
+        <td key={ci} className={`p-2 text-center${ci % 3 === 0 ? ` ${GROUP_BORDER}` : ""}`}>
+          <div className={pulse} />
+        </td>
+      ))}
+    </tr>
+  );
+}
+
+function ScoreboardDataRow({
+  b,
+  rank,
+  barColor,
+  multiModel,
+  maxSpeed,
+}: {
+  b: ScoreboardRow;
+  rank: number;
+  barColor?: string;
+  multiModel: boolean;
+  maxSpeed: { text: number; vision: number; total: number };
+}) {
+  const cap = b.quality.caveats.includes("judge_capped");
+  return (
+    <tr className="border-t border-[var(--border)]">
+      <td className="relative p-2">
+        {barColor ? (
+          <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: barColor }} aria-hidden />
+        ) : null}
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-xs">
+          <span className="text-[var(--muted)]">{rank}.</span>
+          {multiModel && barColor ? (
+            <span className="size-2 shrink-0 rounded-full" style={{ background: barColor }} aria-hidden />
+          ) : null}
+          <span className="text-[var(--foreground)]">{b.model_id}</span>
+          {b.textOnly ? (
+            <span
+              className="rounded border border-[var(--border)] px-1 py-px text-[10px] text-[var(--muted)]"
+              title="비전 시나리오 미실행 — 총합은 텍스트 점수와 동일"
+            >
+              text-only
+            </span>
+          ) : null}
+        </span>
+      </td>
+      <td className={`p-2 text-center ${GROUP_BORDER}`}>
+        <QualityCell g={b.quality.text} capped={false} />
+      </td>
+      <td className="p-2 text-center">
+        <SpeedCell g={b.speed.text} max={maxSpeed.text} />
+      </td>
+      <td className="p-2 text-center">
+        <TtftCell g={b.speed.text} />
+      </td>
+      <td className={`p-2 text-center ${GROUP_BORDER}`}>
+        <QualityCell g={b.quality.vision} capped={cap} />
+      </td>
+      <td className="p-2 text-center">
+        <SpeedCell g={b.speed.vision} max={maxSpeed.vision} />
+      </td>
+      <td className="p-2 text-center">
+        <TtftCell g={b.speed.vision} />
+      </td>
+      <td className={`p-2 text-center ${GROUP_BORDER}`}>
+        <QualityCell g={b.quality.total} capped={cap} />
+      </td>
+      <td className="p-2 text-center">
+        <SpeedCell g={b.speed.total} max={maxSpeed.total} />
+      </td>
+      <td className="p-2 text-center">
+        <TtftCell g={b.speed.total} />
+      </td>
+    </tr>
+  );
+}
+
 export function Scoreboard({
   rows,
   detailAggregate,
+  loading = false,
+  benchModelOrder = [],
   title = "스코어보드",
 }: {
   rows: ResultRow[];
   detailAggregate: ScoringAggregate;
+  loading?: boolean;
+  /** 벤치 실행 중 큐 순서 — 스켈레톤이 모든 모델 행 공간을 미리 확보 */
+  benchModelOrder?: string[];
   title?: string;
 }) {
   const board = useMemo(() => scoreboardFromRows(rows, detailAggregate), [rows, detailAggregate]);
@@ -265,9 +370,17 @@ export function Scoreboard({
     return m;
   }, [board]);
 
-  if (rows.length === 0 || board.length === 0) return null;
+  const loadingLayout = loading && benchModelOrder.length > 0;
+  const boardByModelId = useMemo(() => new Map(board.map((b) => [b.model_id, b])), [board]);
+  const queueColorByModel = useMemo(
+    () => (loadingLayout ? buildModelColorMap(benchModelOrder) : colorByModel),
+    [loadingLayout, benchModelOrder, colorByModel],
+  );
 
-  const multiModel = colorByModel.size >= 2;
+  if (!loading && board.length === 0) return null;
+  if (loading && benchModelOrder.length === 0 && board.length === 0) return null;
+
+  const multiModel = loadingLayout ? benchModelOrder.length >= 2 : colorByModel.size >= 2;
   const anyJudgeCap = board.some((b) => b.quality.caveats.includes("judge_capped"));
   const anyApprox = board.some((b) => b.speed.approxCaveat);
   const anyTextOnly = board.some((b) => b.textOnly);
@@ -331,68 +444,51 @@ export function Scoreboard({
             </tr>
           </thead>
           <tbody>
-            {sortedBoard.map((b, i) => {
-              const cap = b.quality.caveats.includes("judge_capped");
-              const barColor = multiModel ? colorByModel.get(b.model_id) : undefined;
-              return (
-                <tr key={b.model_id} className="border-t border-[var(--border)]">
-                  <td className="relative p-2">
-                    {barColor ? (
-                      <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: barColor }} aria-hidden />
-                    ) : null}
-                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-xs">
-                      <span className="text-[var(--muted)]">{i + 1}.</span>
-                      {multiModel && barColor ? (
-                        <span className="size-2 shrink-0 rounded-full" style={{ background: barColor }} aria-hidden />
-                      ) : null}
-                      <span className="text-[var(--foreground)]">{b.model_id}</span>
-                      {b.textOnly ? (
-                        <span
-                          className="rounded border border-[var(--border)] px-1 py-px text-[10px] text-[var(--muted)]"
-                          title="비전 시나리오 미실행 — 총합은 텍스트 점수와 동일"
-                        >
-                          text-only
-                        </span>
-                      ) : null}
-                    </span>
-                  </td>
-                  <td className={`p-2 text-center ${GROUP_BORDER}`}>
-                    <QualityCell g={b.quality.text} capped={false} />
-                  </td>
-                  <td className="p-2 text-center">
-                    <SpeedCell g={b.speed.text} max={maxSpeed.text} />
-                  </td>
-                  <td className="p-2 text-center">
-                    <TtftCell g={b.speed.text} />
-                  </td>
-                  <td className={`p-2 text-center ${GROUP_BORDER}`}>
-                    <QualityCell g={b.quality.vision} capped={cap} />
-                  </td>
-                  <td className="p-2 text-center">
-                    <SpeedCell g={b.speed.vision} max={maxSpeed.vision} />
-                  </td>
-                  <td className="p-2 text-center">
-                    <TtftCell g={b.speed.vision} />
-                  </td>
-                  <td className={`p-2 text-center ${GROUP_BORDER}`}>
-                    <QualityCell g={b.quality.total} capped={cap} />
-                  </td>
-                  <td className="p-2 text-center">
-                    <SpeedCell g={b.speed.total} max={maxSpeed.total} />
-                  </td>
-                  <td className="p-2 text-center">
-                    <TtftCell g={b.speed.total} />
-                  </td>
-                </tr>
-              );
-            })}
+            {loadingLayout
+              ? benchModelOrder.map((modelId, i) => {
+                  const b = boardByModelId.get(modelId);
+                  const barColor = multiModel ? queueColorByModel.get(modelId) : undefined;
+                  if (b) {
+                    return (
+                      <ScoreboardDataRow
+                        key={modelId}
+                        b={b}
+                        rank={i + 1}
+                        barColor={barColor}
+                        multiModel={multiModel}
+                        maxSpeed={maxSpeed}
+                      />
+                    );
+                  }
+                  return (
+                    <ScoreboardSkeletonRow
+                      key={modelId}
+                      modelId={modelId}
+                      rank={i + 1}
+                      barColor={barColor}
+                      multiModel={multiModel}
+                    />
+                  );
+                })
+              : sortedBoard.map((b, i) => (
+                  <ScoreboardDataRow
+                    key={b.model_id}
+                    b={b}
+                    rank={i + 1}
+                    barColor={multiModel ? colorByModel.get(b.model_id) : undefined}
+                    multiModel={multiModel}
+                    maxSpeed={maxSpeed}
+                  />
+                ))}
           </tbody>
         </table>
-        <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
-          {scoreboardSortLine(sort)}
-        </p>
+        {!loadingLayout ? (
+          <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
+            {scoreboardSortLine(sort)}
+          </p>
+        ) : null}
       </div>
-      {anyJudgeCap || anyApprox || anyTextOnly ? (
+      {!loadingLayout && (anyJudgeCap || anyApprox || anyTextOnly) ? (
         <div className="mt-2 space-y-1 text-xs leading-relaxed text-[var(--muted)]">
           {anyJudgeCap ? (
             <p>
