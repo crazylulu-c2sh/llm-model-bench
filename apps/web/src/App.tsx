@@ -7,6 +7,7 @@ import {
   inferLlmProfileFamily,
   isVisionScenario,
   outputTokensFromRun,
+  resolveBenchApiRoutes,
   resolveBenchProfile,
 } from "@llm-bench/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -423,13 +424,24 @@ export function App() {
     return out;
   }, [detect, modelOrderIds, selected]);
 
+  const activeBenchApiRoutes = useMemo(
+    () =>
+      detect
+        ? resolveBenchApiRoutes(
+            detect.capabilities,
+            benchmarkThroughputMode ? ["chat_completions"] : undefined,
+          )
+        : [],
+    [detect, benchmarkThroughputMode],
+  );
+
   const pendingSkeletonRows = useMemo(() => {
-    if (!running) return [];
+    if (!running || activeBenchApiRoutes.length === 0) return [];
     const completedKeys = new Set(rows.map((r) => r.rowKey));
     const result: Array<{ rowKey: string; model_id: string; scenario: string; api: string }> = [];
     for (const model of benchQueueDraft) {
       for (const scenarioId of visibleSelectedScenarioIds) {
-        for (const api of ["chat_completions", "messages"] as const) {
+        for (const api of activeBenchApiRoutes) {
           const rk = scenarioRowKey(scenarioId, api, model.id);
           if (!completedKeys.has(rk)) {
             result.push({ rowKey: rk, model_id: model.id, scenario: scenarioId, api });
@@ -438,7 +450,7 @@ export function App() {
       }
     }
     return result;
-  }, [running, rows, benchQueueDraft, visibleSelectedScenarioIds]);
+  }, [running, rows, benchQueueDraft, visibleSelectedScenarioIds, activeBenchApiRoutes]);
 
   const profileHintByModelId = useMemo(() => {
     if (!detect) return {} as Record<string, { family: LlmProfileFamily; preset: SamplingPresetName }>;
@@ -1170,11 +1182,17 @@ export function App() {
 
   const logText = log.join("\n");
   const benchProgress = useMemo(() => {
-    const total = benchQueueDraft.length * visibleSelectedScenarioIds.length * 2;
+    const routeCount = Math.max(activeBenchApiRoutes.length, 1);
+    const total = benchQueueDraft.length * visibleSelectedScenarioIds.length * routeCount;
     const completed = rows.length;
     const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
     return { completed, total, pct };
-  }, [benchQueueDraft.length, visibleSelectedScenarioIds.length, rows.length]);
+  }, [
+    benchQueueDraft.length,
+    visibleSelectedScenarioIds.length,
+    activeBenchApiRoutes.length,
+    rows.length,
+  ]);
   const benchLiveSoft = "bench-live-panel--soft";
   const benchMetricsPanelsClass = running && rows.length > 0 ? benchLiveSoft : "";
   const benchPreviewPanelClass = running && preview.length > 0 ? benchLiveSoft : "";
@@ -1882,7 +1900,7 @@ export function App() {
             rows={rows}
             benchModelOrder={benchQueueDraft.map((m) => m.id)}
             pendingRows={pendingSkeletonRows}
-            maxRows={visibleSelectedScenarioIds.length * 2}
+            maxRows={visibleSelectedScenarioIds.length * Math.max(activeBenchApiRoutes.length, 1)}
             onRowClick={(r) => openDrawerForRow(r)}
           />
         </section>

@@ -74,6 +74,12 @@ export {
 export { formatTtftMs } from "./metrics-display";
 
 export {
+  resolveBenchApiRoutes,
+  type BenchApiRoute,
+  type DetectCapabilities,
+} from "./bench-api-routes";
+
+export {
   STRESS_MAX_LIVE_CELLS,
   StressRampConfigSchema,
   type StressApiRoute,

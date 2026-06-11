@@ -12,6 +12,7 @@ import {
   defaultMaxTokensForVisionScenario,
   isVisionScenario,
   normalizeScenarioIdsForBench,
+  resolveBenchApiRoutes,
   rubricToScore,
   stripThinkingBlocks,
 } from "@llm-bench/shared";
@@ -167,15 +168,10 @@ export function makeBenchRunMeta(
       ? userScenarioIds
       : (DEFAULT_SCENARIO_IDS as ScenarioId[]);
   const scenarioIds = normalizeScenarioIdsForBench(rawScenarioIds);
-  const detectedRoutes: ("chat_completions" | "messages")[] = [];
-  if (detect.capabilities.openaiChat) detectedRoutes.push("chat_completions");
-  if (detect.capabilities.anthropicMessages) detectedRoutes.push("messages");
-  // 라우트 제한이 오면 감지된 라우트와 교집합만(교집합이 비면 무시 → 감지 라우트 그대로).
-  const restricted =
-    input.apiRoutes && input.apiRoutes.length
-      ? detectedRoutes.filter((r) => input.apiRoutes!.includes(r))
-      : detectedRoutes;
-  const routes = restricted.length ? restricted : detectedRoutes;
+  const routes = resolveBenchApiRoutes(
+    detect.capabilities,
+    input.apiRoutes?.length ? input.apiRoutes : undefined,
+  );
   const cc = resolveContentionConfig({
     provider: input.provider,
     contentionGuardEnabled: input.contentionGuardEnabled,
