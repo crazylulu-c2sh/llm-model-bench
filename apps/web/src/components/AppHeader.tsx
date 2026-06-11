@@ -49,11 +49,17 @@ function subtitleForPath(pathname: string): string {
 }
 
 const tabLinkClass = (isActive: boolean) =>
-  `min-w-0 rounded-md px-2.5 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors lg:min-w-[4.5rem] lg:px-4 lg:text-base ${
-    isActive
-      ? "bg-[var(--accent)] text-white shadow-md"
-      : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+  `group min-w-0 rounded-md px-2.5 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-[background-color,color,padding] duration-200 max-lg:hover:px-3 lg:min-w-[4.5rem] lg:px-4 lg:text-base ${
+    isActive ? "max-lg:px-3 bg-[var(--accent)] text-white shadow-md" : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
   }`;
+
+const tabLabelClass = (isActive: boolean) =>
+  [
+    "inline-block overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin] duration-200 ease-out lg:max-w-none lg:opacity-100 lg:ml-0 lg:overflow-visible",
+    isActive
+      ? "max-w-[12rem] opacity-100 ml-1.5"
+      : "max-w-0 opacity-0 group-hover:max-w-[12rem] group-hover:opacity-100 group-hover:ml-1.5",
+  ].join(" ");
 
 export function AppHeader({
   themeChoice,
@@ -112,9 +118,9 @@ export function AppHeader({
               title={label}
               className={tabLinkClass(isActive)}
             >
-              <span className="inline-flex items-center justify-center gap-0 lg:gap-1.5">
+              <span className="inline-flex items-center justify-center lg:gap-1.5">
                 <Icon className="size-4 shrink-0" aria-hidden />
-                <span className="hidden whitespace-nowrap lg:inline">{label}</span>
+                <span className={tabLabelClass(isActive)}>{label}</span>
               </span>
             </NavLink>
             );

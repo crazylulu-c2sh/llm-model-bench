@@ -64,12 +64,16 @@ test.describe("LLM Model Bench UI", () => {
     await expect(page.getByRole("link", { name: "시나리오 상세 문서" })).toHaveAttribute("href", "/scenarios");
   });
 
-  test("헤더: 좁은 뷰포트에서 탭 아이콘만, 넓은 뷰포트에서 라벨 표시", async ({ page }) => {
+  test("헤더: 좁은 뷰포트에서 활성 탭 라벨 항상·비활성 탭은 호버 시 라벨", async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 800 });
     await page.goto("/");
+    const activeBenchTab = page.getByRole("tab", { name: "모델 벤치" });
     const providerBenchTab = page.getByRole("tab", { name: "프로바이더 벤치" });
-    await expect(providerBenchTab).toBeVisible();
+    await expect(activeBenchTab.getByText("모델 벤치")).toBeVisible();
     await expect(providerBenchTab.getByText("프로바이더 벤치")).not.toBeVisible();
+
+    await providerBenchTab.hover();
+    await expect(providerBenchTab.getByText("프로바이더 벤치")).toBeVisible();
 
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(providerBenchTab.getByText("프로바이더 벤치")).toBeVisible();
