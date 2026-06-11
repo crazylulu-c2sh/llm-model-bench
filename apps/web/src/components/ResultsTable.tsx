@@ -1,4 +1,4 @@
-import { isVisionScenario, scenarioExecutionOrderIndex, scoreToRubric } from "@llm-bench/shared";
+import { formatTtftMs, isVisionScenario, scenarioExecutionOrderIndex, scoreToRubric } from "@llm-bench/shared";
 import { apiRouteRank } from "./chart-types";
 import { compareModelBenchQueueOrder } from "../lib/model-sort";
 import { buildModelColorMap } from "../lib/model-color";
@@ -28,9 +28,11 @@ export type ResultRow = {
   scenario: string;
   api: string;
   ttft_ms: number | null;
+  /** TPS·출력 토큰 산정에 쓴 토큰 수(usage 실토큰 또는 글자수/4 근사); 없으면 null */
+  output_tokens?: number | null;
   /** 초당 출력 토큰(usage 실토큰 또는 글자수/4 근사); 없으면 null */
   tps?: number | null;
-  /** TPS 산정에 provider 실토큰을 썼는지 — "approx"면 `*`·경고 표기 */
+  /** TPS·출력 토큰 산정에 provider 실토큰을 썼는지 — "approx"면 `*`·경고 표기 */
   tps_source?: "usage" | "approx";
   /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의 배지 */
   reasoning_hidden?: boolean;
@@ -201,7 +203,7 @@ export function ResultsTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            title="Time To First Token — 첫 출력 토큰이 나오기까지 걸린 시간(밀리초)"
+            title="Time To First Token — HTTP 요청 발신부터 첫 출력 토큰(텍스트·추론·tool_call)까지(밀리초)"
             onClick={() => onColumnSort(column.id)}
           >
             TTFT (ms)
@@ -218,7 +220,7 @@ export function ResultsTable({
               title={win ? "이 시나리오·API 그룹에서 가장 빠른 TTFT" : undefined}
             >
               {win ? <span aria-hidden>▾</span> : null}
-              {v === null || v === undefined ? "—" : `${Math.round(v)}`}
+              {formatTtftMs(v)}
               {row.original.reasoning_hidden ? (
                 <span
                   className="inline-flex items-center text-amber-500"
@@ -232,6 +234,44 @@ export function ResultsTable({
           );
         },
         sortingFn: "basic",
+      }),
+      columnHelper.accessor("output_tokens", {
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
+            title="출력 토큰 수 — provider usage.completion_tokens 또는 글자수/4 근사(TPS와 동일 기준)"
+            onClick={() => onColumnSort(column.id)}
+          >
+            출력 토큰
+            {sortDirIcon(column, sorting)}
+          </button>
+        ),
+        cell: ({ row, getValue }) => {
+          const v = getValue();
+          if (v === null || v === undefined) {
+            return <span className="whitespace-nowrap font-mono text-xs">—</span>;
+          }
+          const approx = row.original.tps_source === "approx";
+          return (
+            <span
+              className="whitespace-nowrap font-mono text-xs"
+              title={
+                approx
+                  ? "provider가 usage를 보고하지 않아 글자수/4 추정치(approx)"
+                  : "provider 보고 completion_tokens(usage)"
+              }
+            >
+              {v}
+              {approx ? <span className="text-[var(--muted)]">*</span> : null}
+            </span>
+          );
+        },
+        sortingFn: (a, b) => {
+          const x = a.original.output_tokens ?? -1;
+          const y = b.original.output_tokens ?? -1;
+          return x - y;
+        },
       }),
       columnHelper.accessor("tps", {
         header: ({ column }) => (
@@ -410,6 +450,7 @@ export function ResultsTable({
                     <span className="text-xs text-[var(--muted)]">{pr.api}</span>
                   </td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
+                  <td className="p-2"><div className="h-3 w-8 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-12 animate-pulse rounded bg-[var(--border)]" /></td>
                 </tr>

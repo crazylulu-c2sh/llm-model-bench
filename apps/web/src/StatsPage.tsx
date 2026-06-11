@@ -251,7 +251,7 @@ export function StatsPage() {
         scenario: row.scenario,
         api: row.api,
         modelId: row.modelId,
-        ttft_ms: row.ttft > 0 ? row.ttft : null,
+        ttft_ms: row.ttft != null && Number.isFinite(row.ttft) ? row.ttft : null,
         pass: row.pass,
         score: last?.quality?.score,
         qualityReason: last?.quality?.reason,

@@ -7,7 +7,7 @@ export function MetricChartLegend({ variant }: { variant: "session" | "compare" 
         <span className="inline-flex items-center gap-2">
           <span className="size-3 shrink-0 rounded-sm bg-[var(--chart-ttft)]" aria-hidden />
           <span>
-            <strong>TTFT</strong> (ms) — 첫 출력 토큰까지 시간
+            <strong>TTFT</strong> (ms) — 요청 발신부터 첫 출력 토큰까지
           </span>
         </span>
         <span className="inline-flex items-center gap-2">
@@ -45,8 +45,11 @@ export function MetricTableIntro() {
         <strong className="text-[var(--foreground)]">모델</strong>은 측정에 사용된 모델 ID입니다.
       </p>
       <p>
-        <strong className="text-[var(--foreground)]">TTFT</strong>(ms)는 첫 출력 토큰까지 시간,{" "}
-        <strong className="text-[var(--foreground)]">TPS</strong>(tok/s)는 출력 텍스트 길이 기반 근사 토큰 수를 총 소요 시간(초)으로 나눈
+        <strong className="text-[var(--foreground)]">TTFT</strong>(ms)는 HTTP 요청 발신부터 첫 출력 토큰(텍스트·추론·tool_call)까지
+        시간입니다(100ms 미만은 소수 1자리).{" "}
+        <strong className="text-[var(--foreground)]">출력 토큰</strong>·<strong className="text-[var(--foreground)]">TPS</strong>는
+        동일한 토큰 수(provider <code className="font-mono text-[11px]">usage.completion_tokens</code> 또는 글자수/4 근사,
+        근사 시 <code className="font-mono text-[11px]">*</code>)를 쓰며, TPS는 이를 요청 발신부터 스트림 완료까지 총 시간(초)으로 나눈
         값입니다.
       </p>
     </div>

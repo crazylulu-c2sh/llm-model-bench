@@ -32,6 +32,18 @@ describe("consumeOpenAiChatStream", () => {
     expect(m.streamCompleted).toBe(true);
   });
 
+  it("measures TTFT and totalMs from requestStartedAt when provided", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"x"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const requestStartedAt = performance.now() - 50;
+    const m = await consumeOpenAiChatStream(stream, undefined, { requestStartedAt });
+    expect(m.ttftMs).not.toBeNull();
+    expect(m.ttftMs!).toBeGreaterThanOrEqual(45);
+    expect(m.totalMs).toBeGreaterThanOrEqual(45);
+  });
+
   it("merges streaming tool_calls into JSON and sets TTFT without content", async () => {
     const line = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`;
     const stream = sse([

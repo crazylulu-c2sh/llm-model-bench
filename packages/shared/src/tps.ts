@@ -24,6 +24,14 @@ export function tpsSourceFromUsage(usageTokens: number | null | undefined): "usa
   return usageTokens != null && usageTokens > 0 ? "usage" : "approx";
 }
 
+export function outputTokensFromRun(
+  outputText: string | null | undefined,
+  usageTokens?: number | null,
+): number | null {
+  const n = effectiveOutputTokens(outputText ?? "", usageTokens);
+  return n > 0 ? n : null;
+}
+
 export function tokensPerSecondFromRun(
   totalMs: number | null | undefined,
   outputText: string | null | undefined,

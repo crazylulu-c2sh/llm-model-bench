@@ -454,6 +454,7 @@ export async function* runStress(
                     { role: "system", content: system },
                     { role: "user", content: user },
                   ]);
+                  const requestT0 = performance.now();
                   const { response } = await openAiChatPostWithUsage(
                     fetchImpl,
                     `${base}/v1/chat/completions`,
@@ -467,6 +468,7 @@ export async function* runStress(
                     outcome.errorMessage = (await response.text().catch(() => "")).slice(0, 500);
                   } else {
                     const m = await consumeOpenAiChatStream(response.body, reqController.signal, {
+                      requestStartedAt: requestT0,
                       onDelta: (d: OpenAiStreamDelta) => {
                         pushEvent({
                           type: "stress_worker_token_delta",
@@ -495,6 +497,7 @@ export async function* runStress(
                   }
                 } else {
                   const body = buildAnthropicBody(meta, system, user);
+                  const requestT0 = performance.now();
                   const response = await fetchImpl(`${base}/v1/messages`, {
                     method: "POST",
                     headers: headers(input.apiKey, { "anthropic-version": "2023-06-01" }),
@@ -506,6 +509,7 @@ export async function* runStress(
                     outcome.errorMessage = (await response.text().catch(() => "")).slice(0, 500);
                   } else {
                     const m = await consumeAnthropicMessagesStream(response.body, reqController.signal, {
+                      requestStartedAt: requestT0,
                       onDelta: (d) => {
                         pushEvent({
                           type: "stress_worker_token_delta",

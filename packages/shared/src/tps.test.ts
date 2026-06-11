@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   approxOutputTokens,
   effectiveOutputTokens,
+  outputTokensFromRun,
   tokensPerSecondFromRun,
   tpsSourceFromUsage,
 } from "./tps";
@@ -28,6 +29,16 @@ describe("tpsSourceFromUsage", () => {
     expect(tpsSourceFromUsage(0)).toBe("approx");
     expect(tpsSourceFromUsage(null)).toBe("approx");
     expect(tpsSourceFromUsage(undefined)).toBe("approx");
+  });
+});
+
+describe("outputTokensFromRun", () => {
+  it("returns usage tokens when present", () => {
+    expect(outputTokensFromRun("ok", 42)).toBe(42);
+  });
+  it("falls back to approx and returns null for empty output", () => {
+    expect(outputTokensFromRun("a".repeat(40), null)).toBe(10);
+    expect(outputTokensFromRun("", null)).toBeNull();
   });
 });
 

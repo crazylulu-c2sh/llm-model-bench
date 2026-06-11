@@ -66,9 +66,18 @@ export {
 export {
   approxOutputTokens,
   effectiveOutputTokens,
+  outputTokensFromRun,
   tokensPerSecondFromRun,
   tpsSourceFromUsage,
 } from "./tps";
+
+export { formatTtftMs } from "./metrics-display";
+
+export {
+  resolveBenchApiRoutes,
+  type BenchApiRoute,
+  type DetectCapabilities,
+} from "./bench-api-routes";
 
 export {
   STRESS_MAX_LIVE_CELLS,

@@ -1,4 +1,10 @@
-import { getScenarioBenchMeta, isVisionScenario, partitionThinkingBlocks, scoreToRubric } from "@llm-bench/shared";
+import {
+  formatTtftMs,
+  getScenarioBenchMeta,
+  isVisionScenario,
+  partitionThinkingBlocks,
+  scoreToRubric,
+} from "@llm-bench/shared";
 import { AlertTriangle, X } from "lucide-react";
 import { JsonCodeBlock } from "./JsonCodeBlock";
 import { useScrollLock } from "../useScrollLock";
@@ -92,7 +98,7 @@ export function ScenarioDetailDrawer({
             <div>
               <span className="text-[var(--muted)]">TTFT</span>
               <p className="font-mono text-[var(--foreground)]">
-                {payload.ttft_ms != null ? `${Math.round(payload.ttft_ms)} ms` : "—"}
+                {payload.ttft_ms != null ? `${formatTtftMs(payload.ttft_ms)} ms` : "—"}
               </p>
               {payload.reasoningHidden ? (
                 <p className="mt-1 inline-flex items-start gap-1 text-[11px] leading-snug text-amber-500">

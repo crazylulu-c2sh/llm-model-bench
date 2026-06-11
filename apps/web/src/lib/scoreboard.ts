@@ -100,7 +100,7 @@ export function buildScoringRows(
     let judgeCapped = false;
 
     for (const run of runs) {
-      if (typeof run.ttft_ms === "number" && Number.isFinite(run.ttft_ms) && run.ttft_ms > 0) {
+      if (typeof run.ttft_ms === "number" && Number.isFinite(run.ttft_ms) && run.ttft_ms >= 0) {
         ttftSum += run.ttft_ms;
         ttftN += 1;
       }

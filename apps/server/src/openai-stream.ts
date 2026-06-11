@@ -47,6 +47,8 @@ export type OpenAiStreamOptions = {
    * 미지정/false면 탐지·cancel을 전혀 수행하지 않음(기존 호출자 — stress 등 — 거동·오버헤드 불변).
    */
   loopGuard?: boolean;
+  /** `performance.now()` at HTTP request start — TTFT·totalMs를 요청 발신 기준으로 잡는다. */
+  requestStartedAt?: number;
 };
 
 type DeltaToolCall = {
@@ -124,7 +126,7 @@ export async function consumeOpenAiChatStream(
   /** reasoning_content + 문자열 reasoning (히스토리 reasoning_details) */
   let reasoningOnly = "";
   const toolByIndex = new Map<number, MergedToolCall>();
-  const t0 = performance.now();
+  const origin = opts?.requestStartedAt ?? performance.now();
   let ttft: number | null = null;
   let streamCompleted = false;
   let usageOutputTokens: number | null = null;
@@ -135,7 +137,7 @@ export async function consumeOpenAiChatStream(
   let lastGuardCheckLen = 0;
 
   const markTtft = () => {
-    if (ttft === null) ttft = performance.now() - t0;
+    if (ttft === null) ttft = performance.now() - origin;
   };
 
   const handleLine = (line: string) => {
@@ -223,7 +225,7 @@ export async function consumeOpenAiChatStream(
   if (repetitionLoopDetected) {
     await reader.cancel().catch(() => undefined);
   }
-  const totalMs = performance.now() - t0;
+  const totalMs = performance.now() - origin;
   const toolCallsForApi: OpenAiToolCallOut[] = [...toolByIndex.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([index, tc]) => ({

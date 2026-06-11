@@ -12,6 +12,7 @@ import {
   defaultMaxTokensForVisionScenario,
   isVisionScenario,
   normalizeScenarioIdsForBench,
+  resolveBenchApiRoutes,
   rubricToScore,
   stripThinkingBlocks,
 } from "@llm-bench/shared";
@@ -167,15 +168,10 @@ export function makeBenchRunMeta(
       ? userScenarioIds
       : (DEFAULT_SCENARIO_IDS as ScenarioId[]);
   const scenarioIds = normalizeScenarioIdsForBench(rawScenarioIds);
-  const detectedRoutes: ("chat_completions" | "messages")[] = [];
-  if (detect.capabilities.openaiChat) detectedRoutes.push("chat_completions");
-  if (detect.capabilities.anthropicMessages) detectedRoutes.push("messages");
-  // 라우트 제한이 오면 감지된 라우트와 교집합만(교집합이 비면 무시 → 감지 라우트 그대로).
-  const restricted =
-    input.apiRoutes && input.apiRoutes.length
-      ? detectedRoutes.filter((r) => input.apiRoutes!.includes(r))
-      : detectedRoutes;
-  const routes = restricted.length ? restricted : detectedRoutes;
+  const routes = resolveBenchApiRoutes(
+    detect.capabilities,
+    input.apiRoutes?.length ? input.apiRoutes : undefined,
+  );
   const cc = resolveContentionConfig({
     provider: input.provider,
     contentionGuardEnabled: input.contentionGuardEnabled,
@@ -804,6 +800,7 @@ export async function* runBench(
                   stream: true,
                   ...(tools ? { tools, tool_choice } : {}),
                 });
+                const requestT0 = performance.now();
                 const { response: r } = await openAiChatPostWithUsage(
                   fetchImpl,
                   `${base}/v1/chat/completions`,
@@ -838,7 +835,7 @@ export async function* runBench(
                 const m = await consumeOpenAiChatStream(
                   r.body,
                   reqSignal,
-                  { loopGuard: true },
+                  { loopGuard: true, requestStartedAt: requestT0 },
                 );
                 lastOpen = m;
                 if (openAiLikelyTruncated(m, scenarioMeta.max_tokens)) truncated = true;
@@ -944,6 +941,7 @@ export async function* runBench(
                 if (am.system) body.system = am.system;
                 if (toolsAnthropic) body.tools = toolsAnthropic;
                 Object.assign(body, anthropicExtrasFromMeta(scenarioMeta));
+                const requestT0 = performance.now();
                 const r = await fetchImpl(`${base}/v1/messages`, {
                   method: "POST",
                   headers: headers(input.apiKey, {
@@ -967,6 +965,7 @@ export async function* runBench(
                 const m = await consumeAnthropicMessagesStream(
                   r.body,
                   reqSignal,
+                  { requestStartedAt: requestT0 },
                 );
                 lastAnth = m;
                 if (m.stopReason === "max_tokens") truncated = true;
@@ -1045,6 +1044,7 @@ export async function* runBench(
                 stream: true,
                 ...(tools ? { tools, tool_choice: tool_choice ?? "auto" } : {}),
               });
+              const requestT0 = performance.now();
               const { response: r } = await openAiChatPostWithUsage(
                 fetchImpl,
                 `${base}/v1/chat/completions`,
@@ -1085,7 +1085,7 @@ export async function* runBench(
                 const m = await consumeOpenAiChatStream(
                   r.body,
                   reqSignal,
-                  { loopGuard: true },
+                  { loopGuard: true, requestStartedAt: requestT0 },
                 );
                 text = m.text;
                 ttft = m.ttftMs;
@@ -1121,6 +1121,7 @@ export async function* runBench(
               if (toolsAnthropic) body.tools = toolsAnthropic;
               Object.assign(body, anthropicExtrasFromMeta(scenarioMeta));
 
+              const requestT0 = performance.now();
               const r = await fetchImpl(`${base}/v1/messages`, {
                 method: "POST",
                 headers: headers(input.apiKey, {
@@ -1151,6 +1152,7 @@ export async function* runBench(
                 const m = await consumeAnthropicMessagesStream(
                   r.body,
                   reqSignal,
+                  { requestStartedAt: requestT0 },
                 );
                 // 채점: 추론 제외(가시 본문 + tool JSON). output_text/throughput: 추론 포함(chat 경로와 동일).
                 scoreText = m.text;
