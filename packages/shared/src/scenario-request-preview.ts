@@ -9,6 +9,7 @@ import {
   type ScenarioPromptPreviewOpts,
 } from "./scenarios-preview";
 import { chooseImageDelivery } from "./vision-origin";
+import { DEFAULT_CALENDAR_TIMEZONE } from "./scenario-scoring-constants";
 
 export type ScenarioRequestPreviewOpts = ScenarioPromptPreviewOpts & {
   /** 벤치 `public_assets_origin` / 브라우저 origin — PDF URL·비전 image URL 분기 */
@@ -85,7 +86,7 @@ function promptOpts(opts?: ScenarioRequestPreviewOpts) {
   return {
     publicAssetBaseUrl: resolveOrigin(opts),
     referenceIso: opts?.referenceIso,
-    calendarTimeZone: opts?.calendarTimeZone ?? "Asia/Seoul",
+    calendarTimeZone: opts?.calendarTimeZone ?? DEFAULT_CALENDAR_TIMEZONE,
   };
 }
 

@@ -8,9 +8,8 @@
  *
  * 호출 스펙: temperature 0, timeout 30s, 재시도 0회.
  */
+import { DEFAULT_LLM_JUDGE_MODEL, LLM_JUDGE_TIMEOUT_MS } from "@llm-bench/shared";
 import { extractFirstJsonObject } from "./scoring/normalize.js";
-
-const JUDGE_TIMEOUT_MS = 30_000;
 
 export type JudgeImage = {
   bytes: Buffer;
@@ -37,7 +36,7 @@ export function isJudgeEnabled(): boolean {
 }
 
 function judgeModel(): string {
-  return process.env.LLM_JUDGE_MODEL?.trim() || "claude-opus-4-7";
+  return process.env.LLM_JUDGE_MODEL?.trim() || DEFAULT_LLM_JUDGE_MODEL;
 }
 
 export async function runLlmJudge(req: JudgeRequest): Promise<JudgeResult> {
@@ -83,7 +82,7 @@ export async function runLlmJudge(req: JudgeRequest): Promise<JudgeResult> {
   };
 
   const controller = new AbortController();
-  const to = setTimeout(() => controller.abort(), JUDGE_TIMEOUT_MS);
+  const to = setTimeout(() => controller.abort(), LLM_JUDGE_TIMEOUT_MS);
   const doFetch = req.fetchImpl ?? fetch;
   let response: Response;
   try {

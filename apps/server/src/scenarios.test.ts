@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { buildMessages, detectScript, expectedCalendarTriple, scoreScenario } from "./scenarios.js";
+import {
+  PUBLIC_SCENARIO_IDS,
+  getScenarioSystemPromptPreview,
+  getScenarioUserPromptPreview,
+  isVisionScenario,
+} from "@llm-bench/shared";
+import {
+  anthropicMessagesForScenario,
+  buildMessages,
+  detectScript,
+  expectedCalendarTriple,
+  scoreScenario,
+  type OpenAiContentPart,
+} from "./scenarios.js";
 
 describe("buildMessages", () => {
   it("includes system and user roles for basic scenario", () => {
@@ -27,6 +40,16 @@ describe("scoreScenario tool_weather", () => {
     const out = JSON.stringify({
       tool_calls: [{ function: { name: "get_weather", arguments: '{"city":"Seattle"}' } }],
     });
+    expect(scoreScenario("tool_weather", out).pass).toBe(true);
+  });
+
+  it("fails on prose that merely mentions get_weather without calling it", () => {
+    expect(scoreScenario("tool_weather", "I cannot call get_weather for you.").pass).toBe(false);
+    expect(scoreScenario("tool_weather", "The get_weather tool would help here.").pass).toBe(false);
+  });
+
+  it('passes on inline <tool_call> style with "name":"get_weather"', () => {
+    const out = '<tool_call>{"name": "get_weather", "arguments": {"city": "Seattle"}}</tool_call>';
     expect(scoreScenario("tool_weather", out).pass).toBe(true);
   });
 });
@@ -291,6 +314,101 @@ describe("scoreScenario structured_action", () => {
 
   it("passes without thinking markers", () => {
     expect(scoreScenario("structured_action", '{"action":"x","confidence":0}').pass).toBe(true);
+  });
+
+  it("passes a fenced ```json``` block despite the no-fence instruction", () => {
+    const out = '```json\n{"action":"submit","confidence":0.9}\n```';
+    expect(scoreScenario("structured_action", out).pass).toBe(true);
+  });
+
+  it("passes valid JSON wrapped in surrounding prose", () => {
+    const out = 'Sure — here it is: {"action":"hold","confidence":0.4} — done.';
+    expect(scoreScenario("structured_action", out).pass).toBe(true);
+  });
+
+  it("fails when a trailing empty object follows the answer (last balanced wins)", () => {
+    const out = '{"action":"hold","confidence":0.4} (note: {})';
+    expect(scoreScenario("structured_action", out).pass).toBe(false);
+  });
+
+  it("scores the last balanced object when a draft precedes the final JSON", () => {
+    const out = '{"action":"draft","confidence":2}\nFinal: {"action":"submit","confidence":0.5}';
+    expect(scoreScenario("structured_action", out).pass).toBe(true);
+  });
+
+  it("fails when confidence is out of range", () => {
+    expect(scoreScenario("structured_action", '{"action":"x","confidence":1.5}').pass).toBe(false);
+  });
+
+  it("fails when no JSON object exists", () => {
+    expect(scoreScenario("structured_action", "no json here").pass).toBe(false);
+  });
+});
+
+describe("prompt preview ↔ buildMessages wiring", () => {
+  const ctx = {
+    publicAssetsOrigin: "http://127.0.0.1:21104",
+    referenceAt: new Date("2024-01-15T15:00:00.000Z"),
+    calendarTimeZone: "Asia/Seoul",
+  };
+  const previewOpts = {
+    publicAssetBaseUrl: ctx.publicAssetsOrigin,
+    referenceIso: ctx.referenceAt.toISOString(),
+    calendarTimeZone: ctx.calendarTimeZone,
+  };
+
+  function openAiUserText(content: string | OpenAiContentPart[] | null | undefined): string {
+    if (typeof content === "string") return content;
+    const first = Array.isArray(content) ? content[0] : undefined;
+    return first && first.type === "text" ? first.text : "";
+  }
+
+  it("openai route: system/user text equals shared preview for every public scenario", () => {
+    for (const id of PUBLIC_SCENARIO_IDS) {
+      const built = buildMessages(id, ctx);
+      expect(built.messages[0]?.content).toBe(getScenarioSystemPromptPreview(id));
+      expect(openAiUserText(built.messages[1]?.content)).toBe(
+        getScenarioUserPromptPreview(id, previewOpts),
+      );
+    }
+  });
+
+  it("anthropic route: system/user text equals shared preview for every public scenario", () => {
+    for (const id of PUBLIC_SCENARIO_IDS) {
+      const built = anthropicMessagesForScenario(id, ctx);
+      expect(built.system).toBe(getScenarioSystemPromptPreview(id));
+      const content = built.messages[0]?.content;
+      const text =
+        typeof content === "string"
+          ? content
+          : content?.[0]?.type === "text"
+            ? content[0].text
+            : "";
+      expect(text).toBe(getScenarioUserPromptPreview(id, previewOpts));
+    }
+  });
+
+  it("injects origin into translate prompt and reference ISO into calendar prompt", () => {
+    const translate = buildMessages("translate_nist_fips197_pdf_tools", ctx);
+    expect(openAiUserText(translate.messages[1]?.content)).toContain(
+      "http://127.0.0.1:21104/nist.fips.197.pdf",
+    );
+    const calendar = buildMessages("chat_time_calendar", ctx);
+    expect(openAiUserText(calendar.messages[1]?.content)).toContain("2024-01-15T15:00:00.000Z");
+    expect(openAiUserText(calendar.messages[1]?.content)).toContain("Asia/Seoul");
+  });
+
+  it("vision scenarios send [text, image] multipart on both routes", () => {
+    for (const id of PUBLIC_SCENARIO_IDS.filter((s) => isVisionScenario(s))) {
+      const openai = buildMessages(id, ctx);
+      const content = openai.messages[1]?.content;
+      expect(Array.isArray(content)).toBe(true);
+      expect((content as OpenAiContentPart[])[1]?.type).toBe("image_url");
+      const anthropic = anthropicMessagesForScenario(id, ctx);
+      const parts = anthropic.messages[0]?.content;
+      expect(Array.isArray(parts)).toBe(true);
+      expect((parts as { type: string }[])[1]?.type).toBe("image");
+    }
   });
 });
 

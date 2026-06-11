@@ -8,11 +8,17 @@ import {
   rubricToScore,
   stripThinkingBlocks,
   CHART_VALUE_ABS_TOL,
+  COUNT_RED_CARS_MAX_PLAUSIBLE,
   COUNT_RED_CARS_TOL_FAR,
   COUNT_RED_CARS_TOL_NEAR,
+  DEFAULT_CALENDAR_TIMEZONE,
+  MEME_PREFILTER_CUES,
   OCR_VALUE_REL_TOL,
   OCR_YOY_ABS_TOL,
   VISION_SCORING_GROUND_TRUTH,
+  WIREFRAME_MIN_SEMANTIC_TAGS,
+  WIREFRAME_SEMANTIC_TAGS,
+  cueAlternationSource,
   type ScenarioId,
 } from "@llm-bench/shared";
 import { z } from "zod";
@@ -47,7 +53,7 @@ export function scenarioUserMessageContent(id: ScenarioId, ctx?: ScenarioPromptC
   const base = ctx?.publicAssetsOrigin?.trim()
     ? ctx.publicAssetsOrigin.trim()
     : resolvePublicAssetsOrigin({ publicAssetsOrigin: ctx?.publicAssetsOrigin });
-  const tz = ctx?.calendarTimeZone ?? "Asia/Seoul";
+  const tz = ctx?.calendarTimeZone ?? DEFAULT_CALENDAR_TIMEZONE;
   const refIso = ctx?.referenceAt?.toISOString();
   return getScenarioUserPromptPreview(id, {
     publicAssetBaseUrl: base,
@@ -113,7 +119,8 @@ const ActionSchema = z.object({
 });
 
 function toolWeatherOutputPass(output: string): boolean {
-  if (/"name"\s*:\s*"get_weather"/.test(output) || /\bget_weather\b/.test(output)) return true;
+  // 평문 단어 언급만으로는 불합격 — 스트림 소비자가 직렬화한 tool_calls JSON의 "name" 패턴만 신호로 친다.
+  if (/"name"\s*:\s*"get_weather"/.test(output)) return true;
   const fromJson = (raw: string): boolean => {
     try {
       const parsed = JSON.parse(raw) as { tool_calls?: { function?: { name?: string } }[] };
@@ -183,7 +190,7 @@ function scoreChatTimeCalendar(output: string, iso: string | undefined, timeZone
   score?: number;
   reason?: string;
 } {
-  const tz = timeZone ?? "Asia/Seoul";
+  const tz = timeZone ?? DEFAULT_CALENDAR_TIMEZONE;
   const trimmed = output.trim();
   if (!trimmed) return { pass: false, score: 0, reason: "empty output" };
   if (!iso) return { pass: false, score: 0, reason: "missing calendar reference" };
@@ -308,10 +315,10 @@ export function scoreScenario(
       return { pass, score: pass ? 1 : 0, reason: pass ? undefined : "expected tool call signal" };
     }
     case "structured_action": {
-      const jsonMatch = stripThinkingBlocks(output).match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return { pass: false, reason: "no json object" };
+      const objStr = extractFirstJsonObject(output);
+      if (!objStr) return { pass: false, reason: "no json object" };
       try {
-        const parsed = JSON.parse(jsonMatch[0]) as unknown;
+        const parsed = JSON.parse(objStr) as unknown;
         ActionSchema.parse(parsed);
         return { pass: true, score: 1 };
       } catch (e) {
@@ -434,7 +441,7 @@ function scoreVisionCountRedCars(
         : null;
   if (n == null || !Number.isFinite(n)) return rubricResult(0, "missing or invalid red_cars");
   if (n === 0) return rubricResult(0, "red_cars=0 (explicit zero)");
-  if (n >= 100) return rubricResult(0, `red_cars=${n} (excessive hallucination)`);
+  if (n >= COUNT_RED_CARS_MAX_PLAUSIBLE) return rubricResult(0, `red_cars=${n} (excessive hallucination)`);
   const [lo, hi] = range;
   if (n >= lo && n <= hi) return rubricResult(3, `predicted=${n} range=[${lo},${hi}]`);
   if (n >= lo - COUNT_RED_CARS_TOL_NEAR && n <= hi + COUNT_RED_CARS_TOL_NEAR)
@@ -472,14 +479,16 @@ function scoreVisionChartPeak(
   return rubricResult(0, tag);
 }
 
+const MEME_SERVER_CUE_RE = new RegExp(cueAlternationSource(MEME_PREFILTER_CUES.server), "i");
+const MEME_DONKEY_CUE_RE = new RegExp(cueAlternationSource(MEME_PREFILTER_CUES.donkey), "i");
+const MEME_CONTRAST_CUE_RE = new RegExp(cueAlternationSource(MEME_PREFILTER_CUES.contrast), "i");
+
 function scoreVisionMemeExplain(output: string): ScenarioScoreResult {
   const text = stripThinkingBlocks(output);
   const hasHangul = /[가-힣]/.test(text);
-  const lowered = text.toLowerCase();
-  const hasServer = /서버|데이터센터|랙|server|datacenter|data center/i.test(text);
-  const hasDonkey = /당나귀|수레|짐마차|donkey|cart/i.test(text);
-  const hasContrast = /대비|차이|기대|현실|약속|실제|promise|reality|expect|expectation/i.test(text);
-  void lowered;
+  const hasServer = MEME_SERVER_CUE_RE.test(text);
+  const hasDonkey = MEME_DONKEY_CUE_RE.test(text);
+  const hasContrast = MEME_CONTRAST_CUE_RE.test(text);
   const passed = [hasHangul, hasServer, hasDonkey, hasContrast].filter(Boolean).length;
   if (passed < 4) {
     return rubricResult(
@@ -504,8 +513,9 @@ function scoreVisionWireframe(
   if (!fenceMatch) return rubricResult(0, "no html fence");
   const html = fenceMatch[1];
   const htmlLc = html.toLowerCase();
-  const semantics = ["<header", "<nav", "<main", "<section", "<footer"].filter((t) => htmlLc.includes(t));
-  if (semantics.length < 3) return rubricResult(0, `semantic tags ${semantics.length}/3`);
+  const semantics = WIREFRAME_SEMANTIC_TAGS.filter((t) => htmlLc.includes(t));
+  if (semantics.length < WIREFRAME_MIN_SEMANTIC_TAGS)
+    return rubricResult(0, `semantic tags ${semantics.length}/${WIREFRAME_MIN_SEMANTIC_TAGS}`);
   const missing = requiredCues.filter((cue) => !htmlLc.includes(cue.toLowerCase()));
   if (missing.length > 0) return rubricResult(0, `missing cues: ${missing.join(", ")}`);
   return rubricResult(

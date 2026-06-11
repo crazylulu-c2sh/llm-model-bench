@@ -34,11 +34,21 @@ export { getScenarioBenchMeta, type ScenarioBenchMeta } from "./scenario-meta";
 
 export {
   CHART_VALUE_ABS_TOL,
+  COUNT_RED_CARS_MAX_PLAUSIBLE,
   COUNT_RED_CARS_TOL_FAR,
   COUNT_RED_CARS_TOL_NEAR,
+  DEFAULT_CALENDAR_TIMEZONE,
+  DEFAULT_LLM_JUDGE_MODEL,
+  JUDGE_FAILURE_LABELS,
+  LLM_JUDGE_MAX_RETRIES,
+  LLM_JUDGE_TIMEOUT_MS,
+  MEME_PREFILTER_CUES,
   OCR_VALUE_REL_TOL,
   OCR_YOY_ABS_TOL,
   VISION_SCORING_GROUND_TRUTH,
+  WIREFRAME_MIN_SEMANTIC_TAGS,
+  WIREFRAME_SEMANTIC_TAGS,
+  cueAlternationSource,
   type VisionScoringGroundTruthId,
 } from "./scenario-scoring-constants";
 
