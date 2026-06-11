@@ -1294,12 +1294,15 @@ export function App() {
                 <Link2 className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
                 Base URL
               </span>
-              <input
-                inputMode="url"
-                className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-sm"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-              />
+              <div className="flex min-w-0 flex-wrap items-stretch gap-2">
+                <input
+                  inputMode="url"
+                  className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-sm"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                />
+                {detectButton}
+              </div>
             </label>
             <label className="grid gap-1 text-sm">
               <span className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
