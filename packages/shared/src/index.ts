@@ -70,6 +70,8 @@ export {
   tpsSourceFromUsage,
 } from "./tps";
 
+export { formatTtftMs } from "./metrics-display";
+
 export {
   STRESS_MAX_LIVE_CELLS,
   StressRampConfigSchema,

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowDownUp, ArrowUp } from "lucide-react";
+import { formatTtftMs } from "@llm-bench/shared";
 import type { ResultRow } from "./ResultsTable";
 import { buildModelColorMap } from "../lib/model-color";
 import {
@@ -111,7 +112,7 @@ function TtftCell({ g }: { g: SpeedGroup }) {
   return g.ttftMs == null ? (
     <span className="font-mono text-xs text-[var(--muted)]">—</span>
   ) : (
-    <span className="font-mono text-xs text-[var(--muted)]">{g.ttftMs}ms</span>
+    <span className="font-mono text-xs text-[var(--muted)]">{formatTtftMs(g.ttftMs)}ms</span>
   );
 }
 

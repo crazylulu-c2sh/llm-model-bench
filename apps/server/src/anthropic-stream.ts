@@ -32,6 +32,8 @@ export type AnthropicStreamDelta =
 
 export type AnthropicStreamOptions = {
   onDelta?: (delta: AnthropicStreamDelta) => void;
+  /** `performance.now()` at HTTP request start — TTFT·totalMs를 요청 발신 기준으로 잡는다. */
+  requestStartedAt?: number;
 };
 
 type ToolUseAcc = { name: string; id?: string; inputJson: string };
@@ -63,7 +65,7 @@ export async function consumeAnthropicMessagesStream(
   let text = "";
   let reasoningText = "";
   const toolUseByIndex = new Map<number, ToolUseAcc>();
-  const t0 = performance.now();
+  const origin = opts?.requestStartedAt ?? performance.now();
   let ttft: number | null = null;
   let sawMessageDelta = false;
   let usageOutputTokens: number | null = null;
@@ -71,7 +73,7 @@ export async function consumeAnthropicMessagesStream(
   const onDelta = opts?.onDelta;
 
   const markTtft = () => {
-    if (ttft === null) ttft = performance.now() - t0;
+    if (ttft === null) ttft = performance.now() - origin;
   };
 
   const flushEventBlock = (block: string) => {
@@ -175,7 +177,7 @@ export async function consumeAnthropicMessagesStream(
   }
   if (carry.trim()) flushEventBlock(carry);
 
-  const totalMs = performance.now() - t0;
+  const totalMs = performance.now() - origin;
   const toolUses: AnthropicToolUseOut[] = [...toolUseByIndex.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([index, tu]) => {

@@ -1,4 +1,4 @@
-import { isVisionScenario, scenarioExecutionOrderIndex, scoreToRubric } from "@llm-bench/shared";
+import { formatTtftMs, isVisionScenario, scenarioExecutionOrderIndex, scoreToRubric } from "@llm-bench/shared";
 import { apiRouteRank } from "./chart-types";
 import { compareModelBenchQueueOrder } from "../lib/model-sort";
 import { buildModelColorMap } from "../lib/model-color";
@@ -201,7 +201,7 @@ export function ResultsTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            title="Time To First Token — 첫 출력 토큰이 나오기까지 걸린 시간(밀리초)"
+            title="Time To First Token — HTTP 요청 발신부터 첫 출력 토큰(텍스트·추론·tool_call)까지(밀리초)"
             onClick={() => onColumnSort(column.id)}
           >
             TTFT (ms)
@@ -218,7 +218,7 @@ export function ResultsTable({
               title={win ? "이 시나리오·API 그룹에서 가장 빠른 TTFT" : undefined}
             >
               {win ? <span aria-hidden>▾</span> : null}
-              {v === null || v === undefined ? "—" : `${Math.round(v)}`}
+              {formatTtftMs(v)}
               {row.original.reasoning_hidden ? (
                 <span
                   className="inline-flex items-center text-amber-500"

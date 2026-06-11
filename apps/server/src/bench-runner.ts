@@ -804,6 +804,7 @@ export async function* runBench(
                   stream: true,
                   ...(tools ? { tools, tool_choice } : {}),
                 });
+                const requestT0 = performance.now();
                 const { response: r } = await openAiChatPostWithUsage(
                   fetchImpl,
                   `${base}/v1/chat/completions`,
@@ -838,7 +839,7 @@ export async function* runBench(
                 const m = await consumeOpenAiChatStream(
                   r.body,
                   reqSignal,
-                  { loopGuard: true },
+                  { loopGuard: true, requestStartedAt: requestT0 },
                 );
                 lastOpen = m;
                 if (openAiLikelyTruncated(m, scenarioMeta.max_tokens)) truncated = true;
@@ -944,6 +945,7 @@ export async function* runBench(
                 if (am.system) body.system = am.system;
                 if (toolsAnthropic) body.tools = toolsAnthropic;
                 Object.assign(body, anthropicExtrasFromMeta(scenarioMeta));
+                const requestT0 = performance.now();
                 const r = await fetchImpl(`${base}/v1/messages`, {
                   method: "POST",
                   headers: headers(input.apiKey, {
@@ -967,6 +969,7 @@ export async function* runBench(
                 const m = await consumeAnthropicMessagesStream(
                   r.body,
                   reqSignal,
+                  { requestStartedAt: requestT0 },
                 );
                 lastAnth = m;
                 if (m.stopReason === "max_tokens") truncated = true;
@@ -1045,6 +1048,7 @@ export async function* runBench(
                 stream: true,
                 ...(tools ? { tools, tool_choice: tool_choice ?? "auto" } : {}),
               });
+              const requestT0 = performance.now();
               const { response: r } = await openAiChatPostWithUsage(
                 fetchImpl,
                 `${base}/v1/chat/completions`,
@@ -1085,7 +1089,7 @@ export async function* runBench(
                 const m = await consumeOpenAiChatStream(
                   r.body,
                   reqSignal,
-                  { loopGuard: true },
+                  { loopGuard: true, requestStartedAt: requestT0 },
                 );
                 text = m.text;
                 ttft = m.ttftMs;
@@ -1121,6 +1125,7 @@ export async function* runBench(
               if (toolsAnthropic) body.tools = toolsAnthropic;
               Object.assign(body, anthropicExtrasFromMeta(scenarioMeta));
 
+              const requestT0 = performance.now();
               const r = await fetchImpl(`${base}/v1/messages`, {
                 method: "POST",
                 headers: headers(input.apiKey, {
@@ -1151,6 +1156,7 @@ export async function* runBench(
                 const m = await consumeAnthropicMessagesStream(
                   r.body,
                   reqSignal,
+                  { requestStartedAt: requestT0 },
                 );
                 // 채점: 추론 제외(가시 본문 + tool JSON). output_text/throughput: 추론 포함(chat 경로와 동일).
                 scoreText = m.text;

@@ -63,7 +63,7 @@ function emptySpeed(): SpeedAccum {
 function speedGroup(a: SpeedAccum): SpeedGroup {
   return {
     score: a.scoreN > 0 ? Math.round(a.scoreSum / a.scoreN) : null,
-    ttftMs: a.ttftN > 0 ? Math.round(a.ttftSum / a.ttftN) : null,
+    ttftMs: a.ttftN > 0 ? a.ttftSum / a.ttftN : null,
     scoredRows: a.scoreN,
     approxRows: a.approx,
   };
@@ -110,7 +110,7 @@ export function computeSpeedScores(rows: readonly SpeedInput[]): Map<string, Mod
       m.total.approx += approx;
     }
 
-    if (typeof r.ttft_ms === "number" && Number.isFinite(r.ttft_ms) && r.ttft_ms > 0) {
+    if (typeof r.ttft_ms === "number" && Number.isFinite(r.ttft_ms) && r.ttft_ms >= 0) {
       grp.ttftSum += r.ttft_ms;
       grp.ttftN += 1;
       m.total.ttftSum += r.ttft_ms;
