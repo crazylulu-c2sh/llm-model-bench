@@ -151,6 +151,7 @@ import {
   LONG_CONTEXT_USER_JA,
   LONG_CONTEXT_USER_KO,
 } from "./stress-long-context-corpus";
+import { DEFAULT_CALENDAR_TIMEZONE } from "./scenario-scoring-constants";
 
 const STRESS_PING_USER_BASE = "ping";
 const STRESS_SHORT_REPLY_EN_USER = "In one short sentence, explain what a load test measures.";
@@ -201,7 +202,7 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
       ].join(" ");
     case "chat_time_calendar": {
       const iso = opts?.referenceIso ?? new Date().toISOString();
-      const tz = opts?.calendarTimeZone ?? "Asia/Seoul";
+      const tz = opts?.calendarTimeZone ?? DEFAULT_CALENDAR_TIMEZONE;
       return [
         `Reference instant (ISO 8601): ${iso}`,
         `Interpret calendar dates in time zone: ${tz}.`,

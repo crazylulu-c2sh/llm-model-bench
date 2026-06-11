@@ -6,6 +6,7 @@ import type {
   ThinkingIntent,
 } from "@llm-bench/shared";
 import {
+  DEFAULT_CALENDAR_TIMEZONE,
   DEFAULT_SCENARIO_IDS,
   PUBLIC_SCENARIO_IDS,
   approxOutputTokens,
@@ -193,7 +194,7 @@ export function makeBenchRunMeta(
     model_id: input.modelId,
     api_routes: routes,
     scenario_ids: scenarioIds,
-    scenario_bundle_version: "4",
+    scenario_bundle_version: "5",
     temperature: input.temperature ?? 0.2,
     max_tokens: input.max_tokens ?? 512,
     seed: null,
@@ -674,7 +675,7 @@ export async function* runBench(
           const promptCtx = {
             publicAssetsOrigin: assetOrigin,
             referenceAt: ref,
-            calendarTimeZone: "Asia/Seoul",
+            calendarTimeZone: DEFAULT_CALENDAR_TIMEZONE,
           };
           const scenarioMeta = makeScenarioBenchRunMeta(
             input,
@@ -1186,7 +1187,7 @@ export async function* runBench(
               : scoreScenario(scenarioId, scoreText ?? text, {
                   invokedBenchTools,
                   calendarReferenceIso: ref.toISOString(),
-                  calendarTimeZone: "Asia/Seoul",
+                  calendarTimeZone: DEFAULT_CALENDAR_TIMEZONE,
                 });
             // D5: 비전 시나리오에서 400 + image/vision/multimodal 본문 매칭이 감지된 경우
             // scoreScenario의 결과(빈 출력 → 0점)를 `upstream_no_vision`로 덮어쓴다.

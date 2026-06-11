@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CALENDAR_TIMEZONE,
   getScenarioBenchRequestPreview,
   getScenarioSystemPromptPreview,
   getScenarioUserPromptPreview,
@@ -20,7 +21,7 @@ export function defaultScenarioPromptPreview(
   if (scenarioId === "chat_time_calendar") {
     return getScenarioUserPromptPreview(scenarioId, {
       referenceIso: opts?.referenceIso ?? new Date().toISOString(),
-      calendarTimeZone: opts?.calendarTimeZone ?? "Asia/Seoul",
+      calendarTimeZone: opts?.calendarTimeZone ?? DEFAULT_CALENDAR_TIMEZONE,
     });
   }
   return getScenarioUserPromptPreview(scenarioId);
@@ -41,7 +42,7 @@ function benchRequestPreviewOpts(
   }
   if (scenarioId === "chat_time_calendar") {
     base.referenceIso = opts?.referenceIso ?? new Date().toISOString();
-    base.calendarTimeZone = opts?.calendarTimeZone ?? "Asia/Seoul";
+    base.calendarTimeZone = opts?.calendarTimeZone ?? DEFAULT_CALENDAR_TIMEZONE;
   }
   return base;
 }

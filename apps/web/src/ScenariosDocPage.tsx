@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CALENDAR_TIMEZONE,
   PUBLIC_SCENARIO_IDS,
   getScenarioBenchMeta,
   getScenarioImageAssets,
@@ -44,7 +45,7 @@ function ScenarioArticle({
   const previewOpts = useMemo(
     () => ({
       referenceIso: calendarReferenceIso,
-      calendarTimeZone: "Asia/Seoul" as const,
+      calendarTimeZone: DEFAULT_CALENDAR_TIMEZONE,
       publicAssetBaseUrl: baseUrl,
     }),
     [calendarReferenceIso, baseUrl],
