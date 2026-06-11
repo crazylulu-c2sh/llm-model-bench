@@ -49,13 +49,13 @@ function subtitleForPath(pathname: string): string {
 }
 
 const tabLinkClass = (isActive: boolean) =>
-  `group min-w-0 rounded-md px-2.5 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-[background-color,color,padding] duration-200 max-lg:hover:px-3 lg:min-w-[4.5rem] lg:px-4 lg:text-base ${
-    isActive ? "max-lg:px-3 bg-[var(--accent)] text-white shadow-md" : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+  `group min-w-0 rounded-md px-2.5 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-[background-color,color,padding] duration-200 max-xl:hover:px-3 xl:min-w-[4.5rem] xl:px-4 xl:text-base ${
+    isActive ? "max-xl:px-3 bg-[var(--accent)] text-white shadow-md" : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
   }`;
 
 const tabLabelClass = (isActive: boolean) =>
   [
-    "inline-block overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin] duration-200 ease-out lg:max-w-none lg:opacity-100 lg:ml-0 lg:overflow-visible",
+    "inline-block overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin] duration-200 ease-out xl:max-w-none xl:opacity-100 xl:ml-0 xl:overflow-visible",
     isActive
       ? "max-w-[12rem] opacity-100 ml-1.5"
       : "max-w-0 opacity-0 group-hover:max-w-[12rem] group-hover:opacity-100 group-hover:ml-1.5",
@@ -76,16 +76,19 @@ export function AppHeader({
 }) {
   const { pathname } = useLocation();
   const onBenchPage = pathname === "/";
+  const subtitle = subtitleForPath(pathname);
 
   return (
-    <header className="sticky top-0 z-20 grid grid-cols-1 items-center gap-y-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 shadow-sm lg:grid-cols-[1fr_auto_1fr] lg:gap-x-4 lg:gap-y-0 lg:px-6">
-      <div className="flex min-w-0 items-start gap-3 justify-self-start">
+    <header className="sticky top-0 z-20 grid grid-cols-1 items-center gap-y-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 shadow-sm xl:grid-cols-[auto_minmax(0,1fr)_auto] xl:gap-x-4 xl:gap-y-0 xl:px-6">
+      <div className="flex min-w-0 shrink-0 items-start gap-3 justify-self-start xl:max-w-[min(100%,20rem)]">
         <span className="mt-0.5 shrink-0 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-[var(--accent)]">
           <Activity className="size-6" aria-hidden />
         </span>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-semibold tracking-tight">LLM Model Bench</h1>
-          <p className="text-sm text-[var(--muted)]">{subtitleForPath(pathname)}</p>
+        <div className="min-w-0">
+          <h1 className="whitespace-nowrap text-lg font-semibold tracking-tight">LLM Model Bench</h1>
+          <p className="truncate text-sm text-[var(--muted)]" title={subtitle}>
+            {subtitle}
+          </p>
           {running && onBenchPage ? (
             <div
               className={[
@@ -102,7 +105,7 @@ export function AppHeader({
           ) : null}
         </div>
       </div>
-      <div className="min-w-0 justify-self-center lg:px-2" role="tablist" aria-label="페이지">
+      <div className="min-w-0 justify-self-center xl:px-2" role="tablist" aria-label="페이지">
         <span className="sr-only">페이지</span>
         <div className="flex max-w-full min-w-0 flex-nowrap justify-center gap-1 overflow-x-auto rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] p-1 shadow-sm">
           {NAV_TABS.map(({ to, end, label, icon: Icon }) => {
@@ -118,7 +121,7 @@ export function AppHeader({
               title={label}
               className={tabLinkClass(isActive)}
             >
-              <span className="inline-flex items-center justify-center lg:gap-1.5">
+              <span className="inline-flex items-center justify-center xl:gap-1.5">
                 <Icon className="size-4 shrink-0" aria-hidden />
                 <span className={tabLabelClass(isActive)}>{label}</span>
               </span>
