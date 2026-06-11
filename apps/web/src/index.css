@@ -103,7 +103,7 @@ input[type="radio"] {
 html {
   scroll-padding-top: 9rem;
 }
-@media (width >= 640px) {
+@media (width >= 1024px) {
   html {
     scroll-padding-top: 5rem;
   }

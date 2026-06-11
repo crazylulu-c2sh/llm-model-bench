@@ -15,24 +15,15 @@ import type { SortingState } from "@tanstack/react-table";
 import {
   Activity,
   AlertTriangle,
-  BarChart3,
-  BookOpen,
   ChevronDown,
   ChevronUp,
-  Cpu,
   Download,
-  FlaskConical,
-  Gauge,
   History,
   KeyRound,
   Link2,
   Loader2,
   Monitor,
-  Moon,
   Play,
-  Settings2,
-  Sun,
-  SunMoon,
 } from "lucide-react";
 import type {
   BenchRunDetailResponse,
@@ -65,6 +56,7 @@ import {
 } from "./components/BenchProgressPanel";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
 import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
+import { AppHeader } from "./components/AppHeader";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
@@ -142,12 +134,6 @@ function consumeSseJsonLines(
   })();
 }
 
-function ThemeIcon({ choice }: { choice: ThemeChoice }) {
-  if (choice === "dark") return <Moon className="size-4 text-[var(--muted)]" aria-hidden />;
-  if (choice === "light") return <Sun className="size-4 text-[var(--muted)]" aria-hidden />;
-  return <Monitor className="size-4 text-[var(--muted)]" aria-hidden />;
-}
-
 /** 성능 측정 모드의 고정 출력 한도(토큰) — 처리량 비교 재현성을 위해 모든 모델 동일. */
 const BENCH_THROUGHPUT_MAX_TOKENS = 512;
 
@@ -155,12 +141,6 @@ export function App() {
   const { choice: themeChoice, setChoice: setThemeChoice, resolved: themeResolved } = useTheme();
   const { pathname } = useLocation();
   const onBenchPage = pathname === "/";
-  const onStressPage = pathname === "/stress";
-  const onStatsPage = pathname === "/stats";
-  const onProviderStatsPage = pathname === "/provider-stats";
-  const onProviderMonitorPage = pathname === "/provider-monitor";
-  const onProfilePage = pathname === "/profile";
-  const onScenariosPage = pathname === "/scenarios";
   const [boot] = useState(() => readInitialUiState());
   const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
   const [apiKey, setApiKey] = useState(boot.apiKey);
@@ -1294,191 +1274,13 @@ export function App() {
           </>
         ) : null}
       </ConfirmDialog>
-      <header className="sticky top-0 z-20 grid grid-cols-1 items-center gap-y-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 shadow-sm sm:grid-cols-[1fr_auto_1fr] sm:gap-x-4 sm:gap-y-0 sm:px-6">
-        <div className="flex min-w-0 items-start gap-3 justify-self-start sm:min-w-0">
-          <span className="mt-0.5 shrink-0 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-[var(--accent)]">
-            <Activity className="size-6" aria-hidden />
-          </span>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-semibold tracking-tight">LLM Model Bench</h1>
-            {onStatsPage ? (
-              <p className="text-sm text-[var(--muted)]">SQLite에 저장된 최신 런 기준 메트릭·결과</p>
-            ) : onProviderStatsPage ? (
-              <p className="text-sm text-[var(--muted)]">SQLite에 저장된 프로바이더 벤치 런 — 필터·익스포트·삭제</p>
-            ) : onProviderMonitorPage ? (
-              <p className="text-sm text-[var(--muted)]">로드된 모델 · 메모리·GPU 모니터 · lms CLI 조작</p>
-            ) : onProfilePage ? (
-              <p className="text-sm text-[var(--muted)]">모델 패밀리별 샘플링·컨텍스트·런타임 적용 규칙</p>
-            ) : onScenariosPage ? (
-              <p className="text-sm text-[var(--muted)]">시나리오 목적·도구·채점·프롬프트 미리보기</p>
-            ) : onStressPage ? (
-              <p className="text-sm text-[var(--muted)]">동시 사용자 부하 · 단계별 TPS · 라이브 워커 모니터</p>
-            ) : (
-              <p className="text-sm text-[var(--muted)]">로컬 프로바이더 감지 · 단일 모델 시나리오 벤치</p>
-            )}
-            {running && onBenchPage ? (
-              <div
-                className={[
-                  "mt-2 flex min-w-0 items-center gap-2 rounded border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--foreground)]",
-                  benchLiveSoft,
-                ].join(" ")}
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
-              >
-                <Loader2 className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" aria-hidden />
-                <span className="min-w-0 truncate">
-                  벤치 실행 중 · {benchHeaderLine}
-                </span>
-              </div>
-            ) : null}
-          </div>
-        </div>
-        <div className="justify-self-center sm:px-2" role="tablist" aria-label="페이지">
-          <span className="sr-only">페이지</span>
-          <div className="flex max-w-[100vw] flex-wrap justify-center gap-1 rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] p-1 shadow-sm sm:max-w-none sm:flex-nowrap">
-            <NavLink
-              to="/"
-              end
-              role="tab"
-              aria-selected={onBenchPage}
-              className={({ isActive }) =>
-                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
-                  isActive
-                    ? "bg-[var(--accent)] text-white shadow-md"
-                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-                }`
-              }
-            >
-              <span className="inline-flex items-center justify-center gap-1.5">
-                <FlaskConical className="size-4" aria-hidden />
-                모델 벤치
-              </span>
-            </NavLink>
-            <NavLink
-              to="/stats"
-              role="tab"
-              aria-selected={onStatsPage}
-              className={({ isActive }) =>
-                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
-                  isActive
-                    ? "bg-[var(--accent)] text-white shadow-md"
-                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-                }`
-              }
-            >
-              <span className="inline-flex items-center justify-center gap-1.5">
-                <BarChart3 className="size-4" aria-hidden />
-                모델 통계
-              </span>
-            </NavLink>
-            <NavLink
-              to="/stress"
-              role="tab"
-              aria-selected={onStressPage}
-              className={({ isActive }) =>
-                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
-                  isActive
-                    ? "bg-[var(--accent)] text-white shadow-md"
-                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-                }`
-              }
-            >
-              <span className="inline-flex items-center justify-center gap-1.5">
-                <Gauge className="size-4" aria-hidden />
-                프로바이더 벤치
-              </span>
-            </NavLink>
-            <NavLink
-              to="/provider-stats"
-              role="tab"
-              aria-selected={onProviderStatsPage}
-              className={({ isActive }) =>
-                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
-                  isActive
-                    ? "bg-[var(--accent)] text-white shadow-md"
-                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-                }`
-              }
-            >
-              <span className="inline-flex items-center justify-center gap-1.5">
-                <History className="size-4" aria-hidden />
-                프로바이더 통계
-              </span>
-            </NavLink>
-            <NavLink
-              to="/profile"
-              role="tab"
-              aria-selected={onProfilePage}
-              className={({ isActive }) =>
-                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
-                  isActive
-                    ? "bg-[var(--accent)] text-white shadow-md"
-                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-                }`
-              }
-            >
-              <span className="inline-flex items-center justify-center gap-1.5">
-                <Settings2 className="size-4" aria-hidden />
-                프로파일
-              </span>
-            </NavLink>
-            <NavLink
-              to="/provider-monitor"
-              role="tab"
-              aria-selected={onProviderMonitorPage}
-              className={({ isActive }) =>
-                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
-                  isActive
-                    ? "bg-[var(--accent)] text-white shadow-md"
-                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-                }`
-              }
-            >
-              <span className="inline-flex items-center justify-center gap-1.5">
-                <Cpu className="size-4" aria-hidden />
-                프로바이더 모니터
-              </span>
-            </NavLink>
-            <NavLink
-              to="/scenarios"
-              role="tab"
-              aria-selected={onScenariosPage}
-              className={({ isActive }) =>
-                `min-w-[4rem] rounded-md px-3 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-colors sm:min-w-[4.5rem] sm:px-4 sm:text-base ${
-                  isActive
-                    ? "bg-[var(--accent)] text-white shadow-md"
-                    : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
-                }`
-              }
-            >
-              <span className="inline-flex items-center justify-center gap-1.5">
-                <BookOpen className="size-4" aria-hidden />
-                시나리오
-              </span>
-            </NavLink>
-          </div>
-        </div>
-        <label className="grid justify-self-end gap-1 text-sm">
-          <span className="inline-flex items-center gap-1 text-[var(--muted)]">
-            <SunMoon className="size-3.5" aria-hidden />
-            테마
-          </span>
-          <div className="flex items-center gap-2">
-            <ThemeIcon choice={themeChoice} />
-            <select
-              className="min-w-[10rem] rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
-              value={themeChoice}
-              onChange={(e) => setThemeChoice(e.target.value as ThemeChoice)}
-              aria-label="테마 선택"
-            >
-              <option value="dark">다크</option>
-              <option value="light">라이트</option>
-              <option value="system">시스템</option>
-            </select>
-          </div>
-        </label>
-      </header>
+      <AppHeader
+        themeChoice={themeChoice}
+        setThemeChoice={setThemeChoice}
+        running={running}
+        benchHeaderLine={benchHeaderLine}
+        benchLiveSoft={benchLiveSoft}
+      />
 
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
         <Routes>

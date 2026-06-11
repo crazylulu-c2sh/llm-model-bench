@@ -63,4 +63,15 @@ test.describe("LLM Model Bench UI", () => {
     await expect(page.getByRole("link", { name: "프로파일 수치·규칙 상세" })).toHaveAttribute("href", "/profile");
     await expect(page.getByRole("link", { name: "시나리오 상세 문서" })).toHaveAttribute("href", "/scenarios");
   });
+
+  test("헤더: 좁은 뷰포트에서 탭 아이콘만, 넓은 뷰포트에서 라벨 표시", async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 800 });
+    await page.goto("/");
+    const providerBenchTab = page.getByRole("tab", { name: "프로바이더 벤치" });
+    await expect(providerBenchTab).toBeVisible();
+    await expect(providerBenchTab.getByText("프로바이더 벤치")).not.toBeVisible();
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(providerBenchTab.getByText("프로바이더 벤치")).toBeVisible();
+  });
 });
