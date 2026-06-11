@@ -203,11 +203,10 @@ describe("readInitialUiState contention guard + v2→v3 migration", () => {
   it("preserves v2 prefs (re-stamped to v3) without losing fields", () => {
     window.localStorage.setItem(
       PREFS_STORAGE_KEY,
-      JSON.stringify({ v: 2, baseUrl: "http://10.0.0.9:1234", parallel: true, unloadOtherModels: true }),
+      JSON.stringify({ v: 2, baseUrl: "http://10.0.0.9:1234", unloadOtherModels: true }),
     );
     const s = readInitialUiState();
     expect(s.baseUrl).toBe("http://10.0.0.9:1234");
-    expect(s.parallel).toBe(true);
     expect(s.unloadOtherModels).toBe(true);
     // 새 필드는 기본값으로
     expect(s.contentionGuardEnabled).toBe(true);

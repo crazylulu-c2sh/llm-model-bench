@@ -75,8 +75,6 @@ export type BenchRequest = {
   scenarioIds?: ScenarioId[];
   /** default true */
   serial?: boolean;
-  /** default false — if true, UI must warn */
-  parallel?: boolean;
   temperature?: number;
   max_tokens?: number;
   warmupRuns?: number;
@@ -100,7 +98,7 @@ export type BenchRequest = {
    * 교집합이 비면 무시(감지 라우트 그대로). 미지정이면 감지된 모든 라우트.
    */
   apiRoutes?: ("chat_completions" | "messages")[];
-  /** 오염 가드(다른 추론 감지 시 대기/폐기·재측정). 미지정 시 기본 ON(단 manual/parallel은 비활성). */
+  /** 오염 가드(다른 추론 감지 시 대기/폐기·재측정). 미지정 시 기본 ON(단 manual은 비활성). */
   contentionGuardEnabled?: boolean;
   contentionPollIntervalMs?: number;
   contentionMaxRetriesPerIteration?: number;
@@ -180,7 +178,6 @@ export function makeBenchRunMeta(
   const routes = restricted.length ? restricted : detectedRoutes;
   const cc = resolveContentionConfig({
     provider: input.provider,
-    parallel: input.parallel,
     contentionGuardEnabled: input.contentionGuardEnabled,
     contentionPollIntervalMs: input.contentionPollIntervalMs,
     contentionMaxRetriesPerIteration: input.contentionMaxRetriesPerIteration,
@@ -204,7 +201,7 @@ export function makeBenchRunMeta(
     temperature: input.temperature ?? 0.2,
     max_tokens: input.max_tokens ?? 512,
     seed: null,
-    parallel: !!input.parallel,
+    parallel: false,
     warmup_runs: input.warmupRuns ?? 1,
     measured_runs: input.measuredRuns ?? 3,
     unload_other_models: !!input.unloadOtherModels,
@@ -461,15 +458,9 @@ export async function* runBench(
 ): AsyncGenerator<StreamEvent> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const base = detect.baseUrl.replace(/\/+$/, "");
-  const serial = input.serial !== false;
-  if (!serial && input.parallel) {
-    /* parallel batching left minimal: still sequential model loop in v1 */
-  }
-
   // STEP 0: 오염 가드 config·probe·clock. config는 BenchRequest로 흐르고(opts는 테스트 주입 전용).
   const contentionCfg: ContentionConfig = resolveContentionConfig({
     provider: input.provider,
-    parallel: input.parallel,
     contentionGuardEnabled: input.contentionGuardEnabled,
     contentionPollIntervalMs: input.contentionPollIntervalMs,
     contentionMaxRetriesPerIteration: input.contentionMaxRetriesPerIteration,

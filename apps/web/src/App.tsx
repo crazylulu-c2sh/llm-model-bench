@@ -143,7 +143,6 @@ export function App() {
   const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
   const [apiKey, setApiKey] = useState(boot.apiKey);
   const [persistApiKeyToDisk, setPersistApiKeyToDisk] = useState(boot.persistApiKeyToDisk);
-  const [parallel, setParallel] = useState(boot.parallel);
   const [unloadOtherModels, setUnloadOtherModels] = useState(boot.unloadOtherModels);
   const [autoUnloadAfterBench, setAutoUnloadAfterBench] = useState(boot.autoUnloadAfterBench);
   const [selectedScenarioIds, setSelectedScenarioIds] = useState<string[]>(boot.selectedScenarioIds);
@@ -270,7 +269,6 @@ export function App() {
     const t = window.setTimeout(() => {
       saveUiSnapshot({
         baseUrl,
-        parallel,
         unloadOtherModels,
         autoUnloadAfterBench,
         hlPreview,
@@ -300,7 +298,6 @@ export function App() {
     baseUrl,
     hlLog,
     hlPreview,
-    parallel,
     persistApiKeyToDisk,
     unloadOtherModels,
     autoUnloadAfterBench,
@@ -323,7 +320,6 @@ export function App() {
   // bench → 다른 라우트 전이 시 *즉시 flush*. 게이트가 debounce를 폐기해도 최종 값 보존.
   const latestBenchSnapshotRef = useRef({
     baseUrl,
-    parallel,
     unloadOtherModels,
     autoUnloadAfterBench,
     hlPreview,
@@ -347,7 +343,6 @@ export function App() {
   });
   latestBenchSnapshotRef.current = {
     baseUrl,
-    parallel,
     unloadOtherModels,
     autoUnloadAfterBench,
     hlPreview,
@@ -832,7 +827,6 @@ export function App() {
       }
       saveUiSnapshot({
         baseUrl: d.baseUrl,
-        parallel,
         unloadOtherModels,
         autoUnloadAfterBench,
         hlPreview,
@@ -866,7 +860,6 @@ export function App() {
     baseUrl,
     hlLog,
     hlPreview,
-    parallel,
     persistApiKeyToDisk,
     unloadOtherModels,
     autoUnloadAfterBench,
@@ -897,9 +890,6 @@ export function App() {
       appendLog("모델을 하나 이상 선택하세요.");
       toast.error("벤치할 모델을 하나 이상 선택하세요.");
       return;
-    }
-    if (parallel) {
-      appendLog("경고: 병렬 실행은 GPU/단일 로드 전제를 깨뜨릴 수 있습니다.");
     }
     setRunning(true);
     setRows([]);
@@ -936,7 +926,6 @@ export function App() {
               apiKey: apiKey || undefined,
               provider: detect.provider,
               modelId: m.id,
-              parallel,
               skipModelLoad: detect.provider !== "lm_studio",
               unloadOtherModels,
               autoUnloadAfterBench,
@@ -1143,7 +1132,7 @@ export function App() {
     } else {
       toast.success("벤치가 모두 완료되었습니다.");
     }
-  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, parallel, unloadOtherModels, visibleSelectedScenarioIds]);
+  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, unloadOtherModels, visibleSelectedScenarioIds]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
@@ -1261,9 +1250,6 @@ export function App() {
               ))}
             </ol>
             <ul className="mt-2 space-y-1 text-xs">
-              {parallel ? (
-                <li className="text-[var(--danger)]">병렬 실행이 켜져 있습니다. GPU 부하에 유의하세요.</li>
-              ) : null}
               {unloadOtherModels && detect.provider === "lm_studio" ? (
                 <li>벤치 대상 외 모델 언로드가 켜져 있습니다(감지 목록 기준).</li>
               ) : null}
@@ -1334,10 +1320,6 @@ export function App() {
                 <code className="rounded bg-[var(--surface)] px-1">localStorage</code> 평문으로 남으며 XSS 등에 노출될 수 있습니다.
               </span>
             </span>
-          </label>
-          <label className="mt-3 flex items-center gap-2 text-sm text-[var(--muted)]">
-            <input type="checkbox" checked={parallel} onChange={(e) => setParallel(e.target.checked)} />
-            병렬 실행 (기본은 직렬; 켜면 경고)
           </label>
           <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
             <button

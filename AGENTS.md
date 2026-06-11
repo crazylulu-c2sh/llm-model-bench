@@ -2,7 +2,7 @@
 
 - **Reasoning vs. user-facing language:** Think and reason in English; communicate with the user in Korean unless they explicitly ask for another language.
 - UI follows root `DESIGN.md` (GitHub Primer–inspired light/dark tokens). Prefer CSS variables already defined in `apps/web/src/index.css` over ad-hoc colors.
-- Non-functional requirements (NFR) adopted for v1: API keys via env, session UI (`sessionStorage` by default), or **opt-in** plaintext `localStorage` only after explicit user consent with in-UI risk disclosure; reproducibility fields in bench payloads/results; default serial execution with explicit warning for parallel; partial results + `error` stream events on failure; Vitest HTTP mocks for server provider clients.
+- Non-functional requirements (NFR) adopted for v1: API keys via env, session UI (`sessionStorage` by default), or **opt-in** plaintext `localStorage` only after explicit user consent with in-UI risk disclosure; reproducibility fields in bench payloads/results; serial model execution only; partial results + `error` stream events on failure; Vitest HTTP mocks for server provider clients.
 - Do not commit real API keys or customer base URLs in fixtures or logs.
 - **Vision benchmark (v1):** 10 비전 시나리오(`vision_*_a` / `_b`)는 opt-in 입니다.
   - 자산: `apps/web/public/vision/*.jpg` (원본은 `docs/vision_bench/`). 갱신 시 `pnpm prepare:vision` 실행. JPEG를 쓰는 이유: LM Studio 일부 비전 빌드가 `image/webp` MIME을 거부함 (이전 WebP 자산은 v1.2에서 제거).

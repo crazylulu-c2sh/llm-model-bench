@@ -40,7 +40,6 @@ export type ContentionConfig = {
 
 export type ContentionConfigInput = {
   provider: ContentionProviderKind;
-  parallel?: boolean;
   contentionGuardEnabled?: boolean;
   contentionPollIntervalMs?: number;
   contentionMaxRetriesPerIteration?: number;
@@ -58,12 +57,9 @@ const clampNum = (v: unknown, lo: number, hi: number, def: number): number => {
   return Math.min(hi, Math.max(lo, n));
 };
 
-/** UI/요청 입력을 클램프·기본값 적용된 해석 config로. manual 또는 parallel이면 가드 비활성. */
+/** UI/요청 입력을 클램프·기본값 적용된 해석 config로. manual이면 가드 비활성. */
 export function resolveContentionConfig(input: ContentionConfigInput): ContentionConfig {
-  const enabled =
-    (input.contentionGuardEnabled ?? true) &&
-    input.provider !== "manual" &&
-    !input.parallel;
+  const enabled = (input.contentionGuardEnabled ?? true) && input.provider !== "manual";
   return {
     enabled,
     pollIntervalMs: clampNum(input.contentionPollIntervalMs, 250, 5000, 1000),
