@@ -60,6 +60,9 @@ const reachOk: Reachability = { ok: true, state: "ok" };
 /** `/api/v1/models`로 식별된 LM Studio는 OpenAI·Anthropic 호환 POST를 제공합니다. 가짜 모델명 프로브는 400이 나와 역능력 판별과 맞지 않으므로 고정합니다. */
 const LM_STUDIO_COMPAT_CAPS = { openaiChat: true, anthropicMessages: true } as const;
 
+/** `/api/tags`로 식별된 Ollama는 OpenAI 호환 `/v1/chat/completions`를 제공합니다. 가짜 모델명 프로브는 404+JSON이 나와 역능력 판별과 맞지 않으므로 고정합니다. */
+const OLLAMA_COMPAT_CAPS = { openaiChat: true, anthropicMessages: false } as const;
+
 export async function detectProvider(
   rawBaseUrl: string,
   opts: {
@@ -191,13 +194,12 @@ export async function detectProvider(
             size_bytes: typeof row.size === "number" && row.size > 0 ? row.size : undefined,
           };
         });
-        const caps = await probeCapabilities(fetchImpl, baseUrl, opts.apiKey);
         return {
           provider: "ollama",
           baseUrl,
           models,
           steps,
-          capabilities: caps,
+          capabilities: OLLAMA_COMPAT_CAPS,
           reachability: reachOk,
         };
       }
@@ -249,7 +251,15 @@ export async function detectProvider(
   };
 }
 
-/** Ollama·OpenAI 호환·manual 프로바이더용. LM Studio는 네이티브 목록으로 식별 시 `LM_STUDIO_COMPAT_CAPS`를 씁니다. */
+/** 엔드포인트 존재 여부 — 2xx 또는 bad-model 4xx/404+JSON. plain 404 route는 false. */
+function routeLikelyAvailable(status: number, body: string): boolean {
+  if (status >= 200 && status < 300) return true;
+  if (status >= 400 && status < 500 && status !== 404) return true;
+  if (status === 404 && body.trimStart().startsWith("{")) return true;
+  return false;
+}
+
+/** Ollama·OpenAI 호환·manual 프로바이더용. LM Studio·Ollama는 네이티브 목록으로 식별 시 고정 caps를 씁니다. */
 async function probeCapabilities(
   fetchImpl: FetchLike,
   baseUrl: string,
@@ -270,7 +280,8 @@ async function probeCapabilities(
         stream: false,
       }),
     });
-    openaiChat = r.ok;
+    const body = await r.text().catch(() => "");
+    openaiChat = routeLikelyAvailable(r.status, body);
   } catch {
     openaiChat = false;
   }
@@ -289,7 +300,8 @@ async function probeCapabilities(
         messages: [{ role: "user", content: "ping" }],
       }),
     });
-    anthropicMessages = r.ok;
+    const body = await r.text().catch(() => "");
+    anthropicMessages = routeLikelyAvailable(r.status, body);
   } catch {
     anthropicMessages = false;
   }

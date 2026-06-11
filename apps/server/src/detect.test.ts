@@ -10,6 +10,10 @@ function jsonResponse(obj: unknown, status = 200) {
   );
 }
 
+function textResponse(body: string, status = 200) {
+  return Promise.resolve(new Response(body, { status }));
+}
+
 function requestUrl(input: RequestInfo | URL): string {
   return typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 }
@@ -82,6 +86,8 @@ describe("detectProvider", () => {
     expect(r.provider).toBe("ollama");
     expect(r.models[0]?.id).toBe("llama3");
     expect(r.models[0]?.size_bytes).toBe(2_000_000_000);
+    expect(r.capabilities.openaiChat).toBe(true);
+    expect(r.capabilities.anthropicMessages).toBe(false);
     expect(r.reachability?.state).toBe("ok");
   });
 
@@ -100,7 +106,45 @@ describe("detectProvider", () => {
     const r = await detectProvider("http://localhost:8000", { fetchImpl });
     expect(r.provider).toBe("openai_compatible");
     expect(r.models[0]?.id).toBe("gpt-test");
+    expect(r.capabilities.openaiChat).toBe(true);
+    expect(r.capabilities.anthropicMessages).toBe(true);
     expect(r.reachability?.state).toBe("ok");
+  });
+
+  it("treats Ollama-style 404 JSON model-not-found as chat route available", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/v1/models")) {
+        return jsonResponse({ data: [{ id: "gpt-test" }] });
+      }
+      if (url.includes("/v1/chat/completions")) {
+        return jsonResponse({ error: { message: "model 'probe-model' not found" } }, 404);
+      }
+      if (url.includes("/v1/messages")) return textResponse("404 page not found", 404);
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:8000", { fetchImpl });
+    expect(r.provider).toBe("openai_compatible");
+    expect(r.capabilities.openaiChat).toBe(true);
+    expect(r.capabilities.anthropicMessages).toBe(false);
+  });
+
+  it("treats plain 404 page-not-found as route unavailable", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/v1/models")) return jsonResponse({ data: [] }, 200);
+      if (url.includes("/v1/chat/completions")) return textResponse("404 page not found", 404);
+      if (url.includes("/v1/messages")) return textResponse("404 page not found", 404);
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:8000", { fetchImpl });
+    expect(r.provider).toBe("manual");
+    expect(r.capabilities.openaiChat).toBe(false);
+    expect(r.capabilities.anthropicMessages).toBe(false);
   });
 
   it("treats empty LM Studio /api/v1/models as lm_studio with zero models", async () => {
