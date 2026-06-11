@@ -1186,6 +1186,8 @@ export function App() {
   const benchMetricsPanelsClass = running && rows.length > 0 ? benchLiveSoft : "";
   const benchPreviewPanelClass = running && preview.length > 0 ? benchLiveSoft : "";
   const benchProgressClass = running ? benchLiveSoft : "";
+  const benchStartReady = !running && !!detect && visibleSelectedScenarioIds.length > 0;
+  const benchStartEmphasis = benchStartReady || running;
 
   const detectButton = (
     <button
@@ -1768,7 +1770,15 @@ export function App() {
           benchAction={
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-medium shadow-sm disabled:opacity-50"
+              className={[
+                "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold shadow-sm disabled:opacity-50",
+                benchStartEmphasis
+                  ? "bg-[var(--accent)] text-white"
+                  : "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]",
+                benchStartReady ? "bench-start-button--ready" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
               onClick={requestBench}
               disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
               aria-busy={running}
