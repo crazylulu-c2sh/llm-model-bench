@@ -186,18 +186,40 @@ select:focus-visible {
   }
 }
 
+@keyframes bench-header-progress-fill {
+  0%,
+  100% {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  50% {
+    background: color-mix(in srgb, var(--accent-2) 20%, transparent);
+  }
+}
+
+@keyframes bench-header-progress-bar {
+  0%,
+  100% {
+    background: var(--accent);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  50% {
+    background: var(--accent-2);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--accent-2) 50%, transparent);
+  }
+}
+
 .app-header--bench-progress {
   isolation: isolate;
 }
 
 .app-header__progress-fill {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  animation: bench-header-progress-fill 1.35s ease-in-out infinite;
   transition: width 0.35s ease-out;
 }
 
 .app-header__progress-bar {
   height: 3px;
-  background: var(--accent);
+  animation: bench-header-progress-bar 1.35s ease-in-out infinite;
   transition: width 0.35s ease-out;
 }
 
@@ -221,7 +243,17 @@ select:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .app-header__progress-fill,
   .app-header__progress-bar {
+    animation: none;
     transition: none;
+  }
+
+  .app-header__progress-fill {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .app-header__progress-bar {
+    background: var(--accent);
+    box-shadow: none;
   }
 
   .bench-live-panel--soft,
