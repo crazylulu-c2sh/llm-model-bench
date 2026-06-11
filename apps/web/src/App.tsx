@@ -1785,7 +1785,12 @@ export function App() {
           }
         />
 
-        <Scoreboard rows={rows} detailAggregate={detailAggregate} loading={running} />
+        <Scoreboard
+          rows={rows}
+          detailAggregate={detailAggregate}
+          loading={running}
+          benchModelOrder={benchQueueDraft.map((m) => m.id)}
+        />
 
         <section
           className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchMetricsPanelsClass].filter(Boolean).join(" ")}
