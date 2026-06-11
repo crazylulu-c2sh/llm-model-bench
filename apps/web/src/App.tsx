@@ -1775,10 +1775,7 @@ export function App() {
                 benchStartEmphasis
                   ? "bg-[var(--accent)] text-white"
                   : "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]",
-                benchStartReady ? "bench-start-button--ready" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
+              ].join(" ")}
               onClick={requestBench}
               disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
               aria-busy={running}

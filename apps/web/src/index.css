@@ -223,25 +223,6 @@ select:focus-visible {
   transition: width 0.35s ease-out;
 }
 
-@keyframes bench-start-button-ready {
-  0%,
-  100% {
-    box-shadow:
-      0 1px 2px rgba(0, 0, 0, 0.08),
-      0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
-  }
-  50% {
-    box-shadow:
-      0 1px 3px rgba(0, 0, 0, 0.1),
-      0 0 0 3px color-mix(in srgb, var(--accent) 50%, transparent),
-      0 0 22px color-mix(in srgb, var(--accent-2) 40%, transparent);
-  }
-}
-
-.bench-start-button--ready {
-  animation: bench-start-button-ready 1.35s ease-in-out infinite;
-}
-
 .bench-live-panel--soft {
   animation: bench-panel-border-soft 1.35s ease-in-out infinite;
 }
@@ -275,16 +256,11 @@ select:focus-visible {
     box-shadow: none;
   }
 
-  .bench-start-button--ready,
   .bench-live-panel--soft,
   .scenario-guide-card--bench-active,
   .scenario-guide-card--bench-touched,
   .bench-model-row--active {
     animation: none;
-  }
-
-  .bench-start-button--ready {
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   }
 
   .bench-live-panel--soft {
