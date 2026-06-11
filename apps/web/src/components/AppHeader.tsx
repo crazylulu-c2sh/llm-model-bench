@@ -6,7 +6,6 @@ import {
   FlaskConical,
   Gauge,
   History,
-  Loader2,
   Monitor,
   Moon,
   Settings2,
@@ -61,26 +60,61 @@ const tabLabelClass = (isActive: boolean) =>
       : "max-w-0 opacity-0 group-hover:max-w-[12rem] group-hover:opacity-100 group-hover:ml-1.5",
   ].join(" ");
 
+export type BenchHeaderProgress = { pct: number; completed: number; total: number };
+
 export function AppHeader({
   themeChoice,
   setThemeChoice,
   running,
-  benchHeaderLine,
-  benchLiveSoft,
+  benchProgress,
 }: {
   themeChoice: ThemeChoice;
   setThemeChoice: (choice: ThemeChoice) => void;
   running: boolean;
-  benchHeaderLine: string;
-  benchLiveSoft: string;
+  benchProgress?: BenchHeaderProgress;
 }) {
   const { pathname } = useLocation();
   const onBenchPage = pathname === "/";
   const subtitle = subtitleForPath(pathname);
+  const showBenchProgress = running && onBenchPage && benchProgress != null;
+  const progressPct = benchProgress?.pct ?? 0;
+  const progressText = benchProgress
+    ? `벤치 실행 중 · ${benchProgress.completed}/${benchProgress.total} (${benchProgress.pct}%)`
+    : "벤치 실행 중";
 
   return (
-    <header className="sticky top-0 z-20 grid grid-cols-1 items-center gap-y-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 shadow-sm xl:grid-cols-[auto_minmax(0,1fr)_auto] xl:gap-x-4 xl:gap-y-0 xl:px-6">
-      <div className="flex min-w-0 shrink-0 items-start gap-3 justify-self-start xl:max-w-[min(100%,20rem)]">
+    <header
+      className={[
+        "sticky top-0 z-20 grid grid-cols-1 items-center gap-y-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 shadow-sm xl:grid-cols-[auto_minmax(0,1fr)_auto] xl:gap-x-4 xl:gap-y-0 xl:px-6",
+        showBenchProgress ? "app-header--bench-progress relative overflow-hidden" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      {...(showBenchProgress
+        ? {
+            role: "progressbar" as const,
+            "aria-valuemin": 0,
+            "aria-valuemax": 100,
+            "aria-valuenow": progressPct,
+            "aria-valuetext": progressText,
+          }
+        : {})}
+    >
+      {showBenchProgress ? (
+        <>
+          <div
+            className="app-header__progress-fill pointer-events-none absolute inset-y-0 left-0"
+            style={{ width: `${progressPct}%` }}
+            aria-hidden
+          />
+          <div
+            className="app-header__progress-bar pointer-events-none absolute bottom-0 left-0"
+            style={{ width: `${progressPct}%` }}
+            aria-hidden
+          />
+        </>
+      ) : null}
+      <div className="relative z-10 flex min-w-0 shrink-0 items-start gap-3 justify-self-start xl:max-w-[min(100%,20rem)]">
         <span className="mt-0.5 shrink-0 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-[var(--accent)]">
           <Activity className="size-6" aria-hidden />
         </span>
@@ -89,23 +123,9 @@ export function AppHeader({
           <p className="truncate text-sm text-[var(--muted)]" title={subtitle}>
             {subtitle}
           </p>
-          {running && onBenchPage ? (
-            <div
-              className={[
-                "mt-2 flex min-w-0 items-center gap-2 rounded border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--foreground)]",
-                benchLiveSoft,
-              ].join(" ")}
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-            >
-              <Loader2 className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" aria-hidden />
-              <span className="min-w-0 truncate">벤치 실행 중 · {benchHeaderLine}</span>
-            </div>
-          ) : null}
         </div>
       </div>
-      <div className="min-w-0 justify-self-center xl:px-2" role="tablist" aria-label="페이지">
+      <div className="relative z-10 min-w-0 justify-self-center xl:px-2" role="tablist" aria-label="페이지">
         <span className="sr-only">페이지</span>
         <div className="flex max-w-full min-w-0 flex-nowrap justify-center gap-1 overflow-x-auto rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] p-1 shadow-sm">
           {NAV_TABS.map(({ to, end, label, icon: Icon }) => {
@@ -130,7 +150,7 @@ export function AppHeader({
           })}
         </div>
       </div>
-      <label className="grid justify-self-end gap-1 text-sm">
+      <label className="relative z-10 grid justify-self-end gap-1 text-sm">
         <span className="inline-flex items-center gap-1 text-[var(--muted)]">
           <SunMoon className="size-3.5" aria-hidden />
           테마

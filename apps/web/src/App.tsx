@@ -48,8 +48,6 @@ import { ResultsTable } from "./components/ResultsTable";
 import { Scoreboard } from "./components/Scoreboard";
 import {
   BenchProgressPanel,
-  formatBenchRunningLine,
-  type BenchCompletedItem,
   type BenchCurrent,
   type BenchStepKind,
   type BenchStepLine,
@@ -262,7 +260,6 @@ export function App() {
   const [serverRunsLoading, setServerRunsLoading] = useState(false);
   const [benchStepLines, setBenchStepLines] = useState<BenchStepLine[]>([]);
   const [benchCurrent, setBenchCurrent] = useState<BenchCurrent | null>(null);
-  const [benchCompleted, setBenchCompleted] = useState<BenchCompletedItem[]>([]);
   /** 이번 벤치 런에서 `scenario_start`가 있었던 시나리오 id */
   const [touchedScenarioIds, setTouchedScenarioIds] = useState<string[]>([]);
 
@@ -912,7 +909,6 @@ export function App() {
     setPreview("");
     setBenchStepLines([]);
     setBenchCurrent(null);
-    setBenchCompleted([]);
     setTouchedScenarioIds([]);
     let anyHttpFail = false;
     let streamErrorCount = 0;
@@ -1089,9 +1085,6 @@ export function App() {
               phase: "aggregate",
             });
             pushBenchLine("ok", `집계 완료 · ${agg.scenario_id} · ${apiLabel}`);
-            const doneKey = `${m.id}|${agg.scenario_id}|${agg.api_route}`;
-            const doneLabel = `${agg.scenario_id} (${apiLabel})`;
-            setBenchCompleted((prev) => (prev.some((x) => x.key === doneKey) ? prev : [...prev, { key: doneKey, label: doneLabel }]));
             const rowKey = scenarioRowKey(agg.scenario_id, agg.api_route, m.id);
             setDetailAggregate((prev) => ({ ...prev, [rowKey]: agg }));
             const runs = agg.runs;
@@ -1183,7 +1176,12 @@ export function App() {
   }, []);
 
   const logText = log.join("\n");
-  const benchHeaderLine = useMemo(() => formatBenchRunningLine(benchCurrent), [benchCurrent]);
+  const benchProgress = useMemo(() => {
+    const total = benchQueueDraft.length * visibleSelectedScenarioIds.length * 2;
+    const completed = rows.length;
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { completed, total, pct };
+  }, [benchQueueDraft.length, visibleSelectedScenarioIds.length, rows.length]);
   const benchLiveSoft = "bench-live-panel--soft";
   const benchMetricsPanelsClass = running && rows.length > 0 ? benchLiveSoft : "";
   const benchPreviewPanelClass = running && preview.length > 0 ? benchLiveSoft : "";
@@ -1278,8 +1276,7 @@ export function App() {
         themeChoice={themeChoice}
         setThemeChoice={setThemeChoice}
         running={running}
-        benchHeaderLine={benchHeaderLine}
-        benchLiveSoft={benchLiveSoft}
+        benchProgress={running ? benchProgress : undefined}
       />
 
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
@@ -1767,7 +1764,7 @@ export function App() {
           running={running}
           current={benchCurrent}
           lines={benchStepLines}
-          completed={benchCompleted}
+          progress={running ? benchProgress : undefined}
           benchAction={
             <button
               type="button"
@@ -1788,7 +1785,7 @@ export function App() {
           }
         />
 
-        <Scoreboard rows={rows} detailAggregate={detailAggregate} />
+        <Scoreboard rows={rows} detailAggregate={detailAggregate} loading={running} />
 
         <section
           className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchMetricsPanelsClass].filter(Boolean).join(" ")}
@@ -1882,6 +1879,7 @@ export function App() {
           <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">결과 테이블</h2>
           <ResultsTable
             rows={rows}
+            benchModelOrder={benchQueueDraft.map((m) => m.id)}
             pendingRows={pendingSkeletonRows}
             maxRows={visibleSelectedScenarioIds.length * 2}
             onRowClick={(r) => openDrawerForRow(r)}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { ArrowDown, ArrowDownUp, ArrowUp } from "lucide-react";
 import type { ResultRow } from "./ResultsTable";
 import { buildModelColorMap } from "../lib/model-color";
@@ -230,13 +230,71 @@ function GroupSortHeaders({
  * 모델별 텍스트/비전/총합 리더보드 — 품질(0~100) · 속도(상한 없는 디코드 TPS 절대 점수) · 지연(TTFT ms).
  * 점수는 모든 측정 런 평균으로 산출하며 표·차트 위에 요약으로 표시한다.
  */
+const GROUP_BORDER_SKELETON = "border-l border-[var(--border)]";
+
+function ScoreboardSkeletonTable() {
+  const pulse = "h-3 animate-pulse rounded bg-[var(--border)]";
+  return (
+    <div className="overflow-x-auto rounded border border-[var(--border)]">
+      <table className="w-full min-w-[46rem] text-left text-sm">
+        <thead className="bg-[var(--surface)] text-[var(--muted)]">
+          <tr>
+            <th className="p-2 align-bottom font-medium" rowSpan={2}>
+              모델
+            </th>
+            <th colSpan={3} className={`p-2 text-center font-medium ${GROUP_BORDER_SKELETON}`}>
+              텍스트
+            </th>
+            <th colSpan={3} className={`p-2 text-center font-medium ${GROUP_BORDER_SKELETON}`}>
+              비전
+            </th>
+            <th colSpan={3} className={`p-2 text-center font-medium ${GROUP_BORDER_SKELETON}`}>
+              총합
+            </th>
+          </tr>
+          <tr>
+            {(["text", "vision", "total"] as const).map((g) => (
+              <Fragment key={g}>
+                {(["quality", "speed", "latency"] as const).map((m, mi) => (
+                  <th
+                    key={`${g}-${m}`}
+                    className={`px-2 pb-2 text-center text-[11px] font-normal${mi === 0 ? ` ${GROUP_BORDER_SKELETON}` : ""}`}
+                  >
+                    {METRIC_LABEL[m]}
+                  </th>
+                ))}
+              </Fragment>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {[0, 1, 2].map((i) => (
+            <tr key={i} className="border-t border-[var(--border)]">
+              <td className="p-2">
+                <div className={`${pulse} w-28`} />
+              </td>
+              {Array.from({ length: 9 }, (_, ci) => (
+                <td key={ci} className={`p-2 text-center${ci % 3 === 0 ? ` ${GROUP_BORDER_SKELETON}` : ""}`}>
+                  <div className={`${pulse} mx-auto w-10`} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function Scoreboard({
   rows,
   detailAggregate,
+  loading = false,
   title = "스코어보드",
 }: {
   rows: ResultRow[];
   detailAggregate: ScoringAggregate;
+  loading?: boolean;
   title?: string;
 }) {
   const board = useMemo(() => scoreboardFromRows(rows, detailAggregate), [rows, detailAggregate]);
@@ -265,7 +323,9 @@ export function Scoreboard({
     return m;
   }, [board]);
 
-  if (rows.length === 0 || board.length === 0) return null;
+  if (!loading && (rows.length === 0 || board.length === 0)) return null;
+
+  const showSkeleton = loading && board.length === 0;
 
   const multiModel = colorByModel.size >= 2;
   const anyJudgeCap = board.some((b) => b.quality.caveats.includes("judge_capped"));
@@ -301,6 +361,9 @@ export function Scoreboard({
           속도 = 상한 없는 점수(막대 길이·색 모두 각 열 최고점 대비 상대) · 지연 = TTFT ms(낮을수록 좋음)
         </span>
       </div>
+      {showSkeleton ? (
+        <ScoreboardSkeletonTable />
+      ) : (
       <div className="overflow-x-auto rounded border border-[var(--border)]">
         <table className="w-full min-w-[46rem] text-left text-sm">
           <thead className="bg-[var(--surface)] text-[var(--muted)]">
@@ -392,7 +455,8 @@ export function Scoreboard({
           {scoreboardSortLine(sort)}
         </p>
       </div>
-      {anyJudgeCap || anyApprox || anyTextOnly ? (
+      )}
+      {!showSkeleton && (anyJudgeCap || anyApprox || anyTextOnly) ? (
         <div className="mt-2 space-y-1 text-xs leading-relaxed text-[var(--muted)]">
           {anyJudgeCap ? (
             <p>

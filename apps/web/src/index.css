@@ -186,6 +186,21 @@ select:focus-visible {
   }
 }
 
+.app-header--bench-progress {
+  isolation: isolate;
+}
+
+.app-header__progress-fill {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  transition: width 0.35s ease-out;
+}
+
+.app-header__progress-bar {
+  height: 3px;
+  background: var(--accent);
+  transition: width 0.35s ease-out;
+}
+
 .bench-live-panel--soft {
   animation: bench-panel-border-soft 1.35s ease-in-out infinite;
 }
@@ -204,6 +219,11 @@ select:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .app-header__progress-fill,
+  .app-header__progress-bar {
+    transition: none;
+  }
+
   .bench-live-panel--soft,
   .scenario-guide-card--bench-active,
   .scenario-guide-card--bench-touched,
