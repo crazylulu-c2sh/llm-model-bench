@@ -12,7 +12,7 @@
   "dependencies": {
     "@hono/node-server": "^2.0.4",
     "@llm-bench/shared": "workspace:*",
-    "hono": "^4.12.23",
+    "hono": "^4.12.25",
     "pdf-parse": "2.4.5",
     "zod": "^4.4.3"
   },
