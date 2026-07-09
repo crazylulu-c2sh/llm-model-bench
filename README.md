@@ -262,6 +262,7 @@ AI 에이전트가 이 서비스를 프로그래밍적으로 쓸 수 있도록 *
 - **사고 블록 strip**: 채점·UI는 `stripThinkingBlocks`로 인라인 추론(Gemma channel, Qwen redacted, GLM 닫는 태그만 등)을 제거합니다. 패턴·패밀리별 노트는 웹 [`/profile`](/profile)([`#thinking-block-strip`](/profile#thinking-block-strip), [`#lmstudio-host`](/profile#lmstudio-host)) 또는 `LLM_PROFILE.md`를 참고하세요.
 - **LM Studio 트러블슈팅**: 구버전 자산(`.webp`)으로 실행하면 `'url' field must be a base64 encoded image.` 400을 받습니다. `pnpm prepare:vision`을 한 번 실행해 JPEG로 재생성한 뒤 서버를 재시작하세요(메모리 캐시 무효화).
 - **LM Studio Jinja 템플릿 크래시 (Anthropic `/v1/messages` + tools)**: 특정 모델(`nvidia/nemotron-3-nano*`, `google/gemma-4-*`)은 도구 시나리오의 `messages` 라우트에서 `Error rendering prompt with jinja template`로 응답이 비어 실패합니다. 원인·진단·해결(호스트에서 도는 템플릿 오버라이드 스크립트 [`scripts/fix-nemotron-lmstudio-template.sh`](scripts/fix-nemotron-lmstudio-template.sh) / [`scripts/fix-gemma4-lmstudio-template.sh`](scripts/fix-gemma4-lmstudio-template.sh))은 [`docs/lmstudio-jinja-template-crashes.md`](docs/lmstudio-jinja-template-crashes.md) 및 웹 [`/profile#lmstudio-host`](/profile#lmstudio-host) 참고.
+- **LM Studio 엔진 프로토콜 회귀 (도구 인자 손상·추론 누수)**: `Use LM Studio Engine Protocol`이 켜진 0.4.14~0.4.18 베타 런타임은 스트리밍 `tool_calls` 인자를 손상시키거나(#1922) 추론을 응답 content로 누수시킵니다(0.4.19에서 수정). 결과 표·상세에 ⚠ 배지(`tool_call_args_corrupted`·`reasoning_leaked_into_content`)로 감지되며, **LM Studio를 0.4.19+로 올리거나** 옵션을 끄고 재측정하세요. 상세: [`docs/lmstudio-engine-protocol.md`](docs/lmstudio-engine-protocol.md) 및 웹 [`/profile#lmstudio-host`](/profile#lmstudio-host).
 
 ## 테스트
 

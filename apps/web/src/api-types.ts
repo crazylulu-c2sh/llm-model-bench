@@ -8,6 +8,10 @@ export type BenchScenarioRun = {
   usage_output_tokens?: number | null;
   /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의. */
   reasoning_hidden?: boolean;
+  /** #1922: 스트리밍 tool_call 인자 연결 손상 감지 → LM Studio 엔진 프로토콜 회귀 의심. */
+  tool_call_args_corrupted?: boolean;
+  /** chat 라우트에서 추론이 content로 새어 들어옴 → 엔진 프로토콜 회귀 의심. */
+  reasoning_leaked_into_content?: boolean;
   quality?: { pass: boolean; score?: number; reason?: string };
 };
 

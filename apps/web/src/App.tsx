@@ -84,6 +84,8 @@ type MetricsAgg = {
     stream_completed: boolean;
     usage_output_tokens?: number | null;
     reasoning_hidden?: boolean;
+    tool_call_args_corrupted?: boolean;
+    reasoning_leaked_into_content?: boolean;
     quality?: { pass: boolean; score?: number; reason?: string };
   }>;
 };
@@ -571,6 +573,9 @@ export function App() {
           defaultScenarioPromptPreview(row.scenario),
         outputText: last?.output_text ?? "",
         reasoningHidden: row.reasoning_hidden ?? last?.reasoning_hidden,
+        toolCallArgsCorrupted: row.tool_call_args_corrupted ?? last?.tool_call_args_corrupted,
+        reasoningLeakedIntoContent:
+          row.reasoning_leaked_into_content ?? last?.reasoning_leaked_into_content,
         measuredRunIndex: n > 0 ? n : undefined,
         measuredRunTotal: n > 0 ? n : undefined,
       });
@@ -610,6 +615,8 @@ export function App() {
           defaultScenarioPromptPreview(row.scenario),
         outputText: last?.output_text ?? "",
         reasoningHidden: row.reasoningHidden ?? last?.reasoning_hidden,
+        toolCallArgsCorrupted: last?.tool_call_args_corrupted,
+        reasoningLeakedIntoContent: last?.reasoning_leaked_into_content,
         measuredRunIndex: n > 0 ? n : undefined,
         measuredRunTotal: n > 0 ? n : undefined,
       });
@@ -643,6 +650,8 @@ export function App() {
           userPrompt: sc.prompt_preview ?? defaultScenarioPromptPreview(scenario),
           outputText: last?.output_text ?? "",
           reasoningHidden: last?.reasoning_hidden,
+          toolCallArgsCorrupted: last?.tool_call_args_corrupted,
+          reasoningLeakedIntoContent: last?.reasoning_leaked_into_content,
           measuredRunIndex: n > 0 ? n : undefined,
           measuredRunTotal: n > 0 ? n : undefined,
         });
@@ -781,6 +790,8 @@ export function App() {
         userPrompt: sc.prompt_preview ?? defaultScenarioPromptPreview(sc.id),
         outputText: last?.output_text ?? "",
         reasoningHidden: last?.reasoning_hidden,
+        toolCallArgsCorrupted: last?.tool_call_args_corrupted,
+        reasoningLeakedIntoContent: last?.reasoning_leaked_into_content,
         measuredRunIndex: n > 0 ? n : undefined,
         measuredRunTotal: n > 0 ? n : undefined,
       });
@@ -1111,6 +1122,8 @@ export function App() {
                   tps,
                   tps_source: tpsSource,
                   reasoning_hidden: last.reasoning_hidden,
+                  tool_call_args_corrupted: last.tool_call_args_corrupted,
+                  reasoning_leaked_into_content: last.reasoning_leaked_into_content,
                   pass: last.quality?.pass,
                   score: last.quality?.score,
                   reason: last.quality?.reason,

@@ -24,6 +24,10 @@ export type ScenarioDetailPayload = {
   outputText: string;
   /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의 경고 */
   reasoningHidden?: boolean;
+  /** #1922: 스트리밍 tool_call 인자 연결 손상 감지 → LM Studio 엔진 프로토콜 회귀 경고 */
+  toolCallArgsCorrupted?: boolean;
+  /** chat 라우트에서 추론이 content로 새어 들어옴 → 엔진 프로토콜 회귀 경고 */
+  reasoningLeakedIntoContent?: boolean;
   /** 마지막으로 표시 중인 측정 런(1-based) / 총 측정 런 수 */
   measuredRunIndex?: number;
   measuredRunTotal?: number;
@@ -80,6 +84,36 @@ export function ScenarioDetailDrawer({
           </button>
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 text-sm">
+          {payload.toolCallArgsCorrupted || payload.reasoningLeakedIntoContent ? (
+            <div className="flex items-start gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-snug text-amber-500">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <div className="space-y-1">
+                {payload.toolCallArgsCorrupted ? (
+                  <p>
+                    <strong>도구 인자 손상</strong> — 스트리밍 tool_calls 인자가 연결·손상돼(
+                    <code className="font-mono">{"{}{}"}</code>) 도구 실행이 실패했을 수 있습니다.
+                  </p>
+                ) : null}
+                {payload.reasoningLeakedIntoContent ? (
+                  <p>
+                    <strong>추론 누수</strong> — 사고(reasoning) 블록이 응답 content로 섞여 들어와 채점이 흐려질 수 있습니다.
+                  </p>
+                ) : null}
+                <p>
+                  LM Studio 엔진 프로토콜 회귀일 수 있습니다. <strong>LM Studio를 0.4.19+로 올리거나</strong>{" "}
+                  Developer의 "Use LM Studio Engine Protocol"을 끄고 재측정하세요.{" "}
+                  <a
+                    className="underline"
+                    href="/profile#lmstudio-host"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    조치 안내
+                  </a>
+                </p>
+              </div>
+            </div>
+          ) : null}
           <div className="grid gap-2 text-xs sm:grid-cols-2">
             <div>
               <span className="text-[var(--muted)]">시나리오</span>

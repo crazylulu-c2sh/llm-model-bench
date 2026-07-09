@@ -828,3 +828,67 @@ describe("runBench messages route — usage tokens + reasoning_hidden", () => {
     expect(run?.reasoning_hidden).toBeUndefined();
   });
 });
+
+describe("runBench chat route — LM Studio engine-protocol regression flags", () => {
+  /** chat_completions SSE: 각 원소를 `choices[0].delta`로 순서대로 흘리고 [DONE]으로 마감. */
+  function sseChatDeltas(deltas: Record<string, unknown>[]): Response {
+    const enc = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const d of deltas) {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: d }] })}\n\n`));
+        }
+        controller.enqueue(enc.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
+
+  async function lastRunFor(scenario: ScenarioId, resp: Response): Promise<Record<string, unknown> | undefined> {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) return resp;
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let run: Record<string, unknown> | undefined;
+    for await (const ev of runBench(
+      baseBenchRequest({ skipModelLoad: true, scenarioIds: [scenario] }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "metrics_update") {
+        const agg = ev.aggregate as { runs?: Record<string, unknown>[] };
+        run = agg.runs?.[agg.runs.length - 1];
+      }
+    }
+    return run;
+  }
+
+  it("flags reasoning_leaked_into_content when <think> appears in content with no reasoning_content", async () => {
+    const run = await lastRunFor(
+      "chat_ping",
+      sseChatDeltas([{ content: "<think>secret reasoning</think>final answer" }]),
+    );
+    expect(run?.reasoning_leaked_into_content).toBe(true);
+  });
+
+  it("does NOT flag reasoning_leaked_into_content when reasoning arrives in reasoning_content", async () => {
+    const run = await lastRunFor(
+      "chat_ping",
+      sseChatDeltas([{ reasoning_content: "thinking..." }, { content: "final answer" }]),
+    );
+    expect(run?.reasoning_leaked_into_content).toBeUndefined();
+  });
+
+  it("flags tool_call_args_corrupted when streamed tool arguments are concatenated (#1922)", async () => {
+    const run = await lastRunFor(
+      "tool_weather",
+      sseChatDeltas([
+        { tool_calls: [{ index: 0, id: "x", type: "function", function: { name: "get_weather", arguments: '{"a":1}' } }] },
+        { tool_calls: [{ index: 0, function: { arguments: '{"a":1}' } }] },
+      ]),
+    );
+    expect(run?.tool_call_args_corrupted).toBe(true);
+  });
+});

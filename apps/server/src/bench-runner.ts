@@ -620,6 +620,10 @@ export async function* runBench(
           stream_completed: boolean;
           usage_output_tokens: number | null;
           reasoning_hidden?: boolean;
+          /** #1922: 스트리밍 tool_call 인자가 연결 손상(`{}{}`)돼 감지된 경우 — LM Studio 엔진 프로토콜 회귀 신호. */
+          tool_call_args_corrupted?: boolean;
+          /** 추론이 `reasoning_content` 대신 `content`로 새어 들어온 경우(chat 라우트) — 엔진 프로토콜 회귀 신호. */
+          reasoning_leaked_into_content?: boolean;
           quality?: { pass: boolean; score?: number; reason?: string };
         }[] = [];
 
@@ -774,6 +778,10 @@ export async function* runBench(
             let usageOutputTokens: number | null = null;
             /** 가시 추론(reasoning/thinking 델타) 누적 길이. 0이면 추론이 스트림에 노출되지 않음. */
             let reasoningChars = 0;
+            /** 어느 OpenAI 스트림 라운드에서든 tool_call 인자 연결 손상(#1922)이 한 번이라도 감지되면 true(OR-집계). */
+            let toolArgsCorruptedAny = false;
+            /** 최종 OpenAI(chat) 스트림 메트릭 — reasoning-누수 판정에 raw assistantText/reasoningText로 사용. */
+            let lastOpenAiMetrics: OpenAiStreamMetrics | null = null;
             const invokedBenchTools: string[] = [];
 
             if (
@@ -839,6 +847,8 @@ export async function* runBench(
                   { loopGuard: true, requestStartedAt: requestT0 },
                 );
                 lastOpen = m;
+                lastOpenAiMetrics = m;
+                if (m.toolCallArgsCorrupted) toolArgsCorruptedAny = true;
                 if (openAiLikelyTruncated(m, scenarioMeta.max_tokens)) truncated = true;
                 if (m.repetitionLoopDetected) repetitionLoopAborted = true;
                 totalMsAcc += m.totalMs;
@@ -1094,6 +1104,8 @@ export async function* runBench(
                 streamCompleted = m.streamCompleted;
                 usageOutputTokens = m.usageOutputTokens;
                 reasoningChars = m.reasoningText.length;
+                lastOpenAiMetrics = m;
+                if (m.toolCallArgsCorrupted) toolArgsCorruptedAny = true;
                 if (openAiLikelyTruncated(m, scenarioMeta.max_tokens)) truncated = true;
                 if (m.repetitionLoopDetected) repetitionLoopAborted = true;
                 for (const ch of chunkTextForUi(text, 24)) {
@@ -1249,6 +1261,16 @@ export async function* runBench(
               reasoningChars === 0 &&
               usageOutputTokens >= 2 * approxOutputTokens(text);
 
+            // reasoning-누수(chat 라우트): 분리 채널 추론이 전혀 없는데(reasoningText 비어있음) content(assistantText)에
+            // 사고 블록 마커가 있으면 추론이 content로 오라벨돼 새어 들어온 것. reasoning_hidden(messages·추론 숨김)과 상보적.
+            // 폴백 혼합 텍스트(openAiBenchOutputText)가 아니라 raw assistantText/reasoningText로 판정한다.
+            const reasoningLeaked =
+              api_route === "chat_completions" &&
+              lastOpenAiMetrics != null &&
+              lastOpenAiMetrics.reasoningText.trim() === "" &&
+              stripThinkingBlocks(lastOpenAiMetrics.assistantText) !==
+                lastOpenAiMetrics.assistantText.trim();
+
             if (!isWarmup) {
               runs.push({
                 ttft_ms: ttft,
@@ -1257,6 +1279,8 @@ export async function* runBench(
                 stream_completed: streamCompleted,
                 usage_output_tokens: usageOutputTokens,
                 ...(reasoningHidden ? { reasoning_hidden: true } : {}),
+                ...(toolArgsCorruptedAny ? { tool_call_args_corrupted: true } : {}),
+                ...(reasoningLeaked ? { reasoning_leaked_into_content: true } : {}),
                 quality,
               });
             }

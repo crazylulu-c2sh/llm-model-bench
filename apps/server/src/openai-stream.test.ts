@@ -91,6 +91,44 @@ describe("consumeOpenAiChatStream", () => {
     expect(m.text).toContain("get_weather");
   });
 
+  it("flags toolCallArgsCorrupted when streamed arguments are concatenated (#1922)", async () => {
+    // 엔진 프로토콜 런타임이 tool_call 인자를 `{"a":1}{"a":1}`처럼 이어붙여 내보내는 손상 시그니처.
+    const stream = sse([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"x","type":"function","function":{"name":"get_weather","arguments":"{\\"a\\":1}"}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"a\\":1}"}}]}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.toolCallArgsCorrupted).toBe(true);
+  });
+
+  it("does not flag toolCallArgsCorrupted for a single valid JSON argument object", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"x","type":"function","function":{"name":"get_weather","arguments":"{\\"city\\":\\"Seattle\\"}"}}]}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.toolCallArgsCorrupted).toBe(false);
+  });
+
+  it("does not flag toolCallArgsCorrupted for empty or {} arguments", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"x","type":"function","function":{"name":"get_weather","arguments":"{}"}}]}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.toolCallArgsCorrupted).toBe(false);
+  });
+
+  it("does not flag toolCallArgsCorrupted when there are no tool calls", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"plain answer"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.toolCallArgsCorrupted).toBe(false);
+  });
+
   it("captures standard content deltas for translate scoring (baseline when upstream is OpenAI-shaped)", async () => {
     const stream = sse([
       'data: {"choices":[{"delta":{"content":"비트코인은 디지털 화폐입니다."}}]}\n\n',
@@ -158,6 +196,7 @@ describe("openAiBenchOutputText", () => {
         usageOutputTokens: null,
         finishReason: null,
         repetitionLoopDetected: false,
+        toolCallArgsCorrupted: false,
       }),
     ).toBe("visible");
   });
@@ -176,6 +215,7 @@ describe("openAiBenchOutputText", () => {
         usageOutputTokens: null,
         finishReason: null,
         repetitionLoopDetected: false,
+        toolCallArgsCorrupted: false,
       }),
     ).toBe("reasoning-only");
   });
@@ -300,6 +340,7 @@ describe("openAiLiveTokenStreamText", () => {
         usageOutputTokens: null,
         finishReason: null,
         repetitionLoopDetected: false,
+        toolCallArgsCorrupted: false,
       }),
     ).toBe("inout");
   });
