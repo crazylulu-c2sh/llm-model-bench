@@ -118,7 +118,11 @@ const ActionSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
-function toolWeatherOutputPass(output: string): boolean {
+function toolWeatherOutputPass(rawOutput: string): boolean {
+  // LM Studio 엔진 프로토콜 회귀 등으로 추론이 content로 누수되면 사고 블록 안의 가짜 `<tool_call>{"name":"get_weather"}`
+  // 를 진짜 호출로 오인(false-pass)할 수 있으므로, 판정 전에 사고 블록을 먼저 제거한다.
+  // 실제 tool_call 시그니처는 스트림 소비자가 content 뒤에 개행+append하는 `{"tool_calls":...}`(사고 블록 밖)라 스트립에 안 지워진다.
+  const output = stripThinkingBlocks(rawOutput);
   // 평문 단어 언급만으로는 불합격 — 스트림 소비자가 직렬화한 tool_calls JSON의 "name" 패턴만 신호로 친다.
   if (/"name"\s*:\s*"get_weather"/.test(output)) return true;
   const fromJson = (raw: string): boolean => {
@@ -191,7 +195,9 @@ function scoreChatTimeCalendar(output: string, iso: string | undefined, timeZone
   reason?: string;
 } {
   const tz = timeZone ?? DEFAULT_CALENDAR_TIMEZONE;
-  const trimmed = output.trim();
+  // 사고엔 대개 정답 날짜가 들어있어, 추론이 content로 누수되면 최종 답이 틀려도 통과되던 false-pass가 생긴다.
+  // 날짜 매칭 전에 사고 블록을 제거한다(스트립 후 남은 본문만 채점).
+  const trimmed = stripThinkingBlocks(output);
   if (!trimmed) return { pass: false, score: 0, reason: "empty output" };
   if (!iso) return { pass: false, score: 0, reason: "missing calendar reference" };
   const triple = expectedCalendarTriple(iso, tz);

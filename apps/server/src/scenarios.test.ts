@@ -52,6 +52,19 @@ describe("scoreScenario tool_weather", () => {
     const out = '<tool_call>{"name": "get_weather", "arguments": {"city": "Seattle"}}</tool_call>';
     expect(scoreScenario("tool_weather", out).pass).toBe(true);
   });
+
+  it("fails when the only get_weather signature is leaked inside a <think> block", () => {
+    // LM Studio 엔진 프로토콜 회귀 등으로 추론이 content로 누수된 케이스: 사고 안의 가짜 호출은 진짜 호출이 아니다.
+    const out =
+      '<think>I should call {"name":"get_weather"} here.</think>Sorry, I cannot check the weather.';
+    expect(scoreScenario("tool_weather", out).pass).toBe(false);
+  });
+
+  it("still passes when a real tool_calls signature follows a leaked <think> block", () => {
+    const out =
+      '<think>let me think</think>\n{"tool_calls":[{"function":{"name":"get_weather","arguments":"{}"}}]}';
+    expect(scoreScenario("tool_weather", out).pass).toBe(true);
+  });
 });
 
 describe("scoreScenario stress_long_context*", () => {
@@ -208,6 +221,23 @@ describe("scoreScenario chat_time_calendar", () => {
         calendarTimeZone: "Asia/Seoul",
       }).pass,
     ).toBe(true);
+  });
+});
+
+describe("scoreScenario chat_time_calendar leaked reasoning", () => {
+  it("fails when the correct dates appear only inside a leaked <think> block", () => {
+    // 추론 누수 시 사고엔 정답 날짜가 있어도 최종 본문이 틀리면 통과해선 안 된다.
+    const iso = "2024-01-15T15:00:00.000Z";
+    const triple = expectedCalendarTriple(iso, "Asia/Seoul");
+    expect(triple).not.toBeNull();
+    const [y, td, tm] = triple!;
+    const out = `<think>어제 ${y}, 오늘 ${td}, 내일 ${tm}</think>날짜를 알 수 없습니다.`;
+    expect(
+      scoreScenario("chat_time_calendar", out, {
+        calendarReferenceIso: iso,
+        calendarTimeZone: "Asia/Seoul",
+      }).pass,
+    ).toBe(false);
   });
 });
 

@@ -36,6 +36,10 @@ export type ResultRow = {
   tps_source?: "usage" | "approx";
   /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의 배지 */
   reasoning_hidden?: boolean;
+  /** #1922: 스트리밍 tool_call 인자 연결 손상 → LM Studio 엔진 프로토콜 회귀 의심 배지 */
+  tool_call_args_corrupted?: boolean;
+  /** chat 라우트에서 추론이 content로 새어 들어옴 → 엔진 프로토콜 회귀 의심 배지 */
+  reasoning_leaked_into_content?: boolean;
   pass?: boolean;
   /** 0~1 점수. 비전 시나리오에서 rubric 0~3과 함께 표시. 텍스트 시나리오는 보통 0 또는 1. */
   score?: number;
@@ -95,6 +99,10 @@ export function ResultsTable({
     [rows],
   );
   const hasReasoningHidden = useMemo(() => rows.some((r) => r.reasoning_hidden), [rows]);
+  const hasEngineProtocolWarning = useMemo(
+    () => rows.some((r) => r.tool_call_args_corrupted || r.reasoning_leaked_into_content),
+    [rows],
+  );
   const colorByModel = useMemo(() => buildModelColorMap(rows.map((r) => r.model_id)), [rows]);
   const winners = useMemo(
     () =>
@@ -165,7 +173,29 @@ export function ResultsTable({
             {sortDirIcon(column, sorting)}
           </button>
         ),
-        cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span>,
+        cell: (info) => {
+          const r = info.row.original;
+          const corrupted = r.tool_call_args_corrupted === true;
+          const leaked = r.reasoning_leaked_into_content === true;
+          const contaminated = corrupted || leaked;
+          const detail = [corrupted ? "도구 인자 손상" : null, leaked ? "추론 누수" : null]
+            .filter(Boolean)
+            .join(" · ");
+          return (
+            <span className="inline-flex items-center gap-1 font-mono text-xs">
+              {info.getValue()}
+              {contaminated ? (
+                <span
+                  className="inline-flex items-center text-amber-500"
+                  title={`LM Studio 엔진 프로토콜 회귀 의심 — ${detail}. 행을 열어 조치 안내를 확인하세요.`}
+                  aria-label={`LM Studio 엔진 프로토콜 회귀 의심 — ${detail}`}
+                >
+                  <AlertTriangle className="size-3 shrink-0" aria-hidden />
+                </span>
+              ) : null}
+            </span>
+          );
+        },
         sortingFn: (a, b) => {
           const d = scenarioExecutionOrderIndex(a.original.scenario) - scenarioExecutionOrderIndex(b.original.scenario);
           if (d !== 0) return d;
@@ -472,6 +502,11 @@ export function ResultsTable({
       {hasApproxTps ? (
         <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
           <code className="font-mono">*</code> TPS는 provider가 usage 토큰 수를 보고하지 않아 <code className="font-mono">chars/4</code> 추정치(approx)로 계산됐습니다 — CJK·코드 응답에서 오차가 큽니다.
+        </p>
+      ) : null}
+      {hasEngineProtocolWarning ? (
+        <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
+          <span className="text-amber-500">⚠</span> 시나리오 옆 표시 행은 <strong>도구 인자 손상</strong> 또는 <strong>추론 누수</strong>가 감지됐습니다 — LM Studio 엔진 프로토콜 회귀(bug-tracker #1922 등)일 수 있어 점수가 오염됐을 수 있습니다. LM Studio를 0.4.19+로 올리거나 "Use LM Studio Engine Protocol"을 끄고 재측정하세요(<a className="underline" href="/profile#lmstudio-host" target="_blank" rel="noreferrer">조치 안내</a>).
         </p>
       ) : null}
     </div>

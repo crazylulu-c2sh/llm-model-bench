@@ -341,6 +341,15 @@ function LmStudioHostCard() {
       </p>
       <ul className="list-inside list-disc space-y-2 text-sm leading-relaxed text-[var(--muted)]">
         <li>
+          <strong className="text-[var(--foreground)]">엔진 프로토콜 회귀 (도구 손상·추론 누수)</strong> — Developer → Runtime Settings의{" "}
+          <code className="font-mono text-xs">Use LM Studio Engine Protocol</code>이 켜진 0.4.14~0.4.18 베타 런타임에서 스트리밍{" "}
+          <code className="font-mono text-xs">tool_calls</code> 인자가 <code className="font-mono text-xs">{"{}{}"}</code>로 연결·손상되거나(bug-tracker #1922),
+          추론이 <code className="font-mono text-xs">reasoning_content</code> 대신 본문 <code className="font-mono text-xs">content</code>로 새어 들어옵니다(0.4.19에서 수정).
+          벤치 결과 표·상세에 <span className="text-amber-500">⚠</span> 배지로 감지됩니다.{" "}
+          <strong className="text-[var(--foreground)]">LM Studio를 0.4.19+로 올리거나</strong> 이 옵션을 끄고 재측정하세요.
+          Developer의 "When applicable, separate reasoning_content and content in API responses"도 켜 두면 좋습니다.
+        </li>
+        <li>
           <strong className="text-[var(--foreground)]">사고 파싱 (Gemma 4·QAT)</strong> — 기본 Reasoning Parsing이 Qwen용{" "}
           <code className="font-mono text-xs">&lt;redacted_thinking&gt;</code>이라 channel 태그가 본문에 유출되거나 사고 UI가 비어 보일
           수 있습니다. 모델별 Inference → Reasoning Parsing:{" "}
@@ -362,7 +371,8 @@ function LmStudioHostCard() {
           <code className="font-mono text-xs">--dry-run</code>으로 diff 확인 후 적용 → 모델 UNLOAD·RELOAD.
         </li>
         <li>
-          상세 문서: <code className="font-mono text-xs">docs/lmstudio-jinja-template-crashes.md</code> (저장소 루트)
+          상세 문서: <code className="font-mono text-xs">docs/lmstudio-engine-protocol.md</code>(엔진 프로토콜 회귀),{" "}
+          <code className="font-mono text-xs">docs/lmstudio-jinja-template-crashes.md</code>(Jinja 크래시) — 저장소 루트
         </li>
         <li>
           <code className="font-mono text-xs">stripThinkingBlocks</code>·<code className="font-mono text-xs">enable_thinking</code>는

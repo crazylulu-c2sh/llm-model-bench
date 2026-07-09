@@ -33,6 +33,13 @@ export type OpenAiStreamMetrics = {
   finishReason: string | null;
   /** `loopGuard` 활성 시, 반복 루프가 감지돼 `reader.cancel()`로 조기 종료했으면 true. */
   repetitionLoopDetected: boolean;
+  /**
+   * 병합된 tool_call `arguments`가 손상된 시그니처(완결 JSON 객체 뒤에 또 다른 JSON이 이어붙은
+   * `{}{}` / `{"…"}{"…"}` 형태)를 보이면 true. LM Studio 엔진 프로토콜 런타임 회귀
+   * (lmstudio-bug-tracker #1922)에서 스트리밍 tool_call 인자가 연결돼 나오는 것을 감지한다.
+   * annotate-only 신호 — 채점 판정은 바꾸지 않는다.
+   */
+  toolCallArgsCorrupted: boolean;
 };
 
 /** 증분 콜백 — 델타 도착 시마다 호출. stress-runner CCTV fan-out 용. */
@@ -95,6 +102,46 @@ function serializeMergedToolCalls(byIndex: Map<number, MergedToolCall>): string 
   return JSON.stringify({ tool_calls });
 }
 
+/**
+ * 첫 균형 JSON 값(`{...}` 또는 `[...]`)의 끝 인덱스(exclusive)를 반환. 완결 값이 없으면 -1.
+ * 문자열/이스케이프를 인식하며, tool_call `arguments` 손상 감지에만 쓰인다.
+ */
+function firstBalancedJsonEnd(s: string): number {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') {
+      inStr = true;
+    } else if (ch === "{" || ch === "[") {
+      depth++;
+    } else if (ch === "}" || ch === "]") {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+/**
+ * tool_call `arguments`가 #1922식 연결 손상인지 판정 — 완결 JSON 값 뒤에 non-whitespace 잔여가 있으면 손상.
+ * 빈 문자열·단일 완결 JSON(`{}`, `{"a":1}` 등)은 정상, 미완결(스트림 잘림)은 다른 라벨이 잡으므로 여기선 무시.
+ */
+function toolArgsLookCorrupted(args: string): boolean {
+  const s = args.trim();
+  if (!s) return false;
+  const end = firstBalancedJsonEnd(s);
+  if (end < 0) return false; // 완결 객체 없음(미완결/스칼라) → 이 시그니처 아님
+  return s.slice(end).trim().length > 0; // 완결 객체 뒤 잔여 JSON → 연결 손상
+}
+
 /** Parse OpenAI chat completions SSE stream; measure TTFT on first content or tool-call delta. */
 export async function consumeOpenAiChatStream(
   body: ReadableStream<Uint8Array> | null,
@@ -114,6 +161,7 @@ export async function consumeOpenAiChatStream(
       usageOutputTokens: null,
       finishReason: null,
       repetitionLoopDetected: false,
+      toolCallArgsCorrupted: false,
     };
   }
   const reader = body.getReader();
@@ -233,6 +281,9 @@ export async function consumeOpenAiChatStream(
       type: "function" as const,
       function: { name: tc.name, arguments: tc.arguments },
     }));
+  // #1922: 엔진 프로토콜 런타임이 스트리밍 tool_call 인자를 연결(`{}{}`)해 내보내는 손상 감지.
+  const toolCallArgsCorrupted =
+    toolByIndex.size > 0 && toolCallsForApi.some((tc) => toolArgsLookCorrupted(tc.function.arguments));
   let outText = combined;
   if (toolByIndex.size > 0) {
     const serialized = serializeMergedToolCalls(toolByIndex);
@@ -252,6 +303,7 @@ export async function consumeOpenAiChatStream(
     finishReason,
     usageOutputTokens,
     repetitionLoopDetected,
+    toolCallArgsCorrupted,
   };
 }
 
