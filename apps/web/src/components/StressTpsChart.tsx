@@ -56,11 +56,14 @@ export function StressTpsChart({ stages }: { stages: StressStageResult[] }) {
                 color: "var(--foreground)",
                 fontSize: 12,
               }}
-              formatter={(value: number, name: string, ctx: { dataKey?: string | number; payload?: ChartDatum }) => {
-                const unreliable = ctx?.payload?.unreliable === true;
-                const tier = ctx?.dataKey === "tpsPerUser" ? (ctx?.payload?.perUserTier ?? null) : null;
-                const v = Number.isFinite(value) ? value : null;
-                return [formatStressTpsTooltip(v, { unreliable, tier }), name];
+              formatter={(value, name, item) => {
+                // Recharts v3: value=ValueType|undefined, name=NameType|undefined, item.payload is any.
+                const p = item?.payload as ChartDatum | undefined;
+                const unreliable = p?.unreliable === true;
+                const tier = item?.dataKey === "tpsPerUser" ? (p?.perUserTier ?? null) : null;
+                const num = Number(value);
+                const v = Number.isFinite(num) ? num : null;
+                return [formatStressTpsTooltip(v, { unreliable, tier }), String(name)];
               }}
             />
             <Legend

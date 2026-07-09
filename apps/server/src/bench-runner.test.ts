@@ -52,7 +52,6 @@ function baseBenchRequest(overrides: Partial<BenchRequest> = {}): BenchRequest {
     unloadOtherModels: false,
     warmupRuns: 0,
     measuredRuns: 1,
-    parallel: false,
     // 이 스위트는 오염 가드 무관 동작을 검증 — 실제 GPU/lms probe로 인한 비결정성 차단.
     // (가드 자체는 bench-runner.contention.test.ts에서 결정적으로 검증.)
     contentionGuardEnabled: false,

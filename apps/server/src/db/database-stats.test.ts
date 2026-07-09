@@ -16,7 +16,6 @@ function req(modelId: string, baseUrl?: string): BenchRequest {
     baseUrl: baseUrl ?? detect.baseUrl,
     provider: detect.provider,
     modelId,
-    parallel: false,
     skipModelLoad: true,
   };
 }
