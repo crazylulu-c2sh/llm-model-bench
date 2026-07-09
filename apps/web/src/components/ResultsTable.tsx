@@ -48,6 +48,11 @@ export type ResultRow = {
 
 type PendingSkeletonRow = { rowKey: string; model_id: string; scenario: string; api: string };
 
+// 안정적 기본값: `= []` 기본 파라미터는 매 렌더 새 배열을 만들어 `data` useMemo(및 TanStack에
+// 넘기는 data 참조)를 매 렌더 바꿔 무한 재렌더 루프를 유발한다(모델 2개 선택 시 먹통). 모듈 상수로 고정.
+const EMPTY_MODEL_ORDER: string[] = [];
+const EMPTY_PENDING_ROWS: PendingSkeletonRow[] = [];
+
 const columnHelper = createColumnHelper<ResultRow>();
 
 function apiHeaderTitle(api: string): string {
@@ -68,9 +73,9 @@ function sortDirIcon(column: Column<ResultRow, unknown>, sorting: SortingState) 
 
 export function ResultsTable({
   rows,
-  pendingRows = [],
+  pendingRows = EMPTY_PENDING_ROWS,
   maxRows,
-  benchModelOrder = [],
+  benchModelOrder = EMPTY_MODEL_ORDER,
   onRowClick,
 }: {
   rows: ResultRow[];
@@ -82,6 +87,9 @@ export function ResultsTable({
   onRowClick?: (row: ResultRow) => void;
 }) {
   const modelQueue = benchModelOrder;
+  // 내용 기반 키: 호출부가 매 렌더 새 배열(예: benchQueueDraft.map(...))을 넘겨도 `data` 참조가
+  // 바뀌지 않도록 한다. 불안정한 `data`는 TanStack에 매 렌더 새 참조로 전달돼 무한 재렌더(먹통)를 유발.
+  const modelQueueKey = modelQueue.join("\0");
   // 기본 정렬과 동일한 키(모델 큐 → 시나리오 실행 순서 → API)로 베이스 행을 미리 정렬한다.
   const data = useMemo(
     () =>
@@ -92,7 +100,9 @@ export function ResultsTable({
           apiRouteRank(a.api) - apiRouteRank(b.api) ||
           a.api.localeCompare(b.api),
       ),
-    [rows, modelQueue],
+    // modelQueue 대신 내용 키를 dep으로 사용(참조 불안정성 차단).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, modelQueueKey],
   );
   const hasApproxTps = useMemo(
     () => rows.some((r) => r.tps != null && r.tps_source === "approx"),
@@ -128,7 +138,9 @@ export function ResultsTable({
   const modelSortFn = useCallback(
     (a: { original: ResultRow }, b: { original: ResultRow }) =>
       compareModelBenchQueueOrder(a.original.model_id, b.original.model_id, modelQueue),
-    [modelQueue],
+    // 참조 대신 내용 키 사용(위 data와 동일 이유).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [modelQueueKey],
   );
 
   const table = useReactTable({
