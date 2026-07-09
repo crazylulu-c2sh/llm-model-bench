@@ -17,6 +17,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { TooltipValueType } from "recharts";
 import {
   apiRouteRank,
   apiShort,
@@ -67,10 +68,15 @@ function modelColor(i: number, kind: "ttft" | "tps"): string {
   return `hsl(${h} 70% ${l}%)`;
 }
 
-function tooltipMetricFormatter(value: number, name: string): [string, string] {
+function tooltipMetricFormatter(
+  value: TooltipValueType | undefined,
+  name: number | string | undefined,
+): [string, string] {
+  // Recharts v3: value is ValueType|undefined (number|string|array), name is NameType|undefined.
   const n = String(name);
-  if (n.includes("TPS")) return [Number.isFinite(value) ? `${Math.round(value * 10) / 10} tok/s` : "—", name];
-  return [`${Math.round(value)} ms`, name];
+  const num = Number(value);
+  if (n.includes("TPS")) return [Number.isFinite(num) ? `${Math.round(num * 10) / 10} tok/s` : "—", n];
+  return [`${Math.round(num)} ms`, n];
 }
 
 function yTickHideSpacer(label: string | number): string {
@@ -691,7 +697,9 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
               data={flatRowsSpaced}
               margin={{ ...COMPARE_BAR_MARGIN }}
               onClick={(e) => {
-                fireCompareClick(e?.activePayload?.[0]?.payload as FlatBarDatum | undefined);
+                // Recharts v3: no activePayload on click param — resolve row from data via activeIndex.
+                const idx = e?.activeIndex;
+                fireCompareClick(typeof idx === "number" ? flatRowsSpaced[idx] : undefined);
               }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
@@ -745,7 +753,9 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
               data={flatRowsSpaced}
               margin={{ ...TPS_COMPARE_BAR_MARGIN }}
               onClick={(e) => {
-                fireCompareClick(e?.activePayload?.[0]?.payload as FlatBarDatum | undefined);
+                // Recharts v3: no activePayload on click param — resolve row from data via activeIndex.
+                const idx = e?.activeIndex;
+                fireCompareClick(typeof idx === "number" ? flatRowsSpaced[idx] : undefined);
               }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
@@ -857,7 +867,9 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
             data={sessionBarData}
             margin={{ ...LIVE_BAR_MARGIN }}
             onClick={(e) => {
-              const raw = e?.activePayload?.[0]?.payload as ChartRow | undefined;
+              // Recharts v3: no activePayload on click param — resolve row from data via activeIndex.
+              const idx = e?.activeIndex;
+              const raw = typeof idx === "number" ? sessionBarData[idx] : undefined;
               if (raw?.categorySpacer) return;
               if (raw?.scenario && onBarPayload) onBarPayload(raw);
             }}
@@ -918,7 +930,9 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
             data={sessionBarData}
             margin={{ ...TPS_SESSION_BAR_MARGIN }}
             onClick={(e) => {
-              const raw = e?.activePayload?.[0]?.payload as ChartRow | undefined;
+              // Recharts v3: no activePayload on click param — resolve row from data via activeIndex.
+              const idx = e?.activeIndex;
+              const raw = typeof idx === "number" ? sessionBarData[idx] : undefined;
               if (raw?.categorySpacer) return;
               if (raw?.scenario && onBarPayload) onBarPayload(raw);
             }}

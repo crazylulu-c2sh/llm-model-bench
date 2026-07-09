@@ -67,7 +67,6 @@ import { StatsPage } from "./StatsPage";
 import { StressPage } from "./StressPage";
 import { StressStatsPage } from "./StressStatsPage";
 import { formatTimeWithMs } from "./lib/time-format";
-import type { ThemeChoice } from "./useTheme";
 import { useTheme } from "./useTheme";
 
 type DetectModel = DetectResult["models"][number];

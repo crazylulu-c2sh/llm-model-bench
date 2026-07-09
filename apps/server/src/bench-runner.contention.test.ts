@@ -62,7 +62,6 @@ function req(overrides: Partial<BenchRequest> = {}): BenchRequest {
     unloadOtherModels: false,
     warmupRuns: 0,
     measuredRuns: 1,
-    parallel: false,
     ...overrides,
   };
 }
