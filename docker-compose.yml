@@ -7,6 +7,10 @@ services:
     environment:
       PORT: "20080"
       BENCH_DB_PATH: /data/bench.sqlite
+      # 인증(opt-in). 켜면 nginx/mcp가 비루프백으로 보이므로 BENCH_TRUST_PROXY 또는 키가 필요.
+      BENCH_API_KEYS: ${BENCH_API_KEYS:-}
+      BENCH_TRUST_PROXY: ${BENCH_TRUST_PROXY:-}
+      BENCH_CORS_ORIGINS: ${BENCH_CORS_ORIGINS:-}
     volumes:
       - bench_data:/data
     restart: unless-stopped
@@ -18,6 +22,30 @@ services:
       target: web
     ports:
       - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # streamable-HTTP MCP 서버 — 벤치 API를 프록시. 기본은 포트 미공개(loopback-safe);
+  # 원격 에이전트에 노출하려면 아래 ports를 열고 MCP_HTTP_TOKEN을 반드시 설정한다.
+  # 주의: compose 네트워크에서 mcp→api는 비루프백이므로 BENCH_API_KEYS를 켜면
+  # 반드시 BENCH_API_KEY(=키 중 하나)를 mcp에 주거나 api에 BENCH_TRUST_PROXY로 처리할 것.
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: mcp
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_PORT: "20090"
+      BENCH_API_URL: http://api:20080
+      BENCH_API_VERSION: /api/v1
+      BENCH_API_KEY: ${BENCH_API_KEY:-}
+      MCP_HTTP_TOKEN: ${MCP_HTTP_TOKEN:-}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
+    # ports:
+    #   - "20090:20090"   # 원격 노출 시에만 활성화(+ MCP_HTTP_TOKEN 필수)
     depends_on:
       - api
     restart: unless-stopped

@@ -1,0 +1,27 @@
+{
+  "name": "@llm-bench/mcp",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": { "llm-bench-mcp": "./dist/index.js" },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format esm --clean",
+    "start": "node dist/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.4",
+    "@llm-bench/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.19.1",
+    "hono": "^4.12.25",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsup": "^8.4.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

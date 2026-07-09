@@ -7,8 +7,9 @@
 | 패키지 | 설명 |
 |--------|------|
 | [`apps/web`](apps/web) | React + Vite UI |
-| [`apps/server`](apps/server) | Hono API, 벤치 오케스트레이션, SQLite 런 저장 |
-| [`packages/shared`](packages/shared) | 공유 타입·스키마 (`pnpm install` 시 `postinstall`로 빌드) |
+| [`apps/server`](apps/server) | Hono API(`/api` + 버전드 `/api/v1` + OpenAPI), 벤치 오케스트레이션, SQLite 런 저장 |
+| [`apps/mcp`](apps/mcp) | AI 에이전트용 MCP 서버(stdio + streamable-HTTP) — 벤치 API 프록시 |
+| [`packages/shared`](packages/shared) | 공유 타입·스키마·스코어링 (`pnpm install` 시 `postinstall`로 빌드) |
 
 ## 요구 사항
 
@@ -171,6 +172,78 @@ git pull && pnpm install && pnpm build && pm2 reload ecosystem.config.cjs
 
 SQLite를 열 수 없을 때는 벤치 스트림은 진행되나 디스크 저장·히스토리 API가 비활성화될 수 있습니다. 응답에 `sqlite_available` / `sqlite_error` 등이 포함됩니다.
 
+## AI 에이전트 연동 (API v1 · MCP)
+
+AI 에이전트가 이 서비스를 프로그래밍적으로 쓸 수 있도록 **버전드 API(`/api/v1`)** + **OpenAPI 문서** + **MCP 서버**(`apps/mcp`, `@llm-bench/mcp`)를 제공합니다.
+
+- **버전드 표면**: 위 모든 라우트가 `/api/v1/*`에도 동일하게 제공됩니다. 웹 UI 호환을 위해 레거시 `/api/*`도 유지됩니다. 에이전트/외부 클라이언트는 **`/api/v1`을 사용**하세요.
+- **에이전트용 신규 엔드포인트**:
+
+  | 메서드 | 경로 | 설명 |
+  |--------|------|------|
+  | GET | `/api/v1/scenarios?set=public\|default\|vision\|all` | 시나리오 카탈로그(메타·프롬프트 포함, DB 무관) |
+  | GET | `/api/v1/catalog` | 시나리오 + 프로파일 + 스트레스 워크로드 한 번에 |
+  | GET | `/api/v1/scoreboard?baseUrl=&modelIds=&task=coding\|vision\|tools\|structured\|chat` | 저장된 최신 런 기반 **서버 사이드 랭킹**(품질·속도) — "X에 어떤 모델이 최고?" |
+  | GET | `/api/v1/openapi.json` | OpenAPI 3.1 스펙(Zod 스키마에서 생성) |
+  | GET | `/api/v1/docs` | 자립형(오프라인) API 레퍼런스 |
+
+- **인증(opt-in)**: `BENCH_API_KEYS`(콤마 리스트)를 설정하면 `/api/*`에 인증이 켜집니다. 자격증명은 **`Authorization: Bearer <key>`** 또는 **`x-api-key: <key>`** 헤더. 미설정 시 인증 없음(현행 UX). `/api/health`·`OPTIONS`·루프백은 면제(`BENCH_TRUST_LOOPBACK=0`으로 루프백 면제 해제). 리버스 프록시 뒤(도커/nginx)에서는 `BENCH_TRUST_PROXY=1`로 `X-Forwarded-For`/`X-Real-IP`를 신뢰해야 웹 UI가 401 없이 통과합니다.
+- **두 종류의 키(혼동 금지)**: **provider `apiKey`**(요청 body, 벤치 대상 LLM 인증)와 **bench 서버 키**(`BENCH_API_KEYS`, 헤더, 이 API 인증)는 별개입니다. MCP는 후자를 `Authorization` 헤더로 보내고, 전자는 도구 인자로 받아 body에 실어 전달합니다.
+
+### MCP 서버
+
+벤치 API를 프록시하는 얇은 MCP 서버로 **stdio**(데스크톱 클라이언트가 spawn)와 **streamable-HTTP**(원격) 트랜스포트를 모두 지원합니다. 도구: `list_scenarios`, `list_capabilities`, `detect_provider`, `run_bench`, `run_stress`, `compare_models`, `list_runs`, `get_run`, `monitor_snapshot`, `health`.
+
+- 순서: `detect_provider`(먼저) → `run_bench`. `run_bench`는 `detect`를 넘기지 않으면 내부적으로 감지합니다. 진행은 MCP progress 알림으로 전달되고, `run_bench`는 token 스트림을 버린 **compact 요약**(시나리오별 TTFT/TPS/품질 + 랭킹 롤업)을 반환합니다.
+- `/bench/stream`은 클라이언트 abort 후에도 서버에서 끝까지 실행되므로, 타임아웃 시 `run_bench`는 `GET /api/v1/runs/{runId}`로 결과를 회수하고 `serverKeepsRunning: true`를 표시합니다.
+
+**stdio (Claude Desktop / Claude Code `.mcp.json`)**
+
+```jsonc
+{
+  "mcpServers": {
+    "llm-bench": {
+      "command": "node",
+      "args": ["/path/to/llm-model-bench/apps/mcp/dist/index.js"],
+      "env": {
+        "MCP_TRANSPORT": "stdio",
+        "BENCH_API_URL": "http://127.0.0.1:20080",
+        "BENCH_API_KEY": "<선택: bench 서버 키>"
+      }
+    }
+  }
+}
+```
+
+**streamable-HTTP** — 서버 기동: `MCP_TRANSPORT=http MCP_PORT=20090 BENCH_API_URL=http://127.0.0.1:20080 node apps/mcp/dist/index.js`
+
+```jsonc
+{
+  "mcpServers": {
+    "llm-bench": {
+      "type": "http",
+      "url": "http://127.0.0.1:20090/mcp",
+      "headers": { "Authorization": "Bearer <MCP_HTTP_TOKEN(설정 시)>" }
+    }
+  }
+}
+```
+
+로컬 개발은 `DEV_WITH_MCP=1 pnpm dev`로 서버·웹과 함께 MCP(http, 기본 포트 22090)를 띄울 수 있습니다.
+
+**MCP 환경 변수**
+
+| 변수 | 설명 |
+|------|------|
+| `BENCH_API_URL` | 프록시할 벤치 API base (기본 `http://127.0.0.1:20080`) |
+| `BENCH_API_VERSION` | 버전 접두 (기본 `/api/v1`) |
+| `BENCH_API_KEY` | bench 서버 인증 키 → `Authorization: Bearer`로 전송 |
+| `MCP_TRANSPORT` | `stdio`(기본) \| `http` (CLI `--stdio`/`--http`로 override) |
+| `MCP_HTTP_HOST` / `MCP_PORT` | http 바인드 (기본 `127.0.0.1` / `20090`) |
+| `MCP_HTTP_TOKEN` | http 엔드포인트(agent→MCP) bearer. 비루프백 노출 시 필수 |
+| `MCP_ALLOWED_HOSTS` / `MCP_ALLOWED_ORIGINS` | DNS-rebinding 방어(Host/Origin 허용 목록) |
+| `BENCH_HTTP_TIMEOUT_MS` | run_bench/run_stress 타임아웃(기본 900000) |
+
 **프로바이더 통계 CSV 익스포트 컬럼** (총 26): `run_id`, `created_at`, `finished_at`, `base_url`, `provider`, `model_id`, `workload_id`, `status`, `stage_index`, `concurrency`, `duration_ms`, `enqueue_duration_ms`, `drain_ms`, `requests_attempted`, `requests_succeeded`, `output_tokens_total`, `aggregate_tps`, `tps_per_user`, `tps_unreliable`, `p50_ms`, `p95_ms`, **`ttft_p50`**, **`ttft_p95`**, `error_rate`, `tps_source`, `script_match_rate`. `p50_ms`/`p95_ms`는 총 요청 지연, `ttft_p50`/`ttft_p95`는 첫 토큰 도착 지연(stress_long_context* 등 prefill 워크로드에서만 채워짐). **인덱스 기반 외부 파서는 v1.x 업데이트로 깨질 수 있음** (`p95_ms` 뒤에 2 컬럼 신규 삽입).
 
 ## 비전 벤치 시나리오 (v1)
@@ -210,8 +283,12 @@ pnpm test
 | `LLM_JUDGE_ENABLED` | `1`/`true`일 때만 비전 시나리오의 LLM-as-Judge(`vision_meme_explain_*` / `vision_wireframe_html_*`) 호출. 기본 off — prefilter 통과 시 rubric 1(`pass: false`)로 기록 |
 | `LLM_JUDGE_MODEL` | judge 모델 ID (기본 `claude-opus-4-7`) |
 | `ANTHROPIC_API_KEY` | judge 호출에 필요(현재 Anthropic Messages만 지원) |
+| `BENCH_API_KEYS` | 콤마 리스트. 설정 시 `/api/*` 인증 활성(`Authorization: Bearer` / `x-api-key`). 미설정 시 인증 없음 |
+| `BENCH_TRUST_LOOPBACK` | `0`이면 루프백 면제 해제(엄격 잠금). 기본 `1` |
+| `BENCH_TRUST_PROXY` | `1`이면 신원 판정에 `X-Forwarded-For`/`X-Real-IP`(마지막 hop) 신뢰 — 리버스 프록시 뒤에서만 켤 것. 기본 off |
+| `BENCH_CORS_ORIGINS` | 콤마 리스트. CORS 허용 origin(기본 `*`) |
 
-API 키는 UI에서 세션 동안만 전달하거나, 서버 실행 환경의 표준 헤더 규칙에 맞춰 확장할 수 있습니다.
+인증은 **opt-in**입니다(위 `BENCH_API_KEYS`). 이 키는 벤치 대상 provider `apiKey`(요청 body)와 별개이며, 미들웨어는 헤더만 읽고 업스트림으로 포워딩하지 않습니다.
 
 ## 디자인
 
