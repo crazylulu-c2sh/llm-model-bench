@@ -95,7 +95,9 @@ export function StatsPage() {
         if (failed > 0) {
           toast.warning(`일부 런(${failed}건)을 불러오지 못했습니다.`);
         }
-        const ok = results.filter((r): r is BenchRunDetailResponse => r != null && Array.isArray(r.scenarios));
+        const ok = results.filter(
+          (r): r is BenchRunDetailResponse => r != null && r.meta != null && Array.isArray(r.scenarios),
+        );
         setBenchDetailsOk(ok);
       } catch (e) {
         if (!cancelled) toast.error(String(e));
