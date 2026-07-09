@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { ProviderKindSchema } from "./provider-kind";
+// 아래 요청 바디 스키마에서 로컬로 사용(재-export만으론 로컬 바인딩이 안 생김).
+import { STRESS_WORKLOAD_IDS as STRESS_WORKLOAD_IDS_LOCAL, type StressWorkloadId as StressWorkloadIdLocal } from "./scenarios-preview";
+import { StressRampConfigSchema as StressRampConfigSchemaLocal } from "./stress";
 
 export {
   ALL_SCENARIO_IDS,
@@ -422,3 +425,168 @@ export const BenchResultSchema = z.object({
   events_sample: z.array(StreamEventSchema).optional(),
 });
 export type BenchResult = z.infer<typeof BenchResultSchema>;
+
+// ─── HTTP 요청 바디 스키마 — 서버 라우트 검증 + OpenAPI 단일 소스 ──────────────
+// (구 apps/server/src/index.ts에서 이전. detect는 z.custom 대신 실제 DetectResultSchema로
+//  검증해 OpenAPI에 표현 가능하게 함.)
+
+/** bench·stress 공용 LLM 프로파일 family(구 minimax_m27 별칭 흡수). */
+const BenchProfileIdSchema = z.preprocess(
+  (v) => (v === "minimax_m27" ? "minimax" : v),
+  z
+    .enum([
+      "auto",
+      "unknown",
+      "gemma4",
+      "qwen35",
+      "qwen36",
+      "gpt_oss",
+      "minimax",
+      "nemotron3",
+      "qwen3_coder_next",
+      "glm47_flash",
+    ])
+    .optional(),
+);
+const BenchTaskModeSchema = z.enum(["general", "coding", "tool"]).optional();
+const ThinkingIntentSchema = z.enum(["on", "off"]).optional();
+const PresetOverrideSchema = z
+  .enum(["default", "thinking_general", "thinking_coding", "nonthinking_general", "tool_call"])
+  .optional();
+const ReasoningEffortSchema = z.enum(["minimal", "low", "medium", "high"]).optional();
+
+export const DetectBodySchema = z.object({
+  baseUrl: z.string().min(1),
+  apiKey: z.string().optional(),
+  manual: z
+    .object({
+      provider: ProviderKindSchema,
+      models: z.array(z.object({ id: z.string(), label: z.string().optional() })).optional(),
+    })
+    .optional(),
+});
+export type DetectBody = z.infer<typeof DetectBodySchema>;
+
+export const BenchStreamBodySchema = z.object({
+  detect: DetectResultSchema,
+  bench: z.object({
+    baseUrl: z.string(),
+    apiKey: z.string().optional(),
+    provider: ProviderKindSchema,
+    modelId: z.string(),
+    scenarioIds: z.array(z.string()).optional(),
+    temperature: z.number().optional(),
+    max_tokens: z.number().optional(),
+    requestTimeoutMs: z.number().int().positive().optional(),
+    warmupRuns: z.number().optional(),
+    measuredRuns: z.number().optional(),
+    skipModelLoad: z.boolean().optional(),
+    unloadOtherModels: z.boolean().optional(),
+    autoUnloadAfterBench: z.boolean().optional(),
+    publicAssetsOrigin: z.string().url().optional(),
+    profileId: BenchProfileIdSchema,
+    profileMaxTokens: z.number().int().positive().optional(),
+    apiRoutes: z.array(z.enum(["chat_completions", "messages"])).optional(),
+    taskMode: BenchTaskModeSchema,
+    thinkingIntent: ThinkingIntentSchema,
+    preserveThinking: z.boolean().optional(),
+    presetOverride: PresetOverrideSchema,
+    samplingOverrides: SamplingParamsSchema.optional(),
+    reasoningEffort: ReasoningEffortSchema,
+    // 오염 가드 config (해석·클램프는 서버 resolveContentionConfig가 담당).
+    contentionGuardEnabled: z.boolean().optional(),
+    contentionPollIntervalMs: z.number().int().positive().optional(),
+    contentionMaxRetriesPerIteration: z.number().int().nonnegative().optional(),
+    contentionPreBenchTimeoutMs: z.number().int().nonnegative().optional(),
+    contentionBetweenIterationTimeoutMs: z.number().int().nonnegative().optional(),
+    contentionTotalWaitBudgetMs: z.number().int().nonnegative().optional(),
+    contentionGpuUtilThresholdPct: z.number().optional(),
+    contentionRequiredConsecutiveIdle: z.number().int().positive().optional(),
+    contentionServerMetricsEnabled: z.boolean().optional(),
+    contentionLmsCliActivityEnabled: z.boolean().optional(),
+  }),
+});
+export type BenchStreamBody = z.infer<typeof BenchStreamBodySchema>;
+
+export const StressStreamBodySchema = z.object({
+  detect: DetectResultSchema,
+  stress: z.object({
+    baseUrl: z.string(),
+    apiKey: z.string().optional(),
+    provider: ProviderKindSchema,
+    modelId: z.string(),
+    workloadId: z.enum(STRESS_WORKLOAD_IDS_LOCAL as [StressWorkloadIdLocal, ...StressWorkloadIdLocal[]]),
+    ramp: StressRampConfigSchemaLocal,
+    maxTokens: z.number().int().positive().optional(),
+    temperature: z.number().optional(),
+    workerPromptSuffix: z.boolean().optional(),
+    requestTimeoutMs: z.number().int().positive().optional(),
+    skipModelLoad: z.boolean().optional(),
+    unloadOtherModels: z.boolean().optional(),
+    autoUnloadAfterBench: z.boolean().optional(),
+    profileId: BenchProfileIdSchema,
+    taskMode: BenchTaskModeSchema,
+    thinkingIntent: ThinkingIntentSchema,
+    preserveThinking: z.boolean().optional(),
+    presetOverride: PresetOverrideSchema,
+    samplingOverrides: SamplingParamsSchema.optional(),
+    reasoningEffort: ReasoningEffortSchema,
+  }),
+});
+export type StressStreamBody = z.infer<typeof StressStreamBodySchema>;
+
+// ─── 모델 정렬 비교자(순수) ─────────────────────────────────────────────────
+export {
+  normalizeBaseUrl,
+  compareModelIdAlphanumeric,
+  compareModelBenchQueueOrder,
+  compareModelKey,
+} from "./model-sort";
+
+// ─── 스코어링(품질·속도·스코어보드) — web·server·mcp 단일 소스 ────────────────
+export {
+  computeQualityScores,
+  type QualityCaveat,
+  type QualityGroupScore,
+  type ModelQualityScore,
+  type QualityInput,
+} from "./scoring/quality-score";
+export {
+  SPEED_REFERENCE,
+  tpsSpeedRatio,
+  speedScoreForRow,
+  computeSpeedScores,
+  type SpeedInput,
+  type SpeedGroup,
+  type ModelSpeedScore,
+} from "./scoring/speed-score";
+export {
+  averageRunsToScoringRow,
+  buildScoringRows,
+  scoringRowsFromBenchDetails,
+  computeScoreboard,
+  scoreboardFromRows,
+  type ScoringRunInput,
+  type ScoringAggregate,
+  type ScoringResultRow,
+  type ScoringRow,
+  type ScoreboardRow,
+  type ScoringBenchDetailInput,
+} from "./scoring/scoreboard";
+
+// ─── 시나리오 카탈로그 + task 필터 매핑(에이전트 대상 API) ─────────────────────
+export {
+  ScenarioMetaSchema,
+  ScenarioDescriptorSchema,
+  ScenarioCatalogResponseSchema,
+  buildScenarioCatalog,
+  SCOREBOARD_TASKS,
+  isScoreboardTask,
+  scenarioIdsForTask,
+  ScoreboardRowResponseSchema,
+  ScoreboardResponseSchema,
+  type ScenarioDescriptor,
+  type ScenarioCatalogResponse,
+  type ScoreboardTask,
+  type ScoreboardResponse,
+} from "./scenario-catalog";

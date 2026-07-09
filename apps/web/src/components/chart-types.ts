@@ -1,4 +1,8 @@
-import { scenarioExecutionOrderIndex } from "@llm-bench/shared";
+import { scenarioExecutionOrderIndex, tokensPerSecondFromRun } from "@llm-bench/shared";
+
+// TPS 산식은 @llm-bench/shared `tps.ts` 단일 소스에서 재-export(복제본 제거, 산식 drift 방지).
+// App.tsx·hydrateBenchUi.ts 등 chart-types 경유 import는 자동으로 shared 산식을 쓴다.
+export { tokensPerSecondFromRun };
 
 export type ChartRow = {
   id: string;
@@ -86,22 +90,6 @@ export function compareSeriesHaveIdenticalScenarioApiKeys(series: CompareSeries[
 /** 서버 scenario_end와 동일 계열: ceil(chars/4) */
 export function approxOutputTokens(outputText: string): number {
   return Math.max(0, Math.ceil((outputText ?? "").length / 4));
-}
-
-/**
- * 초당 출력 토큰. provider 보고 실토큰(`usageTokens`)이 있으면(>0) 그것을, 없으면 글자수/4 근사를 쓴다.
- * (shared `tokensPerSecondFromRun`와 동일 산식 — 웹 차트 경로 전용 복제본.)
- */
-export function tokensPerSecondFromRun(
-  totalMs: number | null | undefined,
-  outputText: string | null | undefined,
-  usageTokens?: number | null,
-): number {
-  const ms = totalMs ?? 0;
-  if (!ms || ms <= 0) return 0;
-  const at = usageTokens != null && usageTokens > 0 ? usageTokens : approxOutputTokens(outputText ?? "");
-  if (at <= 0) return 0;
-  return at / (ms / 1000);
 }
 
 export function scenarioRowKey(scenario: string, api: string, modelId?: string): string {

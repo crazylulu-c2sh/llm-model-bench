@@ -41,10 +41,17 @@ function loadPorts() {
     console.error(`[dev] invalid vitePort in dev-ports.json: ${raw.vitePort}`);
     process.exit(1);
   }
-  return { serverPort, vitePort };
+  // mcpPort는 선택(DEV_WITH_MCP=1일 때만 사용). 대역 22000-22999.
+  const mcpPort = Number(process.env.MCP_DEV_PORT ?? raw.mcpPort ?? 22090);
+  return { serverPort, vitePort, mcpPort };
 }
 
-const { serverPort, vitePort } = loadPorts();
+const { serverPort, vitePort, mcpPort } = loadPorts();
+const withMcp = process.env.DEV_WITH_MCP === "1";
+if (withMcp && (!Number.isInteger(mcpPort) || mcpPort < 22000 || mcpPort > 22999)) {
+  console.error(`[dev] invalid mcpPort (need 22000-22999): ${mcpPort}`);
+  process.exit(1);
+}
 
 const env = {
   ...process.env,
@@ -53,7 +60,11 @@ const env = {
   VITE_DEV_PORT: String(vitePort),
 };
 
-console.log(`[dev] server PORT=${serverPort} vite PORT=${vitePort} (from scripts/dev-ports.json)`);
+console.log(
+  `[dev] server PORT=${serverPort} vite PORT=${vitePort}` +
+    (withMcp ? ` mcp PORT=${mcpPort}` : "") +
+    ` (from scripts/dev-ports.json)`,
+);
 
 const server = spawn("pnpm", ["--filter", "@llm-bench/server", "run", "dev"], {
   cwd: root,
@@ -67,9 +78,26 @@ const web = spawn("pnpm", ["--filter", "@llm-bench/web", "dev"], {
   stdio: "inherit",
 });
 
+// DEV_WITH_MCP=1일 때만 MCP(http 트랜스포트)도 함께 띄운다 — 기본 dev UX는 무변경.
+const mcp = withMcp
+  ? spawn("pnpm", ["--filter", "@llm-bench/mcp", "run", "dev"], {
+      cwd: root,
+      env: {
+        ...env,
+        MCP_TRANSPORT: "http",
+        MCP_HTTP_HOST: "127.0.0.1",
+        MCP_PORT: String(mcpPort),
+        BENCH_API_URL: `http://127.0.0.1:${serverPort}`,
+        BENCH_API_VERSION: "/api/v1",
+      },
+      stdio: "inherit",
+    })
+  : null;
+
 function shutdown() {
   server.kill("SIGINT");
   web.kill("SIGINT");
+  mcp?.kill("SIGINT");
   process.exit(0);
 }
 
@@ -80,5 +108,8 @@ server.on("exit", (code) => {
   if (code && code !== 0) shutdown();
 });
 web.on("exit", (code) => {
+  if (code && code !== 0) shutdown();
+});
+mcp?.on("exit", (code) => {
   if (code && code !== 0) shutdown();
 });

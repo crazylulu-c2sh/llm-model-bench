@@ -50,10 +50,10 @@ function emitCliWarningOnce(): void {
   );
 }
 
-export function registerMonitorRoutes(app: Hono): void {
+export function registerMonitorRoutes(app: Hono, prefix = "/api"): void {
   emitCliWarningOnce();
 
-  app.post("/api/monitor/snapshot", async (c) => {
+  app.post(`${prefix}/monitor/snapshot`, async (c) => {
     let body: z.infer<typeof MonitorSnapshotBody>;
     try {
       const parsed = MonitorSnapshotBody.safeParse(await c.req.json().catch(() => ({})));
@@ -102,7 +102,7 @@ export function registerMonitorRoutes(app: Hono): void {
     return c.json(resp);
   });
 
-  app.get("/api/monitor/lms/availability", async (c) => {
+  app.get(`${prefix}/monitor/lms/availability`, async (c) => {
     const remote = getClientRemoteAddr(c);
     const remoteLoopback = isLoopbackRemoteAddr(remote);
     const enabled = isLmsCliEnabled();
@@ -115,7 +115,7 @@ export function registerMonitorRoutes(app: Hono): void {
     return c.json(r);
   });
 
-  app.post("/api/monitor/lms/load", async (c) => {
+  app.post(`${prefix}/monitor/lms/load`, async (c) => {
     const remote = getClientRemoteAddr(c);
     if (!isLoopbackRemoteAddr(remote)) {
       return c.json({ error: "remote_not_loopback" }, 403);
@@ -140,7 +140,7 @@ export function registerMonitorRoutes(app: Hono): void {
     return c.json({ ok: true, stdout: r.stdout });
   });
 
-  app.post("/api/monitor/lms/unload", async (c) => {
+  app.post(`${prefix}/monitor/lms/unload`, async (c) => {
     const remote = getClientRemoteAddr(c);
     if (!isLoopbackRemoteAddr(remote)) {
       return c.json({ error: "remote_not_loopback" }, 403);
@@ -165,7 +165,7 @@ export function registerMonitorRoutes(app: Hono): void {
     return c.json({ ok: true, stdout: r.stdout });
   });
 
-  app.get("/api/monitor/lms/log-stream", (c) => {
+  app.get(`${prefix}/monitor/lms/log-stream`, (c) => {
     const remote = getClientRemoteAddr(c);
     if (!isLoopbackRemoteAddr(remote)) {
       return c.json({ error: "remote_not_loopback" }, 403);
