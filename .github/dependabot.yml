@@ -19,3 +19,16 @@ updates:
       day: "monday"
     open-pull-requests-limit: 0
     labels: ["dependencies", "docker"]
+
+  # github-actions만 버전 업데이트를 켬 (npm·docker의 security-only 정책과 의도적으로 다름).
+  # 이유: 액션 런타임 폐기(예: node20 강제 제거)는 '보안 업데이트'가 아니라 '버전 업데이트'라
+  #       limit:0으로는 못 잡음. 그런 deprecation을 사전에 자동 감지하는 게 이 항목의 목적.
+  # 노이즈 억제: groups로 한 달치 액션 범프를 PR 1건에 모음.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels: ["dependencies", "github-actions"]
+    groups:
+      github-actions:
+        patterns: ["*"]
