@@ -34,6 +34,7 @@ import type {
   RunsListResponse,
 } from "./api-types";
 import { BenchCharts } from "./components/BenchCharts";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
   rowsToChartData,
   scenarioRowKey,
@@ -1289,6 +1290,7 @@ export function App() {
       />
 
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
+        <ErrorBoundary resetKeys={[pathname]}>
         <Routes>
           <Route
             path="/"
@@ -2019,6 +2021,7 @@ export function App() {
           <Route path="/scenarios" element={<ScenariosDocPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </ErrorBoundary>
       </main>
       <ScenarioDetailDrawer
         open={drawerOpen}
