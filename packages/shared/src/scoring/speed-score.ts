@@ -28,6 +28,12 @@ export type SpeedGroup = {
   scoredRows: number;
   /** 그 중 tps_source==="approx"였던 행 수. */
   approxRows: number;
+  /** 시나리오별 디코드 tok/s의 중앙값(미반올림, 표시에서 포맷). null = tps 행 없음.
+   *  점수(=평균 tok/s×33.3)와 달리 이상치에 강건한 "대표 속도"를 raw tok/s로 노출. */
+  tpsMedian: number | null;
+  /** 시나리오별 tok/s 최소·최대(범위 표기용). null = tps 행 없음. */
+  tpsMin: number | null;
+  tpsMax: number | null;
 };
 
 /** 한 모델의 속도 측 3그룹 슬라이스. */
@@ -54,10 +60,26 @@ export function speedScoreForRow(row: SpeedInput): number | null {
   return r == null ? null : SPEED_REFERENCE.base * r;
 }
 
-type SpeedAccum = { scoreSum: number; scoreN: number; approx: number; ttftSum: number; ttftN: number };
+type SpeedAccum = {
+  scoreSum: number;
+  scoreN: number;
+  approx: number;
+  ttftSum: number;
+  ttftN: number;
+  /** 점수를 낸 행들의 raw 디코드 tok/s(중앙값/최소/최대 계산용). */
+  tpsValues: number[];
+};
 
 function emptySpeed(): SpeedAccum {
-  return { scoreSum: 0, scoreN: 0, approx: 0, ttftSum: 0, ttftN: 0 };
+  return { scoreSum: 0, scoreN: 0, approx: 0, ttftSum: 0, ttftN: 0, tpsValues: [] };
+}
+
+/** 정렬 후 중앙값(짝수 개수는 두 중앙의 평균). 빈 배열 → null. */
+function median(xs: readonly number[]): number | null {
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 }
 
 function speedGroup(a: SpeedAccum): SpeedGroup {
@@ -66,6 +88,9 @@ function speedGroup(a: SpeedAccum): SpeedGroup {
     ttftMs: a.ttftN > 0 ? a.ttftSum / a.ttftN : null,
     scoredRows: a.scoreN,
     approxRows: a.approx,
+    tpsMedian: median(a.tpsValues),
+    tpsMin: a.tpsValues.length > 0 ? Math.min(...a.tpsValues) : null,
+    tpsMax: a.tpsValues.length > 0 ? Math.max(...a.tpsValues) : null,
   };
 }
 
@@ -105,9 +130,11 @@ export function computeSpeedScores(rows: readonly SpeedInput[]): Map<string, Mod
       grp.scoreSum += s;
       grp.scoreN += 1;
       grp.approx += approx;
+      grp.tpsValues.push(r.tps!); // s!=null ⟺ tps 유효(양수 유한)
       m.total.scoreSum += s;
       m.total.scoreN += 1;
       m.total.approx += approx;
+      m.total.tpsValues.push(r.tps!);
     }
 
     if (typeof r.ttft_ms === "number" && Number.isFinite(r.ttft_ms) && r.ttft_ms >= 0) {

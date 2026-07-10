@@ -90,3 +90,32 @@ describe("computeSpeedScores (model_id로 풀링; 점수=tps, 지연=ttft 독립
     expect(m.textOnly).toBe(true);
   });
 });
+
+describe("computeSpeedScores: 실제 tok/s 중앙값·범위", () => {
+  it("중앙값/최소/최대 (시나리오별 raw tps)", () => {
+    const m = computeSpeedScores([
+      { model_id: "A", scenario: "chat_hello", tps: 30, ttft_ms: 300 },
+      { model_id: "A", scenario: "code_sort_js", tps: 15, ttft_ms: 2000 },
+      { model_id: "A", scenario: "vision_table_ocr_a", tps: 5, ttft_ms: 5000 },
+    ]).get("A")!;
+    // text [30,15] → 짝수, 두 중앙 평균 22.5
+    expect(m.text.tpsMedian).toBe(22.5);
+    expect(m.text.tpsMin).toBe(15);
+    expect(m.text.tpsMax).toBe(30);
+    // vision [5] 단일
+    expect(m.vision.tpsMedian).toBe(5);
+    // total 풀링 [30,15,5] → 홀수, 중앙 15
+    expect(m.total.tpsMedian).toBe(15);
+    expect(m.total.tpsMin).toBe(5);
+    expect(m.total.tpsMax).toBe(30);
+  });
+
+  it("tps 없음 → median/min/max null", () => {
+    const m = computeSpeedScores([
+      { model_id: "A", scenario: "chat_hello", tps: null, ttft_ms: 250 },
+    ]).get("A")!;
+    expect(m.total.tpsMedian).toBeNull();
+    expect(m.total.tpsMin).toBeNull();
+    expect(m.total.tpsMax).toBeNull();
+  });
+});

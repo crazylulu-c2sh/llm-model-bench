@@ -69,7 +69,7 @@ export function scoreboardMetricValue(
   metric: ScoreMetric,
 ): number | null {
   if (metric === "quality") return row.quality[group].value;
-  if (metric === "speed") return row.speed[group].score;
+  if (metric === "speed") return row.speed[group].tpsMedian; // 실제 디코드 tok/s 중앙값(정렬·차트 공용)
   return row.speed[group].ttftMs; // latency(낮을수록 좋음 — 방향은 naturalDir에서 asc)
 }
 

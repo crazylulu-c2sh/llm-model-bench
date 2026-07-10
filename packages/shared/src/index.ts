@@ -84,7 +84,7 @@ export {
   tpsSourceFromUsage,
 } from "./tps";
 
-export { formatTtftMs } from "./metrics-display";
+export { formatTtftMs, formatTps } from "./metrics-display";
 
 export {
   resolveBenchApiRoutes,

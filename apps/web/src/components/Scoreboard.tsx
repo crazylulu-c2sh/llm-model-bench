@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowDownUp, ArrowUp } from "lucide-react";
 import {
+  formatTps,
   formatTtftMs,
   inferModelVendor,
   leakMetricsFromRows,
@@ -34,8 +35,8 @@ import {
   GROUP_LABEL,
   METRIC_LABEL,
   qualityBand,
-  speedRelativeBand,
 } from "../lib/score-bands";
+import { getTpsTier, tpsTierColor } from "../lib/tps-tier";
 import { ScoreboardChart, Segmented } from "./ScoreboardChart";
 import { ModelLabel } from "./ModelLabel";
 import { VENDOR_BRAND, VendorIcon } from "./VendorIcon";
@@ -84,17 +85,28 @@ function QualityCell({ g, capped }: { g: QualityGroupScore; capped: boolean }) {
   );
 }
 
-/** 속도 셀: 디코드 TPS 절대 점수(상한 없음) + 열별 최고점 대비 상대 막대·색 + approx `*`. */
+/** 속도 셀: 디코드 tok/s 중앙값(주값·절대 tier 색) + 열 최고 대비 상대 막대 + 점수 보조 + approx `*`. */
 function SpeedCell({ g, max }: { g: SpeedGroup; max: number }) {
-  if (g.score == null) return <span className="font-mono text-xs text-[var(--muted)]">—</span>;
-  const color = BAND_COLOR[speedRelativeBand(g.score, max)];
+  if (g.tpsMedian == null) return <span className="font-mono text-xs text-[var(--muted)]">—</span>;
+  const color = tpsTierColor(getTpsTier(g.tpsMedian, false));
+  const range =
+    g.tpsMin != null && g.tpsMax != null
+      ? ` · 범위 ${formatTps(g.tpsMin)}~${formatTps(g.tpsMax)} tok/s`
+      : "";
   return (
-    <span className="inline-flex w-full flex-col items-center leading-tight">
+    <span
+      className="inline-flex w-full flex-col items-center leading-tight"
+      title={`중앙값 ${formatTps(g.tpsMedian)} tok/s${range} · 점수 ${g.score}`}
+    >
       <span className="font-mono text-xs font-semibold" style={{ color }}>
-        {g.score}
+        {formatTps(g.tpsMedian)}
+        <span className="text-[10px] font-normal text-[var(--muted)]"> tok/s</span>
         {g.approxRows > 0 ? <Caveat title={APPROX_TITLE} /> : null}
       </span>
-      <ScoreBar value={g.score} color={color} max={max} />
+      <ScoreBar value={g.tpsMedian} color={color} max={max} />
+      {g.score != null ? (
+        <span className="mt-0.5 text-[10px] text-[var(--muted)]">{g.score}점</span>
+      ) : null}
     </span>
   );
 }
@@ -112,7 +124,7 @@ const GROUP_BORDER = "border-l border-[var(--border)]";
 
 const METRIC_TITLE: Record<ScoreMetric, string> = {
   quality: "정답률·루브릭(0~100)",
-  speed: "디코드 TPS 절대 점수(기준 1000, 상한 없음)",
+  speed: "디코드 TPS 중앙값(실제 tok/s). 정렬·색 기준. 아래 작은 숫자는 기준 30 tok/s=1000 점수",
   latency: "Time-To-First-Token, 첫 토큰까지 ms(낮을수록 좋음, 점수 비포함)",
 };
 
@@ -387,13 +399,13 @@ export function Scoreboard({
     [filteredBoard, sort],
   );
   const colorByModel = useMemo(() => buildModelColorMap(rows.map((r) => r.model_id)), [rows]);
-  // 속도 막대는 각 열(텍스트/비전/총합) 최고 속도점 대비 상대 길이 — 열별 max를 미리 구한다(필터 반영).
+  // 속도 막대는 각 열(텍스트/비전/총합) 최고 tok/s(중앙값) 대비 상대 길이 — 열별 max를 미리 구한다(필터 반영).
   const maxSpeed = useMemo(() => {
     const m = { text: 0, vision: 0, total: 0 };
     for (const b of filteredBoard) {
-      if (b.speed.text.score != null) m.text = Math.max(m.text, b.speed.text.score);
-      if (b.speed.vision.score != null) m.vision = Math.max(m.vision, b.speed.vision.score);
-      if (b.speed.total.score != null) m.total = Math.max(m.total, b.speed.total.score);
+      if (b.speed.text.tpsMedian != null) m.text = Math.max(m.text, b.speed.text.tpsMedian);
+      if (b.speed.vision.tpsMedian != null) m.vision = Math.max(m.vision, b.speed.vision.tpsMedian);
+      if (b.speed.total.tpsMedian != null) m.total = Math.max(m.total, b.speed.total.tpsMedian);
     }
     return m;
   }, [filteredBoard]);
@@ -436,9 +448,9 @@ export function Scoreboard({
         ) : null}
       </div>
       <p className="mb-2 text-xs text-[var(--muted)]">
-        품질은 절대 점수(0~100), 속도는 상한 없는 디코드 TPS 절대 점수(기준 30 tok/s = 1000). 지연(TTFT)은 첫
-        토큰까지 ms로 낮을수록 좋음(점수 미포함). 측정 런 평균 · 텍스트/비전은 시나리오 동일 가중, 총합은 전체
-        풀링.{showChart ? " 막대에 커서를 올리면 상세." : " 헤더를 눌러 정렬."}
+        품질은 절대 점수(0~100), 속도는 디코드 TPS 중앙값(실제 tok/s)이고 색은 절대 tier(쾌적≥30·쓸만≥15·채택가능≥5),
+        작은 숫자는 기준 30 tok/s=1000 점수. 지연(TTFT)은 첫 토큰까지 ms로 낮을수록 좋음(점수 미포함). 측정 런 평균 ·
+        텍스트/비전은 시나리오 동일 가중, 총합은 전체 풀링.{showChart ? " 막대에 커서를 올리면 상세." : " 헤더를 눌러 정렬."}
       </p>
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--muted)]">
         <span>품질 색상 = 절대 점수 밴드:</span>
@@ -456,7 +468,7 @@ export function Scoreboard({
           </span>
         ))}
         <span className="w-full text-[var(--muted)]">
-          속도 = 상한 없는 점수(막대 길이·색 모두 각 열 최고점 대비 상대) · 지연 = TTFT ms(낮을수록 좋음)
+          속도 = 디코드 TPS 중앙값(tok/s) · 색=절대 tier·막대=열 최고 대비 상대 · 지연 = TTFT ms(낮을수록 좋음)
         </span>
       </div>
       {showVendorFilter ? (
