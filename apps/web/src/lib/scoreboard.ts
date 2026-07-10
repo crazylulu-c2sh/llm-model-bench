@@ -62,8 +62,12 @@ function cmpNullableDir(a: number | null, b: number | null, dir: SortDir): numbe
   return dir === "asc" ? a - b : b - a;
 }
 
-/** 한 행에서 (그룹×지표) 정렬값을 뽑는다. */
-function metricValue(row: ScoreboardRow, group: ScoreGroup, metric: ScoreMetric): number | null {
+/** 한 행에서 (그룹×지표) 정렬값을 뽑는다. 정렬·차트가 동일 접근자를 공유한다. */
+export function scoreboardMetricValue(
+  row: ScoreboardRow,
+  group: ScoreGroup,
+  metric: ScoreMetric,
+): number | null {
   if (metric === "quality") return row.quality[group].value;
   if (metric === "speed") return row.speed[group].score;
   return row.speed[group].ttftMs; // latency(낮을수록 좋음 — 방향은 naturalDir에서 asc)
@@ -80,8 +84,8 @@ export function compareScoreboardRows(
     return sort.dir === "asc" ? c : -c;
   }
   const primary = cmpNullableDir(
-    metricValue(a, sort.key.group, sort.key.metric),
-    metricValue(b, sort.key.group, sort.key.metric),
+    scoreboardMetricValue(a, sort.key.group, sort.key.metric),
+    scoreboardMetricValue(b, sort.key.group, sort.key.metric),
     sort.dir,
   );
   return primary || compareModelIdAlphanumeric(a.model_id, b.model_id);

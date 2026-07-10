@@ -33,24 +33,7 @@ import {
   type PivotCompareRow,
 } from "./chart-types";
 import { MetricChartLegend } from "./MetricChartLegend";
-
-/** Recharts 기본 스타일이 툴팁 자식에 검정 텍스트를 남기지 않도록 공통 지정 */
-const rechartsTooltipShell = {
-  contentStyle: {
-    background: "var(--chart-tooltip-bg)",
-    border: "1px solid var(--chart-tooltip-border)",
-    fontSize: 12,
-    color: "var(--chart-tooltip-fg)",
-  },
-  labelStyle: {
-    color: "var(--chart-tooltip-label)",
-    marginBottom: 4,
-    fontSize: 11,
-    fontWeight: 500,
-  },
-  itemStyle: { color: "var(--chart-tooltip-fg)" },
-  cursor: { fill: "var(--chart-cursor)" },
-} as const;
+import { niceCeil, rechartsTooltipShell } from "../lib/chart-theme";
 
 function barFill(pass: boolean | undefined, kind: "ttft" | "tps"): string {
   if (pass === false) return "var(--chart-fail)";
@@ -221,16 +204,6 @@ function buildCompareRadarRows(
     });
     return o;
   });
-}
-
-/** 1·2·5 ×10^k 단위로 올림 — 반경 축 상한을 '깔끔한' 눈금이 떨어지는 값으로. */
-function niceCeil(x: number): number {
-  if (!Number.isFinite(x) || x <= 0) return 1;
-  const exp = Math.floor(Math.log10(x));
-  const base = 10 ** exp;
-  const f = x / base; // 1..10
-  const nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
-  return nice * base;
 }
 
 /** raw 값 레이더 반경 도메인: 0 기준 [0, niceCeil(max)]. 면적이 값에 비례하고 막대 차트와 동일한 읽기. */

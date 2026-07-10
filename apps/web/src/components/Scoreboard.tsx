@@ -20,34 +20,17 @@ import {
 } from "../lib/scoreboard";
 import type { QualityGroupScore } from "../lib/quality-score";
 import type { SpeedGroup } from "../lib/speed-score";
+import {
+  APPROX_TITLE,
+  BAND_COLOR,
+  CAP_TITLE,
+  GROUP_LABEL,
+  METRIC_LABEL,
+  qualityBand,
+  speedRelativeBand,
+} from "../lib/score-bands";
+import { ScoreboardChart, Segmented } from "./ScoreboardChart";
 
-const CAP_TITLE =
-  "비전 meme/wireframe rubric이 LLM_JUDGE_ENABLED=1 없이 캡됨 — 비전·총합 품질이 낮게 나올 수 있음";
-const APPROX_TITLE = "provider가 usage 토큰을 안 줘 chars/4 추정(approx) — CJK·코드에서 오차 큼";
-
-/** 절대 점수 밴드 → 색(기존 tps-tier 토큰 재사용; 비교 상대값 아님). */
-type ScoreBand = "high" | "good" | "mid" | "low";
-const BAND_COLOR: Record<ScoreBand, string> = {
-  high: "var(--tier-fast)", // 초록
-  good: "var(--tier-good)", // 노랑
-  mid: "var(--tier-okay)", // 주황
-  low: "var(--tier-slow)", // 빨강
-};
-/** 품질 밴드: ≥90 / 70~89 / 50~69 / <50. */
-function qualityBand(v: number): ScoreBand {
-  if (v >= 90) return "high";
-  if (v >= 70) return "good";
-  if (v >= 50) return "mid";
-  return "low";
-}
-/** 속도 밴드(상대): 상한 없는 점수라 절대 임계 대신 열 내 최고점 대비 비율로 색칠. ≥0.9 / 0.75 / 0.5. */
-function speedRelativeBand(value: number, max: number): ScoreBand {
-  const r = max > 0 ? value / max : 0;
-  if (r >= 0.9) return "high";
-  if (r >= 0.75) return "good";
-  if (r >= 0.5) return "mid";
-  return "low";
-}
 /** max 기준 상대 길이 채움 막대(기본 max=100=절대). */
 function ScoreBar({ value, color, max = 100 }: { value: number; color: string; max?: number }) {
   const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
@@ -118,8 +101,6 @@ function TtftCell({ g }: { g: SpeedGroup }) {
 
 const GROUP_BORDER = "border-l border-[var(--border)]";
 
-const GROUP_LABEL: Record<ScoreGroup, string> = { text: "텍스트", vision: "비전", total: "총합" };
-const METRIC_LABEL: Record<ScoreMetric, string> = { quality: "품질", speed: "속도", latency: "지연" };
 const METRIC_TITLE: Record<ScoreMetric, string> = {
   quality: "정답률·루브릭(0~100)",
   speed: "디코드 TPS 절대 점수(기준 1000, 상한 없음)",
@@ -347,6 +328,7 @@ export function Scoreboard({
 }) {
   const board = useMemo(() => scoreboardFromRows(rows, detailAggregate), [rows, detailAggregate]);
   const [sort, setSort] = useState<ScoreboardSort>(DEFAULT_SCOREBOARD_SORT);
+  const [view, setView] = useState<"chart" | "table">("chart");
   function onSortClick(key: ScoreboardSortKey) {
     setSort((prev) =>
       sameSortKey(prev.key, key)
@@ -385,16 +367,29 @@ export function Scoreboard({
   const anyJudgeCap = board.some((b) => b.quality.caveats.includes("judge_capped"));
   const anyApprox = board.some((b) => b.speed.approxCaveat);
   const anyTextOnly = board.some((b) => b.textOnly);
+  // 기본=차트지만 라이브 벤치 로딩 중엔 큐-순서 표 스켈레톤을 강제(차트 스켈레톤은 후속). 데이터 도착 후 토글대로.
+  const showChart = view === "chart" && !loadingLayout;
 
   return (
     <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
-      <h2 className="mb-1 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
-        {title}
-      </h2>
+      <div className="mb-1 flex items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
+        <h2 className="text-sm font-semibold text-[var(--foreground)]">{title}</h2>
+        {!loadingLayout ? (
+          <Segmented
+            ariaLabel="보기"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: "chart", label: "차트" },
+              { value: "table", label: "표" },
+            ]}
+          />
+        ) : null}
+      </div>
       <p className="mb-2 text-xs text-[var(--muted)]">
         품질은 절대 점수(0~100), 속도는 상한 없는 디코드 TPS 절대 점수(기준 30 tok/s = 1000). 지연(TTFT)은 첫
         토큰까지 ms로 낮을수록 좋음(점수 미포함). 측정 런 평균 · 텍스트/비전은 시나리오 동일 가중, 총합은 전체
-        풀링. 헤더를 눌러 정렬.
+        풀링.{showChart ? " 막대에 커서를 올리면 상세." : " 헤더를 눌러 정렬."}
       </p>
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--muted)]">
         <span>품질 색상 = 절대 점수 밴드:</span>
@@ -415,6 +410,9 @@ export function Scoreboard({
           속도 = 상한 없는 점수(막대 길이·색 모두 각 열 최고점 대비 상대) · 지연 = TTFT ms(낮을수록 좋음)
         </span>
       </div>
+      {showChart ? (
+        <ScoreboardChart board={board} colorByModel={colorByModel} multiModel={multiModel} />
+      ) : (
       <div className="overflow-x-auto rounded border border-[var(--border)]">
         <table className="w-full min-w-[46rem] text-left text-sm">
           <thead className="bg-[var(--surface)] text-[var(--muted)]">
@@ -489,7 +487,8 @@ export function Scoreboard({
           </p>
         ) : null}
       </div>
-      {!loadingLayout && (anyJudgeCap || anyApprox || anyTextOnly) ? (
+      )}
+      {!showChart && !loadingLayout && (anyJudgeCap || anyApprox || anyTextOnly) ? (
         <div className="mt-2 space-y-1 text-xs leading-relaxed text-[var(--muted)]">
           {anyJudgeCap ? (
             <p>
