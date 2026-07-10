@@ -57,6 +57,19 @@ describe("catalog / scoreboard", () => {
     expect(j.scenarios.every((s) => s.isVision)).toBe(true);
   });
 
+  it("scenarios?set=agent returns built-in agent_loop (#79)", async () => {
+    const r = await req("/api/v1/scenarios?set=agent");
+    const j = (await r.json()) as {
+      scenarios: Array<{ id: string; isAgentLoop: boolean; maxTurns: number | null; toolNames: string[] }>;
+    };
+    expect(j.scenarios.length).toBeGreaterThan(0);
+    expect(j.scenarios.every((s) => s.isAgentLoop)).toBe(true);
+    const al = j.scenarios.find((s) => s.id === "agent_loop_mock_v1");
+    expect(al).toBeDefined();
+    expect(al?.maxTurns).toBeGreaterThan(0);
+    expect(al?.toolNames.length).toBeGreaterThan(0);
+  });
+
   it("catalog returns scenarios + profiles + stressWorkloads", async () => {
     const r = await req("/api/catalog");
     const j = (await r.json()) as Record<string, unknown>;

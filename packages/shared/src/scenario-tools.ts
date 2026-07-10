@@ -1,4 +1,4 @@
-import type { ScenarioId } from "./scenarios-preview";
+import { getScenarioDef, runtimeToolsToAnthropic, runtimeToolsToOpenAi } from "./scenario-registry";
 
 /** OpenAI Chat Completions `tools` — 서버 `openAiToolsForScenario`·문서 미리보기 단일 소스. */
 export const TRANSLATE_TOOLS_OPENAI = [
@@ -81,14 +81,18 @@ const WEATHER_TOOL_ANTHROPIC = [
   },
 ] as const;
 
-export function openAiToolsForScenario(id: ScenarioId): unknown[] | undefined {
+export function openAiToolsForScenario(id: string): unknown[] | undefined {
   if (id === "tool_weather") return [...WEATHER_TOOL_OPENAI];
   if (id === "translate_nist_fips197_pdf_tools") return [...TRANSLATE_TOOLS_OPENAI];
+  const def = getScenarioDef(id); // #79/#83: 레지스트리 시나리오 도구.
+  if (def && def.tools.length > 0) return runtimeToolsToOpenAi(def.tools);
   return undefined;
 }
 
-export function anthropicToolsForScenario(id: ScenarioId): unknown[] | undefined {
+export function anthropicToolsForScenario(id: string): unknown[] | undefined {
   if (id === "tool_weather") return [...WEATHER_TOOL_ANTHROPIC];
   if (id === "translate_nist_fips197_pdf_tools") return [...TRANSLATE_TOOLS_ANTHROPIC];
+  const def = getScenarioDef(id); // #79/#83: 레지스트리 시나리오 도구.
+  if (def && def.tools.length > 0) return runtimeToolsToAnthropic(def.tools);
   return undefined;
 }

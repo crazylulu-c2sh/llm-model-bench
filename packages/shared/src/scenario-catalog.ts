@@ -14,6 +14,7 @@ import {
 } from "./scenarios-preview";
 import { getScenarioBenchMeta } from "./scenario-meta";
 import { openAiToolsForScenario } from "./scenario-tools";
+import { getScenarioDef } from "./scenario-registry";
 
 /**
  * 에이전트 대상 시나리오 카탈로그 — `GET /api/scenarios`(및 MCP `list_scenarios`)가 반환.
@@ -43,6 +44,12 @@ export const ScenarioDescriptorSchema = z.object({
     user: z.string(),
   }),
   meta: ScenarioMetaSchema.nullable(),
+  /** #79/#83: built-in 카탈로그 vs 사용자 커스텀. */
+  source: z.enum(["builtin", "custom"]).default("builtin"),
+  /** #79: 멀티턴 agent_loop 여부. */
+  isAgentLoop: z.boolean().default(false),
+  /** #79: agent_loop 최대 턴 예산(아니면 null). */
+  maxTurns: z.number().int().nullable().default(null),
 });
 export type ScenarioDescriptor = z.infer<typeof ScenarioDescriptorSchema>;
 
@@ -52,7 +59,7 @@ export const ScenarioCatalogResponseSchema = z.object({
 export type ScenarioCatalogResponse = z.infer<typeof ScenarioCatalogResponseSchema>;
 
 /** OpenAI 도구 배열에서 함수명만 뽑는다(카탈로그·문서 표기용). */
-function toolNamesFor(id: ScenarioId): string[] {
+function toolNamesFor(id: string): string[] {
   const tools = openAiToolsForScenario(id);
   if (!Array.isArray(tools)) return [];
   const names: string[] = [];
@@ -68,34 +75,38 @@ function toolNamesFor(id: ScenarioId): string[] {
  * `translate_*`/`chat_time_calendar` 등 옵션 의존 프롬프트는 `opts`로 결정론화한다(문서 페이지와 동일).
  */
 export function buildScenarioCatalog(
-  ids: readonly ScenarioId[] = PUBLIC_SCENARIO_IDS,
+  ids: readonly string[] = PUBLIC_SCENARIO_IDS,
   opts?: ScenarioPromptPreviewOpts,
 ): ScenarioDescriptor[] {
   const defaultSet = new Set<string>(DEFAULT_SCENARIO_IDS);
   const visionSet = new Set<string>(VISION_SCENARIO_IDS);
   return ids.map((id) => {
+    const def = getScenarioDef(id); // #79/#83: 레지스트리 시나리오면 descriptor를 def에서 합성.
     const toolNames = toolNamesFor(id);
     let meta: ScenarioDescriptor["meta"] = null;
     try {
-      meta = getScenarioBenchMeta(id) ?? null;
+      meta = getScenarioBenchMeta(id as ScenarioId) ?? null;
     } catch {
       meta = null;
     }
     return {
       id,
-      category: scenarioCategory(id),
+      category: scenarioCategory(id as ScenarioId),
       isVision: isVisionScenario(id),
       inDefaultSet: defaultSet.has(id),
       inVisionSet: visionSet.has(id),
       executionOrder: scenarioExecutionOrderIndex(id),
       attachesTools: toolNames.length > 0,
       toolNames,
-      defaultMaxTokensFloor: defaultMaxTokensForVisionScenario(id) ?? null,
+      defaultMaxTokensFloor: defaultMaxTokensForVisionScenario(id as ScenarioId) ?? null,
       prompt: {
         system: getScenarioSystemPromptPreview(id),
         user: getScenarioUserPromptPreview(id, opts),
       },
       meta,
+      source: def?.source ?? "builtin",
+      isAgentLoop: !!def?.agentLoop,
+      maxTurns: def?.agentLoop?.maxTurns ?? null,
     };
   });
 }

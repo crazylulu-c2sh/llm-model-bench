@@ -9,21 +9,30 @@ import {
   buildScenarioCatalog,
   computeScoreboard,
   leakMetricsFromBenchDetails,
+  listScenarioDefs,
   scenarioIdsForTask,
   scoringRowsFromBenchDetails,
-  type ScenarioId,
 } from "@llm-bench/shared";
 import { SQLITE_PUBLIC_UNAVAILABLE_MSG, normBaseUrl } from "./http-shared.js";
 
+/** #79: 기본 제공 agent_loop id 목록(레지스트리에서 동적으로). */
+function builtinAgentLoopIds(): string[] {
+  return listScenarioDefs("builtin")
+    .filter((d) => d.agentLoop)
+    .map((d) => d.id);
+}
+
 /** `set` 쿼리 → 시나리오 ID 목록. 기본은 PUBLIC. */
-function idsForSet(set: string | undefined): readonly ScenarioId[] {
+function idsForSet(set: string | undefined): readonly string[] {
   switch (set) {
     case "default":
       return DEFAULT_SCENARIO_IDS;
     case "vision":
       return VISION_SCENARIO_IDS;
+    case "agent": // #79: 멀티턴 agent_loop 시나리오.
+      return builtinAgentLoopIds();
     case "all":
-      return ALL_SCENARIO_IDS;
+      return [...ALL_SCENARIO_IDS, ...builtinAgentLoopIds()];
     case "public":
     default:
       return PUBLIC_SCENARIO_IDS;

@@ -1,6 +1,7 @@
 import {
   ALL_SCENARIO_IDS as SHARED_ALL_SCENARIO_IDS,
   anthropicToolsForScenario,
+  getScenarioDef,
   getScenarioSystemPromptPreview,
   getScenarioUserPromptPreview,
   isVisionScenario,
@@ -276,6 +277,15 @@ export function scoreScenario(
   output: string,
   ctx?: ScoreContext,
 ): { pass: boolean; score?: number; reason?: string; judge_pending?: true } {
+  // #79/#83: 레지스트리 시나리오(agent_loop·커스텀). judge 루브릭이 있으면 prefilter 통과 후 judge 대기,
+  // 없으면 메트릭-only(루프 완료로 pass). 실제 완료/정체는 per-run agent_completion_reason에 기록됨.
+  const registered = getScenarioDef(id);
+  if (registered) {
+    if (registered.judge) {
+      return { pass: false, score: 0.33, reason: "prefilter passed — judge pending", judge_pending: true };
+    }
+    return { pass: true, score: 1, reason: "agent_loop completed (metrics-only)" };
+  }
   switch (id) {
     case "chat_hello":
     case "chat_ping":

@@ -171,7 +171,7 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
     {
       title: "시나리오 카탈로그",
       description: "벤치 시나리오(text/vision) 목록과 메타. run_bench 전에 scenarioIds를 고를 때 사용.",
-      inputSchema: { set: z.enum(["public", "default", "vision", "all"]).optional() },
+      inputSchema: { set: z.enum(["public", "default", "vision", "agent", "all"]).optional() },
     },
     async ({ set }) => ok(await client.getJson(`/scenarios${set ? `?set=${set}` : ""}`)),
   );

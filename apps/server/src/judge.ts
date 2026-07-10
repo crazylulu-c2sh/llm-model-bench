@@ -17,9 +17,12 @@ export type JudgeImage = {
 };
 
 export type JudgeRequest = {
-  image: JudgeImage;
+  /** #79: 이미지는 선택 — 있으면 비전 저지, 없으면 텍스트/산출물 저지. */
+  image?: JudgeImage;
   modelOutput: string;
   criterion: string;
+  /** #79: 루브릭 스케일. 기본 "0-3"(비전 경로 불변). "binary"면 0|1. */
+  scale?: "binary" | "0-3";
   model?: string;
   /** 테스트 / proxy 주입용. 미지정 시 global fetch. */
   fetchImpl?: typeof fetch;
@@ -27,7 +30,7 @@ export type JudgeRequest = {
 
 export type JudgeResult =
   | { enabled: false }
-  | { enabled: true; rubric: 0 | 1 | 2 | 3; reason: string }
+  | { enabled: true; rubric: number; reason: string }
   | { enabled: true; error: "judge_timeout" | "judge_parse_error" | "judge_network_error"; reason: string };
 
 export function isJudgeEnabled(): boolean {
@@ -50,35 +53,37 @@ export async function runLlmJudge(req: JudgeRequest): Promise<JudgeResult> {
     };
   }
 
-  const data = req.image.bytes.toString("base64");
+  const scale = req.scale ?? "0-3";
+  const scoreInstruction =
+    scale === "binary"
+      ? 'Reply with JSON only: {"score": 0|1, "reason": "<short>"}'
+      : 'Reply with JSON only: {"score": 0|1|2|3, "reason": "<short>"}';
+  const content: Array<Record<string, unknown>> = [];
+  if (req.image) {
+    // 비전 저지: 이미지 블록 먼저(경로 불변).
+    content.push({
+      type: "image",
+      source: { type: "base64", media_type: req.image.mediaType, data: req.image.bytes.toString("base64") },
+    });
+  }
+  content.push({
+    type: "text",
+    text: [
+      req.criterion,
+      "",
+      "Model output to score:",
+      "<<<",
+      req.modelOutput,
+      ">>>",
+      "",
+      scoreInstruction,
+    ].join("\n"),
+  });
   const body = {
     model: req.model ?? judgeModel(),
     max_tokens: 256,
     temperature: 0,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: { type: "base64", media_type: req.image.mediaType, data },
-          },
-          {
-            type: "text",
-            text: [
-              req.criterion,
-              "",
-              "Model output to score:",
-              "<<<",
-              req.modelOutput,
-              ">>>",
-              "",
-              "Reply with JSON only: {\"score\": 0|1|2|3, \"reason\": \"<short>\"}",
-            ].join("\n"),
-          },
-        ],
-      },
-    ],
+    messages: [{ role: "user", content }],
   };
 
   const controller = new AbortController();
@@ -139,9 +144,10 @@ export async function runLlmJudge(req: JudgeRequest): Promise<JudgeResult> {
     return { enabled: true, error: "judge_parse_error", reason: "judge JSON parse failed" };
   }
   const score = obj.score;
-  if (score !== 0 && score !== 1 && score !== 2 && score !== 3) {
+  const validScores = scale === "binary" ? [0, 1] : [0, 1, 2, 3];
+  if (typeof score !== "number" || !validScores.includes(score)) {
     return { enabled: true, error: "judge_parse_error", reason: `invalid judge score: ${String(score)}` };
   }
   const reason = typeof obj.reason === "string" ? obj.reason.slice(0, 200) : "";
-  return { enabled: true, rubric: score as 0 | 1 | 2 | 3, reason };
+  return { enabled: true, rubric: score, reason };
 }

@@ -64,6 +64,34 @@ export {
   TRANSLATE_TOOLS_OPENAI,
 } from "./scenario-tools";
 
+// #79/#83: 런타임 시나리오 레지스트리(선언형 agent_loop·커스텀 시나리오).
+export {
+  RuntimeToolSchema,
+  JudgeRubricSchema,
+  ScenarioSamplingSchema,
+  MockToolSchema,
+  CompletionPredicateSchema,
+  AgentLoopSchema,
+  ScenarioDefSchema,
+  runtimeToolsToOpenAi,
+  runtimeToolsToAnthropic,
+  registerScenarioDef,
+  unregisterScenarioDef,
+  getScenarioDef,
+  isRegisteredScenario,
+  listScenarioDefs,
+  clearRegisteredScenarios,
+  type RuntimeTool,
+  type JudgeRubric,
+  type ScenarioSampling,
+  type MockTool,
+  type CompletionPredicate,
+  type AgentLoop,
+  type ScenarioDef,
+} from "./scenario-registry";
+// side-effect: built-in agent_loop 정의를 레지스트리에 등록(재-export가 모듈 로드를 강제).
+export { AGENT_LOOP_MOCK_V1, BUILTIN_AGENT_LOOP_IDS } from "./agent-loop-builtin";
+
 export {
   chooseImageDelivery,
   isLoopbackOrPrivateOrigin,
@@ -465,6 +493,16 @@ export const BenchResultSchema = z.object({
           empty_response: z.boolean().optional(),
           /** #80: 가시 content에 <think>/<|channel|> 태그가 남음 → 채널 태그 누수(라우트 무관, 서버 계산). */
           channel_tag_leak_detected: z.boolean().optional(),
+          /** #79: agent_loop — content=="" && tool_calls==0 인 빈 턴 수(정체 신호). */
+          empty_turn_count: z.number().int().optional(),
+          /** #79: agent_loop — 완료까지 걸린 턴 수(미완료면 null). */
+          turns_to_completion: z.number().int().nullable().optional(),
+          /** #79: agent_loop — 유효 tool_call을 낸 턴 비율(0~1). */
+          valid_tool_call_rate: z.number().optional(),
+          /** #79: agent_loop — 중간(비최종) 턴 content에 사고/채널 태그가 누수됐는지. */
+          intermediate_turn_leak: z.boolean().optional(),
+          /** #79: agent_loop — 루프 종료 사유. */
+          agent_completion_reason: z.enum(["completed", "stall", "budget_exhausted"]).optional(),
           quality: z
             .object({
               pass: z.boolean(),
