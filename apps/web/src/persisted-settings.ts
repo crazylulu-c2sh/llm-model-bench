@@ -20,6 +20,7 @@ const PrefsSchema = z
     baseUrl: z.string().min(1).optional(),
     unloadOtherModels: z.boolean().optional(),
     autoUnloadAfterBench: z.boolean().optional(),
+    fitPolicy: z.enum(["skip", "unload_other_models"]).optional(),
     hlPreview: z.boolean().optional(),
     hlLog: z.boolean().optional(),
     persistApiKeyToDisk: z.boolean().optional(),
@@ -115,6 +116,7 @@ export function readInitialUiState() {
       baseUrl: DEFAULT_BASE,
       unloadOtherModels: false,
       autoUnloadAfterBench: false,
+      fitPolicy: "" as "" | "skip" | "unload_other_models",
       hlPreview: false,
       hlLog: false,
       persistApiKeyToDisk: false,
@@ -142,6 +144,7 @@ export function readInitialUiState() {
     baseUrl: typeof p.baseUrl === "string" && p.baseUrl.length ? p.baseUrl : DEFAULT_BASE,
     unloadOtherModels: p.unloadOtherModels ?? false,
     autoUnloadAfterBench: p.autoUnloadAfterBench ?? false,
+    fitPolicy: (p.fitPolicy ?? "") as "" | "skip" | "unload_other_models",
     hlPreview: p.hlPreview ?? false,
     hlLog: p.hlLog ?? false,
     persistApiKeyToDisk: persist,
@@ -170,6 +173,7 @@ export type SaveUiSnapshot = {
   baseUrl: string;
   unloadOtherModels: boolean;
   autoUnloadAfterBench: boolean;
+  fitPolicy: "" | "skip" | "unload_other_models";
   hlPreview: boolean;
   hlLog: boolean;
   persistApiKeyToDisk: boolean;
@@ -199,6 +203,7 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
     baseUrl: s.baseUrl,
     unloadOtherModels: s.unloadOtherModels,
     autoUnloadAfterBench: s.autoUnloadAfterBench,
+    fitPolicy: s.fitPolicy || undefined,
     hlPreview: s.hlPreview,
     hlLog: s.hlLog,
     persistApiKeyToDisk: s.persistApiKeyToDisk,

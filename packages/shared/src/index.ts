@@ -213,6 +213,15 @@ export const DetectResultSchema = z.object({
 });
 export type DetectResult = z.infer<typeof DetectResultSchema>;
 
+/**
+ * #81: 메모리-핏 프리플라이트 정책. 후보 로드 전 필요 RAM vs 여유 RAM을 예측해:
+ * - `skip`: 안 맞으면 로드하지 않고 사람이 읽을 수 있는 이유로 런을 기록(raw 400 대신).
+ * - `unload_other_models`: 다른 로드된 인스턴스를 언로드해 자리를 만든 뒤 로드.
+ * 미지정(undefined)이면 예측을 로그만 하고 그대로 진행(하위호환 — 아무것도 자동 언로드하지 않음).
+ */
+export const FitPolicySchema = z.enum(["skip", "unload_other_models"]).optional();
+export type FitPolicy = z.infer<typeof FitPolicySchema>;
+
 export const BenchRunMetaSchema = z.object({
   run_id: z.string(),
   app_version: z.string().optional(),
@@ -276,6 +285,21 @@ export const BenchRunMetaSchema = z.object({
   contention_required_consecutive_idle: z.number().optional(),
   contention_server_metrics_enabled: z.boolean().optional(),
   contention_lms_cli_activity_enabled: z.boolean().optional(),
+  /** #81: 메모리-핏 프리플라이트 정책(요청에서 전달; 미지정이면 예측만 로그 후 진행). */
+  fit_policy: FitPolicySchema,
+  /** #81: 프리플라이트 결과 요약(런 종료 시 meta_json에 머지 — /runs/:id·scoreboard에서 노출). */
+  preflight_memory_fit: z
+    .object({
+      model_id: z.string(),
+      required_bytes: z.number().nullable(),
+      free_bytes: z.number(),
+      resident_ram_bytes: z.number(),
+      will_fit: z.boolean(),
+      action: z.enum(["proceed", "unload_other_models", "skip"]),
+      reason: z.string(),
+      size_source: z.enum(["list", "detect", "unknown"]),
+    })
+    .optional(),
   created_at: z.string(),
 });
 export type BenchRunMeta = z.infer<typeof BenchRunMetaSchema>;
@@ -299,10 +323,23 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("model_unloaded"),
     model_id: z.string(),
-    /** 예: 벤치 종료 후 자동 언로드 */
-    phase: z.literal("after_bench").optional(),
+    /** 벤치 종료 후 자동 언로드(`after_bench`) 또는 #81 메모리-핏 자리 만들기(`preflight_fit`). */
+    phase: z.enum(["after_bench", "preflight_fit"]).optional(),
     ok: z.boolean(),
     status: z.number().optional(),
+  }),
+  /** #81: 후보 로드 전 메모리-핏 예측 결과(항상 emit — 정책 미지정이어도 로그). */
+  z.object({
+    type: z.literal("preflight_memory_fit"),
+    model_id: z.string(),
+    /** 후보 필요 RAM 추정(오버헤드 포함 전 raw size_bytes). 미상이면 null. */
+    required_bytes: z.number().nullable(),
+    free_bytes: z.number(),
+    resident_ram_bytes: z.number(),
+    will_fit: z.boolean(),
+    action: z.enum(["proceed", "unload_other_models", "skip"]),
+    reason: z.string(),
+    size_source: z.enum(["list", "detect", "unknown"]),
   }),
   z.object({
     type: z.literal("scenario_start"),
@@ -500,6 +537,8 @@ export const BenchStreamBodySchema = z.object({
     skipModelLoad: z.boolean().optional(),
     unloadOtherModels: z.boolean().optional(),
     autoUnloadAfterBench: z.boolean().optional(),
+    /** #81: 메모리-핏 프리플라이트 정책(`skip` | `unload_other_models`; 미지정이면 예측만 로그 후 진행). */
+    fitPolicy: FitPolicySchema,
     publicAssetsOrigin: z.string().url().optional(),
     profileId: BenchProfileIdSchema,
     profileMaxTokens: z.number().int().positive().optional(),

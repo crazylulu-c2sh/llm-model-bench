@@ -152,6 +152,7 @@ export function App() {
   const [persistApiKeyToDisk, setPersistApiKeyToDisk] = useState(boot.persistApiKeyToDisk);
   const [unloadOtherModels, setUnloadOtherModels] = useState(boot.unloadOtherModels);
   const [autoUnloadAfterBench, setAutoUnloadAfterBench] = useState(boot.autoUnloadAfterBench);
+  const [fitPolicy, setFitPolicy] = useState<"" | "skip" | "unload_other_models">(boot.fitPolicy);
   const [selectedScenarioIds, setSelectedScenarioIds] = useState<string[]>(boot.selectedScenarioIds);
   const [scenarioPickerOpen, setScenarioPickerOpen] = useState(boot.scenarioPickerOpen);
   const toggleScenarioSelection = useCallback((id: string) => {
@@ -283,6 +284,7 @@ export function App() {
         baseUrl,
         unloadOtherModels,
         autoUnloadAfterBench,
+        fitPolicy,
         hlPreview,
         hlLog,
         persistApiKeyToDisk,
@@ -313,6 +315,7 @@ export function App() {
     persistApiKeyToDisk,
     unloadOtherModels,
     autoUnloadAfterBench,
+    fitPolicy,
     profileId,
     profileMaxTokens,
     thinkingIntent,
@@ -334,6 +337,7 @@ export function App() {
     baseUrl,
     unloadOtherModels,
     autoUnloadAfterBench,
+    fitPolicy,
     hlPreview,
     hlLog,
     persistApiKeyToDisk,
@@ -357,6 +361,7 @@ export function App() {
     baseUrl,
     unloadOtherModels,
     autoUnloadAfterBench,
+    fitPolicy,
     hlPreview,
     hlLog,
     persistApiKeyToDisk,
@@ -868,6 +873,7 @@ export function App() {
         baseUrl: d.baseUrl,
         unloadOtherModels,
         autoUnloadAfterBench,
+        fitPolicy,
         hlPreview,
         hlLog,
         persistApiKeyToDisk,
@@ -902,6 +908,7 @@ export function App() {
     persistApiKeyToDisk,
     unloadOtherModels,
     autoUnloadAfterBench,
+    fitPolicy,
     profileId,
     profileMaxTokens,
     thinkingIntent,
@@ -968,6 +975,7 @@ export function App() {
               skipModelLoad: detect.provider !== "lm_studio",
               unloadOtherModels,
               autoUnloadAfterBench,
+              ...(fitPolicy ? { fitPolicy } : {}),
               publicAssetsOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
               scenarioIds: visibleSelectedScenarioIds,
               ...(benchmarkThroughputMode ? { apiRoutes: ["chat_completions"] as const } : {}),
@@ -999,26 +1007,35 @@ export function App() {
             pushBenchLine("info", `런 시작 · ${ridShort}`);
             setBenchCurrent({ modelId: m.id });
           }
+          if (ev.type === "preflight_memory_fit") {
+            // #81: 후보 로드 전 메모리-핏 예측 결과. skip이면 조용히 사라지지 않게 명확히 표시.
+            const gb = (b: number | null) => (b != null ? `${(b / 1024 ** 3).toFixed(1)}GB` : "?");
+            const detail = `필요 ~${gb(ev.required_bytes)}, 여유 ${gb(ev.free_bytes)}`;
+            if (ev.action === "skip") {
+              pushBenchLine("err", `메모리 부족으로 건너뜀 · ${ev.model_id} · ${detail}`);
+              appendLog(`preflight skip ${ev.model_id}: ${ev.reason}`);
+              toast.warning(`${ev.model_id}: ${ev.reason}`);
+            } else if (ev.action === "unload_other_models") {
+              pushBenchLine("info", `메모리 확보 위해 다른 모델 언로드 · ${ev.model_id} · ${detail}`);
+              appendLog(`preflight unload_other_models ${ev.model_id}: ${ev.reason}`);
+            } else {
+              appendLog(`preflight ${ev.model_id}: ${ev.reason} (${detail})`);
+            }
+          }
           if (ev.type === "model_loaded") {
             pushBenchLine("info", `모델 로드 완료 · ${ev.model_id}`);
             setBenchCurrent({ modelId: ev.model_id });
           }
           if (ev.type === "model_unloaded") {
             const st = ev.status != null ? String(ev.status) : "?";
+            const phaseLabel =
+              ev.phase === "after_bench" ? "벤치 후 " : ev.phase === "preflight_fit" ? "메모리 확보 " : "";
             if (ev.ok) {
-              appendLog(
-                ev.phase === "after_bench"
-                  ? `벤치 후 모델 언로드 완료 · ${ev.model_id} · HTTP ${st}`
-                  : `모델 언로드 완료 · ${ev.model_id} · HTTP ${st}`,
-              );
-              pushBenchLine("ok", `언로드 완료 · ${ev.model_id} · ${st}`);
+              appendLog(`${phaseLabel}모델 언로드 완료 · ${ev.model_id} · HTTP ${st}`);
+              pushBenchLine("ok", `${phaseLabel}언로드 완료 · ${ev.model_id} · ${st}`);
             } else {
-              appendLog(
-                ev.phase === "after_bench"
-                  ? `벤치 후 모델 언로드 실패 · ${ev.model_id} · HTTP ${st}`
-                  : `모델 언로드 실패 · ${ev.model_id} · HTTP ${st}`,
-              );
-              pushBenchLine("err", `언로드 실패 · ${ev.model_id} · ${st}`);
+              appendLog(`${phaseLabel}모델 언로드 실패 · ${ev.model_id} · HTTP ${st}`);
+              pushBenchLine("err", `${phaseLabel}언로드 실패 · ${ev.model_id} · ${st}`);
             }
           }
           if (ev.type === "scenario_start") {
@@ -1177,7 +1194,7 @@ export function App() {
     } else {
       toast.success("벤치가 모두 완료되었습니다.");
     }
-  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, unloadOtherModels, visibleSelectedScenarioIds]);
+  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, fitPolicy, unloadOtherModels, visibleSelectedScenarioIds]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
@@ -1547,6 +1564,29 @@ export function App() {
               </span>
             </span>
           </label>
+          <div
+            className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
+            title="후보 로드 전 필요 RAM vs 여유 RAM을 예측합니다. 안 맞을 때의 동작을 고릅니다 (LM Studio)."
+          >
+            <span className="mt-1 flex-1">
+              <span className="font-medium text-[var(--foreground)]">메모리-핏 프리플라이트 (LM Studio)</span>
+              <span className="mt-0.5 block text-xs leading-snug">
+                후보 로드 전 필요 RAM을 예측해 로그합니다. 안 맞으면: <b>언로드-해서-맞추기</b>는 다른 로드된 모델을 비워 자리를
+                만들고, <b>건너뛰기</b>는 raw 400 대신 사유를 기록하고 스킵합니다. 기본(예측만)은 그대로 진행합니다.
+                {detect && detect.provider !== "lm_studio" ? " 현재 프로바이더에서는 비활성입니다." : ""}
+              </span>
+            </span>
+            <select
+              className="mt-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
+              value={fitPolicy}
+              disabled={detect?.provider !== "lm_studio"}
+              onChange={(e) => setFitPolicy(e.target.value as "" | "skip" | "unload_other_models")}
+            >
+              <option value="">예측만(로그)</option>
+              <option value="unload_other_models">언로드-해서-맞추기</option>
+              <option value="skip">안 맞으면 건너뛰기</option>
+            </select>
+          </div>
           <label
             className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
             title="다른 추론(같은/다른 모델)이 실행 중이면 시작 전 대기하고, 벤치 중 감지되면 오염된 측정 런만 폐기 후 재측정합니다."

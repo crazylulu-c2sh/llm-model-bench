@@ -347,6 +347,7 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       skipModelLoad: bench.skipModelLoad,
       unloadOtherModels: bench.unloadOtherModels,
       autoUnloadAfterBench: bench.autoUnloadAfterBench,
+      fitPolicy: bench.fitPolicy,
       publicAssetsOrigin: bench.publicAssetsOrigin,
       profileMaxTokens: bench.profileMaxTokens,
       apiRoutes: bench.apiRoutes,

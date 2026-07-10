@@ -151,6 +151,57 @@ describe("catalog / scoreboard", () => {
     expect(leak?.channel_tag_leak).toBe(0.5); // 1/2
     expect(leak?.thinking_leak_ratio).toBeCloseTo(0.5, 6); // reasoning 5 tok / total 10 tok
   });
+
+  it("scoreboard surfaces memory-fit skipped models (#81) — not silently absent", async () => {
+    const db = tryOpenProdBenchDatabase();
+    expect(db).not.toBeNull();
+    const baseUrl = "http://127.0.0.1:9098";
+    const detect: DetectResult = {
+      provider: "lm_studio",
+      baseUrl,
+      models: [{ id: "toobig" }],
+      steps: [],
+      capabilities: { openaiChat: true, anthropicMessages: false },
+    };
+    const meta = {
+      ...makeBenchRunMeta(
+        { baseUrl, provider: "lm_studio", modelId: "toobig", skipModelLoad: false, fitPolicy: "skip" },
+        detect,
+        "skip_run_1",
+      ),
+      preflight_memory_fit: {
+        model_id: "toobig",
+        required_bytes: 26 * 1024 ** 3,
+        free_bytes: 14 * 1024 ** 3,
+        resident_ram_bytes: 0,
+        will_fit: false,
+        action: "skip" as const,
+        reason: "won't fit — needs 28.6GB, 14.0GB free",
+        size_source: "list" as const,
+      },
+    };
+    insertRun(db!, {
+      run_id: meta.run_id,
+      created_at: meta.created_at,
+      base_url: baseUrl,
+      provider: meta.provider,
+      model_id: meta.model_id,
+      meta,
+      status: "running",
+    });
+    // 스킵 런: 측정 시나리오 없음. error_code로 partial 종료.
+    finishRun(db!, meta.run_id, "partial", { code: "skipped_wont_fit", message: meta.preflight_memory_fit.reason });
+
+    const r = await req(`/api/scoreboard?baseUrl=${encodeURIComponent(baseUrl)}`);
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as {
+      rows: unknown[];
+      skipped?: Array<{ model_id: string; reason: string }>;
+    };
+    // 측정 런이 없어 랭킹 rows엔 없지만 skipped[]로 노출된다.
+    expect(j.rows.length).toBe(0);
+    expect(j.skipped?.some((s) => s.model_id === "toobig" && s.reason.includes("won't fit"))).toBe(true);
+  });
 });
 
 describe("api-key auth (opt-in) + exemptions", () => {

@@ -892,3 +892,132 @@ describe("runBench chat route — LM Studio engine-protocol regression flags", (
     expect(run?.tool_call_args_corrupted).toBe(true);
   });
 });
+
+describe("runBench memory-fit preflight (#81)", () => {
+  const GB = 1024 ** 3;
+  function fakeSystem(freeGb: number) {
+    return () => ({
+      ts: "2026-07-10T00:00:00.000Z",
+      totalMemBytes: 64 * GB,
+      freeMemBytes: freeGb * GB,
+      loadavg: [0, 0, 0] as [number, number, number],
+      cpuCount: 8,
+      platform: "linux",
+    });
+  }
+
+  it("skip: records skipped_wont_fit + never calls upstream chat", async () => {
+    let chatCalls = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, size_bytes: 26 * GB, loaded_instances: [] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        chatCalls += 1;
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    const events: import("@llm-bench/shared").StreamEvent[] = [];
+    for await (const ev of runBench(
+      baseBenchRequest({ fitPolicy: "skip" }),
+      lmStudioDetect(),
+      { fetchImpl, systemInfoImpl: fakeSystem(14) },
+    )) {
+      events.push(ev);
+    }
+
+    const preflight = events.find((e) => e.type === "preflight_memory_fit");
+    expect(preflight).toBeDefined();
+    expect(preflight && preflight.type === "preflight_memory_fit" && preflight.action).toBe("skip");
+    const err = events.find((e) => e.type === "error");
+    expect(err && err.type === "error" && err.code).toBe("skipped_wont_fit");
+    expect(events.some((e) => e.type === "run_finished")).toBe(true);
+    expect(events.some((e) => e.type === "model_loaded")).toBe(false);
+    expect(chatCalls).toBe(0);
+  });
+
+  it("unload_other_models: evicts resident (phase=preflight_fit) then loads and runs", async () => {
+    const unloadedInstanceIds: string[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({
+          models: [
+            { key: MODEL_ID, size_bytes: 26 * GB, loaded_instances: [] },
+            { key: "big-resident", size_bytes: 40 * GB, loaded_instances: [{ id: "big:1", ram_usage: 40 * GB }] },
+          ],
+        });
+      }
+      if (url.endsWith("/api/v1/models/unload")) {
+        try {
+          const body = init?.body ? (JSON.parse(String(init.body)) as { instance_id?: string }) : {};
+          if (body.instance_id) unloadedInstanceIds.push(body.instance_id);
+        } catch {
+          /* ignore */
+        }
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/api/v1/models/load")) {
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    const events: import("@llm-bench/shared").StreamEvent[] = [];
+    for await (const ev of runBench(
+      baseBenchRequest({ fitPolicy: "unload_other_models" }),
+      lmStudioDetect(),
+      { fetchImpl, systemInfoImpl: fakeSystem(14) },
+    )) {
+      events.push(ev);
+    }
+
+    const preflight = events.find((e) => e.type === "preflight_memory_fit");
+    expect(preflight && preflight.type === "preflight_memory_fit" && preflight.action).toBe("unload_other_models");
+    const preflightUnload = events.find(
+      (e) => e.type === "model_unloaded" && e.phase === "preflight_fit",
+    );
+    expect(preflightUnload).toBeDefined();
+    expect(preflightUnload && preflightUnload.type === "model_unloaded" && preflightUnload.model_id).toBe(
+      "big-resident",
+    );
+    expect(unloadedInstanceIds).toContain("big:1"); // 실제 instance_id로 언로드
+    expect(events.some((e) => e.type === "model_loaded")).toBe(true);
+    expect(events.some((e) => e.type === "run_finished")).toBe(true);
+  });
+
+  it("unknown candidate size → proceeds to normal load (no skip)", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [] }] }); // no size_bytes
+      }
+      if (url.endsWith("/api/v1/models/unload") || url.endsWith("/api/v1/models/load")) {
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    const events: import("@llm-bench/shared").StreamEvent[] = [];
+    for await (const ev of runBench(
+      baseBenchRequest({ fitPolicy: "skip" }), // even with skip: unknown size never blocks
+      lmStudioDetect(),
+      { fetchImpl, systemInfoImpl: fakeSystem(1) },
+    )) {
+      events.push(ev);
+    }
+    const preflight = events.find((e) => e.type === "preflight_memory_fit");
+    expect(preflight && preflight.type === "preflight_memory_fit" && preflight.size_source).toBe("unknown");
+    expect(events.some((e) => e.type === "error" && e.code === "skipped_wont_fit")).toBe(false);
+    expect(events.some((e) => e.type === "run_finished")).toBe(true);
+  });
+});

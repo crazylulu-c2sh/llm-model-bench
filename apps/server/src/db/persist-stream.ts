@@ -116,6 +116,21 @@ export class BenchRunPersistence {
         );
         break;
       }
+      case "preflight_memory_fit": {
+        // #81: 사람이 읽을 수 있는 예측/결정을 meta_json에 patch → /runs/:id·scoreboard에서 노출.
+        const { type: _t, ...summary } = ev;
+        void _t;
+        updateRunMetaJson(this.db, this.runId, { preflight_memory_fit: summary });
+        this.logLine(
+          `preflight_memory_fit ${ev.action} req=${ev.required_bytes ?? "?"} free=${ev.free_bytes} ${ev.reason}`,
+        );
+        break;
+      }
+      case "model_unloaded":
+        this.logLine(
+          `model_unloaded ${ev.model_id}${ev.phase ? ` phase=${ev.phase}` : ""} ok=${ev.ok}`,
+        );
+        break;
       case "run_finished":
         this.logLine(`run_finished ${ev.run_id}`);
         break;

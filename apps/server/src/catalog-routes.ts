@@ -108,7 +108,24 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
       // #80: 모델 × 라우트 누수/정체 지표. 랭킹(rows)과 분리 — 같은 details를 재사용해 추가 DB 비용 없음.
       // task 필터와 무관하게 측정된 모든 시나리오로 집계(agent-safety는 모델·라우트 속성).
       const leaks = leakMetricsFromBenchDetails(details);
-      return c.json({ base_url: norm, filter: filterInfo, rows, leaks, sqlite_available: true });
+      // #81: 최신 런이 메모리-핏 skip이면 측정 런이 없어 rows에 안 나오므로, 조용히 사라지지 않게 별도 노출.
+      const skipped = details
+        .map((d) => {
+          const pf = (d.meta as { preflight_memory_fit?: { action?: string; reason?: string } })
+            .preflight_memory_fit;
+          return pf?.action === "skip"
+            ? { model_id: d.meta.model_id, reason: pf.reason ?? "won't fit" }
+            : null;
+        })
+        .filter((x): x is { model_id: string; reason: string } => x != null);
+      return c.json({
+        base_url: norm,
+        filter: filterInfo,
+        rows,
+        leaks,
+        ...(skipped.length ? { skipped } : {}),
+        sqlite_available: true,
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[llm-bench-server] /api/scoreboard DB 로드 실패:", msg);

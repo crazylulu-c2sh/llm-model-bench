@@ -2,7 +2,9 @@ import type {
   BenchRunMeta,
   BenchTaskMode,
   DetectResult,
+  FitPolicy,
   StreamEvent,
+  SystemSnapshot,
   ThinkingIntent,
 } from "@llm-bench/shared";
 import {
@@ -58,6 +60,7 @@ import {
   lmStudioLoad,
   lmStudioUnload,
 } from "./lmstudio.js";
+import { preflightMemoryFit } from "./memory-preflight.js";
 import {
   anthropicExtrasFromMeta,
   buildProfileAugmentedMeta,
@@ -89,6 +92,8 @@ export type BenchRequest = {
   unloadOtherModels?: boolean;
   /** LM Studio: 이번 런이 lmStudioLoad로 대상을 올린 경우에만 종료 시 unload (베스트 에포트) */
   autoUnloadAfterBench?: boolean;
+  /** #81: 메모리-핏 프리플라이트 정책(`skip` | `unload_other_models`; 미지정이면 예측만 로그 후 진행). */
+  fitPolicy?: FitPolicy;
   /** Vite `public/` 베이스 URL (예: window.location.origin) — nist.fips.197.pdf 툴 fetch 허용 */
   publicAssetsOrigin?: string;
   /** 모델 카드 기반 샘플링/사고 모드 프로파일 */
@@ -203,6 +208,7 @@ export function makeBenchRunMeta(
     measured_runs: input.measuredRuns ?? 3,
     unload_other_models: !!input.unloadOtherModels,
     auto_unload_after_bench: !!input.autoUnloadAfterBench,
+    fit_policy: input.fitPolicy,
     public_assets_origin: resolvePublicAssetsOrigin(input),
     contention_guard_enabled: cc.enabled,
     contention_poll_interval_ms: cc.pollIntervalMs,
@@ -451,6 +457,8 @@ export async function* runBench(
     now?: () => number;
     /** 테스트 전용 주입: 즉시 resolve sleep. */
     sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+    /** 테스트 전용 주입(#81): 가짜 시스템 스냅샷(free RAM). */
+    systemInfoImpl?: () => SystemSnapshot;
   } = {},
 ): AsyncGenerator<StreamEvent> {
   const fetchImpl = opts.fetchImpl ?? fetch;
@@ -512,10 +520,54 @@ export async function* runBench(
     return;
   }
 
+  // STEP 0.5 (#81): 메모리-핏 프리플라이트 — 후보 로드 전 필요 RAM vs 여유 RAM 예측(항상 로그).
+  // `skip`이면 raw provider 400 대신 사람이 읽을 수 있는 이유로 런을 기록하고 종료.
+  // `unload_other_models`면 자리를 만들고, 아래 레거시 unloadOtherModels 루프는 건너뛴다.
+  let preflightUnloadedResidents = false;
+  if (input.provider === "lm_studio" && !input.skipModelLoad) {
+    const fit = await preflightMemoryFit({
+      base,
+      modelId: input.modelId,
+      apiKey: input.apiKey,
+      fitPolicy: input.fitPolicy,
+      detect,
+      fetchImpl,
+      systemInfoImpl: opts.systemInfoImpl,
+    });
+    yield { type: "preflight_memory_fit", ...fit.event };
+    if (fit.action === "skip") {
+      yield {
+        type: "error",
+        layer: "orchestrator",
+        code: "skipped_wont_fit",
+        message: `skipped: ${fit.event.reason}`,
+      };
+      yield { type: "run_finished", run_id: rid };
+      return;
+    }
+    if (fit.action === "unload_other_models") {
+      const seen = new Set<string>();
+      for (const inst of fit.residentInstances) {
+        if (seen.has(inst.modelKey)) continue; // 모델당 1회 — lmStudioUnload가 인스턴스 전부 회수
+        seen.add(inst.modelKey);
+        const u = await lmStudioUnload(base, inst.modelKey, { fetchImpl, apiKey: input.apiKey });
+        yield {
+          type: "model_unloaded",
+          model_id: inst.modelKey,
+          phase: "preflight_fit",
+          ok: u.ok,
+          status: u.status,
+        };
+      }
+      preflightUnloadedResidents = true;
+    }
+  }
+
   if (
     input.provider === "lm_studio" &&
     !input.skipModelLoad &&
-    input.unloadOtherModels
+    input.unloadOtherModels &&
+    !preflightUnloadedResidents // 프리플라이트가 이미 회수했으면 중복 언로드 방지
   ) {
     for (const m of detect.models) {
       if (m.id === input.modelId) continue;
