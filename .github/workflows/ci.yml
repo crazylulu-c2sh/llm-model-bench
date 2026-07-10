@@ -22,14 +22,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25 # 첫 실행(playwright --with-deps apt + e2e webServer 180s + retries) 여유
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # pnpm을 먼저 설치해야 setup-node의 `cache: pnpm`이 store 경로를 찾음.
       # action-setup@v6은 package.json의 packageManager(pnpm@11.1.1)를 읽음 — with.version 주지 말 것.
       # (v6은 node24 런타임 + pnpm v11 공식 지원. node20 강제 실행 경고 해소용으로 v4→v6 범프.)
       - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc # 24.12.0 정확히 핀 (engine-strict 충족)
           cache: pnpm
@@ -58,7 +58,7 @@ jobs:
 
       - name: Upload Playwright report
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: playwright-report/
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v4
 
