@@ -624,6 +624,12 @@ export async function* runBench(
           tool_call_args_corrupted?: boolean;
           /** 추론이 `reasoning_content` 대신 `content`로 새어 들어온 경우(chat 라우트) — 엔진 프로토콜 회귀 신호. */
           reasoning_leaked_into_content?: boolean;
+          /** #80: 분리된 reasoning 채널의 raw 문자 수(thinking_leak_ratio 집계 분자). */
+          reasoning_chars?: number;
+          /** #80: 가시 content 비었고 tool_call 없음 → 에이전트 정체(empty_turn). */
+          empty_response?: boolean;
+          /** #80: 가시 content에 <think>/<|channel|> 태그 잔존(라우트 무관). */
+          channel_tag_leak_detected?: boolean;
           quality?: { pass: boolean; score?: number; reason?: string };
         }[] = [];
 
@@ -1271,6 +1277,15 @@ export async function* runBench(
               stripThinkingBlocks(lastOpenAiMetrics.assistantText) !==
                 lastOpenAiMetrics.assistantText.trim();
 
+            // #80: 라우트 무관 누수/정체 신호(scoreboard·stats 집계 입력).
+            // - channelTagLeak: 가시 content에 <think>/<|channel|> 태그가 남음(stripThinkingBlocks는 이미 trim).
+            //   reasoning_leaked_into_content(chat·분리채널 비어있을 때만)의 일반화 — 모든 라우트에서 판정.
+            // - emptyResponse: 가시 content 비었고 tool_call도 없음 → 에이전트 정체(empty_turn).
+            const visibleText = scoreText ?? text;
+            const channelTagLeak = stripThinkingBlocks(visibleText) !== visibleText.trim();
+            const emptyResponse =
+              stripThinkingBlocks(visibleText) === "" && invokedBenchTools.length === 0;
+
             if (!isWarmup) {
               runs.push({
                 ttft_ms: ttft,
@@ -1281,6 +1296,9 @@ export async function* runBench(
                 ...(reasoningHidden ? { reasoning_hidden: true } : {}),
                 ...(toolArgsCorruptedAny ? { tool_call_args_corrupted: true } : {}),
                 ...(reasoningLeaked ? { reasoning_leaked_into_content: true } : {}),
+                ...(reasoningChars > 0 ? { reasoning_chars: reasoningChars } : {}),
+                ...(emptyResponse ? { empty_response: true } : {}),
+                ...(channelTagLeak ? { channel_tag_leak_detected: true } : {}),
                 quality,
               });
             }

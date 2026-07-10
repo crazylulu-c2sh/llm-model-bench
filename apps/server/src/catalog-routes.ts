@@ -8,6 +8,7 @@ import {
   VISION_SCENARIO_IDS,
   buildScenarioCatalog,
   computeScoreboard,
+  leakMetricsFromBenchDetails,
   scenarioIdsForTask,
   scoringRowsFromBenchDetails,
   type ScenarioId,
@@ -92,7 +93,7 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
           .map((r) => r.model_id);
       }
       if (ids.length === 0) {
-        return c.json({ base_url: norm, filter: filterInfo, rows: [], sqlite_available: true });
+        return c.json({ base_url: norm, filter: filterInfo, rows: [], leaks: [], sqlite_available: true });
       }
 
       const map = dbMod.latestFinishedRunsByModels(db, norm, ids);
@@ -104,7 +105,10 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
 
       const board = computeScoreboard(scoringRowsFromBenchDetails(details, filter));
       const rows = board.map((row, i) => ({ rank: i + 1, ...row }));
-      return c.json({ base_url: norm, filter: filterInfo, rows, sqlite_available: true });
+      // #80: 모델 × 라우트 누수/정체 지표. 랭킹(rows)과 분리 — 같은 details를 재사용해 추가 DB 비용 없음.
+      // task 필터와 무관하게 측정된 모든 시나리오로 집계(agent-safety는 모델·라우트 속성).
+      const leaks = leakMetricsFromBenchDetails(details);
+      return c.json({ base_url: norm, filter: filterInfo, rows, leaks, sqlite_available: true });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[llm-bench-server] /api/scoreboard DB 로드 실패:", msg);

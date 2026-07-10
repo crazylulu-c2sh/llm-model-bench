@@ -13,6 +13,7 @@ import {
   BenchStreamBodySchema,
   DetectBodySchema,
   StressStreamBodySchema,
+  leakMetricsFromBenchDetails,
 } from "@llm-bench/shared";
 import { makeBenchRunMeta, runBench, type BenchRequest } from "../bench-runner.js";
 import { detectProvider } from "../detect.js";
@@ -55,17 +56,27 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
           sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG,
         });
       }
+      const runQueries = await import("../db/run-queries.js");
       const raw = dbMod.listLatestFinishedRunSummaries(db);
-      const items = raw.map((r) => ({
-        run_id: r.run_id,
-        model_id: r.model_id,
-        base_url: normBaseUrl(r.base_url),
-        provider: r.provider,
-        finished_at: r.finished_at,
-        created_at: r.created_at,
-        status: r.status,
-        scenario_count: r.scenario_count,
-      }));
+      const items = raw.map((r) => {
+        // #80: 측정 시나리오가 있는 런만 상세를 읽어 모델 × 라우트 누수/정체 지표를 붙인다.
+        let leaks: ReturnType<typeof leakMetricsFromBenchDetails> = [];
+        if (r.scenario_count > 0) {
+          const detail = runQueries.benchResultDetailFromDb(db, r.run_id);
+          if (detail) leaks = leakMetricsFromBenchDetails([detail]);
+        }
+        return {
+          run_id: r.run_id,
+          model_id: r.model_id,
+          base_url: normBaseUrl(r.base_url),
+          provider: r.provider,
+          finished_at: r.finished_at,
+          created_at: r.created_at,
+          status: r.status,
+          scenario_count: r.scenario_count,
+          leaks,
+        };
+      });
       return c.json({ items, sqlite_available: true });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

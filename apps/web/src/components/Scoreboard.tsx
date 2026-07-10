@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowDownUp, ArrowUp } from "lucide-react";
-import { formatTtftMs } from "@llm-bench/shared";
+import { formatTtftMs, leakMetricsFromRows } from "@llm-bench/shared";
 import type { ResultRow } from "./ResultsTable";
+import { LeakTable } from "./LeakTable";
 import { buildModelColorMap } from "../lib/model-color";
 import {
   DEFAULT_SCOREBOARD_SORT,
@@ -327,8 +328,10 @@ export function Scoreboard({
   title?: string;
 }) {
   const board = useMemo(() => scoreboardFromRows(rows, detailAggregate), [rows, detailAggregate]);
+  // #80: 모델 × 라우트 누수/정체 지표(스코어보드와 동일 rows+aggregate에서 클라이언트 계산 — 서버와 동일 산식).
+  const leaks = useMemo(() => leakMetricsFromRows(rows, detailAggregate), [rows, detailAggregate]);
   const [sort, setSort] = useState<ScoreboardSort>(DEFAULT_SCOREBOARD_SORT);
-  const [view, setView] = useState<"chart" | "table">("chart");
+  const [view, setView] = useState<"chart" | "table" | "leaks">("chart");
   function onSortClick(key: ScoreboardSortKey) {
     setSort((prev) =>
       sameSortKey(prev.key, key)
@@ -382,6 +385,7 @@ export function Scoreboard({
             options={[
               { value: "chart", label: "차트" },
               { value: "table", label: "표" },
+              { value: "leaks", label: "누수" },
             ]}
           />
         ) : null}
@@ -412,6 +416,8 @@ export function Scoreboard({
       </div>
       {showChart ? (
         <ScoreboardChart board={board} colorByModel={colorByModel} multiModel={multiModel} />
+      ) : view === "leaks" && !loadingLayout ? (
+        <LeakTable leaks={leaks} />
       ) : (
       <div className="overflow-x-auto rounded border border-[var(--border)]">
         <table className="w-full min-w-[46rem] text-left text-sm">
