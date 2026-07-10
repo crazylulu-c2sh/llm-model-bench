@@ -105,3 +105,17 @@ export function buildScoreboardChartData(
   const domainMax = metric === "quality" ? 100 : niceCeil(max);
   return { data, max, average, domainMax };
 }
+
+/**
+ * 막대를 벤더 그룹으로 안정 재정렬(그룹 내부는 기존 metric 순서 유지, unknown은 맨 뒤).
+ * rank는 metric 랭킹 그대로 두고 배열 순서만 바꾼다(같은 벤더 모델이 인접).
+ */
+export function reorderChartDataByVendor(
+  data: readonly ScoreboardChartDatum[],
+  vendorOf: (modelId: string) => string,
+): ScoreboardChartDatum[] {
+  return data
+    .map((d, i) => ({ d, i, key: vendorOf(d.model_id) === "unknown" ? "￿" : vendorOf(d.model_id) }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.i - b.i))
+    .map((x) => x.d);
+}

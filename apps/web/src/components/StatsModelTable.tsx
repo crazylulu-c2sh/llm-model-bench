@@ -11,6 +11,7 @@ import {
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Search, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ModelLabel } from "./ModelLabel";
 
 export const DEFAULT_STATS_MODEL_SORTING: SortingState = [{ id: "model_id", desc: false }];
 
@@ -159,7 +160,7 @@ export function StatsModelTable({
             {sortDirIcon(column)}
           </button>
         ),
-        cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span>,
+        cell: (info) => <ModelLabel modelId={info.getValue()} showQuant size={14} className="text-xs" />,
         sortingFn: "alphanumeric",
       }),
       columnHelper.accessor((row) => normalizeBaseUrlForCell(row.base_url), {

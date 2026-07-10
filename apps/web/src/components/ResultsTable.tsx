@@ -2,6 +2,7 @@ import { formatTtftMs, isVisionScenario, scenarioExecutionOrderIndex, scoreToRub
 import { apiRouteRank } from "./chart-types";
 import { compareModelBenchQueueOrder } from "../lib/model-sort";
 import { buildModelColorMap } from "../lib/model-color";
+import { ModelLabel } from "./ModelLabel";
 import { computeGroupWinners } from "../lib/result-winners";
 import {
   BENCH_EXECUTION_SORT,
@@ -168,11 +169,11 @@ export function ResultsTable({
         cell: (info) => {
           const c = colorByModel.get(info.getValue());
           return (
-            <span className="inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-xs">
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs">
               {multiModel && c ? (
                 <span className="size-2 shrink-0 rounded-full" style={{ background: c }} aria-hidden />
               ) : null}
-              {info.getValue()}
+              <ModelLabel modelId={info.getValue()} showQuant size={14} />
             </span>
           );
         },
@@ -490,7 +491,9 @@ export function ResultsTable({
                   aria-hidden="true"
                 >
                   <td className="p-2">
-                    <span className="whitespace-nowrap font-mono text-xs text-[var(--muted)]">{pr.model_id}</span>
+                    <span className="whitespace-nowrap text-xs text-[var(--muted)]">
+                      <ModelLabel modelId={pr.model_id} size={14} />
+                    </span>
                   </td>
                   <td className="p-2">
                     <span className="font-mono text-xs text-[var(--muted)]">{pr.scenario}</span>

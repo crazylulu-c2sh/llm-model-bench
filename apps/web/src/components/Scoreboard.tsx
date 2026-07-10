@@ -1,6 +1,12 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowDownUp, ArrowUp } from "lucide-react";
-import { formatTtftMs, leakMetricsFromRows } from "@llm-bench/shared";
+import {
+  formatTtftMs,
+  inferModelVendor,
+  leakMetricsFromRows,
+  type ProviderKind,
+  type VendorKey,
+} from "@llm-bench/shared";
 import type { ResultRow } from "./ResultsTable";
 import { LeakTable } from "./LeakTable";
 import { buildModelColorMap } from "../lib/model-color";
@@ -31,6 +37,8 @@ import {
   speedRelativeBand,
 } from "../lib/score-bands";
 import { ScoreboardChart, Segmented } from "./ScoreboardChart";
+import { ModelLabel } from "./ModelLabel";
+import { VENDOR_BRAND, VendorIcon } from "./VendorIcon";
 
 /** max 기준 상대 길이 채움 막대(기본 max=100=절대). */
 function ScoreBar({ value, color, max = 100 }: { value: number; color: string; max?: number }) {
@@ -229,12 +237,12 @@ function ScoreboardSkeletonRow({
         {barColor ? (
           <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: barColor }} aria-hidden />
         ) : null}
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-xs text-[var(--muted)]">
-          <span>{rank}.</span>
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-[var(--muted)]">
+          <span className="font-mono">{rank}.</span>
           {multiModel && barColor ? (
             <span className="size-2 shrink-0 rounded-full" style={{ background: barColor }} aria-hidden />
           ) : null}
-          {modelId}
+          <ModelLabel modelId={modelId} size={14} />
         </span>
       </td>
       {Array.from({ length: 9 }, (_, ci) => (
@@ -252,12 +260,14 @@ function ScoreboardDataRow({
   barColor,
   multiModel,
   maxSpeed,
+  provider,
 }: {
   b: ScoreboardRow;
   rank: number;
   barColor?: string;
   multiModel: boolean;
   maxSpeed: { text: number; vision: number; total: number };
+  provider?: ProviderKind;
 }) {
   const cap = b.quality.caveats.includes("judge_capped");
   return (
@@ -266,12 +276,12 @@ function ScoreboardDataRow({
         {barColor ? (
           <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: barColor }} aria-hidden />
         ) : null}
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-xs">
-          <span className="text-[var(--muted)]">{rank}.</span>
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-[var(--foreground)]">
+          <span className="font-mono text-[var(--muted)]">{rank}.</span>
           {multiModel && barColor ? (
             <span className="size-2 shrink-0 rounded-full" style={{ background: barColor }} aria-hidden />
           ) : null}
-          <span className="text-[var(--foreground)]">{b.model_id}</span>
+          <ModelLabel modelId={b.model_id} provider={provider} showBackend showQuant size={14} />
           {b.textOnly ? (
             <span
               className="rounded border border-[var(--border)] px-1 py-px text-[10px] text-[var(--muted)]"
@@ -319,6 +329,7 @@ export function Scoreboard({
   loading = false,
   benchModelOrder = [],
   title = "스코어보드",
+  providerByModel,
 }: {
   rows: ResultRow[];
   detailAggregate: ScoringAggregate;
@@ -326,12 +337,15 @@ export function Scoreboard({
   /** 벤치 실행 중 큐 순서 — 스켈레톤이 모든 모델 행 공간을 미리 확보 */
   benchModelOrder?: string[];
   title?: string;
+  /** model_id → 백엔드(옵션). 벤더 아이콘 옆 백엔드 배지·툴팁용. 없어도 안 깨짐. */
+  providerByModel?: Map<string, ProviderKind>;
 }) {
   const board = useMemo(() => scoreboardFromRows(rows, detailAggregate), [rows, detailAggregate]);
   // #80: 모델 × 라우트 누수/정체 지표(스코어보드와 동일 rows+aggregate에서 클라이언트 계산 — 서버와 동일 산식).
   const leaks = useMemo(() => leakMetricsFromRows(rows, detailAggregate), [rows, detailAggregate]);
   const [sort, setSort] = useState<ScoreboardSort>(DEFAULT_SCOREBOARD_SORT);
   const [view, setView] = useState<"chart" | "table" | "leaks">("chart");
+  const [hiddenVendors, setHiddenVendors] = useState<Set<VendorKey>>(() => new Set());
   function onSortClick(key: ScoreboardSortKey) {
     setSort((prev) =>
       sameSortKey(prev.key, key)
@@ -339,22 +353,50 @@ export function Scoreboard({
         : { key, dir: naturalDir(key) }, // 새 컬럼 → 자연 기본 방향
     );
   }
+  // 벤더 필터: board에서 등장 벤더 집계 → 숨김 토글이 차트·표·누수 뷰 모두에 반영된다.
+  const vendorCounts = useMemo(() => {
+    const m = new Map<VendorKey, number>();
+    for (const b of board) m.set(inferModelVendor(b.model_id), (m.get(inferModelVendor(b.model_id)) ?? 0) + 1);
+    return m;
+  }, [board]);
+  const filteredBoard = useMemo(
+    () =>
+      hiddenVendors.size === 0
+        ? board
+        : board.filter((b) => !hiddenVendors.has(inferModelVendor(b.model_id))),
+    [board, hiddenVendors],
+  );
+  const filteredLeaks = useMemo(
+    () =>
+      hiddenVendors.size === 0
+        ? leaks
+        : leaks.filter((l) => !hiddenVendors.has(inferModelVendor(l.model_id))),
+    [leaks, hiddenVendors],
+  );
+  function toggleVendor(v: VendorKey) {
+    setHiddenVendors((prev) => {
+      const next = new Set(prev);
+      if (next.has(v)) next.delete(v);
+      else next.add(v);
+      return next;
+    });
+  }
   // 기본 정렬이면 재정렬 생략 → computeScoreboard의 3단계 순서(총합 속도 tie-break 포함) 그대로 유지.
   const sortedBoard = useMemo(
-    () => (sortEquals(sort, DEFAULT_SCOREBOARD_SORT) ? board : sortScoreboard(board, sort)),
-    [board, sort],
+    () => (sortEquals(sort, DEFAULT_SCOREBOARD_SORT) ? filteredBoard : sortScoreboard(filteredBoard, sort)),
+    [filteredBoard, sort],
   );
   const colorByModel = useMemo(() => buildModelColorMap(rows.map((r) => r.model_id)), [rows]);
-  // 속도 막대는 각 열(텍스트/비전/총합) 최고 속도점 대비 상대 길이 — 열별 max를 미리 구한다.
+  // 속도 막대는 각 열(텍스트/비전/총합) 최고 속도점 대비 상대 길이 — 열별 max를 미리 구한다(필터 반영).
   const maxSpeed = useMemo(() => {
     const m = { text: 0, vision: 0, total: 0 };
-    for (const b of board) {
+    for (const b of filteredBoard) {
       if (b.speed.text.score != null) m.text = Math.max(m.text, b.speed.text.score);
       if (b.speed.vision.score != null) m.vision = Math.max(m.vision, b.speed.vision.score);
       if (b.speed.total.score != null) m.total = Math.max(m.total, b.speed.total.score);
     }
     return m;
-  }, [board]);
+  }, [filteredBoard]);
 
   const loadingLayout = loading && benchModelOrder.length > 0;
   const boardByModelId = useMemo(() => new Map(board.map((b) => [b.model_id, b])), [board]);
@@ -367,11 +409,14 @@ export function Scoreboard({
   if (loading && benchModelOrder.length === 0 && board.length === 0) return null;
 
   const multiModel = loadingLayout ? benchModelOrder.length >= 2 : colorByModel.size >= 2;
-  const anyJudgeCap = board.some((b) => b.quality.caveats.includes("judge_capped"));
-  const anyApprox = board.some((b) => b.speed.approxCaveat);
-  const anyTextOnly = board.some((b) => b.textOnly);
+  const anyJudgeCap = filteredBoard.some((b) => b.quality.caveats.includes("judge_capped"));
+  const anyApprox = filteredBoard.some((b) => b.speed.approxCaveat);
+  const anyTextOnly = filteredBoard.some((b) => b.textOnly);
   // 기본=차트지만 라이브 벤치 로딩 중엔 큐-순서 표 스켈레톤을 강제(차트 스켈레톤은 후속). 데이터 도착 후 토글대로.
   const showChart = view === "chart" && !loadingLayout;
+  // 벤더 필터는 벤치 로딩 중이 아니고 벤더가 2종 이상일 때만 노출.
+  const showVendorFilter = !loadingLayout && vendorCounts.size >= 2;
+  const allVendorsHidden = !loadingLayout && filteredBoard.length === 0;
 
   return (
     <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
@@ -414,10 +459,51 @@ export function Scoreboard({
           속도 = 상한 없는 점수(막대 길이·색 모두 각 열 최고점 대비 상대) · 지연 = TTFT ms(낮을수록 좋음)
         </span>
       </div>
-      {showChart ? (
-        <ScoreboardChart board={board} colorByModel={colorByModel} multiModel={multiModel} />
+      {showVendorFilter ? (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="text-[var(--muted)]">벤더:</span>
+          {[...vendorCounts.entries()]
+            .sort((a, b) => b[1] - a[1] || (VENDOR_BRAND[a[0]].label < VENDOR_BRAND[b[0]].label ? -1 : 1))
+            .map(([v, count]) => {
+              const hidden = hiddenVendors.has(v);
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => toggleVendor(v)}
+                  aria-pressed={!hidden}
+                  title={`${VENDOR_BRAND[v].label} ${hidden ? "보이기" : "숨기기"}`}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors ${
+                    hidden
+                      ? "border border-dashed border-[var(--border)] text-[var(--muted)] opacity-60"
+                      : "border border-[var(--accent)] text-[var(--foreground)]"
+                  }`}
+                >
+                  <VendorIcon vendor={v} size={12} />
+                  {VENDOR_BRAND[v].label}
+                  <span className="text-[var(--muted)]">{count}</span>
+                </button>
+              );
+            })}
+          {hiddenVendors.size > 0 ? (
+            <button
+              type="button"
+              onClick={() => setHiddenVendors(new Set())}
+              className="ml-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--muted)] hover:text-[var(--foreground)]"
+            >
+              전체
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {allVendorsHidden ? (
+        <p className="rounded border border-dashed border-[var(--border)] px-3 py-10 text-center text-xs text-[var(--muted)]">
+          모든 벤더가 숨겨졌습니다. 위 필터에서 벤더를 선택해 다시 표시하세요.
+        </p>
+      ) : showChart ? (
+        <ScoreboardChart board={filteredBoard} providerByModel={providerByModel} />
       ) : view === "leaks" && !loadingLayout ? (
-        <LeakTable leaks={leaks} />
+        <LeakTable leaks={filteredLeaks} />
       ) : (
       <div className="overflow-x-auto rounded border border-[var(--border)]">
         <table className="w-full min-w-[46rem] text-left text-sm">
@@ -462,6 +548,7 @@ export function Scoreboard({
                         barColor={barColor}
                         multiModel={multiModel}
                         maxSpeed={maxSpeed}
+                        provider={providerByModel?.get(modelId)}
                       />
                     );
                   }
@@ -483,6 +570,7 @@ export function Scoreboard({
                     barColor={multiModel ? colorByModel.get(b.model_id) : undefined}
                     multiModel={multiModel}
                     maxSpeed={maxSpeed}
+                    provider={providerByModel?.get(b.model_id)}
                   />
                 ))}
           </tbody>

@@ -159,6 +159,13 @@ export const SamplingParamsSchema = z.object({
 
 export { ProviderKindSchema, type ProviderKind } from "./provider-kind";
 
+export {
+  inferModelVendor,
+  cleanModelDisplayName,
+  parseModelQuant,
+  type VendorKey,
+} from "./model-vendor";
+
 export const DetectStepSchema = z.object({
   name: z.string(),
   ok: z.boolean(),

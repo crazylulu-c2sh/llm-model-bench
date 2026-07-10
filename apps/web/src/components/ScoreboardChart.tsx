@@ -11,14 +11,18 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { ProviderKind, VendorKey } from "@llm-bench/shared";
+import { cleanModelDisplayName, inferModelVendor, parseModelQuant } from "@llm-bench/shared";
 import { APPROX_TITLE, CAP_TITLE, GROUP_LABEL, METRIC_LABEL } from "../lib/score-bands";
 import {
   buildScoreboardChartData,
+  reorderChartDataByVendor,
   type ChartGroup,
   type ChartMetric,
   type ScoreboardChartDatum,
 } from "../lib/scoreboard-chart";
 import type { ScoreboardRow } from "../lib/scoreboard";
+import { BackendIcon, VENDOR_BRAND, VendorIcon, backendLabel, vendorGlyphSvg } from "./VendorIcon";
 
 /** 카드 내 세그먼트 토글(AppHeader 탭 시각 스타일 재사용). 뷰 토글에서도 import해 쓴다. */
 export function Segmented<T extends string>({
@@ -62,47 +66,70 @@ export function Segmented<T extends string>({
   );
 }
 
-function truncId(id: string): string {
-  return id.length > 16 ? `${id.slice(0, 15)}…` : id;
+type ColorMode = "score" | "vendor";
+type OrderMode = "score" | "vendor";
+
+/** 모델당 벤더·정제명·양자화(렌더마다 regex 방지). */
+type ModelMeta = { vendor: VendorKey; display: string; quant: string | null };
+
+/** 상위 3위 포디움 색(금/은/동). 그 외 null. 라이트/다크 양쪽에서 읽히는 중간 명도. */
+const PODIUM_COLOR: Record<number, string> = { 1: "#E8A317", 2: "#9AA5B1", 3: "#C77B30" };
+function podiumColor(rank: number): string | null {
+  return PODIUM_COLOR[rank] ?? null;
 }
 
-/** 회전(-45°) X축 틱: 순위 번호 + 절단 모델명. 1위는 accent·굵게. (전체 id·caveat은 툴팁.) */
+/** 벤더 색 막대 채움(currentColor 마크는 foreground로). */
+function vendorBarFill(vendor: VendorKey): string {
+  const c = VENDOR_BRAND[vendor].color;
+  return c === "currentColor" ? "var(--foreground)" : c;
+}
+
+function truncName(s: string): string {
+  return s.length > 18 ? `${s.slice(0, 17)}…` : s;
+}
+
+/**
+ * 회전 X축 틱(레퍼런스 스타일): 막대 아래 미회전 벤더 로고 + 그 아래 45° 회전 정제명(순위 접두).
+ * 1~3위는 포디움 색. 전체 id는 `<title>`.
+ */
 function ModelTick({
   x = 0,
   y = 0,
   payload,
   data,
+  meta,
 }: {
   x?: number;
   y?: number;
   payload?: { value?: string | number };
   data: ScoreboardChartDatum[];
+  meta: Map<string, ModelMeta>;
 }) {
   const id = String(payload?.value ?? "");
   const d = data.find((r) => r.model_id === id);
+  const m = meta.get(id);
   const rank = d?.rank ?? 0;
-  const isTop = rank === 1;
-  const label = rank > 0 ? `${rank}. ${truncId(id)}` : truncId(id);
+  const nameColor = podiumColor(rank) ?? (rank === 1 ? "var(--accent)" : "var(--chart-tick)");
+  const display = m ? m.display : id;
+  const label = rank > 0 ? `${rank}. ${truncName(display)}` : truncName(display);
   return (
     <g transform={`translate(${x},${y})`}>
+      {m ? vendorGlyphSvg(m.vendor, 0, 2, 18) : null}
       <text
-        transform="rotate(-45)"
-        x={0}
-        y={0}
-        dx={-4}
-        dy={4}
+        transform="translate(0,26) rotate(-45)"
         textAnchor="end"
         fontSize={10}
-        fontWeight={isTop ? 600 : 400}
-        fill={isTop ? "var(--accent)" : "var(--chart-tick)"}
+        fontWeight={rank >= 1 && rank <= 3 ? 600 : 400}
+        fill={nameColor}
       >
         {label}
+        <title>{id}</title>
       </text>
     </g>
   );
 }
 
-/** 막대 위 값 라벨: 반올림 점수(+caveat `*`). null은 `—`. 1위 accent·굵게. */
+/** 막대 위 값 라벨: 반올림 점수(+caveat `*`). null은 `—`. 1~3위 포디움 색·굵게. */
 function ValueLabel({
   x = 0,
   y = 0,
@@ -129,7 +156,7 @@ function ValueLabel({
       </text>
     );
   }
-  const isTop = d.rank === 1;
+  const podium = d.rank >= 1 && d.rank <= 3;
   const caveat = (metric === "quality" && d.capped) || (metric === "speed" && d.approx);
   return (
     <text
@@ -137,8 +164,8 @@ function ValueLabel({
       y={cy}
       textAnchor="middle"
       fontSize={10}
-      fontWeight={isTop ? 600 : 500}
-      fill={isTop ? "var(--accent)" : "var(--foreground)"}
+      fontWeight={podium ? 700 : 500}
+      fill={podiumColor(d.rank) ?? "var(--foreground)"}
     >
       {Math.round(d.value ?? 0)}
       {caveat ? "*" : ""}
@@ -146,38 +173,47 @@ function ValueLabel({
   );
 }
 
-/** 커스텀 툴팁: 전체 model_id(+정체성 점) + 선택 그룹×지표 값 + caveat 문구. */
+/** 커스텀 툴팁: 벤더 아이콘·라벨 + (백엔드) + 전체 model_id + 양자화 + 값 + caveat. */
 function ChartTooltip({
   active,
   payload,
   metric,
   group,
-  colorByModel,
-  multiModel,
+  meta,
+  providerByModel,
 }: {
   active?: boolean;
   payload?: Array<{ payload: ScoreboardChartDatum }>;
   metric: ChartMetric;
   group: ChartGroup;
-  colorByModel: Map<string, string>;
-  multiModel: boolean;
+  meta: Map<string, ModelMeta>;
+  providerByModel?: Map<string, ProviderKind>;
 }) {
   if (!active || !payload || payload.length === 0) return null;
   const d = payload[0]!.payload;
+  const m = meta.get(d.model_id);
+  const provider = providerByModel?.get(d.model_id);
   const val = d.isNull ? "—" : Math.round(d.value ?? 0);
   return (
     <div className="rounded border border-[var(--chart-tooltip-border)] bg-[var(--chart-tooltip-bg)] px-2.5 py-1.5 text-xs text-[var(--chart-tooltip-fg)] shadow">
       <div className="mb-1 flex items-center gap-1.5 font-medium">
-        {multiModel ? (
-          <span
-            className="size-2 shrink-0 rounded-full"
-            style={{ background: colorByModel.get(d.model_id) }}
-            aria-hidden
-          />
+        {m ? <VendorIcon vendor={m.vendor} size={14} className="shrink-0" /> : null}
+        <span>{m ? VENDOR_BRAND[m.vendor].label : "모델"}</span>
+        {provider ? (
+          <>
+            <span className="text-[var(--chart-tooltip-label)]">·</span>
+            <BackendIcon provider={provider} size={12} className="shrink-0" />
+            <span className="text-[var(--chart-tooltip-label)]">{backendLabel(provider)}</span>
+          </>
         ) : null}
-        <span className="font-mono">{d.model_id}</span>
+        {m?.quant ? (
+          <span className="rounded border border-[var(--chart-tooltip-border)] px-1 font-mono text-[10px]">
+            {m.quant}
+          </span>
+        ) : null}
       </div>
-      <div className="font-mono">
+      <div className="font-mono text-[11px] text-[var(--chart-tooltip-label)]">{d.model_id}</div>
+      <div className="mt-0.5 font-mono">
         {GROUP_LABEL[group]} {METRIC_LABEL[metric]}: {val}
       </div>
       {metric === "quality" && d.capped ? (
@@ -193,33 +229,56 @@ function ChartTooltip({
   );
 }
 
-const SLOT_PX = 54;
+const SLOT_PX = 60;
 
 /**
  * 스코어보드 "랭킹 세로 막대 그래프". 이미 계산된 board를 받아 선택 (그룹×지표) 기준
- * best→worst 막대로 그린다(값 라벨·점수 밴드색·1위 강조·평균선). 표와 순서·색·caveat 일치.
+ * best→worst 막대로 그린다. 막대 아래 벤더 로고 + 정제명, 값 라벨, 점수/벤더 색, 포디움, 평균선.
  * 개별 막대는 focusable 아님 — 완전한 키보드/SR 접근은 표 뷰(뷰 토글)가 담당한다.
  */
 export function ScoreboardChart({
   board,
-  colorByModel,
-  multiModel,
+  providerByModel,
 }: {
   board: ScoreboardRow[];
-  colorByModel: Map<string, string>;
-  multiModel: boolean;
+  providerByModel?: Map<string, ProviderKind>;
 }) {
   const [group, setGroup] = useState<ChartGroup>("total");
   const [metric, setMetric] = useState<ChartMetric>("quality");
+  const [colorMode, setColorMode] = useState<ColorMode>("score");
+  const [orderMode, setOrderMode] = useState<OrderMode>("score");
+
+  const meta = useMemo(
+    () =>
+      new Map<string, ModelMeta>(
+        board.map((b) => [
+          b.model_id,
+          {
+            vendor: inferModelVendor(b.model_id),
+            display: cleanModelDisplayName(b.model_id),
+            quant: parseModelQuant(b.model_id),
+          },
+        ]),
+      ),
+    [board],
+  );
 
   const { data, average, domainMax } = useMemo(
     () => buildScoreboardChartData(board, group, metric),
     [board, group, metric],
   );
+  // 정렬 모드: 벤더별이면 벤더 그룹으로 재배열(rank는 metric 랭킹 그대로 유지).
+  const displayData = useMemo(
+    () =>
+      orderMode === "vendor"
+        ? reorderChartDataByVendor(data, (id) => meta.get(id)?.vendor ?? "unknown")
+        : data,
+    [data, orderMode, meta],
+  );
   // recharts는 value:null 막대를 안 그리므로 plotValue(널→0)로 자리를 잡고, null 표기는 라벨(`—`)·색으로 구분.
   const rechartsData = useMemo(
-    () => data.map((d) => ({ ...d, plotValue: d.isNull ? 0 : (d.value ?? 0) })),
-    [data],
+    () => displayData.map((d) => ({ ...d, plotValue: d.isNull ? 0 : (d.value ?? 0) })),
+    [displayData],
   );
 
   const anyCapped = metric === "quality" && data.some((d) => d.capped);
@@ -227,6 +286,20 @@ export function ScoreboardChart({
   const anyTextOnly = data.some((d) => d.textOnly);
   const allNull = data.length === 0 || data.every((d) => d.isNull);
   const minWidth = Math.max(320, data.length * SLOT_PX);
+
+  // 벤더 색 모드 범례: 실제 등장한 벤더만(등장 순서).
+  const legendVendors = useMemo(() => {
+    const seen = new Set<VendorKey>();
+    const out: VendorKey[] = [];
+    for (const d of data) {
+      const v = meta.get(d.model_id)?.vendor ?? "unknown";
+      if (!seen.has(v)) {
+        seen.add(v);
+        out.push(v);
+      }
+    }
+    return out;
+  }, [data, meta]);
 
   const summary = useMemo(() => {
     const scored = data.filter((d) => !d.isNull);
@@ -261,6 +334,33 @@ export function ScoreboardChart({
             { value: "vision", label: GROUP_LABEL.vision },
           ]}
         />
+        <Segmented
+          ariaLabel="색"
+          value={colorMode}
+          onChange={setColorMode}
+          options={[
+            { value: "score", label: "점수색" },
+            { value: "vendor", label: "벤더색" },
+          ]}
+        />
+        <Segmented
+          ariaLabel="정렬"
+          value={orderMode}
+          onChange={setOrderMode}
+          options={[
+            { value: "score", label: "점수순" },
+            { value: "vendor", label: "벤더별" },
+          ]}
+        />
+        {average !== undefined ? (
+          <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-[var(--muted)]">
+            <span
+              className="inline-block h-0 w-4 border-t border-dashed border-[var(--chart-ref-line)]"
+              aria-hidden
+            />
+            평균 {Math.round(average)}
+          </span>
+        ) : null}
       </div>
 
       {allNull ? (
@@ -270,10 +370,10 @@ export function ScoreboardChart({
       ) : (
         <div className="overflow-x-auto" role="img" aria-label={summary}>
           <div style={{ minWidth }}>
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={360}>
               <BarChart
                 data={rechartsData}
-                margin={{ top: 24, right: 12, left: 0, bottom: 64 }}
+                margin={{ top: 24, right: 16, left: 0, bottom: 88 }}
                 barCategoryGap="22%"
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
@@ -283,8 +383,8 @@ export function ScoreboardChart({
                   interval={0}
                   tickLine={false}
                   axisLine={{ stroke: "var(--chart-grid)" }}
-                  tick={<ModelTick data={data} />}
-                  height={64}
+                  tick={<ModelTick data={displayData} meta={meta} />}
+                  height={96}
                 />
                 <YAxis
                   type="number"
@@ -300,41 +400,49 @@ export function ScoreboardChart({
                     <ChartTooltip
                       metric={metric}
                       group={group}
-                      colorByModel={colorByModel}
-                      multiModel={multiModel}
+                      meta={meta}
+                      providerByModel={providerByModel}
                     />
                   }
                 />
                 {average !== undefined && data.length >= 2 ? (
-                  <ReferenceLine
-                    y={average}
-                    stroke="var(--chart-ref-line)"
-                    strokeDasharray="4 4"
-                    label={{
-                      value: `평균 ${Math.round(average)}`,
-                      fill: "var(--chart-tick)",
-                      fontSize: 10,
-                      position: "top",
-                    }}
-                  />
+                  <ReferenceLine y={average} stroke="var(--chart-ref-line)" strokeDasharray="4 4" />
                 ) : null}
                 <Bar dataKey="plotValue" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                  {rechartsData.map((d) => (
-                    <Cell
-                      key={d.model_id}
-                      fill={d.isNull ? "var(--border)" : d.color}
-                      fillOpacity={d.isNull ? 0.35 : 1}
-                      stroke={d.rank === 1 && !d.isNull ? "var(--accent)" : undefined}
-                      strokeWidth={d.rank === 1 && !d.isNull ? 2 : 0}
-                    />
-                  ))}
-                  <LabelList dataKey="plotValue" content={<ValueLabel data={data} metric={metric} />} />
+                  {rechartsData.map((d) => {
+                    const fill = d.isNull
+                      ? "var(--border)"
+                      : colorMode === "vendor"
+                        ? vendorBarFill(meta.get(d.model_id)?.vendor ?? "unknown")
+                        : d.color;
+                    return (
+                      <Cell
+                        key={d.model_id}
+                        fill={fill}
+                        fillOpacity={d.isNull ? 0.35 : 1}
+                        stroke={d.rank === 1 && !d.isNull ? "var(--accent)" : undefined}
+                        strokeWidth={d.rank === 1 && !d.isNull ? 2 : 0}
+                      />
+                    );
+                  })}
+                  <LabelList dataKey="plotValue" content={<ValueLabel data={displayData} metric={metric} />} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
+
+      {colorMode === "vendor" && !allNull ? (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--muted)]">
+          {legendVendors.map((v) => (
+            <span key={v} className="inline-flex items-center gap-1">
+              <VendorIcon vendor={v} size={12} />
+              {VENDOR_BRAND[v].label}
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       {anyCapped || anyApprox || anyTextOnly ? (
         <div className="mt-2 space-y-1 text-xs leading-relaxed text-[var(--muted)]">

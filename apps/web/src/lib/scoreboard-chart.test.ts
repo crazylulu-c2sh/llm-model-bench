@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildScoreboardChartData } from "./scoreboard-chart";
+import { buildScoreboardChartData, reorderChartDataByVendor } from "./scoreboard-chart";
 import {
   computeScoreboard,
   DEFAULT_SCOREBOARD_SORT,
@@ -116,6 +116,26 @@ describe("buildScoreboardChartData 기타", () => {
   it("textOnly 플래그 전파", () => {
     const board = computeScoreboard([srow({ model_id: "t", scenario: "chat_hello", tps: 30, score: 1 })]);
     expect(buildScoreboardChartData(board, "total", "quality").data[0]!.textOnly).toBe(true);
+  });
+
+  it("reorderChartDataByVendor: 벤더 그룹으로 안정 정렬(내부 metric 순서 유지, unknown 뒤)", () => {
+    const board = computeScoreboard([
+      srow({ model_id: "gemma-4-e2b", scenario: "chat_hello", tps: 30, score: 1 }), // google, q100
+      srow({ model_id: "qwen2.5-7b", scenario: "chat_hello", tps: 30, score: 0.9 }), // alibaba, q90
+      srow({ model_id: "gemma-3-2b", scenario: "chat_hello", tps: 30, score: 0.8 }), // google, q80
+      srow({ model_id: "mystery-x", scenario: "chat_hello", tps: 30, score: 0.7 }), // unknown, q70
+    ]);
+    const { data } = buildScoreboardChartData(board, "total", "quality");
+    // metric 순서: gemma-4-e2b(100) > qwen2.5-7b(90) > gemma-3-2b(80) > mystery-x(70)
+    const vendorOf = (id: string) =>
+      id.startsWith("gemma") ? "google" : id.startsWith("qwen") ? "alibaba" : "unknown";
+    const ordered = reorderChartDataByVendor(data, vendorOf).map((d) => d.model_id);
+    // alibaba < google < unknown(뒤). 그룹 내부는 metric 순서 유지(gemma-4-e2b 먼저).
+    expect(ordered).toEqual(["qwen2.5-7b", "gemma-4-e2b", "gemma-3-2b", "mystery-x"]);
+    // rank는 그대로 metric 랭킹
+    const byId = new Map(reorderChartDataByVendor(data, vendorOf).map((d) => [d.model_id, d.rank]));
+    expect(byId.get("gemma-4-e2b")).toBe(1);
+    expect(byId.get("mystery-x")).toBe(4);
   });
 
   it("그룹 독립성: 텍스트 품질 랭킹 ≠ 비전 품질 랭킹", () => {
