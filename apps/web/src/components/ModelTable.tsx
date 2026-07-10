@@ -10,6 +10,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Search, Square, X } from "lucide-react";
+import { ModelLabel } from "./ModelLabel";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -227,7 +228,7 @@ export function ModelTable({
             {sortDirIcon(column)}
           </button>
         ),
-        cell: (info) => <span className="font-mono text-xs">{info.getValue()}</span>,
+        cell: (info) => <ModelLabel modelId={info.getValue()} showQuant size={14} className="text-xs" />,
         sortingFn: "alphanumeric",
       }),
       columnHelper.accessor("label", {

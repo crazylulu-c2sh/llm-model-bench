@@ -10,6 +10,7 @@ import { HighlightToggle } from "./components/JsonCodeBlock";
 import type { ResultRow } from "./components/ResultsTable";
 import { ResultsTable } from "./components/ResultsTable";
 import { Scoreboard } from "./components/Scoreboard";
+import { ProviderKindSchema, type ProviderKind } from "@llm-bench/shared";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
 import { compareModelIdAlphanumeric, compareModelKey, normalizeBaseUrl } from "./lib/model-sort";
@@ -17,6 +18,11 @@ import { buildChartRowsFromBenchState, mergeBenchDetailsToState, type MetricsAgg
 
 function statsItemHasResults(it: StatsModelLatestItem): boolean {
   return (it.scenario_count ?? 0) > 0;
+}
+
+/** StatsModelLatestItem.provider(string)를 ProviderKind로 코어션(미상→manual). */
+function asProviderKind(p: string): ProviderKind {
+  return ProviderKindSchema.safeParse(p).success ? (p as ProviderKind) : "manual";
 }
 
 export function StatsPage() {
@@ -173,6 +179,11 @@ export function StatsPage() {
   const selectedMap = useMemo(() => Object.fromEntries(selectedIds.map((id) => [id, true])), [selectedIds]);
 
   const selectableCount = useMemo(() => listItems.filter(statsItemHasResults).length, [listItems]);
+  // model_id → 백엔드(스코어보드 벤더 아이콘 옆 배지·툴팁용). listItems가 이미 provider를 담고 있어 추가 fetch 없음.
+  const providerByModel = useMemo(
+    () => new Map(listItems.map((it) => [it.model_id, asProviderKind(it.provider)])),
+    [listItems],
+  );
 
   const canSelectStatsRow = useCallback((row: StatsModelLatestItem) => statsItemHasResults(row), []);
 
@@ -324,7 +335,7 @@ export function StatsPage() {
         )}
       </section>
 
-      <Scoreboard rows={rows} detailAggregate={detailAggregate} />
+      <Scoreboard rows={rows} detailAggregate={detailAggregate} providerByModel={providerByModel} />
 
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">

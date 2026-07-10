@@ -1,7 +1,7 @@
 import type { DetectResult } from "@llm-bench/shared";
 import { AlertTriangle, Bot, Check, Cloud, Cpu, MessageSquare, Server, Wrench, X } from "lucide-react";
 
-function providerIcon(provider: DetectResult["provider"]) {
+export function providerIcon(provider: DetectResult["provider"]) {
   switch (provider) {
     case "lm_studio":
       return Cpu;

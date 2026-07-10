@@ -242,6 +242,11 @@ export function App() {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [log, setLog] = useState<string[]>([]);
   const [rows, setRows] = useState<ResultRow[]>([]);
+  // 라이브 벤치는 단일 서버 대상 → detect.provider가 모든 모델에 균일. 스코어보드 백엔드 배지용.
+  const providerByModel = useMemo(
+    () => (detect ? new Map(rows.map((r) => [r.model_id, detect.provider])) : undefined),
+    [detect, rows],
+  );
   const [running, setRunning] = useState(false);
   const [preview, setPreview] = useState("");
   const [hlPreview, setHlPreview] = useState(boot.hlPreview);
@@ -1829,6 +1834,7 @@ export function App() {
           detailAggregate={detailAggregate}
           loading={running}
           benchModelOrder={benchQueueDraft.map((m) => m.id)}
+          providerByModel={providerByModel}
         />
 
         <section
