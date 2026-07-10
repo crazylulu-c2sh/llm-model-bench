@@ -263,6 +263,21 @@ function scoreCodeSortJs(code: string): { pass: boolean; score: number; reason?:
   return { pass: true, score: 1 };
 }
 
+/**
+ * 펜스 코드 블록에서 첫 "비어있지 않은" 블록 본문을 추출한다.
+ * 모델이 산문에서 인라인 펜스(예: "one fenced ```js``` block")를 언급하면 non-greedy
+ * 정규식이 그 빈 토큰을 먼저 잡아 실제 코드 펜스를 놓치고 "missing sortNums"로 오판정하던
+ * 문제를 피하기 위해, 빈/공백뿐인 블록은 건너뛴다. 유효 블록이 없으면 원문 전체를 채점 대상으로 반환.
+ */
+function firstFencedCodeBlock(base: string, langAlt: string): string {
+  const re = new RegExp("```(?:" + langAlt + ")?\\s*([\\s\\S]*?)```", "gi");
+  for (const m of base.matchAll(re)) {
+    const body = m[1].trim();
+    if (body.length > 0) return body;
+  }
+  return base;
+}
+
 function scoreCodeSortPy(code: string): { pass: boolean; score: number; reason?: string } {
   if (!/def\s+sort_nums/.test(code)) return { pass: false, score: 0, reason: "missing def sort_nums" };
   if (/\bsorted\s*\(/.test(code)) return { pass: false, score: 0, reason: "builtin sort not allowed" };
@@ -301,15 +316,11 @@ export function scoreScenario(
     }
     case "code_sort_js": {
       const base = stripThinkingBlocks(output);
-      const m = base.match(/```(?:js|javascript)?\s*([\s\S]*?)```/i);
-      const code = m?.[1] ?? base;
-      return scoreCodeSortJs(code);
+      return scoreCodeSortJs(firstFencedCodeBlock(base, "js|javascript"));
     }
     case "code_sort_py": {
       const base = stripThinkingBlocks(output);
-      const m = base.match(/```(?:python|py)?\s*([\s\S]*?)```/i);
-      const code = m?.[1] ?? base;
-      return scoreCodeSortPy(code);
+      return scoreCodeSortPy(firstFencedCodeBlock(base, "python|py"));
     }
     case "translate_nist_fips197_pdf_tools": {
       const response = stripThinkingBlocks(output);
