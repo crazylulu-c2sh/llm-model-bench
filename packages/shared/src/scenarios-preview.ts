@@ -152,6 +152,7 @@ import {
   LONG_CONTEXT_USER_KO,
 } from "./stress-long-context-corpus";
 import { DEFAULT_CALENDAR_TIMEZONE } from "./scenario-scoring-constants";
+import { getScenarioDef } from "./scenario-registry";
 
 const STRESS_PING_USER_BASE = "ping";
 const STRESS_SHORT_REPLY_EN_USER = "In one short sentence, explain what a load test measures.";
@@ -171,6 +172,8 @@ function appendStressClientSuffix(base: string, idx: number | undefined, lang: "
  * `chat_time_calendar`는 `referenceIso`·`calendarTimeZone`이 포함된다.
  */
 export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPreviewOpts): string {
+  const def = getScenarioDef(id); // #79/#83: 레지스트리 시나리오 fallback(built-in 분기 전).
+  if (def) return def.user;
   switch (id as ScenarioId) {
     case "chat_hello":
       return "hello";
@@ -260,6 +263,8 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
 
 /** 벤치 시나리오의 시스템 프롬프트 미리보기(저장·UI 표시용). */
 export function getScenarioSystemPromptPreview(id: string): string {
+  const def = getScenarioDef(id); // #79/#83: 레지스트리 시나리오 fallback(built-in 분기 전).
+  if (def) return def.system;
   switch (id as ScenarioId) {
     case "chat_hello":
     case "chat_ping":

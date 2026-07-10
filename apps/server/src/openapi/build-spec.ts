@@ -115,7 +115,7 @@ export function buildOpenApiSpec(): object {
             {
               name: "set",
               in: "query",
-              schema: { type: "string", enum: ["public", "default", "vision", "all"] },
+              schema: { type: "string", enum: ["public", "default", "vision", "agent", "all"] },
               description: "기본 public",
             },
           ],

@@ -13,6 +13,8 @@ import {
   PUBLIC_SCENARIO_IDS,
   approxOutputTokens,
   defaultMaxTokensForVisionScenario,
+  getScenarioDef,
+  isRegisteredScenario,
   isVisionScenario,
   normalizeScenarioIdsForBench,
   resolveBenchApiRoutes,
@@ -61,6 +63,11 @@ import {
   lmStudioUnload,
 } from "./lmstudio.js";
 import { preflightMemoryFit } from "./memory-preflight.js";
+import {
+  runAgentLoopAnthropic,
+  runAgentLoopOpenAi,
+  type AgentLoopMetrics,
+} from "./agent-loop.js";
 import {
   anthropicExtrasFromMeta,
   buildProfileAugmentedMeta,
@@ -164,9 +171,11 @@ export function makeBenchRunMeta(
   // 실행한다 — 비전 시나리오는 opt-in. (이전 폴백 = PUBLIC_SCENARIO_IDS는 비전 포함 18개라 비용 폭증.)
   const userScenarioIds = input.scenarioIds?.length
     ? input.scenarioIds.filter(
+        // #79/#83: built-in 공개 시나리오 또는 레지스트리(agent_loop·커스텀) 시나리오 허용.
         (s): s is ScenarioId =>
-          (PUBLIC_SCENARIO_IDS as readonly string[]).includes(s) &&
-          (ALL_SCENARIO_IDS as readonly string[]).includes(s),
+          ((PUBLIC_SCENARIO_IDS as readonly string[]).includes(s) &&
+            (ALL_SCENARIO_IDS as readonly string[]).includes(s)) ||
+          isRegisteredScenario(s),
       )
     : null;
   const rawScenarioIds: ScenarioId[] =
@@ -682,6 +691,12 @@ export async function* runBench(
           empty_response?: boolean;
           /** #80: 가시 content에 <think>/<|channel|> 태그 잔존(라우트 무관). */
           channel_tag_leak_detected?: boolean;
+          /** #79: agent_loop 메트릭. */
+          empty_turn_count?: number;
+          turns_to_completion?: number | null;
+          valid_tool_call_rate?: number;
+          intermediate_turn_leak?: boolean;
+          agent_completion_reason?: "completed" | "stall" | "budget_exhausted";
           quality?: { pass: boolean; score?: number; reason?: string };
         }[] = [];
 
@@ -841,8 +856,44 @@ export async function* runBench(
             /** 최종 OpenAI(chat) 스트림 메트릭 — reasoning-누수 판정에 raw assistantText/reasoningText로 사용. */
             let lastOpenAiMetrics: OpenAiStreamMetrics | null = null;
             const invokedBenchTools: string[] = [];
+            let agentMetrics: AgentLoopMetrics | null = null;
 
-            if (
+            const agentLoopDefForRun = getScenarioDef(scenarioId);
+            if (agentLoopDefForRun?.agentLoop) {
+              // #79: 선언형 멀티턴 agent_loop 하네스(mock 도구). token_delta/error 이벤트를 그대로 흘려보낸다.
+              const harnessArgs = {
+                base,
+                apiKey: input.apiKey,
+                model: input.modelId,
+                def: agentLoopDefForRun,
+                meta: scenarioMeta,
+                scenarioId,
+                fetchImpl,
+                signal: reqSignal,
+                requestStartedAt: performance.now(),
+                maxTokens: scenarioMeta.max_tokens,
+                temperature: scenarioMeta.temperature,
+              };
+              const gen =
+                api_route === "chat_completions"
+                  ? runAgentLoopOpenAi(harnessArgs)
+                  : runAgentLoopAnthropic(harnessArgs);
+              let step = await gen.next();
+              while (!step.done) {
+                yield step.value;
+                step = await gen.next();
+              }
+              const ar = step.value;
+              text = ar.text;
+              scoreText = ar.scoreText;
+              ttft = ar.ttft;
+              totalMs = ar.totalMs;
+              streamCompleted = ar.streamCompleted;
+              usageOutputTokens = ar.usageOutputTokens;
+              reasoningChars = ar.reasoningChars;
+              toolArgsCorruptedAny = ar.toolArgsCorruptedAny;
+              agentMetrics = ar.metrics;
+            } else if (
               api_route === "chat_completions" &&
               isTranslateNistFips197PdfToolsScenario(scenarioId)
             ) {
@@ -1273,7 +1324,11 @@ export async function* runBench(
               isJudgeEnabled() &&
               quality.judge_pending === true
             ) {
-              quality = await runJudgeForVisionScenario(scenarioId, text, fetchImpl);
+              // #79/#83: 레지스트리 시나리오는 텍스트/산출물 judge, 그 외(비전)는 이미지 judge.
+              const regDef = getScenarioDef(scenarioId);
+              quality = regDef?.judge
+                ? await runJudgeForRegisteredScenario(regDef, scoreText ?? text, fetchImpl)
+                : await runJudgeForVisionScenario(scenarioId, text, fetchImpl);
             }
             // emit 직전 내부 플래그 제거 — SSE/DB에는 노출되지 않게 한다.
             if (quality && quality.judge_pending === true) {
@@ -1351,6 +1406,15 @@ export async function* runBench(
                 ...(reasoningChars > 0 ? { reasoning_chars: reasoningChars } : {}),
                 ...(emptyResponse ? { empty_response: true } : {}),
                 ...(channelTagLeak ? { channel_tag_leak_detected: true } : {}),
+                ...(agentMetrics
+                  ? {
+                      empty_turn_count: agentMetrics.empty_turn_count,
+                      turns_to_completion: agentMetrics.turns_to_completion,
+                      valid_tool_call_rate: agentMetrics.valid_tool_call_rate,
+                      ...(agentMetrics.intermediate_turn_leak ? { intermediate_turn_leak: true } : {}),
+                      agent_completion_reason: agentMetrics.completion_reason,
+                    }
+                  : {}),
                 quality,
               });
             }
@@ -1574,6 +1638,36 @@ const JUDGE_CRITERIA: Partial<Record<ScenarioId, string>> = {
   vision_wireframe_html_b: WIREFRAME_JUDGE_CRITERION,
 };
 
+/**
+ * #79/#83: 레지스트리 시나리오(agent_loop·커스텀)의 텍스트/산출물 judge.
+ * 이미지 없이 최종 출력만 채점 — judge.ts의 일반화된 runLlmJudge(image 선택 + binary/0-3) 재사용.
+ */
+async function runJudgeForRegisteredScenario(
+  def: import("@llm-bench/shared").ScenarioDef,
+  output: string,
+  fetchImpl: typeof fetch,
+): Promise<{ pass: boolean; score: number; reason: string }> {
+  const rubric = def.judge;
+  if (!rubric) return { pass: true, score: 1, reason: "no judge rubric" };
+  const result = await runLlmJudge({
+    modelOutput: output,
+    criterion: rubric.criterion,
+    scale: rubric.scale,
+    fetchImpl,
+  });
+  if (!result.enabled) return { pass: false, score: 0.33, reason: "judge disabled — prefilter only" };
+  if ("error" in result) {
+    return { pass: false, score: 0, reason: `${result.error}: ${result.reason}`.slice(0, 200) };
+  }
+  if (rubric.scale === "binary") {
+    const pass = result.rubric >= 1;
+    return { pass, score: pass ? 1 : 0, reason: `binary=${result.rubric} | judge: ${result.reason}` };
+  }
+  const rubric03 = Math.max(0, Math.min(3, Math.round(result.rubric))) as 0 | 1 | 2 | 3;
+  const { pass, score } = rubricToScore(rubric03);
+  return { pass, score, reason: `rubric=${rubric03} | judge: ${result.reason}` };
+}
+
 async function runJudgeForVisionScenario(
   scenarioId: ScenarioId,
   output: string,
@@ -1610,10 +1704,12 @@ async function runJudgeForVisionScenario(
       reason: `${result.error}: ${result.reason}`.slice(0, 200),
     };
   }
-  const { pass, score } = rubricToScore(result.rubric);
+  // 비전 저지는 0-3 스케일(judge.ts 기본). rubric은 이제 number 타입이라 0-3으로 클램프 캐스트.
+  const rubric03 = Math.max(0, Math.min(3, Math.round(result.rubric))) as 0 | 1 | 2 | 3;
+  const { pass, score } = rubricToScore(rubric03);
   return {
     pass,
     score,
-    reason: `rubric=${result.rubric} | judge: ${result.reason}`,
+    reason: `rubric=${rubric03} | judge: ${result.reason}`,
   };
 }

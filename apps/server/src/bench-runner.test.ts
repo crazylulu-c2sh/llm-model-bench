@@ -1021,3 +1021,80 @@ describe("runBench memory-fit preflight (#81)", () => {
     expect(events.some((e) => e.type === "run_finished")).toBe(true);
   });
 });
+
+describe("runBench agent_loop scenario (#79)", () => {
+  function sseTool(name: string): Response {
+    const enc = new TextEncoder();
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(
+            enc.encode(
+              `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "c1", type: "function", function: { name, arguments: "{}" } }] } }] })}\n\n`,
+            ),
+          );
+          c.enqueue(enc.encode("data: [DONE]\n\n"));
+          c.close();
+        },
+      }),
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+  }
+  function sseFinal(text: string): Response {
+    const enc = new TextEncoder();
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`));
+          c.enqueue(enc.encode("data: [DONE]\n\n"));
+          c.close();
+        },
+      }),
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+  }
+
+  it("runs agent_loop_mock_v1 end-to-end and records per-run agent metrics", async () => {
+    // read_document → wiki_search → wiki_read → final JSON.
+    const chatTurns = [
+      sseTool("read_document"),
+      sseTool("wiki_search"),
+      sseTool("wiki_read"),
+      sseFinal('{"title":"AES","summary":"symmetric cipher","sources":["aes"]}'),
+    ];
+    let chatIdx = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [] }] });
+      }
+      if (url.endsWith("/api/v1/models/load") || url.endsWith("/api/v1/models/unload")) {
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        return chatTurns[Math.min(chatIdx++, chatTurns.length - 1)]!;
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    let aggregate: { runs?: Array<Record<string, unknown>> } | null = null;
+    const events: string[] = [];
+    for await (const ev of runBench(
+      baseBenchRequest({ scenarioIds: ["agent_loop_mock_v1"] as unknown as ScenarioId[] }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      events.push(ev.type);
+      if (ev.type === "metrics_update") aggregate = ev.aggregate as { runs?: Array<Record<string, unknown>> };
+    }
+
+    expect(events).toContain("run_finished");
+    expect(aggregate?.runs?.length).toBe(1);
+    const run = aggregate!.runs![0]!;
+    expect(run.agent_completion_reason).toBe("completed");
+    expect(run.turns_to_completion).toBe(4);
+    expect(run.empty_turn_count).toBe(0);
+    expect(typeof run.valid_tool_call_rate).toBe("number");
+    expect(run.valid_tool_call_rate).toBeCloseTo(3 / 4, 6); // 3 tool turns / 4 total
+  });
+});

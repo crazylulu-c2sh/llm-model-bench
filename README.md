@@ -184,7 +184,7 @@ AI 에이전트가 이 서비스를 프로그래밍적으로 쓸 수 있도록 *
 
   | 메서드 | 경로 | 설명 |
   |--------|------|------|
-  | GET | `/api/v1/scenarios?set=public\|default\|vision\|all` | 시나리오 카탈로그(메타·프롬프트 포함, DB 무관) |
+  | GET | `/api/v1/scenarios?set=public\|default\|vision\|agent\|all` | 시나리오 카탈로그(메타·프롬프트 포함, DB 무관). `set=agent`는 멀티턴 **agent_loop**(mock-tool 하네스) 시나리오 |
   | GET | `/api/v1/catalog` | 시나리오 + 프로파일 + 스트레스 워크로드 한 번에 |
   | GET | `/api/v1/scoreboard?baseUrl=&modelIds=&task=coding\|vision\|tools\|structured\|chat` | 저장된 최신 런 기반 **서버 사이드 랭킹**(품질·속도) — "X에 어떤 모델이 최고?" |
   | GET | `/api/v1/openapi.json` | OpenAPI 3.1 스펙(Zod 스키마에서 생성) |
