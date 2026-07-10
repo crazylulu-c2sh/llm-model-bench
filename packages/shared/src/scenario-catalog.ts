@@ -183,6 +183,10 @@ export const ScoreboardResponseSchema = z.object({
   rows: z.array(ScoreboardRowResponseSchema),
   /** #80: 모델 × 라우트 누수/정체 지표(선택 — 구버전 응답엔 없음). */
   leaks: z.array(LeakMetricsRowSchema).optional(),
+  /** #81: 메모리-핏 프리플라이트로 skip된 모델(측정 런이 없어 rows엔 없지만 조용히 사라지지 않도록). */
+  skipped: z
+    .array(z.object({ model_id: z.string(), reason: z.string() }))
+    .optional(),
   sqlite_available: z.boolean().optional(),
   sqlite_error: z.string().nullable().optional(),
 });

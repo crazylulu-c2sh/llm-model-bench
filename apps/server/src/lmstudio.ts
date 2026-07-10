@@ -6,13 +6,74 @@ function headers(apiKey?: string): HeadersInit {
   return h;
 }
 
+type LmStudioLoadedInstance = {
+  id?: string;
+  vram_usage?: number;
+  vram?: number;
+  vram_bytes?: number;
+  ram_usage?: number;
+  ram?: number;
+  ram_bytes?: number;
+  context_length?: number;
+};
 type LmStudioListedModel = {
   key?: string;
-  loaded_instances?: unknown[];
+  /** 디스크/가중치 용량(바이트). 메모리-핏 프리플라이트(#81)의 required 예측 입력. */
+  size_bytes?: number;
+  loaded_instances?: LmStudioLoadedInstance[];
 };
 
 function apiRoot(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
+}
+
+/** 인스턴스 객체에서 keys를 순서대로 시도해 첫 유한·비음수 값(monitor-collect numberField와 동일 폴백). */
+function firstNumberField(obj: unknown, keys: string[]): number | undefined {
+  if (!obj || typeof obj !== "object") return undefined;
+  const rec = obj as Record<string, unknown>;
+  for (const k of keys) {
+    const v = rec[k];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) return v;
+  }
+  return undefined;
+}
+
+/** #81: 모델 키에 해당하는 `size_bytes`(디스크/가중치). 없거나 0이면 undefined. */
+export function lmStudioModelSizeBytes(
+  models: readonly LmStudioListedModel[],
+  modelKey: string,
+): number | undefined {
+  const wanted = baseKey(modelKey);
+  for (const m of models) {
+    if (!m || typeof m.key !== "string") continue;
+    if (baseKey(m.key) !== wanted) continue;
+    return typeof m.size_bytes === "number" && m.size_bytes > 0 ? m.size_bytes : undefined;
+  }
+  return undefined;
+}
+
+/** #81: `excludeKey` 이외에 현재 로드된 인스턴스들(메모리 회수 후보). RAM/VRAM 사용량 포함. */
+export function lmStudioResidentInstances(
+  models: readonly LmStudioListedModel[],
+  excludeKey: string,
+): Array<{ modelKey: string; instanceId: string; ramBytes?: number; vramBytes?: number }> {
+  const exclude = baseKey(excludeKey);
+  const out: Array<{ modelKey: string; instanceId: string; ramBytes?: number; vramBytes?: number }> = [];
+  for (const m of models) {
+    if (!m || typeof m.key !== "string") continue;
+    if (baseKey(m.key) === exclude) continue;
+    const instances = Array.isArray(m.loaded_instances) ? m.loaded_instances : [];
+    for (const inst of instances) {
+      const id = inst && typeof inst.id === "string" && inst.id.trim() ? inst.id.trim() : m.key;
+      out.push({
+        modelKey: m.key,
+        instanceId: id,
+        ramBytes: firstNumberField(inst, ["ram_usage", "ram", "ram_bytes"]),
+        vramBytes: firstNumberField(inst, ["vram_usage", "vram", "vram_bytes"]),
+      });
+    }
+  }
+  return out;
 }
 
 /** LM Studio 모델 키 정규화: `:quant`/`:N` 접미를 제거해 bench modelId·CLI ps 키 매칭에 사용. */
