@@ -3,8 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 // DB 경로를 임시로 고정(실데이터 무영향). tryOpenProdBenchDatabase는 최초 요청 때 열림.
 process.env.BENCH_DB_PATH = join(tmpdir(), `llm-bench-apptest-${process.pid}.sqlite`);
+import type { DetectResult } from "@llm-bench/shared";
 import { createApp } from "./app.js";
 import { _setRemoteAddrResolverForTest } from "./util/localhost.js";
+import { makeBenchRunMeta } from "./bench-runner.js";
+import {
+  finishRun,
+  insertRun,
+  tryOpenProdBenchDatabase,
+  upsertScenarioAggregate,
+} from "./db/database.js";
 
 const app = createApp();
 const req = (path: string, init?: RequestInit) => app.request(path, init);
@@ -62,6 +70,86 @@ describe("catalog / scoreboard", () => {
     const j = (await r.json()) as { rows: unknown[]; base_url: string };
     expect(Array.isArray(j.rows)).toBe(true);
     expect(j.base_url).toBe("http://127.0.0.1:1");
+  });
+
+  it("scoreboard returns per-model×route leak metrics (#80)", async () => {
+    const db = tryOpenProdBenchDatabase();
+    expect(db).not.toBeNull();
+    const baseUrl = "http://127.0.0.1:9099";
+    const detect: DetectResult = {
+      provider: "openai_compatible",
+      baseUrl,
+      models: [{ id: "leaky" }],
+      steps: [],
+      capabilities: { openaiChat: true, anthropicMessages: false },
+    };
+    const meta = makeBenchRunMeta(
+      { baseUrl, provider: "openai_compatible", modelId: "leaky", skipModelLoad: true },
+      detect,
+      "leak_run_1",
+    );
+    insertRun(db!, {
+      run_id: meta.run_id,
+      created_at: meta.created_at,
+      base_url: baseUrl,
+      provider: meta.provider,
+      model_id: meta.model_id,
+      meta,
+      status: "running",
+    });
+    upsertScenarioAggregate(db!, {
+      run_id: meta.run_id,
+      scenario_id: "chat_ping",
+      api_route: "chat_completions",
+      aggregate_json: JSON.stringify({
+        scenario_id: "chat_ping",
+        api_route: "chat_completions",
+        runs: [
+          {
+            ttft_ms: 10,
+            total_ms: 100,
+            output_text: "",
+            stream_completed: true,
+            usage_output_tokens: 5,
+            empty_response: true,
+            quality: { pass: false, score: 0 },
+          },
+          {
+            ttft_ms: 20,
+            total_ms: 100,
+            output_text: "answer",
+            stream_completed: true,
+            usage_output_tokens: 5,
+            reasoning_chars: 20,
+            channel_tag_leak_detected: true,
+            quality: { pass: true, score: 1 },
+          },
+        ],
+      }),
+      prompt_preview: "p",
+      prompt_system_preview: "sp",
+    });
+    finishRun(db!, meta.run_id, "ok");
+
+    const r = await req(`/api/scoreboard?baseUrl=${encodeURIComponent(baseUrl)}`);
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as {
+      leaks?: Array<{
+        model_id: string;
+        api_route: string;
+        thinking_leak_ratio: number | null;
+        empty_turn_rate: number;
+        channel_tag_leak: number;
+        n: number;
+      }>;
+    };
+    expect(Array.isArray(j.leaks)).toBe(true);
+    const leak = j.leaks?.find((l) => l.model_id === "leaky" && l.api_route === "chat_completions");
+    expect(leak).toBeDefined();
+    expect(leak?.n).toBe(2);
+    expect(leak?.empty_turn_rate).toBe(0.5); // 1/2
+    expect(leak?.channel_tag_leak).toBe(0.5); // 1/2
+    expect(leak?.thinking_leak_ratio).toBeCloseTo(0.5, 6); // reasoning 5 tok / total 10 tok
   });
 });
 

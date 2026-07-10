@@ -160,6 +160,20 @@ export const ScoreboardRowResponseSchema = z.object({
   speed: ModelSpeedScoreSchema,
   textOnly: z.boolean(),
 });
+// #80: 모델 × api_route 누수/정체 지표. rows(랭킹)와 분리 — 라우트별로 다르게 나타나므로 풀링하지 않는다.
+export const LeakMetricsRowSchema = z.object({
+  model_id: z.string(),
+  api_route: z.enum(["chat_completions", "messages"]),
+  /** reasoning_tokens / total_output_tokens (0~1). 측정 가능한 출력 없으면 null. */
+  thinking_leak_ratio: z.number().nullable(),
+  /** 가시 content 비었고 tool_call 없는 런 비율(0~1). */
+  empty_turn_rate: z.number(),
+  /** 가시 content에 채널/thinking 태그 남은 런 비율(0~1). */
+  channel_tag_leak: z.number(),
+  /** 이 슬라이스 런 수. */
+  n: z.number().int(),
+});
+export type LeakMetricsRow = z.infer<typeof LeakMetricsRowSchema>;
 export const ScoreboardResponseSchema = z.object({
   base_url: z.string(),
   filter: z.object({
@@ -167,6 +181,8 @@ export const ScoreboardResponseSchema = z.object({
     scenarios: z.array(z.string()).optional(),
   }),
   rows: z.array(ScoreboardRowResponseSchema),
+  /** #80: 모델 × 라우트 누수/정체 지표(선택 — 구버전 응답엔 없음). */
+  leaks: z.array(LeakMetricsRowSchema).optional(),
   sqlite_available: z.boolean().optional(),
   sqlite_error: z.string().nullable().optional(),
 });

@@ -149,7 +149,10 @@ export function buildOpenApiSpec(): object {
             },
           ],
           responses: {
-            "200": jsonResponse("ScoreboardResponse", "랭킹된 모델 행"),
+            "200": jsonResponse(
+              "ScoreboardResponse",
+              "랭킹된 모델 행 + 모델×라우트 누수/정체 지표(leaks[]: thinking_leak_ratio·empty_turn_rate·channel_tag_leak)",
+            ),
             "400": badRequest,
           },
         },

@@ -12,7 +12,23 @@ export type BenchScenarioRun = {
   tool_call_args_corrupted?: boolean;
   /** chat 라우트에서 추론이 content로 새어 들어옴 → 엔진 프로토콜 회귀 의심. */
   reasoning_leaked_into_content?: boolean;
+  /** #80: 분리된 reasoning 채널 raw 문자 수(thinking_leak_ratio 분자). */
+  reasoning_chars?: number;
+  /** #80: 가시 content 비었고 tool_call 없음 → 에이전트 정체(empty_turn). */
+  empty_response?: boolean;
+  /** #80: 가시 content에 <think>/<|channel|> 태그 잔존(라우트 무관) → 채널 태그 누수. */
+  channel_tag_leak_detected?: boolean;
   quality?: { pass: boolean; score?: number; reason?: string };
+};
+
+/** #80: GET /api/scoreboard·/api/stats/model-latest 의 모델 × 라우트 누수/정체 지표. */
+export type LeakMetricsRow = {
+  model_id: string;
+  api_route: "chat_completions" | "messages";
+  thinking_leak_ratio: number | null;
+  empty_turn_rate: number;
+  channel_tag_leak: number;
+  n: number;
 };
 
 export type BenchScenarioDetail = {
@@ -68,6 +84,8 @@ export type StatsModelLatestItem = {
   status: string;
   /** 측정 런이 있는 시나리오 개수 — 0이면 선택 불가 */
   scenario_count: number;
+  /** #80: 모델 × 라우트 누수/정체 지표(구버전 응답엔 없음). */
+  leaks?: LeakMetricsRow[];
 };
 
 export type StatsModelLatestResponse = {

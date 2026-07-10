@@ -86,6 +86,9 @@ type MetricsAgg = {
     reasoning_hidden?: boolean;
     tool_call_args_corrupted?: boolean;
     reasoning_leaked_into_content?: boolean;
+    reasoning_chars?: number;
+    empty_response?: boolean;
+    channel_tag_leak_detected?: boolean;
     quality?: { pass: boolean; score?: number; reason?: string };
   }>;
 };
@@ -574,8 +577,12 @@ export function App() {
         outputText: last?.output_text ?? "",
         reasoningHidden: row.reasoning_hidden ?? last?.reasoning_hidden,
         toolCallArgsCorrupted: row.tool_call_args_corrupted ?? last?.tool_call_args_corrupted,
+        // #80: 일반화된 channel_tag_leak를 우선(구버전 런은 기존 reasoning_leaked_into_content로 폴백).
         reasoningLeakedIntoContent:
-          row.reasoning_leaked_into_content ?? last?.reasoning_leaked_into_content,
+          row.channel_tag_leak_detected ??
+          last?.channel_tag_leak_detected ??
+          row.reasoning_leaked_into_content ??
+          last?.reasoning_leaked_into_content,
         measuredRunIndex: n > 0 ? n : undefined,
         measuredRunTotal: n > 0 ? n : undefined,
       });
@@ -616,7 +623,8 @@ export function App() {
         outputText: last?.output_text ?? "",
         reasoningHidden: row.reasoningHidden ?? last?.reasoning_hidden,
         toolCallArgsCorrupted: last?.tool_call_args_corrupted,
-        reasoningLeakedIntoContent: last?.reasoning_leaked_into_content,
+        // #80: 상세 드로어의 "추론 누수" 신호를 일반화된 channel_tag_leak로 구동(구버전 런은 기존 플래그로 폴백).
+        reasoningLeakedIntoContent: last?.channel_tag_leak_detected ?? last?.reasoning_leaked_into_content,
         measuredRunIndex: n > 0 ? n : undefined,
         measuredRunTotal: n > 0 ? n : undefined,
       });
@@ -651,7 +659,8 @@ export function App() {
           outputText: last?.output_text ?? "",
           reasoningHidden: last?.reasoning_hidden,
           toolCallArgsCorrupted: last?.tool_call_args_corrupted,
-          reasoningLeakedIntoContent: last?.reasoning_leaked_into_content,
+          // #80: 상세 드로어의 "추론 누수" 신호를 일반화된 channel_tag_leak로 구동(구버전 런은 기존 플래그로 폴백).
+        reasoningLeakedIntoContent: last?.channel_tag_leak_detected ?? last?.reasoning_leaked_into_content,
           measuredRunIndex: n > 0 ? n : undefined,
           measuredRunTotal: n > 0 ? n : undefined,
         });
@@ -791,7 +800,8 @@ export function App() {
         outputText: last?.output_text ?? "",
         reasoningHidden: last?.reasoning_hidden,
         toolCallArgsCorrupted: last?.tool_call_args_corrupted,
-        reasoningLeakedIntoContent: last?.reasoning_leaked_into_content,
+        // #80: 상세 드로어의 "추론 누수" 신호를 일반화된 channel_tag_leak로 구동(구버전 런은 기존 플래그로 폴백).
+        reasoningLeakedIntoContent: last?.channel_tag_leak_detected ?? last?.reasoning_leaked_into_content,
         measuredRunIndex: n > 0 ? n : undefined,
         measuredRunTotal: n > 0 ? n : undefined,
       });
@@ -1124,6 +1134,7 @@ export function App() {
                   reasoning_hidden: last.reasoning_hidden,
                   tool_call_args_corrupted: last.tool_call_args_corrupted,
                   reasoning_leaked_into_content: last.reasoning_leaked_into_content,
+                  channel_tag_leak_detected: last.channel_tag_leak_detected,
                   pass: last.quality?.pass,
                   score: last.quality?.score,
                   reason: last.quality?.reason,

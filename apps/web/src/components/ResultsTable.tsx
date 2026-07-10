@@ -40,6 +40,8 @@ export type ResultRow = {
   tool_call_args_corrupted?: boolean;
   /** chat 라우트에서 추론이 content로 새어 들어옴 → 엔진 프로토콜 회귀 의심 배지 */
   reasoning_leaked_into_content?: boolean;
+  /** #80: 가시 content에 <think>/<|channel|> 태그 잔존(라우트 무관) → 추론 누수 배지의 일반화 신호 */
+  channel_tag_leak_detected?: boolean;
   pass?: boolean;
   /** 0~1 점수. 비전 시나리오에서 rubric 0~3과 함께 표시. 텍스트 시나리오는 보통 0 또는 1. */
   score?: number;
@@ -110,7 +112,10 @@ export function ResultsTable({
   );
   const hasReasoningHidden = useMemo(() => rows.some((r) => r.reasoning_hidden), [rows]);
   const hasEngineProtocolWarning = useMemo(
-    () => rows.some((r) => r.tool_call_args_corrupted || r.reasoning_leaked_into_content),
+    () =>
+      rows.some(
+        (r) => r.tool_call_args_corrupted || r.channel_tag_leak_detected || r.reasoning_leaked_into_content,
+      ),
     [rows],
   );
   const colorByModel = useMemo(() => buildModelColorMap(rows.map((r) => r.model_id)), [rows]);
@@ -188,7 +193,9 @@ export function ResultsTable({
         cell: (info) => {
           const r = info.row.original;
           const corrupted = r.tool_call_args_corrupted === true;
-          const leaked = r.reasoning_leaked_into_content === true;
+          // #80: 배지의 "추론 누수"를 일반화된 channel_tag_leak(라우트 무관)로 구동. 구버전 런 호환을 위해
+          // 기존 reasoning_leaked_into_content(LM Studio 0.4.14–0.4.18 버그 신호)를 OR 폴백으로 유지.
+          const leaked = r.channel_tag_leak_detected === true || r.reasoning_leaked_into_content === true;
           const contaminated = corrupted || leaked;
           const detail = [corrupted ? "도구 인자 손상" : null, leaked ? "추론 누수" : null]
             .filter(Boolean)

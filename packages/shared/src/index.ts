@@ -415,6 +415,12 @@ export const BenchResultSchema = z.object({
           tool_call_args_corrupted: z.boolean().optional(),
           /** chat 라우트에서 추론이 content로 새어 들어옴 → 엔진 프로토콜 회귀 의심(서버 계산). */
           reasoning_leaked_into_content: z.boolean().optional(),
+          /** #80: 분리된 reasoning 채널의 raw 문자 수(있으면). thinking_leak_ratio 집계 분자. */
+          reasoning_chars: z.number().optional(),
+          /** #80: 가시 content가 비었고 tool_call도 없음 → 에이전트 정체(empty_turn) 신호(서버 계산). */
+          empty_response: z.boolean().optional(),
+          /** #80: 가시 content에 <think>/<|channel|> 태그가 남음 → 채널 태그 누수(라우트 무관, 서버 계산). */
+          channel_tag_leak_detected: z.boolean().optional(),
           quality: z
             .object({
               pass: z.boolean(),
@@ -577,6 +583,19 @@ export {
   type ScoreboardRow,
   type ScoringBenchDetailInput,
 } from "./scoring/scoreboard";
+export {
+  AGENT_SAFE_THRESHOLDS,
+  isAgentSafe,
+  runIsEmptyTurn,
+  runHasChannelTagLeak,
+  leakMetricsFromBenchDetails,
+  leakMetricsFromRows,
+  type LeakRunInput,
+  type LeakMetrics,
+  type ModelRouteLeakMetrics,
+  type LeakBenchDetailInput,
+  type LeakResultRow,
+} from "./scoring/leak-metrics";
 
 // ─── 시나리오 카탈로그 + task 필터 매핑(에이전트 대상 API) ─────────────────────
 export {
@@ -589,8 +608,10 @@ export {
   scenarioIdsForTask,
   ScoreboardRowResponseSchema,
   ScoreboardResponseSchema,
+  LeakMetricsRowSchema,
   type ScenarioDescriptor,
   type ScenarioCatalogResponse,
   type ScoreboardTask,
   type ScoreboardResponse,
+  type LeakMetricsRow,
 } from "./scenario-catalog";
