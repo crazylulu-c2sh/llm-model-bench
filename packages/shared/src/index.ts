@@ -73,6 +73,8 @@ export {
   CompletionPredicateSchema,
   AgentLoopSchema,
   ScenarioDefSchema,
+  CustomScenarioInputSchema,
+  RESERVED_ID_PREFIXES,
   runtimeToolsToOpenAi,
   runtimeToolsToAnthropic,
   registerScenarioDef,
@@ -88,6 +90,7 @@ export {
   type CompletionPredicate,
   type AgentLoop,
   type ScenarioDef,
+  type CustomScenarioInput,
 } from "./scenario-registry";
 // side-effect: built-in agent_loop 정의를 레지스트리에 등록(재-export가 모듈 로드를 강제).
 export { AGENT_LOOP_MOCK_V1, BUILTIN_AGENT_LOOP_IDS } from "./agent-loop-builtin";

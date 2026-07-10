@@ -3,9 +3,20 @@ import path from "node:path";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { createApp } from "./app.js";
+import { tryOpenProdBenchDatabase } from "./db/database.js";
+import { loadCustomScenariosAtStartup } from "./custom-scenarios.js";
 
 // CORS + 인증 + 라우트(/api, /api/v1)는 createApp이 담당. 정적 서빙은 SPA 폴백이라 그 뒤에 붙인다.
 const app = createApp();
+
+// #83: 저장된 커스텀 시나리오 + CUSTOM_SCENARIOS_DIR 를 부팅 시(serve 전) 레지스트리에 로드.
+{
+  const { loaded, errors } = loadCustomScenariosAtStartup(tryOpenProdBenchDatabase());
+  if (loaded > 0) console.log(`[llm-bench-server] loaded ${loaded} custom scenario(s)`);
+  if (errors.length > 0) {
+    console.warn(`[llm-bench-server] custom scenario load issues: ${errors.join("; ")}`);
+  }
+}
 
 /** `WEB_DIST_PATH`가 있으면 Vite `dist`를 같은 포트에서 서빙(단일 PM2/Node 프로세스). */
 const webDistEnv = process.env.WEB_DIST_PATH?.trim();

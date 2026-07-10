@@ -3,6 +3,7 @@ import {
   BenchResultSchema,
   BenchRunMetaSchema,
   BenchStreamBodySchema,
+  CustomScenarioInputSchema,
   DetectBodySchema,
   DetectResultSchema,
   MonitorSnapshotResponseSchema,
@@ -115,11 +116,31 @@ export function buildOpenApiSpec(): object {
             {
               name: "set",
               in: "query",
-              schema: { type: "string", enum: ["public", "default", "vision", "agent", "all"] },
-              description: "기본 public",
+              schema: { type: "string", enum: ["public", "default", "vision", "agent", "custom", "all"] },
+              description: "기본 public. agent=멀티턴 agent_loop, custom=사용자 등록 시나리오",
             },
           ],
           responses: { "200": jsonResponse("ScenarioCatalogResponse", "시나리오 서술 목록") },
+        },
+        post: {
+          tags: ["discovery"],
+          summary: "#83 커스텀 시나리오 등록(system·user·tools·sampling·api_route·judge 루브릭)",
+          description:
+            "zod 검증(CustomScenarioInput) 실패 시 400 + 필드 에러. 등록 후 built-in과 동일하게 /bench/stream·/runs·/scoreboard로 흐른다. 도구는 mock-only(agent_loop면 모든 선언 도구에 mock 필요).",
+          requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/CustomScenarioInput" } } } },
+          responses: {
+            "201": { description: "등록된 시나리오 descriptor" },
+            "400": badRequest,
+            "409": { description: "too_many_custom_scenarios" },
+          },
+        },
+      },
+      "/scenarios/{id}": {
+        delete: {
+          tags: ["discovery"],
+          summary: "#83 커스텀 시나리오 삭제",
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          responses: { "200": { description: "ok" }, "404": { description: "not_found" } },
         },
       },
       "/catalog": {
@@ -375,6 +396,7 @@ export function buildOpenApiSpec(): object {
         ScoreboardResponse: jsonSchema(ScoreboardResponseSchema),
         MonitorSnapshotResponse: jsonSchema(MonitorSnapshotResponseSchema),
         StressRampConfig: jsonSchema(StressRampConfigSchema),
+        CustomScenarioInput: jsonSchema(CustomScenarioInputSchema),
       },
       securitySchemes: {
         bearerAuth: {

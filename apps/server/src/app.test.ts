@@ -70,6 +70,53 @@ describe("catalog / scoreboard", () => {
     expect(al?.toolNames.length).toBeGreaterThan(0);
   });
 
+  it("POST /scenarios registers a custom scenario; set=custom lists it; DELETE removes it (#83)", async () => {
+    const post = (body: unknown) =>
+      req("/api/v1/scenarios", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    // 잘못된 입력 → 400 + 필드 에러
+    const bad = await post({ id: "app_test_custom" }); // system/user/judge 누락
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toBe("invalid_scenario");
+
+    // 예약 접두 id → 400
+    const reserved = await post({ id: "vision_nope", system: "s", user: "u", judge: { criterion: "c" } });
+    expect(reserved.status).toBe(400);
+
+    // 정상 등록 → 201 + descriptor(source=custom)
+    const ok = await post({
+      id: "app_test_custom",
+      system: "You are custom.",
+      user: "Do it.",
+      tools: [{ name: "lookup" }],
+      judge: { criterion: "score the answer", scale: "0-3" },
+    });
+    expect(ok.status).toBe(201);
+    const okJson = (await ok.json()) as { scenario: { id: string; source: string; toolNames: string[] } };
+    expect(okJson.scenario.source).toBe("custom");
+    expect(okJson.scenario.toolNames).toContain("lookup");
+
+    // set=custom 에 나타남
+    const listed = await req("/api/v1/scenarios?set=custom");
+    const listJson = (await listed.json()) as { scenarios: Array<{ id: string }> };
+    expect(listJson.scenarios.some((s) => s.id === "app_test_custom")).toBe(true);
+
+    // DELETE → 제거
+    const del = await req("/api/v1/scenarios/app_test_custom", { method: "DELETE" });
+    expect(del.status).toBe(200);
+    const after = await req("/api/v1/scenarios?set=custom");
+    const afterJson = (await after.json()) as { scenarios: Array<{ id: string }> };
+    expect(afterJson.scenarios.some((s) => s.id === "app_test_custom")).toBe(false);
+
+    // 없는 custom 삭제 → 404
+    const del404 = await req("/api/v1/scenarios/app_test_custom", { method: "DELETE" });
+    expect(del404.status).toBe(404);
+  });
+
   it("catalog returns scenarios + profiles + stressWorkloads", async () => {
     const r = await req("/api/catalog");
     const j = (await r.json()) as Record<string, unknown>;

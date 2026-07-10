@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   AgentLoopSchema,
   CompletionPredicateSchema,
+  CustomScenarioInputSchema,
   RuntimeToolSchema,
   ScenarioDefSchema,
   clearRegisteredScenarios,
@@ -72,6 +73,49 @@ describe("registry", () => {
     expect(listScenarioDefs("custom").map((d) => d.id)).toEqual(["custom_a"]);
     expect(listScenarioDefs().length).toBe(2);
     expect(new Set(listScenarioDefs("builtin").map((d) => d.id)).has("test_scn")).toBe(true);
+  });
+});
+
+describe("CustomScenarioInputSchema (#83)", () => {
+  const valid = { id: "my_wiki_task", system: "s", user: "u", judge: { criterion: "score it" } };
+
+  it("accepts a valid single-turn custom scenario (judge required)", () => {
+    expect(CustomScenarioInputSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("rejects when judge is missing", () => {
+    expect(CustomScenarioInputSchema.safeParse({ id: "my_task", system: "s", user: "u" }).success).toBe(false);
+  });
+
+  it("rejects ids that collide with a built-in namespace prefix", () => {
+    for (const id of ["vision_x", "stress_y", "agent_z", "chat_q", "tool_w"]) {
+      expect(CustomScenarioInputSchema.safeParse({ ...valid, id }).success).toBe(false);
+    }
+  });
+
+  it("rejects an agent_loop custom scenario whose declared tool has no mock", () => {
+    const bad = {
+      ...valid,
+      id: "my_agent",
+      tools: [{ name: "t1" }],
+      agentLoop: { maxTurns: 3, mockTools: [{ tool: "other", responses: ["x"] }], completion: { type: "no_tool_calls" } },
+    };
+    expect(CustomScenarioInputSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it("accepts an agent_loop custom scenario with a mock for every declared tool", () => {
+    const ok = {
+      ...valid,
+      id: "my_agent",
+      tools: [{ name: "t1" }],
+      agentLoop: { maxTurns: 3, mockTools: [{ tool: "t1", responses: ["x"] }], completion: { type: "no_tool_calls" } },
+    };
+    expect(CustomScenarioInputSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("does not carry a client-supplied source (omitted)", () => {
+    const parsed = CustomScenarioInputSchema.parse({ ...valid, source: "builtin" } as Record<string, unknown>);
+    expect("source" in parsed).toBe(false);
   });
 });
 
