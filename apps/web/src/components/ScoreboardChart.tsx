@@ -12,7 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import type { ProviderKind, VendorKey } from "@llm-bench/shared";
-import { cleanModelDisplayName, inferModelVendor, parseModelQuant } from "@llm-bench/shared";
+import { cleanModelDisplayName, formatTps, inferModelVendor, parseModelQuant } from "@llm-bench/shared";
 import { APPROX_TITLE, CAP_TITLE, GROUP_LABEL, METRIC_LABEL } from "../lib/score-bands";
 import {
   buildScoreboardChartData,
@@ -193,7 +193,11 @@ function ChartTooltip({
   const d = payload[0]!.payload;
   const m = meta.get(d.model_id);
   const provider = providerByModel?.get(d.model_id);
-  const val = d.isNull ? "—" : Math.round(d.value ?? 0);
+  const val = d.isNull
+    ? "—"
+    : metric === "speed"
+      ? `${formatTps(d.value)} tok/s`
+      : Math.round(d.value ?? 0);
   return (
     <div className="rounded border border-[var(--chart-tooltip-border)] bg-[var(--chart-tooltip-bg)] px-2.5 py-1.5 text-xs text-[var(--chart-tooltip-fg)] shadow">
       <div className="mb-1 flex items-center gap-1.5 font-medium">

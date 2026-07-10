@@ -38,10 +38,10 @@ describe("buildScoreboardChartData 정렬", () => {
     ]);
     const { data, max, domainMax } = buildScoreboardChartData(board, "total", "speed");
     expect(data.map((d) => d.model_id)).toEqual(["a", "b"]); // 속도 desc(품질과 무관)
-    expect(max).toBe(2000);
-    expect(data[0]!.color).toBe("var(--tier-fast)"); // 2000/2000=1.0 → high
-    expect(data[1]!.color).toBe("var(--tier-okay)"); // 1000/2000=0.5 → mid
-    expect(domainMax).toBe(2000); // niceCeil(2000)
+    expect(max).toBe(60); // 실제 tok/s 중앙값 최고(= a의 60)
+    expect(data[0]!.color).toBe("var(--tier-fast)"); // 60/60=1.0 → high
+    expect(data[1]!.color).toBe("var(--tier-okay)"); // 30/60=0.5 → mid
+    expect(domainMax).toBe(100); // niceCeil(60)
   });
 
   it("품질 밴드색은 절대 임계(90/70/50)", () => {
