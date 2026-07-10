@@ -1,4 +1,4 @@
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import { z } from "zod";
 import type {
   LmsAvailability,
@@ -14,6 +14,8 @@ import {
   lmsUnload,
   spawnLmsLogStream,
 } from "./lms-cli.js";
+import { lmStudioListModels, lmStudioLoad, lmStudioUnload } from "./lmstudio.js";
+import { hasValidBenchApiKey } from "./middleware/api-key-auth.js";
 import {
   collectLmStudioLoaded,
   collectOllamaLoaded,
@@ -36,6 +38,34 @@ const LmsModelBody = z.object({
   model: z.string().min(1).max(256),
   baseUrl: z.string().min(1),
 });
+
+// #82: 원격-안전 네이티브 프록시 바디 — CLI(loopback) 경로의 LmsModelBody와 별개.
+// `apiKey`는 URL이 아닌 body로 받아 업스트림 LM Studio 인증 키가 로그·쿼리스트링에 새지 않게 한다.
+const LmsNativeListBody = z.object({
+  baseUrl: z.string().min(1),
+  apiKey: z.string().optional(),
+});
+const LmsNativeModelBody = z.object({
+  baseUrl: z.string().min(1),
+  model: z.string().min(1).max(256),
+  apiKey: z.string().optional(),
+});
+
+/**
+ * #82: 원격 모델 관리(네이티브 프록시) 게이트.
+ * - loopback 클라이언트는 항상 허용(로컬 기본).
+ * - `STRICT_LOCALHOST=0` 이면 원격도 허용하되 **유효한 `BENCH_API_KEYS` 키 필수**(없으면 401).
+ * - 기본(미설정/"1")은 비-loopback을 `403 remote_not_loopback`로 잠금(기존 CLI 게이트와 동일).
+ */
+function remoteMgmtGate(c: Context): { allow: true } | { allow: false; status: 401 | 403; error: string } {
+  if (isLoopbackRemoteAddr(getClientRemoteAddr(c))) return { allow: true };
+  if (process.env.STRICT_LOCALHOST === "0") {
+    return hasValidBenchApiKey(c)
+      ? { allow: true }
+      : { allow: false, status: 401, error: "unauthorized" };
+  }
+  return { allow: false, status: 403, error: "remote_not_loopback" };
+}
 
 let activeLogClients = 0;
 let cliWarningEmitted = false;
@@ -163,6 +193,55 @@ export function registerMonitorRoutes(app: Hono, prefix = "/api"): void {
       return c.json({ ok: false, error: r.error }, 500);
     }
     return c.json({ ok: true, stdout: r.stdout });
+  });
+
+  // ─── #82: 원격-안전 네이티브 모델 관리 프록시 ────────────────────────────────
+  // LM Studio 자체 REST(`/api/v1/models{,/load,/unload}`)로 포워딩(원격 호스트도 서빙).
+  // loopback-only `lms` CLI 경로(lms/load·lms/unload)는 그대로 로컬 기본으로 남는다.
+  app.post(`${prefix}/monitor/lms/native/list`, async (c) => {
+    const gate = remoteMgmtGate(c);
+    if (!gate.allow) return c.json({ error: gate.error }, gate.status);
+    const parsed = LmsNativeListBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "invalid_body" }, 400);
+    const { baseUrl, apiKey } = parsed.data;
+    try {
+      const r = await lmStudioListModels(baseUrl, { apiKey, timeoutMs: 10_000 });
+      if (!r.ok) return c.json({ ok: false, upstream_status: r.status, error: r.body }, 502);
+      return c.json({ ok: true, status: r.status, models: r.models });
+    } catch (e) {
+      return c.json({ ok: false, error: "lmstudio_unreachable", detail: String(e).slice(0, 500) }, 502);
+    }
+  });
+
+  app.post(`${prefix}/monitor/lms/native/load`, async (c) => {
+    const gate = remoteMgmtGate(c);
+    if (!gate.allow) return c.json({ error: gate.error }, gate.status);
+    const parsed = LmsNativeModelBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "invalid_body" }, 400);
+    const { baseUrl, model, apiKey } = parsed.data;
+    try {
+      const r = await lmStudioLoad(baseUrl, model, { apiKey });
+      if (!r.ok) return c.json({ ok: false, upstream_status: r.status, error: r.body }, 502);
+      return c.json({ ok: true, status: r.status, body: r.body });
+    } catch (e) {
+      return c.json({ ok: false, error: "lmstudio_unreachable", detail: String(e).slice(0, 500) }, 502);
+    }
+  });
+
+  app.post(`${prefix}/monitor/lms/native/unload`, async (c) => {
+    const gate = remoteMgmtGate(c);
+    if (!gate.allow) return c.json({ error: gate.error }, gate.status);
+    const parsed = LmsNativeModelBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "invalid_body" }, 400);
+    const { baseUrl, model, apiKey } = parsed.data;
+    try {
+      // lmStudioUnload는 목록에서 instance_id를 해석해 언로드(구버전 본문 폴백 포함).
+      const r = await lmStudioUnload(baseUrl, model, { apiKey });
+      if (!r.ok) return c.json({ ok: false, upstream_status: r.status, error: r.body }, 502);
+      return c.json({ ok: true, status: r.status, body: r.body });
+    } catch (e) {
+      return c.json({ ok: false, error: "lmstudio_unreachable", detail: String(e).slice(0, 500) }, 502);
+    }
   });
 
   app.get(`${prefix}/monitor/lms/log-stream`, (c) => {

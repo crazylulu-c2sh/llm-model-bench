@@ -275,6 +275,92 @@ export function buildOpenApiSpec(): object {
           responses: { "200": jsonResponse("MonitorSnapshotResponse", "스냅샷") },
         },
       },
+      "/monitor/lms/native/list": {
+        post: {
+          tags: ["monitor"],
+          summary: "LM Studio 네이티브 REST로 모델 목록 프록시(원격-안전)",
+          description:
+            "LM Studio 자체 `/api/v1/models`로 포워딩. loopback은 항상 허용, 원격은 `STRICT_LOCALHOST=0` + 유효한 `BENCH_API_KEYS` 키 필요. 기본(미설정/1)은 `403 remote_not_loopback`.",
+          security: [{ bearerAuth: [] }, { apiKeyHeader: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["baseUrl"],
+                  properties: { baseUrl: { type: "string" }, apiKey: { type: "string" } },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "로드된 인스턴스 포함 모델 목록" },
+            "401": { description: "unauthorized (STRICT_LOCALHOST=0인데 키 없음/오류)" },
+            "403": { description: "remote_not_loopback (기본 잠금)" },
+            "502": { description: "LM Studio 오류/도달 불가 (upstream_status·detail 포함)" },
+          },
+        },
+      },
+      "/monitor/lms/native/load": {
+        post: {
+          tags: ["monitor"],
+          summary: "LM Studio 네이티브 REST로 모델 로드 프록시(원격-안전)",
+          security: [{ bearerAuth: [] }, { apiKeyHeader: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["baseUrl", "model"],
+                  properties: {
+                    baseUrl: { type: "string" },
+                    model: { type: "string" },
+                    apiKey: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "로드 결과" },
+            "401": { description: "unauthorized" },
+            "403": { description: "remote_not_loopback" },
+            "502": { description: "LM Studio 오류/도달 불가" },
+          },
+        },
+      },
+      "/monitor/lms/native/unload": {
+        post: {
+          tags: ["monitor"],
+          summary: "LM Studio 네이티브 REST로 모델 언로드 프록시(원격-안전)",
+          description: "목록에서 `instance_id`를 해석해 언로드. bad instance_id는 502로 상위 상태·본문을 그대로 노출.",
+          security: [{ bearerAuth: [] }, { apiKeyHeader: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["baseUrl", "model"],
+                  properties: {
+                    baseUrl: { type: "string" },
+                    model: { type: "string" },
+                    apiKey: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "언로드 결과" },
+            "401": { description: "unauthorized" },
+            "403": { description: "remote_not_loopback" },
+            "502": { description: "LM Studio 오류/도달 불가" },
+          },
+        },
+      },
     },
     components: {
       schemas: {
