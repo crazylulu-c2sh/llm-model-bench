@@ -294,6 +294,15 @@ describe("scoreScenario code_sort_js", () => {
     const r = scoreScenario("code_sort_js", think + unfenced);
     expect(r.pass).toBe(true);
   });
+
+  it("skips an empty inline ```js``` mentioned in prose and grades the real fence", () => {
+    // 모델이 산문에서 "one fenced ```js``` block" 처럼 빈 인라인 펜스를 언급해도
+    // 그 아래 실제 코드 펜스를 채점해야 한다 (false negative 회귀 방지).
+    const prose = "No prose. Ensure only one fenced ```js``` block. Let's output code.";
+    const r = scoreScenario("code_sort_js", `${prose}\n${okJs}`);
+    expect(r.pass).toBe(true);
+    expect(r.score).toBe(1);
+  });
 });
 
 describe("scoreScenario code_sort_py", () => {
@@ -330,6 +339,13 @@ describe("scoreScenario code_sort_py", () => {
     const think = "<|channel|>thought\njust use sorted(arr)\n<channel|>\n";
     const r = scoreScenario("code_sort_py", think + okPy);
     expect(r.pass).toBe(true);
+  });
+
+  it("skips an empty inline ```py``` mentioned in prose and grades the real fence", () => {
+    const prose = "I'll return one fenced ```py``` block only. Here it is:";
+    const r = scoreScenario("code_sort_py", `${prose}\n${okPy}`);
+    expect(r.pass).toBe(true);
+    expect(r.score).toBe(1);
   });
 });
 
