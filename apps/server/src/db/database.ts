@@ -150,6 +150,13 @@ function migrate(db: DatabaseSync): void {
       PRIMARY KEY (run_id, stage_index),
       FOREIGN KEY (run_id) REFERENCES stress_runs(run_id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS custom_scenarios (
+      id TEXT PRIMARY KEY,
+      def_json TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'custom',
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    );
   `);
   const scenarioCols = db.prepare(`PRAGMA table_info(bench_scenarios)`).all() as Array<{ name: string }>;
   if (!scenarioCols.some((c) => c.name === "prompt_system_preview")) {
@@ -165,6 +172,46 @@ function migrate(db: DatabaseSync): void {
   if (currentVersion < 2) {
     db.prepare(`INSERT INTO schema_migrations (version) VALUES (2)`).run();
   }
+  if (currentVersion < 3) {
+    // #83: custom_scenarios 테이블 도입.
+    db.prepare(`INSERT INTO schema_migrations (version) VALUES (3)`).run();
+  }
+}
+
+// ─── #83: 커스텀 시나리오 영속화 ──────────────────────────────────────────────
+export type CustomScenarioRow = {
+  id: string;
+  def_json: string;
+  source: string;
+  created_at: string;
+  updated_at: string | null;
+};
+
+/** 커스텀 시나리오 upsert(재등록 시 def·updated_at 갱신). */
+export function upsertCustomScenario(
+  db: DatabaseSync,
+  row: { id: string; def_json: string; now: string },
+): void {
+  db.prepare(
+    `INSERT INTO custom_scenarios (id, def_json, source, created_at, updated_at)
+     VALUES (@id, @def_json, 'custom', @now, @now)
+     ON CONFLICT(id) DO UPDATE SET def_json = excluded.def_json, updated_at = excluded.updated_at`,
+  ).run({ id: row.id, def_json: row.def_json, now: row.now });
+}
+
+export function listCustomScenarios(db: DatabaseSync): CustomScenarioRow[] {
+  return db
+    .prepare(`SELECT id, def_json, source, created_at, updated_at FROM custom_scenarios ORDER BY id`)
+    .all() as CustomScenarioRow[];
+}
+
+export function countCustomScenarios(db: DatabaseSync): number {
+  const r = db.prepare(`SELECT COUNT(*) AS n FROM custom_scenarios`).get() as { n: number };
+  return Number(r?.n ?? 0);
+}
+
+export function deleteCustomScenario(db: DatabaseSync, id: string): number {
+  return Number(db.prepare(`DELETE FROM custom_scenarios WHERE id = ?`).run(id).changes);
 }
 
 export function insertStressRun(

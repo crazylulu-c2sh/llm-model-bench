@@ -6,14 +6,22 @@ import {
   PUBLIC_SCENARIO_IDS,
   STRESS_WORKLOAD_IDS,
   VISION_SCENARIO_IDS,
+  CustomScenarioInputSchema,
   buildScenarioCatalog,
   computeScoreboard,
+  getScenarioDef,
   leakMetricsFromBenchDetails,
   listScenarioDefs,
   scenarioIdsForTask,
   scoringRowsFromBenchDetails,
+  unregisterScenarioDef,
 } from "@llm-bench/shared";
 import { SQLITE_PUBLIC_UNAVAILABLE_MSG, normBaseUrl } from "./http-shared.js";
+import {
+  MAX_CUSTOM_SCENARIOS,
+  customScenarioCount,
+  registerCustomScenario,
+} from "./custom-scenarios.js";
 
 /** #79: 기본 제공 agent_loop id 목록(레지스트리에서 동적으로). */
 function builtinAgentLoopIds(): string[] {
@@ -31,8 +39,14 @@ function idsForSet(set: string | undefined): readonly string[] {
       return VISION_SCENARIO_IDS;
     case "agent": // #79: 멀티턴 agent_loop 시나리오.
       return builtinAgentLoopIds();
+    case "custom": // #83: 사용자 커스텀 시나리오.
+      return listScenarioDefs("custom").map((d) => d.id);
     case "all":
-      return [...ALL_SCENARIO_IDS, ...builtinAgentLoopIds()];
+      return [
+        ...ALL_SCENARIO_IDS,
+        ...builtinAgentLoopIds(),
+        ...listScenarioDefs("custom").map((d) => d.id),
+      ];
     case "public":
     default:
       return PUBLIC_SCENARIO_IDS;
@@ -49,6 +63,38 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
   app.get(`${prefix}/scenarios`, (c) => {
     const set = c.req.query("set");
     return c.json({ scenarios: buildScenarioCatalog(idsForSet(set)) });
+  });
+
+  // #83: 커스텀 시나리오 등록. zod 검증 실패 시 4xx + 필드 에러. 등록 후 레지스트리+DB에 반영.
+  app.post(`${prefix}/scenarios`, async (c) => {
+    const parsed = CustomScenarioInputSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: "invalid_scenario", detail: parsed.error.flatten() }, 400);
+    }
+    const dbMod = await import("./db/database.js");
+    const db = dbMod.tryOpenProdBenchDatabase();
+    // 신규 id면 개수 상한 확인(기존 id 갱신은 상한 무관).
+    const isNew = !getScenarioDef(parsed.data.id) || getScenarioDef(parsed.data.id)?.source !== "custom";
+    if (isNew && customScenarioCount(db) >= MAX_CUSTOM_SCENARIOS) {
+      return c.json({ error: "too_many_custom_scenarios", limit: MAX_CUSTOM_SCENARIOS }, 409);
+    }
+    const now = new Date().toISOString();
+    registerCustomScenario(db, parsed.data, now);
+    return c.json({ scenario: buildScenarioCatalog([parsed.data.id])[0], persisted: db != null }, 201);
+  });
+
+  // #83: 커스텀 시나리오 삭제(레지스트리 + DB). 없으면 404.
+  app.delete(`${prefix}/scenarios/:id`, async (c) => {
+    const id = c.req.param("id");
+    const def = getScenarioDef(id);
+    if (!def || def.source !== "custom") {
+      return c.json({ error: "not_found" }, 404);
+    }
+    unregisterScenarioDef(id);
+    const dbMod = await import("./db/database.js");
+    const db = dbMod.tryOpenProdBenchDatabase();
+    if (db) dbMod.deleteCustomScenario(db, id);
+    return c.json({ ok: true, id });
   });
 
   app.get(`${prefix}/catalog`, (c) => {

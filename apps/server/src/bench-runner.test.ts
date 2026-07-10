@@ -1098,3 +1098,57 @@ describe("runBench agent_loop scenario (#79)", () => {
     expect(run.valid_tool_call_rate).toBeCloseTo(3 / 4, 6); // 3 tool turns / 4 total
   });
 });
+
+describe("runBench custom single-turn scenario (#83)", () => {
+  it("runs a registered custom scenario through the standard orchestrator (prompts/tools from registry)", async () => {
+    const shared = await import("@llm-bench/shared");
+    shared.registerScenarioDef(
+      shared.ScenarioDefSchema.parse({
+        id: "custom_single_turn_test",
+        source: "custom",
+        system: "CUSTOM-SYSTEM-PROMPT",
+        user: "CUSTOM-USER-PROMPT",
+        tools: [{ name: "lookup", parameters: { type: "object" } }],
+        judge: { criterion: "score it", scale: "0-3" },
+      }),
+    );
+
+    let chatBody: { messages?: Array<{ role: string; content?: unknown }>; tools?: unknown[] } = {};
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [] }] });
+      }
+      if (url.endsWith("/api/v1/models/load") || url.endsWith("/api/v1/models/unload")) {
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        chatBody = JSON.parse(String(init?.body));
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    let aggregate: { runs?: Array<Record<string, unknown>> } | null = null;
+    const seenScenarioEnds: string[] = [];
+    for await (const ev of runBench(
+      baseBenchRequest({ scenarioIds: ["custom_single_turn_test"] as unknown as ScenarioId[] }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_end") seenScenarioEnds.push(ev.scenario_id);
+      if (ev.type === "metrics_update") aggregate = ev.aggregate as { runs?: Array<Record<string, unknown>> };
+    }
+
+    // 커스텀 시스템/유저 프롬프트 + 도구가 레지스트리에서 요청 바디로 흘렀다.
+    const sys = chatBody.messages?.find((m) => m.role === "system")?.content;
+    expect(sys).toBe("CUSTOM-SYSTEM-PROMPT");
+    expect(JSON.stringify(chatBody.tools ?? [])).toContain("lookup");
+    // 시나리오가 실행되고 결과가 집계에 저장됨(judge 루브릭 → judge_pending → score 0.33).
+    expect(seenScenarioEnds).toContain("custom_single_turn_test");
+    expect(aggregate?.runs?.length).toBe(1);
+    expect(aggregate!.runs![0]!.quality).toMatchObject({ score: 0.33 });
+
+    shared.unregisterScenarioDef("custom_single_turn_test");
+  });
+});

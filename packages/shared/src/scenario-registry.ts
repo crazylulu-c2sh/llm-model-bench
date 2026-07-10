@@ -91,6 +91,50 @@ export const ScenarioDefSchema = z.object({
 });
 export type ScenarioDef = z.infer<typeof ScenarioDefSchema>;
 
+/** 커스텀 시나리오 id가 침범하면 안 되는 built-in 네임스페이스 접두. */
+export const RESERVED_ID_PREFIXES = [
+  "chat_",
+  "tool_",
+  "code_",
+  "structured_",
+  "translate_",
+  "vision_",
+  "stress_",
+  "agent_",
+] as const;
+
+/**
+ * #83: 사용자 커스텀 시나리오 입력. `ScenarioDef`의 superset 정제 —
+ * - 클라이언트가 `source`를 self-assign 못 하게 omit(서버가 "custom" 강제),
+ * - `judge`를 필수화(커스텀은 결정론 채점 로직이 없어 루브릭이 유일한 품질 신호),
+ * - id가 built-in 접두를 침범하지 못하게 + (agentLoop면) 선언된 모든 도구에 mock이 있어야 함
+ *   — 이 마지막 규칙이 "어떤 도구도 실제 실행되지 않는다(mock-only)"는 보안 불변식.
+ */
+export const CustomScenarioInputSchema = ScenarioDefSchema.omit({ source: true })
+  .extend({ judge: JudgeRubricSchema })
+  .superRefine((def, ctx) => {
+    if (RESERVED_ID_PREFIXES.some((p) => def.id.startsWith(p))) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["id"],
+        message: `id must not start with a reserved built-in prefix (${RESERVED_ID_PREFIXES.join(", ")})`,
+      });
+    }
+    if (def.agentLoop) {
+      const mocked = new Set(def.agentLoop.mockTools.map((m) => m.tool));
+      for (const t of def.tools) {
+        if (!mocked.has(t.name)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["agentLoop", "mockTools"],
+            message: `declared tool "${t.name}" has no mock response (mock-only harness)`,
+          });
+        }
+      }
+    }
+  });
+export type CustomScenarioInput = z.infer<typeof CustomScenarioInputSchema>;
+
 // ─── 도구 스키마 변환(레지스트리 → provider 형태) ──────────────────────────────
 export function runtimeToolsToOpenAi(
   tools: readonly RuntimeTool[],

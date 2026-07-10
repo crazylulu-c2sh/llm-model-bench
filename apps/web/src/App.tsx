@@ -155,14 +155,51 @@ export function App() {
   const [fitPolicy, setFitPolicy] = useState<"" | "skip" | "unload_other_models">(boot.fitPolicy);
   const [selectedScenarioIds, setSelectedScenarioIds] = useState<string[]>(boot.selectedScenarioIds);
   const [scenarioPickerOpen, setScenarioPickerOpen] = useState(boot.scenarioPickerOpen);
+  // #79/#83: 서버에 등록된 동적 시나리오(멀티턴 agent_loop + 사용자 커스텀). 마운트 시 1회 페치.
+  const [dynamicScenarios, setDynamicScenarios] = useState<
+    Array<{ id: string; source: string; isAgentLoop: boolean; maxTurns: number | null }>
+  >([]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/scenarios?set=all");
+        if (!res.ok) return;
+        const j = (await res.json()) as {
+          scenarios?: Array<{ id: string; source?: string; isAgentLoop?: boolean; maxTurns?: number | null }>;
+        };
+        const dyn = (j.scenarios ?? [])
+          .filter((s) => s.source === "custom" || s.isAgentLoop)
+          .map((s) => ({
+            id: s.id,
+            source: s.source ?? "builtin",
+            isAgentLoop: !!s.isAgentLoop,
+            maxTurns: s.maxTurns ?? null,
+          }));
+        if (alive) setDynamicScenarios(dyn);
+      } catch {
+        /* 오프라인/서버 미가동 — 동적 시나리오 없이 진행 */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const dynamicScenarioIds = useMemo(
+    () => new Set(dynamicScenarios.map((d) => d.id)),
+    [dynamicScenarios],
+  );
   const toggleScenarioSelection = useCallback((id: string) => {
     setSelectedScenarioIds((prev) =>
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
     );
   }, []);
   const visibleSelectedScenarioIds = useMemo(
-    () => selectedScenarioIds.filter((id) => (PUBLIC_SCENARIO_IDS as readonly string[]).includes(id)),
-    [selectedScenarioIds],
+    () =>
+      selectedScenarioIds.filter(
+        (id) => (PUBLIC_SCENARIO_IDS as readonly string[]).includes(id) || dynamicScenarioIds.has(id),
+      ),
+    [selectedScenarioIds, dynamicScenarioIds],
   );
   const selectedTextCount = useMemo(
     () => visibleSelectedScenarioIds.filter((id) => !isVisionScenario(id)).length,
@@ -1514,6 +1551,37 @@ export function App() {
                     })}
                   </div>
                 </div>
+                {dynamicScenarios.length > 0 ? (
+                  <div>
+                    <div className="mb-1 text-xs font-semibold text-[var(--foreground)]">
+                      커스텀 · 에이전트 시나리오{" "}
+                      <span className="text-[var(--muted)]">(agent_loop · 사용자 등록 — 서버에 등록된 것)</span>
+                    </div>
+                    <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                      {dynamicScenarios.map((s) => {
+                        const checked = selectedScenarioIds.includes(s.id);
+                        return (
+                          <label key={s.id} className="flex items-start gap-2 text-xs text-[var(--muted)]">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={checked}
+                              onChange={() => toggleScenarioSelection(s.id)}
+                            />
+                            <span>
+                              <span className="font-mono text-[var(--foreground)]">{s.id}</span>
+                              {s.isAgentLoop ? (
+                                <span className="ml-1">— agent_loop · maxTurns {s.maxTurns ?? "?"}</span>
+                              ) : (
+                                <span className="ml-1">— custom</span>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
