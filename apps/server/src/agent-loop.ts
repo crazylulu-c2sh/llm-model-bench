@@ -110,7 +110,10 @@ function stepAgentLoop(
   if (turn.usageOutputTokens != null) {
     state.usageOutputTokens = (state.usageOutputTokens ?? 0) + turn.usageOutputTokens;
   }
-  state.reasoningChars = turn.reasoningText.length; // 마지막 턴 기준
+  // 전 턴 누적. usageOutputTokens(전 턴 누적)와 분모/분자를 정합시켜야 thinking_leak_ratio
+  // (scoreboard: reasoning_chars→토큰 추정 / 총 usage 토큰)가 멀티턴 agent_loop 에서 정확해진다.
+  // 이전엔 마지막 턴만 반영 → 무거운 합성 턴 뒤에 가벼운 최종 요약 턴이 오면 사고 누수가 과소계상됐다.
+  state.reasoningChars += turn.reasoningText.length;
   if (turn.toolArgsCorrupted) state.toolArgsCorruptedAny = true;
   state.streamCompleted = turn.streamCompleted;
 
