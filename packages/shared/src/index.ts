@@ -683,6 +683,24 @@ export {
   type LeakBenchDetailInput,
   type LeakResultRow,
 } from "./scoring/leak-metrics";
+// #84: 런/모델 회귀 diff.
+export {
+  ttftPercentiles,
+  computeCompare,
+  MetricDeltaSchema,
+  RegressionKindSchema,
+  CompareThresholdsSchema,
+  CompareScenarioSchema,
+  CompareRunRefSchema,
+  CompareResponseSchema,
+  type MetricDelta,
+  type RegressionKind,
+  type CompareThresholds,
+  type CompareScenario,
+  type CompareResponse,
+  type CompareBenchDetailInput,
+  type CompareRunInput,
+} from "./scoring/compare";
 
 // ─── 시나리오 카탈로그 + task 필터 매핑(에이전트 대상 API) ─────────────────────
 export {

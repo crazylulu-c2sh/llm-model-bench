@@ -3,6 +3,7 @@ import {
   BenchResultSchema,
   BenchRunMetaSchema,
   BenchStreamBodySchema,
+  CompareResponseSchema,
   CustomScenarioInputSchema,
   DetectBodySchema,
   DetectResultSchema,
@@ -175,6 +176,30 @@ export function buildOpenApiSpec(): object {
               "랭킹된 모델 행 + 모델×라우트 누수/정체 지표(leaks[]: thinking_leak_ratio·empty_turn_rate·channel_tag_leak)",
             ),
             "400": badRequest,
+          },
+        },
+      },
+      "/compare": {
+        get: {
+          tags: ["results"],
+          summary: "#84 런/모델 회귀 diff — per-scenario TTFT p50/p95·TPS·품질·정체/누수 델타 + regression 플래그",
+          description:
+            "runA&runB(명시) 또는 modelA&modelB&baseUrl(각 최신 런 해석). 임계 override: qualityDropAbs·tpsRegressionPct·ttftRegressionPct·flagNewEmptyTurns.",
+          parameters: [
+            { name: "runA", in: "query", schema: { type: "string" } },
+            { name: "runB", in: "query", schema: { type: "string" } },
+            { name: "modelA", in: "query", schema: { type: "string" } },
+            { name: "modelB", in: "query", schema: { type: "string" } },
+            { name: "baseUrl", in: "query", schema: { type: "string" } },
+            { name: "qualityDropAbs", in: "query", schema: { type: "number" } },
+            { name: "tpsRegressionPct", in: "query", schema: { type: "number" } },
+            { name: "ttftRegressionPct", in: "query", schema: { type: "number" } },
+            { name: "flagNewEmptyTurns", in: "query", schema: { type: "boolean" } },
+          ],
+          responses: {
+            "200": jsonResponse("CompareResponse", "per-scenario 델타 + regression 요약"),
+            "400": badRequest,
+            "404": { description: "run_not_found" },
           },
         },
       },
@@ -397,6 +422,7 @@ export function buildOpenApiSpec(): object {
         MonitorSnapshotResponse: jsonSchema(MonitorSnapshotResponseSchema),
         StressRampConfig: jsonSchema(StressRampConfigSchema),
         CustomScenarioInput: jsonSchema(CustomScenarioInputSchema),
+        CompareResponse: jsonSchema(CompareResponseSchema),
       },
       securitySchemes: {
         bearerAuth: {

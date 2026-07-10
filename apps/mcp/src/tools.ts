@@ -315,6 +315,33 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
   );
 
   server.registerTool(
+    "compare_runs",
+    {
+      title: "#84 런/모델 회귀 diff('X가 회귀했나?')",
+      description:
+        "두 런(runA/runB) 또는 두 모델 최신 런(modelA/modelB+baseUrl)의 per-scenario TTFT p50/p95·TPS·품질·정체/누수 델타 + regression 플래그. LM Studio 업그레이드 후 회귀 확인에 사용.",
+      inputSchema: {
+        runA: z.string().optional(),
+        runB: z.string().optional(),
+        modelA: z.string().optional(),
+        modelB: z.string().optional(),
+        baseUrl: z.string().optional(),
+        qualityDropAbs: z.number().optional(),
+        tpsRegressionPct: z.number().optional(),
+        ttftRegressionPct: z.number().optional(),
+        flagNewEmptyTurns: z.boolean().optional(),
+      },
+    },
+    async (args) => {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(args)) {
+        if (v !== undefined && v !== null) qs.set(k, String(v));
+      }
+      return ok(await client.getJson(`/compare?${qs.toString()}`));
+    },
+  );
+
+  server.registerTool(
     "list_runs",
     {
       title: "저장된 런 목록",

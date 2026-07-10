@@ -212,6 +212,83 @@ describe("catalog / scoreboard", () => {
     expect(leak?.thinking_leak_ratio).toBeCloseTo(0.5, 6); // reasoning 5 tok / total 10 tok
   });
 
+  it("compare (#84) diffs two runs and flags regression; resolves modelA/modelB", async () => {
+    const db = tryOpenProdBenchDatabase();
+    expect(db).not.toBeNull();
+    const baseUrl = "http://127.0.0.1:9097";
+    const detect: DetectResult = {
+      provider: "lm_studio",
+      baseUrl,
+      models: [{ id: "cmpA" }, { id: "cmpB" }],
+      steps: [],
+      capabilities: { openaiChat: true, anthropicMessages: false },
+    };
+    const seed = (model: string, runId: string, score: number) => {
+      const meta = makeBenchRunMeta(
+        { baseUrl, provider: "lm_studio", modelId: model, skipModelLoad: true },
+        detect,
+        runId,
+      );
+      insertRun(db!, {
+        run_id: meta.run_id,
+        created_at: meta.created_at,
+        base_url: baseUrl,
+        provider: meta.provider,
+        model_id: meta.model_id,
+        meta,
+        status: "running",
+      });
+      upsertScenarioAggregate(db!, {
+        run_id: meta.run_id,
+        scenario_id: "chat_ping",
+        api_route: "chat_completions",
+        aggregate_json: JSON.stringify({
+          scenario_id: "chat_ping",
+          api_route: "chat_completions",
+          runs: [
+            {
+              ttft_ms: 100,
+              total_ms: 1000,
+              output_text: "x".repeat(40),
+              stream_completed: true,
+              usage_output_tokens: 100,
+              quality: { pass: score >= 0.67, score },
+            },
+          ],
+        }),
+        prompt_preview: "p",
+        prompt_system_preview: "sp",
+      });
+      finishRun(db!, meta.run_id, "ok");
+    };
+    seed("cmpA", "cmp_run_a", 1);
+    seed("cmpB", "cmp_run_b", 0.33);
+
+    // 파라미터 없음 → 400
+    expect((await req("/api/v1/compare")).status).toBe(400);
+
+    // runA/runB → 200 + quality_drop regression
+    const byRun = await req("/api/v1/compare?runA=cmp_run_a&runB=cmp_run_b");
+    expect(byRun.status).toBe(200);
+    const j = (await byRun.json()) as {
+      scenarios: Array<{ scenario: string; regressions: string[] }>;
+      summary: { regression: boolean };
+    };
+    expect(j.summary.regression).toBe(true);
+    expect(j.scenarios[0]?.regressions).toContain("quality_drop");
+
+    // 없는 run → 404
+    expect((await req("/api/v1/compare?runA=nope&runB=cmp_run_b")).status).toBe(404);
+
+    // modelA/modelB + baseUrl → 최신 런 해석
+    const byModel = await req(
+      `/api/v1/compare?modelA=cmpA&modelB=cmpB&baseUrl=${encodeURIComponent(baseUrl)}`,
+    );
+    expect(byModel.status).toBe(200);
+    const jm = (await byModel.json()) as { summary: { scenarios_compared: number } };
+    expect(jm.summary.scenarios_compared).toBe(1);
+  });
+
   it("scoreboard surfaces memory-fit skipped models (#81) — not silently absent", async () => {
     const db = tryOpenProdBenchDatabase();
     expect(db).not.toBeNull();

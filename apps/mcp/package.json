@@ -3,11 +3,15 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "bin": { "llm-bench-mcp": "./dist/index.js" },
+  "bin": {
+    "llm-bench-mcp": "./dist/index.js",
+    "llm-bench-compare": "./dist/compare-cli.js"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsup src/index.ts --format esm --clean",
+    "build": "tsup src/index.ts src/compare-cli.ts --format esm --clean",
     "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
