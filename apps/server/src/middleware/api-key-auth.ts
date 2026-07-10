@@ -67,6 +67,20 @@ function extractKey(c: Context): string | null {
   return null;
 }
 
+/**
+ * 요청이 유효한 `BENCH_API_KEYS` 키를 제시했는지(원격 모델 관리 게이트 전용).
+ *
+ * 미들웨어 `benchApiKeyAuth`와 달리 **fail-closed**: `BENCH_API_KEYS` 미설정이면 항상 false.
+ * (미들웨어는 미설정 시 "인증 비활성=통과"지만, 원격 관리 경로는 키가 없으면 절대 허용하지 않는다.)
+ * 헤더만 읽는다 — `Authorization: Bearer` 또는 `x-api-key`, timingSafeEqual 비교.
+ */
+export function hasValidBenchApiKey(c: Context): boolean {
+  const keys = parseKeys(process.env.BENCH_API_KEYS);
+  if (keys.size === 0) return false;
+  const key = extractKey(c);
+  return !!key && keySetMatches(keys, key);
+}
+
 export function benchApiKeyAuth(): MiddlewareHandler {
   return async (c, next) => {
     const keys = parseKeys(process.env.BENCH_API_KEYS);

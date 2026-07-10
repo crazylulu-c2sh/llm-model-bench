@@ -471,3 +471,122 @@ describe("GET /api/monitor/lms/log-stream", () => {
     expect(lines).toEqual(["line1", "line2", "line3"]);
   });
 });
+
+describe("lms native proxy (#82) — remote-safe gate + upstream error surfacing", () => {
+  const LMS = "http://192.168.0.50:1234";
+
+  function stubFetch(handler: (url: string) => Response | Promise<Response>) {
+    globalThis.fetch = vi.fn(async (input: unknown) => handler(String(input))) as unknown as typeof fetch;
+  }
+  function modelsListResponse() {
+    return new Response(JSON.stringify({ models: [{ key: "m1", loaded_instances: [{ id: "m1:1" }] }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  function nativeReq(path: string, body: unknown, headers: Record<string, string> = {}): Request {
+    return new Request(`http://x${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("loopback client can list without STRICT_LOCALHOST", async () => {
+    _setRemoteAddrResolverForTest(() => "127.0.0.1");
+    stubFetch((url) => (url.endsWith("/api/v1/models") ? modelsListResponse() : new Response("nf", { status: 404 })));
+    const res = await makeApp().request(nativeReq("/api/monitor/lms/native/list", { baseUrl: LMS }));
+    expect(res.status).toBe(200);
+    const j = (await res.json()) as { ok: boolean; models: Array<{ key: string }> };
+    expect(j.ok).toBe(true);
+    expect(j.models[0]?.key).toBe("m1");
+  });
+
+  it("non-loopback without STRICT_LOCALHOST → 403 remote_not_loopback (default locked)", async () => {
+    _setRemoteAddrResolverForTest(() => "10.0.0.5");
+    const res = await makeApp().request(nativeReq("/api/monitor/lms/native/list", { baseUrl: LMS }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("remote_not_loopback");
+  });
+
+  it("non-loopback + STRICT_LOCALHOST=0 but no BENCH_API_KEYS → 401", async () => {
+    _setRemoteAddrResolverForTest(() => "10.0.0.5");
+    process.env.STRICT_LOCALHOST = "0";
+    delete process.env.BENCH_API_KEYS;
+    const res = await makeApp().request(nativeReq("/api/monitor/lms/native/list", { baseUrl: LMS }));
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe("unauthorized");
+  });
+
+  it("non-loopback + STRICT_LOCALHOST=0 + valid key (Bearer/x-api-key) → 200; wrong key → 401", async () => {
+    _setRemoteAddrResolverForTest(() => "10.0.0.5");
+    process.env.STRICT_LOCALHOST = "0";
+    process.env.BENCH_API_KEYS = "k1,k2";
+    stubFetch((url) => (url.endsWith("/api/v1/models") ? modelsListResponse() : new Response("nf", { status: 404 })));
+
+    const bearer = await makeApp().request(
+      nativeReq("/api/monitor/lms/native/list", { baseUrl: LMS }, { authorization: "Bearer k1" }),
+    );
+    expect(bearer.status).toBe(200);
+
+    const xkey = await makeApp().request(
+      nativeReq("/api/monitor/lms/native/list", { baseUrl: LMS }, { "x-api-key": "k2" }),
+    );
+    expect(xkey.status).toBe(200);
+
+    const wrong = await makeApp().request(
+      nativeReq("/api/monitor/lms/native/list", { baseUrl: LMS }, { authorization: "Bearer nope" }),
+    );
+    expect(wrong.status).toBe(401);
+  });
+
+  it("STRICT_LOCALHOST=1 (explicit) still 403 for non-loopback", async () => {
+    _setRemoteAddrResolverForTest(() => "10.0.0.5");
+    process.env.STRICT_LOCALHOST = "1";
+    process.env.BENCH_API_KEYS = "k1";
+    const res = await makeApp().request(
+      nativeReq("/api/monitor/lms/native/list", { baseUrl: LMS }, { authorization: "Bearer k1" }),
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("remote_not_loopback");
+  });
+
+  it("surfaces LM Studio upstream error (bad instance_id) as 502 with upstream_status + body", async () => {
+    _setRemoteAddrResolverForTest(() => "127.0.0.1");
+    stubFetch((url) => {
+      if (url.endsWith("/api/v1/models")) return modelsListResponse();
+      if (url.endsWith("/api/v1/models/unload")) return new Response("no such instance", { status: 400 });
+      return new Response("nf", { status: 404 });
+    });
+    const res = await makeApp().request(nativeReq("/api/monitor/lms/native/unload", { baseUrl: LMS, model: "m1" }));
+    expect(res.status).toBe(502);
+    const j = (await res.json()) as { ok: boolean; upstream_status: number; error: string };
+    expect(j.ok).toBe(false);
+    expect(j.upstream_status).toBe(400);
+    expect(j.error).toContain("no such instance");
+  });
+
+  it("surfaces unreachable LM Studio host as 502 lmstudio_unreachable", async () => {
+    _setRemoteAddrResolverForTest(() => "127.0.0.1");
+    stubFetch(() => {
+      throw new Error("ECONNREFUSED");
+    });
+    const res = await makeApp().request(nativeReq("/api/monitor/lms/native/load", { baseUrl: LMS, model: "m1" }));
+    expect(res.status).toBe(502);
+    const j = (await res.json()) as { ok: boolean; error: string; detail: string };
+    expect(j.ok).toBe(false);
+    expect(j.error).toBe("lmstudio_unreachable");
+    expect(j.detail).toContain("ECONNREFUSED");
+  });
+
+  it("CLI unload route stays loopback-only (regression) — non-loopback still 403", async () => {
+    _setRemoteAddrResolverForTest(() => "10.0.0.5");
+    process.env.STRICT_LOCALHOST = "0"; // native만 열림; CLI 경로는 무관하게 그대로 잠김
+    process.env.BENCH_API_KEYS = "k1";
+    const res = await makeApp().request(
+      nativeReq("/api/monitor/lms/unload", { baseUrl: "http://127.0.0.1:1234", model: "m1" }, { authorization: "Bearer k1" }),
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("remote_not_loopback");
+  });
+});
