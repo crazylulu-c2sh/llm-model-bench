@@ -101,6 +101,7 @@ describe("MCP server (in-memory client)", () => {
     expect(names).toEqual(
       [
         "compare_models",
+        "compare_runs",
         "detect_provider",
         "get_run",
         "health",

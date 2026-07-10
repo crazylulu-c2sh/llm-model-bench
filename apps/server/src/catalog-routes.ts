@@ -8,6 +8,7 @@ import {
   VISION_SCENARIO_IDS,
   CustomScenarioInputSchema,
   buildScenarioCatalog,
+  computeCompare,
   computeScoreboard,
   getScenarioDef,
   leakMetricsFromBenchDetails,
@@ -191,6 +192,69 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
         sqlite_available: false,
         sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG,
       });
+    }
+  });
+
+  // #84: 두 런(runA/runB) 또는 두 모델 최신 런(modelA/modelB + baseUrl) 회귀 diff.
+  app.get(`${prefix}/compare`, async (c) => {
+    const runA = c.req.query("runA");
+    const runB = c.req.query("runB");
+    const modelA = c.req.query("modelA");
+    const modelB = c.req.query("modelB");
+    const baseUrl = c.req.query("baseUrl");
+
+    const numQ = (name: string): number | undefined => {
+      const v = c.req.query(name);
+      if (v == null || v.trim() === "") return undefined;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const boolQ = (name: string): boolean | undefined => {
+      const v = c.req.query(name);
+      if (v == null) return undefined;
+      return v === "1" || v === "true";
+    };
+    const thresholds = {
+      qualityDropAbs: numQ("qualityDropAbs"),
+      tpsRegressionPct: numQ("tpsRegressionPct"),
+      ttftRegressionPct: numQ("ttftRegressionPct"),
+      flagNewEmptyTurns: boolQ("flagNewEmptyTurns"),
+    };
+
+    const byRun = !!(runA && runB);
+    const byModel = !!(modelA && modelB && baseUrl);
+    if (!byRun && !byModel) {
+      return c.json({ error: "provide runA&runB, or modelA&modelB&baseUrl" }, 400);
+    }
+
+    try {
+      const dbMod = await import("./db/database.js");
+      const runQueries = await import("./db/run-queries.js");
+      const db = dbMod.tryOpenProdBenchDatabase();
+      if (!db) {
+        return c.json({ error: "sqlite_unavailable", detail: SQLITE_PUBLIC_UNAVAILABLE_MSG }, 503);
+      }
+      let detailA: ReturnType<typeof runQueries.benchResultDetailFromDb> = null;
+      let detailB: ReturnType<typeof runQueries.benchResultDetailFromDb> = null;
+      if (byRun) {
+        detailA = runQueries.benchResultDetailFromDb(db, runA!);
+        detailB = runQueries.benchResultDetailFromDb(db, runB!);
+      } else {
+        const norm = normBaseUrl(baseUrl!);
+        const map = dbMod.latestFinishedRunsByModels(db, norm, [modelA!, modelB!]);
+        const ra = map.get(modelA!);
+        const rb = map.get(modelB!);
+        detailA = ra ? runQueries.benchResultDetailFromDb(db, ra.run_id) : null;
+        detailB = rb ? runQueries.benchResultDetailFromDb(db, rb.run_id) : null;
+      }
+      if (!detailA || !detailB) {
+        return c.json({ error: "run_not_found" }, 404);
+      }
+      return c.json(computeCompare(detailA, detailB, thresholds));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[llm-bench-server] /api/compare DB 로드 실패:", msg);
+      return c.json({ error: "compare_failed" }, 500);
     }
   });
 }
