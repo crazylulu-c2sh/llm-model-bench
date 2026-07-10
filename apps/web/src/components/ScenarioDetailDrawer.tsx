@@ -7,6 +7,7 @@ import {
 } from "@llm-bench/shared";
 import { AlertTriangle, X } from "lucide-react";
 import { JsonCodeBlock } from "./JsonCodeBlock";
+import { CopyButton } from "./CopyButton";
 import { useScrollLock } from "../useScrollLock";
 
 export type ScenarioDetailPayload = {
@@ -197,18 +198,24 @@ export function ScenarioDetailDrawer({
                 <JsonCodeBlock code={thinking || "—"} language="markdown" enabled={hlPreview} maxHeight={240} />
               </div>
               <div>
-                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">최종 응답</h3>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">최종 응답</h3>
+                  <CopyButton text={response} title="사고 블록 제거된 최종 응답 복사" />
+                </div>
                 <JsonCodeBlock code={response || "—"} language="markdown" enabled={hlPreview} maxHeight={320} />
               </div>
             </>
           ) : (
             <div>
-              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                모델 출력
-                {payload.measuredRunIndex != null && payload.measuredRunTotal != null
-                  ? ` (측정 ${payload.measuredRunIndex}/${payload.measuredRunTotal})`
-                  : " (마지막 측정 런)"}
-              </h3>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  모델 출력
+                  {payload.measuredRunIndex != null && payload.measuredRunTotal != null
+                    ? ` (측정 ${payload.measuredRunIndex}/${payload.measuredRunTotal})`
+                    : " (마지막 측정 런)"}
+                </h3>
+                <CopyButton text={response} title="정규화된 모델 출력 복사" />
+              </div>
               <JsonCodeBlock code={payload.outputText || "—"} language="markdown" enabled={hlPreview} maxHeight={320} />
             </div>
           )}
