@@ -8,6 +8,7 @@ import {
 import { AlertTriangle, X } from "lucide-react";
 import { JsonCodeBlock } from "./JsonCodeBlock";
 import { CopyButton } from "./CopyButton";
+import { buildScenarioDetailClipboardText } from "./scenario-detail-clipboard";
 import { useScrollLock } from "../useScrollLock";
 
 export type ScenarioDetailPayload = {
@@ -75,14 +76,22 @@ export function ScenarioDetailDrawer({
             </h2>
             <p className="mt-0.5 font-mono text-xs text-[var(--muted)]">{payload.title}</p>
           </div>
-          <button
-            type="button"
-            className="rounded p-1 text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
-            onClick={onClose}
-            aria-label="패널 닫기"
-          >
-            <X className="size-5" />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <CopyButton
+              text={buildScenarioDetailClipboardText(payload)}
+              label="전체 복사"
+              copiedLabel="복사됨"
+              title="모달 전체 내용을 정규화해 복사(스크린샷 대체용)"
+            />
+            <button
+              type="button"
+              className="rounded p-1 text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+              onClick={onClose}
+              aria-label="패널 닫기"
+            >
+              <X className="size-5" />
+            </button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 text-sm">
           {payload.toolCallArgsCorrupted || payload.reasoningLeakedIntoContent ? (
