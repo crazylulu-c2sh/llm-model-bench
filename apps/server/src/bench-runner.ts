@@ -696,6 +696,8 @@ export async function* runBench(
           turns_to_completion?: number | null;
           valid_tool_call_rate?: number;
           intermediate_turn_leak?: boolean;
+          /** #101: 사고가 per-turn max_tokens 를 소진해 빈 content 로 끝난 턴이 있었는지(no_signal 시그니처). */
+          thinking_exhausted_budget?: boolean;
           agent_completion_reason?: "completed" | "stall" | "budget_exhausted";
           quality?: { pass: boolean; score?: number; reason?: string };
         }[] = [];
@@ -1412,6 +1414,7 @@ export async function* runBench(
                       turns_to_completion: agentMetrics.turns_to_completion,
                       valid_tool_call_rate: agentMetrics.valid_tool_call_rate,
                       ...(agentMetrics.intermediate_turn_leak ? { intermediate_turn_leak: true } : {}),
+                      ...(agentMetrics.thinking_exhausted_budget ? { thinking_exhausted_budget: true } : {}),
                       agent_completion_reason: agentMetrics.completion_reason,
                     }
                   : {}),

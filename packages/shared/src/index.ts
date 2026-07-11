@@ -504,6 +504,8 @@ export const BenchResultSchema = z.object({
           valid_tool_call_rate: z.number().optional(),
           /** #79: agent_loop — 중간(비최종) 턴 content에 사고/채널 태그가 누수됐는지. */
           intermediate_turn_leak: z.boolean().optional(),
+          /** #101: agent_loop — 사고가 per-turn max_tokens를 소진해 빈 content로 끝난 턴이 있었는지(no_signal 시그니처). */
+          thinking_exhausted_budget: z.boolean().optional(),
           /** #79: agent_loop — 루프 종료 사유. */
           agent_completion_reason: z.enum(["completed", "stall", "budget_exhausted"]).optional(),
           quality: z

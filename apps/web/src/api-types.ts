@@ -18,6 +18,8 @@ export type BenchScenarioRun = {
   empty_response?: boolean;
   /** #80: 가시 content에 <think>/<|channel|> 태그 잔존(라우트 무관) → 채널 태그 누수. */
   channel_tag_leak_detected?: boolean;
+  /** #101: agent_loop — 사고가 per-turn max_tokens를 소진해 빈 content로 끝난 턴(no_signal 시그니처). */
+  thinking_exhausted_budget?: boolean;
   quality?: { pass: boolean; score?: number; reason?: string };
 };
 

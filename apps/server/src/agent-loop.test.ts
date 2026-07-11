@@ -77,6 +77,22 @@ function oaToolCallReasoning(reasoning: string, name: string, args = "{}"): Resp
     "data: [DONE]\n\n",
   ]);
 }
+/** #101: reasoning_content 만 내고 finish_reason(+usage) 로 끝나는 턴(예산 소진 시그니처 재현용). */
+function oaReasoningFinish(
+  reasoning: string,
+  finishReason: string | null,
+  opts: { content?: string; usageTokens?: number } = {},
+): Response {
+  const lines: string[] = [
+    `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: reasoning } }] })}\n\n`,
+  ];
+  if (opts.content) lines.push(`data: ${JSON.stringify({ choices: [{ delta: { content: opts.content } }] })}\n\n`);
+  const finalChunk: Record<string, unknown> = { choices: [{ delta: {}, finish_reason: finishReason }] };
+  if (opts.usageTokens != null) finalChunk.usage = { completion_tokens: opts.usageTokens };
+  lines.push(`data: ${JSON.stringify(finalChunk)}\n\n`);
+  lines.push("data: [DONE]\n\n");
+  return sseResponse(lines);
+}
 
 /** turn별 Response 큐를 순서대로 돌려주는 fetchImpl. 요청 바디도 캡처. */
 function queueFetch(responses: Response[]) {
@@ -172,6 +188,28 @@ describe("runAgentLoopOpenAi", () => {
     const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
     expect(result.metrics.completion_reason).toBe("completed");
     expect(result.reasoningChars).toBe(40); // 30 + 10 (전 턴 누적), 마지막 턴만이면 10
+  });
+
+  it("#101 thinking_exhausted_budget: reasoning-only turn ending finish_reason=length → stall + flag + reasoning captured", async () => {
+    const { fetchImpl } = queueFetch([oaReasoningFinish("x".repeat(40), "length")]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.completion_reason).toBe("stall");
+    expect(result.metrics.thinking_exhausted_budget).toBe(true);
+    expect(result.reasoningChars).toBeGreaterThan(0); // reasoning_content 는 캡처된다
+  });
+
+  it("#101 control: empty turn with finish_reason=stop → stall but thinking_exhausted_budget=false", async () => {
+    const { fetchImpl } = queueFetch([oaReasoningFinish("x".repeat(40), "stop")]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.completion_reason).toBe("stall");
+    expect(result.metrics.thinking_exhausted_budget).toBe(false);
+  });
+
+  it("#101 fallback: finish_reason absent but usage>=max_tokens on an empty turn → thinking_exhausted_budget=true", async () => {
+    // argsBase maxTokens=512, def() 는 sampling 없음 → per-turn 예산 512.
+    const { fetchImpl } = queueFetch([oaReasoningFinish("x".repeat(40), null, { usageTokens: 512 })]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.thinking_exhausted_budget).toBe(true);
   });
 });
 
