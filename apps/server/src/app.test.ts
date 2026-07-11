@@ -68,6 +68,11 @@ describe("catalog / scoreboard", () => {
     expect(al).toBeDefined();
     expect(al?.maxTurns).toBeGreaterThan(0);
     expect(al?.toolNames.length).toBeGreaterThan(0);
+    // #101: 하드 예산 변종도 set=agent 에 등록만으로 반영된다.
+    const budget = j.scenarios.find((s) => s.id === "agent_loop_budget_v1");
+    expect(budget).toBeDefined();
+    expect(budget?.isAgentLoop).toBe(true);
+    expect(budget?.maxTurns).toBeGreaterThan(0);
   });
 
   it("POST /scenarios registers a custom scenario; set=custom lists it; DELETE removes it (#83)", async () => {

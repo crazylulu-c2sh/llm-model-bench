@@ -87,5 +87,28 @@ export const AGENT_LOOP_MOCK_V1: ScenarioDef = {
 
 registerScenarioDef(AGENT_LOOP_MOCK_V1);
 
+/**
+ * #101: 하드 예산(tight per-turn max_tokens) 변종.
+ *
+ * `AGENT_LOOP_MOCK_V1` 과 동일한 research-then-answer 스크립트지만 per-turn `max_tokens` 를 256 으로
+ * 조인다. 절제된 모델은 도구 호출/최종 JSON 카드(~120 토큰)를 예산 안에 낼 수 있지만, 사고를
+ * `reasoning_content` 로 과도하게 흘리는 모델(예: google/gemma-4-26b-a4b-qat)은 그 사고가 예산을
+ * 소진해 `finish_reason=length` + 빈 `content` 로 끝난다 → 하네스가 빈 턴을 `stall` 로 판정
+ * (프로덕션 `empty_turn_loop:no_signal` 의 1턴 budget-exhausted 시그니처. 프로덕션의 3-strike 가드와
+ * 동일하진 않고, 예산 소진으로 인한 빈-턴을 재현·회귀가드하는 용도).
+ *
+ * 예산 값 256 은 출발점 — 두 모델을 가르는 값은 E2E 스윕(200~320)으로 확정한다.
+ */
+export const AGENT_LOOP_BUDGET_V1: ScenarioDef = {
+  ...AGENT_LOOP_MOCK_V1,
+  id: "agent_loop_budget_v1",
+  sampling: { temperature: 0, max_tokens: 256 },
+};
+
+registerScenarioDef(AGENT_LOOP_BUDGET_V1);
+
 /** 기본 제공 agent_loop id 목록(catalog set=agent 등). */
-export const BUILTIN_AGENT_LOOP_IDS: readonly string[] = [AGENT_LOOP_MOCK_V1.id];
+export const BUILTIN_AGENT_LOOP_IDS: readonly string[] = [
+  AGENT_LOOP_MOCK_V1.id,
+  AGENT_LOOP_BUDGET_V1.id,
+];
