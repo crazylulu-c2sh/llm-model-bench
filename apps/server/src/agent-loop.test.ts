@@ -59,6 +59,24 @@ function oaText(content: string): Response {
 function oaEmpty(): Response {
   return sseResponse([`data: ${JSON.stringify({ choices: [{ delta: {} }] })}\n\n`, "data: [DONE]\n\n"]);
 }
+/** reasoning_content 델타 + 최종 content(툴콜 없음) → 완료 턴. */
+function oaReasoningText(reasoning: string, content: string): Response {
+  return sseResponse([
+    `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: reasoning } }] })}\n\n`,
+    `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`,
+    "data: [DONE]\n\n",
+  ]);
+}
+/** reasoning_content 델타 + tool_call(중간 턴). */
+function oaToolCallReasoning(reasoning: string, name: string, args = "{}"): Response {
+  return sseResponse([
+    `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: reasoning } }] })}\n\n`,
+    `data: ${JSON.stringify({
+      choices: [{ delta: { tool_calls: [{ index: 0, id: "c1", type: "function", function: { name, arguments: args } }] } }],
+    })}\n\n`,
+    "data: [DONE]\n\n",
+  ]);
+}
 
 /** turn별 Response 큐를 순서대로 돌려주는 fetchImpl. 요청 바디도 캡처. */
 function queueFetch(responses: Response[]) {
@@ -142,6 +160,18 @@ describe("runAgentLoopOpenAi", () => {
     const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
     expect(result.metrics.intermediate_turn_leak).toBe(true);
     expect(result.metrics.completion_reason).toBe("completed");
+  });
+
+  it("reasoning_chars accumulates across turns (heavy synthesis turn + light final turn)", async () => {
+    // 무거운 사고를 한 중간 합성 턴(30자) 뒤에 가벼운 최종 요약 턴(10자)이 오는 케이스.
+    // 마지막-턴-기준이면 10 만 남아 사고 누수가 과소계상된다 — 누적이면 40.
+    const { fetchImpl } = queueFetch([
+      oaToolCallReasoning("x".repeat(30), "read_document"),
+      oaReasoningText("y".repeat(10), '{"title":"AES","summary":"s","sources":[]}'),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.completion_reason).toBe("completed");
+    expect(result.reasoningChars).toBe(40); // 30 + 10 (전 턴 누적), 마지막 턴만이면 10
   });
 });
 
