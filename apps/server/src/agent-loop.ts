@@ -21,6 +21,13 @@ export type AgentLoopMetrics = {
   valid_tool_call_rate: number;
   /** 중간(비최종) 턴 content에 사고/채널 태그가 누수됐는지. */
   intermediate_turn_leak: boolean;
+  /**
+   * #101: 한 턴이라도 사고(reasoning)로 per-turn max_tokens 를 소진해 `finish_reason=length`(Anthropic
+   * `max_tokens`) + 빈 가시 content 로 끝났는지. 프로덕션 `empty_turn_loop:no_signal` 의 정확한 시그니처 —
+   * 모델이 reasoning_content 로 과사고하다 예산을 다 써 content 를 못 낸 경우. `stall`/`budget_exhausted`
+   * 와 함께 "왜 정체했는가(예산 소진)"를 구분한다.
+   */
+  thinking_exhausted_budget: boolean;
   completion_reason: "completed" | "stall" | "budget_exhausted";
 };
 
@@ -49,6 +56,8 @@ type NormalizedTurn = {
   streamCompleted: boolean;
   toolArgsCorrupted: boolean;
   combinedText: string; // 추론+content(+toolJSON) — output_text 기준
+  /** #101: 이 턴의 finish_reason(OpenAI) / stop_reason(Anthropic). "length"/"max_tokens"면 예산 절단. */
+  finishReason: string | null;
 };
 
 type LoopState = {
@@ -56,6 +65,7 @@ type LoopState = {
   emptyTurnCount: number;
   validToolTurns: number;
   intermediateLeak: boolean;
+  thinkingExhaustedBudget: boolean;
   ttft: number | null;
   totalMs: number;
   usageOutputTokens: number | null;
@@ -103,6 +113,7 @@ function stepAgentLoop(
   loop: AgentLoop,
   state: LoopState,
   cursor: Map<string, number>,
+  maxTokens: number,
 ): StepDecision {
   state.turnsExecuted += 1;
   if (state.turnsExecuted === 1) state.ttft = turn.ttftMs;
@@ -125,6 +136,21 @@ function stepAgentLoop(
   const hasTools = turn.toolCalls.length > 0;
   const isEmpty = visible.trim() === "" && !hasTools;
   if (isEmpty) state.emptyTurnCount += 1;
+
+  // #101: 빈 턴이 예산 소진에서 왔으면 sticky 로 기록 — finish_reason=length(Anthropic max_tokens),
+  // 또는 서버가 finish_reason 을 안 줄 때 usage>=per-turn max_tokens. 사고가 예산을 다 써 content 를
+  // 못 낸 프로덕션 empty_turn_loop:no_signal 시그니처.
+  if (
+    isEmpty &&
+    (turn.finishReason === "length" ||
+      turn.finishReason === "max_tokens" ||
+      (turn.finishReason == null &&
+        turn.usageOutputTokens != null &&
+        maxTokens > 0 &&
+        turn.usageOutputTokens >= maxTokens))
+  ) {
+    state.thinkingExhaustedBudget = true;
+  }
 
   state.lastVisible = visible;
   state.lastCombined = turn.combinedText;
@@ -161,6 +187,7 @@ function initState(): LoopState {
     emptyTurnCount: 0,
     validToolTurns: 0,
     intermediateLeak: false,
+    thinkingExhaustedBudget: false,
     ttft: null,
     totalMs: 0,
     usageOutputTokens: null,
@@ -193,6 +220,7 @@ function finalize(
       empty_turn_count: state.emptyTurnCount,
       valid_tool_call_rate: state.turnsExecuted > 0 ? state.validToolTurns / state.turnsExecuted : 0,
       intermediate_turn_leak: state.intermediateLeak,
+      thinking_exhausted_budget: state.thinkingExhaustedBudget,
       completion_reason: reason,
     },
   };
@@ -295,8 +323,9 @@ export async function* runAgentLoopOpenAi(
       streamCompleted: m.streamCompleted,
       toolArgsCorrupted: m.toolCallArgsCorrupted,
       combinedText: m.text,
+      finishReason: m.finishReason,
     };
-    const decision = stepAgentLoop(turn, def, loop, state, cursor);
+    const decision = stepAgentLoop(turn, def, loop, state, cursor, def.sampling?.max_tokens ?? args.maxTokens);
     if (decision.kind === "final") {
       return finalize(state, decision.reason, decision.turnsToCompletion, decision.visible, decision.combined);
     }
@@ -385,8 +414,9 @@ export async function* runAgentLoopAnthropic(
       streamCompleted: m.streamCompleted,
       toolArgsCorrupted: false,
       combinedText: m.text,
+      finishReason: m.stopReason,
     };
-    const decision = stepAgentLoop(turn, def, loop, state, cursor);
+    const decision = stepAgentLoop(turn, def, loop, state, cursor, def.sampling?.max_tokens ?? args.maxTokens);
     if (decision.kind === "final") {
       return finalize(state, decision.reason, decision.turnsToCompletion, decision.visible, decision.combined);
     }

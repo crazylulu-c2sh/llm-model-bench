@@ -28,6 +28,7 @@ export type MetricsAgg = {
     reasoning_chars?: number;
     empty_response?: boolean;
     channel_tag_leak_detected?: boolean;
+    thinking_exhausted_budget?: boolean;
     quality?: { pass: boolean; score?: number; reason?: string };
   }>;
 };
