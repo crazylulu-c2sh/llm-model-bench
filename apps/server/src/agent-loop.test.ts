@@ -1,5 +1,5 @@
 import type { BenchRunMeta, ScenarioDef, StreamEvent } from "@llm-bench/shared";
-import { ScenarioDefSchema } from "@llm-bench/shared";
+import { AGENT_LOOP_ERROR_V1, AGENT_LOOP_GROUNDING_V1, ScenarioDefSchema } from "@llm-bench/shared";
 import { describe, expect, it, vi } from "vitest";
 import { runAgentLoopAnthropic, runAgentLoopOpenAi, type AgentLoopResult } from "./agent-loop.js";
 
@@ -305,6 +305,48 @@ describe("runAgentLoopOpenAi", () => {
     const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
     expect(result.metrics.final_turn_output_tokens).toBe(50);
     expect(result.usageOutputTokens).toBe(90); // 전 턴 합계 40+50 — 최종 턴만이 아님
+  });
+});
+
+// ─── #105: 신규 빌트인 스위트 주행(등록된 def) ─────────────────────────────────
+describe("builtin agent scenario suite (#105)", () => {
+  it("agent_loop_error_v1: wiki_read 재시도가 1차 에러 뒤 실제 본문을 받는다", async () => {
+    const { fetchImpl, bodies } = queueFetch([
+      oaToolCall("read_document"),
+      oaToolCall("wiki_search", '{"query":"aes"}'),
+      oaToolCall("wiki_read", '{"id":"aes"}'), // 1차 → retryable 에러
+      oaToolCall("wiki_read", '{"id":"aes"}'), // 재시도 → 정상 본문
+      oaText('{"title":"AES","summary":"s","sources":["aes"],"retried":true}'),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: AGENT_LOOP_ERROR_V1 }));
+    expect(result.metrics.completion_reason).toBe("completed");
+    // 4번째 요청(1차 wiki_read 결과 반영) = 에러 페이로드; 5번째(재시도 결과 반영) = 실제 본문.
+    expect(JSON.stringify(bodies[3]!.messages)).toContain("retryable");
+    expect(JSON.stringify(bodies[4]!.messages)).toContain("selected by NIST as FIPS-197");
+  });
+
+  it("agent_loop_grounding_v1: 정확한 id 2건 → fidelity 2/2", async () => {
+    const { fetchImpl } = queueFetch([
+      oaToolCall("catalog_search", '{"query":"crypto"}'),
+      oaToolCall("catalog_read", '{"id":"rec_9f3a1c77-4b2e"}'),
+      oaToolCall("catalog_read", '{"id":"rec_0d84e2ab-77f1"}'),
+      oaText('{"answers":[]}'),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: AGENT_LOOP_GROUNDING_V1 }));
+    expect(result.metrics.tool_arg_attempts).toBe(2);
+    expect(result.metrics.tool_arg_hits).toBe(2);
+  });
+
+  it("agent_loop_grounding_v1: 잘린 id 1건 → fidelity 1/2(miss)", async () => {
+    const { fetchImpl } = queueFetch([
+      oaToolCall("catalog_search", '{"query":"crypto"}'),
+      oaToolCall("catalog_read", '{"id":"rec_9f3a1c77"}'), // 잘린 id → miss
+      oaToolCall("catalog_read", '{"id":"rec_0d84e2ab-77f1"}'),
+      oaText('{"answers":[]}'),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: AGENT_LOOP_GROUNDING_V1 }));
+    expect(result.metrics.tool_arg_attempts).toBe(2);
+    expect(result.metrics.tool_arg_hits).toBe(1);
   });
 });
 

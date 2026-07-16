@@ -390,6 +390,37 @@ const AGENT_META: Record<string, ScenarioBenchMeta> = {
     toolsSummaryKo: "read_document / wiki_search / wiki_read (모두 mock). maxTurns 6, max_tokens 192.",
     routesKo: "chat_completions / messages 공통.",
   },
+  agent_loop_docs_v1: {
+    purposeKo:
+      "멀티문서 다이제스트: list_documents 로 문서 3개를 받고 read_document(id)(argDispatch)로 각각 읽어, " +
+      "각 문서의 핵심 사실을 올바른 id에 귀속한 하나의 JSON 리포트를 낸다. 과업 처리량과 맥락 유지를 측정 — " +
+      "사실을 문서 간에 뒤섞으면(맥락 유지 실패) 감점.",
+    criteriaKo:
+      "judge(0-3): 세 문서(AES/DES/RSA) 사실이 올바른 id에 귀속되면 3, 사실 뒤바뀜=1. " +
+      "가장 긴 과업이라 완료 과업당 벽시계(task_ms)의 지배 항.",
+    toolsSummaryKo: "list_documents / read_document(argDispatch: id→본문) (모두 mock). maxTurns 8, max_tokens 512.",
+    routesKo: "chat_completions / messages 공통.",
+  },
+  agent_loop_error_v1: {
+    purposeKo:
+      "에러 복구: wiki_read 첫 호출이 retryable 에러를 돌려주고 두 번째부터 정상 본문. 일시적 도구 오류에서 " +
+      "재시도로 회복하는지 본다 — 취약한 모델은 정체하거나 에러 페이로드를 요약한다.",
+    criteriaKo:
+      "judge(0-3): 유효 카드 + retried=true + 충실한 요약이면 3, 에러 페이로드를 요약하면 1. " +
+      "최종 JSON에 retried:boolean 포함.",
+    toolsSummaryKo: "read_document / wiki_search / wiki_read (시퀀스 mock: 1차 에러→2차 본문). maxTurns 8, max_tokens 512.",
+    routesKo: "chat_completions / messages 공통.",
+  },
+  agent_loop_grounding_v1: {
+    purposeKo:
+      "그라운딩(인자 충실도): catalog_search 가 UUID형 record id 2개를 주고 catalog_read(id)(argDispatch)는 id가 " +
+      "정확히 일치할 때만 본문을 준다. 불투명 id를 정확히 복사하는지 — 잘라 쓰거나 지어내면 fallback 에러.",
+    criteriaKo:
+      "1차 신호는 tool_arg_fidelity(+ 시도율). judge(0-3): 두 record의 정확한 id + 올바른 사실이면 3. " +
+      "예산 넉넉(512)해 예산 압박과 분리, 인자 충실도만 측정.",
+    toolsSummaryKo: "catalog_search / catalog_read(argDispatch: 정확 id 일치) (모두 mock). maxTurns 8, max_tokens 512.",
+    routesKo: "chat_completions / messages 공통.",
+  },
 };
 
 export function getScenarioBenchMeta(id: string): ScenarioBenchMeta | null {

@@ -96,7 +96,14 @@ export {
   type CustomScenarioInput,
 } from "./scenario-registry";
 // side-effect: built-in agent_loop 정의를 레지스트리에 등록(재-export가 모듈 로드를 강제).
-export { AGENT_LOOP_BUDGET_V1, AGENT_LOOP_MOCK_V1, BUILTIN_AGENT_LOOP_IDS } from "./agent-loop-builtin";
+export {
+  AGENT_LOOP_BUDGET_V1,
+  AGENT_LOOP_DOCS_V1,
+  AGENT_LOOP_ERROR_V1,
+  AGENT_LOOP_GROUNDING_V1,
+  AGENT_LOOP_MOCK_V1,
+  BUILTIN_AGENT_LOOP_IDS,
+} from "./agent-loop-builtin";
 
 export {
   chooseImageDelivery,
