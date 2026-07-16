@@ -97,12 +97,16 @@ registerScenarioDef(AGENT_LOOP_MOCK_V1);
  * (프로덕션 `empty_turn_loop:no_signal` 의 1턴 budget-exhausted 시그니처. 프로덕션의 3-strike 가드와
  * 동일하진 않고, 예산 소진으로 인한 빈-턴을 재현·회귀가드하는 용도).
  *
- * 예산 값 256 은 출발점 — 두 모델을 가르는 값은 E2E 스윕(200~320)으로 확정한다.
+ * 예산 값 192 는 E2E 스윕으로 확정한 "가르는 예산"이다(측정: LM Studio / M4 Pro):
+ *   - `google/gemma-4-26b-a4b-qat`(과사고)  → stall · thinking_exhausted_budget=true · reasoning_chars 1359 · usage 358
+ *   - `gemma-4-26b-a4b-it@q4_k_m`(절제)     → completed · 4턴 · usage 182
+ * 256 에서는 둘 다 completed 였다(이 AES 스크립트는 턴당 출력이 작아 256 이 헐거움). 더 낮추면
+ * 절제 모델의 최종 JSON 카드(~120 토큰)까지 잘려 오탐이 된다.
  */
 export const AGENT_LOOP_BUDGET_V1: ScenarioDef = {
   ...AGENT_LOOP_MOCK_V1,
   id: "agent_loop_budget_v1",
-  sampling: { temperature: 0, max_tokens: 256 },
+  sampling: { temperature: 0, max_tokens: 192 },
 };
 
 registerScenarioDef(AGENT_LOOP_BUDGET_V1);
