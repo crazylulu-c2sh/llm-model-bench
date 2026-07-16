@@ -35,6 +35,7 @@ describe("leakMetricsFromBenchDetails aggregation", () => {
         meta: { model_id: "A" },
         scenarios: [
           {
+            id: "chat_hello",
             api_route: "chat_completions",
             runs: [
               // reasoning 40 chars → 10 tokens; usage 40 tokens → ratio 10/40 = 0.25
@@ -60,7 +61,7 @@ describe("leakMetricsFromBenchDetails aggregation", () => {
         meta: { model_id: "B" },
         scenarios: [
           // reasoning 400 chars → 100 tokens; usage absent → denom = chars/4 of output (1 token) → clamp to 1
-          { api_route: "messages", runs: [{ output_text: "x", reasoning_chars: 400 }] },
+          { id: "chat_hello", api_route: "messages", runs: [{ output_text: "x", reasoning_chars: 400 }] },
         ],
       },
     ]);
@@ -69,7 +70,7 @@ describe("leakMetricsFromBenchDetails aggregation", () => {
     const noOutput = leakMetricsFromBenchDetails([
       {
         meta: { model_id: "C" },
-        scenarios: [{ api_route: "messages", runs: [{ output_text: "", usage_output_tokens: 0 }] }],
+        scenarios: [{ id: "chat_hello", api_route: "messages", runs: [{ output_text: "", usage_output_tokens: 0 }] }],
       },
     ]);
     expect(noOutput[0].thinking_leak_ratio).toBeNull();
@@ -81,6 +82,7 @@ describe("leakMetricsFromBenchDetails aggregation", () => {
         meta: { model_id: "A" },
         scenarios: [
           {
+            id: "chat_hello",
             api_route: "chat_completions",
             runs: [
               { output_text: "answer", usage_output_tokens: 5 },
@@ -102,14 +104,30 @@ describe("leakMetricsFromBenchDetails aggregation", () => {
       {
         meta: { model_id: "A" },
         scenarios: [
-          { api_route: "chat_completions", runs: [{ output_text: "a", usage_output_tokens: 5 }] },
-          { api_route: "messages", runs: [{ output_text: "b", usage_output_tokens: 5 }] },
+          { id: "chat_hello", api_route: "chat_completions", runs: [{ output_text: "a", usage_output_tokens: 5 }] },
+          { id: "chat_hello", api_route: "messages", runs: [{ output_text: "b", usage_output_tokens: 5 }] },
         ],
       },
     ];
     const rows = leakMetricsFromBenchDetails(details);
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r.api_route).sort()).toEqual(["chat_completions", "messages"]);
+  });
+
+  it("#105: agent_* 시나리오는 누수 집계에서 제외(정체 유도 시나리오의 배지 오염 방지)", () => {
+    const details: LeakBenchDetailInput[] = [
+      {
+        meta: { model_id: "A" },
+        scenarios: [
+          { id: "chat_hello", api_route: "chat_completions", runs: [{ output_text: "clean", usage_output_tokens: 5 }] },
+          // 정체를 의도적으로 유발하는 agent 시나리오 — empty_turn_rate를 오염시키면 안 된다.
+          { id: "agent_loop_budget_v1", api_route: "chat_completions", runs: [{ output_text: "", empty_response: true, usage_output_tokens: 5 }] },
+        ],
+      },
+    ];
+    const [row] = leakMetricsFromBenchDetails(details);
+    expect(row.n).toBe(1); // chat_hello 런만
+    expect(row.empty_turn_rate).toBe(0); // agent 정체는 카운트 안 됨
   });
 });
 
@@ -119,9 +137,9 @@ describe("server ≡ browser leak parity", () => {
     { output_text: "", empty_response: true, usage_output_tokens: 5 },
   ];
   const details: LeakBenchDetailInput[] = [
-    { meta: { model_id: "A" }, scenarios: [{ api_route: "chat_completions", runs }] },
+    { meta: { model_id: "A" }, scenarios: [{ id: "chat_hello", api_route: "chat_completions", runs }] },
   ];
-  const rows: LeakResultRow[] = [{ model_id: "A", api: "chat_completions", rowKey: "k1" }];
+  const rows: LeakResultRow[] = [{ model_id: "A", api: "chat_completions", rowKey: "k1", scenario: "chat_hello" }];
   const aggregate = { k1: { runs } };
 
   it("leakMetricsFromBenchDetails ≡ leakMetricsFromRows", () => {

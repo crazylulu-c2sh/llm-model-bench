@@ -700,6 +700,16 @@ export {
   type LeakBenchDetailInput,
   type LeakResultRow,
 } from "./scoring/leak-metrics";
+// #105: 멀티턴 에이전트 능력 지표.
+export {
+  agentMetricsFromBenchDetails,
+  agentMetricsFromRows,
+  type AgentRunInput,
+  type AgentMetrics,
+  type ModelRouteAgentMetrics,
+  type AgentBenchDetailInput,
+  type AgentResultRow,
+} from "./scoring/agent-metrics";
 // #84: 런/모델 회귀 diff.
 export {
   ttftPercentiles,
@@ -731,9 +741,11 @@ export {
   ScoreboardRowResponseSchema,
   ScoreboardResponseSchema,
   LeakMetricsRowSchema,
+  AgentMetricsRowSchema,
   type ScenarioDescriptor,
   type ScenarioCatalogResponse,
   type ScoreboardTask,
   type ScoreboardResponse,
   type LeakMetricsRow,
+  type AgentMetricsRow,
 } from "./scenario-catalog";

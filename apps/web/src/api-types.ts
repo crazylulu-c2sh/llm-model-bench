@@ -20,7 +20,39 @@ export type BenchScenarioRun = {
   channel_tag_leak_detected?: boolean;
   /** #101: agent_loop — 사고가 per-turn max_tokens를 소진해 빈 content로 끝난 턴(no_signal 시그니처). */
   thinking_exhausted_budget?: boolean;
+  /** #79: agent_loop — content=="" && tool_calls==0 인 빈 턴 수. */
+  empty_turn_count?: number;
+  /** #79: agent_loop — 완료까지 걸린 턴 수(미완료면 null). */
+  turns_to_completion?: number | null;
+  /** #79: agent_loop — 유효 tool_call을 낸 턴 비율(0~1). */
+  valid_tool_call_rate?: number;
+  /** #79: agent_loop — 중간(비최종) 턴 content에 사고/채널 태그 누수. */
+  intermediate_turn_leak?: boolean;
+  /** #105: agent_loop — argDispatch 인자 충실도 원자료(도구 없으면 부재). */
+  tool_arg_hits?: number;
+  tool_arg_attempts?: number;
+  /** #105: agent_loop — 최종(무도구) 턴 출력 토큰(효율 분자). */
+  final_turn_output_tokens?: number;
+  /** #79: agent_loop — 루프 종료 사유. */
+  agent_completion_reason?: "completed" | "stall" | "budget_exhausted";
   quality?: { pass: boolean; score?: number; reason?: string };
+};
+
+/** #105: GET /api/scoreboard 의 모델 × 라우트 에이전트 능력 지표. */
+export type AgentMetricsRow = {
+  model_id: string;
+  api_route: "chat_completions" | "messages";
+  n: number;
+  task_completion_rate: number;
+  stall_rate: number;
+  budget_exhausted_rate: number;
+  thinking_budget_rate: number;
+  task_ms_median: number | null;
+  turns_median: number | null;
+  valid_tool_call_rate_mean: number | null;
+  tool_arg_fidelity: number | null;
+  arg_attempt_rate: number | null;
+  output_efficiency: number | null;
 };
 
 /** #80: GET /api/scoreboard·/api/stats/model-latest 의 모델 × 라우트 누수/정체 지표. */

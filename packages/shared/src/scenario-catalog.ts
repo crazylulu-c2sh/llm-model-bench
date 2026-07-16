@@ -192,6 +192,24 @@ export const LeakMetricsRowSchema = z.object({
   n: z.number().int(),
 });
 export type LeakMetricsRow = z.infer<typeof LeakMetricsRowSchema>;
+// #105: 모델 × api_route 에이전트 능력 지표(agent_* 시나리오 완료 런). leaks 와 별도 — 과업
+// 완료·처리량·도구 규율을 담아 raw TPS 역전을 드러낸다.
+export const AgentMetricsRowSchema = z.object({
+  model_id: z.string(),
+  api_route: z.enum(["chat_completions", "messages"]),
+  n: z.number().int(),
+  task_completion_rate: z.number(),
+  stall_rate: z.number(),
+  budget_exhausted_rate: z.number(),
+  thinking_budget_rate: z.number(),
+  task_ms_median: z.number().nullable(),
+  turns_median: z.number().nullable(),
+  valid_tool_call_rate_mean: z.number().nullable(),
+  tool_arg_fidelity: z.number().nullable(),
+  arg_attempt_rate: z.number().nullable(),
+  output_efficiency: z.number().nullable(),
+});
+export type AgentMetricsRow = z.infer<typeof AgentMetricsRowSchema>;
 export const ScoreboardResponseSchema = z.object({
   base_url: z.string(),
   filter: z.object({
@@ -201,6 +219,8 @@ export const ScoreboardResponseSchema = z.object({
   rows: z.array(ScoreboardRowResponseSchema),
   /** #80: 모델 × 라우트 누수/정체 지표(선택 — 구버전 응답엔 없음). */
   leaks: z.array(LeakMetricsRowSchema).optional(),
+  /** #105: 모델 × 라우트 에이전트 능력 지표(선택 — agent 런 없으면 빈 배열/부재). */
+  agent_metrics: z.array(AgentMetricsRowSchema).optional(),
   /** #81: 메모리-핏 프리플라이트로 skip된 모델(측정 런이 없어 rows엔 없지만 조용히 사라지지 않도록). */
   skipped: z
     .array(z.object({ model_id: z.string(), reason: z.string() }))

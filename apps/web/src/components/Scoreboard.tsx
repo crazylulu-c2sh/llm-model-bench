@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowDownUp, ArrowUp } from "lucide-react";
 import {
+  agentMetricsFromRows,
   formatTps,
   formatTtftMs,
   inferModelVendor,
@@ -10,6 +11,7 @@ import {
 } from "@llm-bench/shared";
 import type { ResultRow } from "./ResultsTable";
 import { LeakTable } from "./LeakTable";
+import { AgentMetricsTable } from "./AgentMetricsTable";
 import { buildModelColorMap } from "../lib/model-color";
 import {
   DEFAULT_SCOREBOARD_SORT,
@@ -364,8 +366,10 @@ export function Scoreboard({
   const board = useMemo(() => scoreboardFromRows(rows, detailAggregate), [rows, detailAggregate]);
   // #80: 모델 × 라우트 누수/정체 지표(스코어보드와 동일 rows+aggregate에서 클라이언트 계산 — 서버와 동일 산식).
   const leaks = useMemo(() => leakMetricsFromRows(rows, detailAggregate), [rows, detailAggregate]);
+  // #105: 모델 × 라우트 에이전트 능력 지표(agent_* 완료 런).
+  const agentMetrics = useMemo(() => agentMetricsFromRows(rows, detailAggregate), [rows, detailAggregate]);
   const [sort, setSort] = useState<ScoreboardSort>(DEFAULT_SCOREBOARD_SORT);
-  const [view, setView] = useState<"chart" | "table" | "leaks">("chart");
+  const [view, setView] = useState<"chart" | "table" | "leaks" | "agent">("chart");
   const [hiddenVendors, setHiddenVendors] = useState<Set<VendorKey>>(() => new Set());
   function onSortClick(key: ScoreboardSortKey) {
     setSort((prev) =>
@@ -393,6 +397,13 @@ export function Scoreboard({
         ? leaks
         : leaks.filter((l) => !hiddenVendors.has(inferModelVendor(l.model_id))),
     [leaks, hiddenVendors],
+  );
+  const filteredAgentMetrics = useMemo(
+    () =>
+      hiddenVendors.size === 0
+        ? agentMetrics
+        : agentMetrics.filter((a) => !hiddenVendors.has(inferModelVendor(a.model_id))),
+    [agentMetrics, hiddenVendors],
   );
   function toggleVendor(v: VendorKey) {
     setHiddenVendors((prev) => {
@@ -453,6 +464,7 @@ export function Scoreboard({
               { value: "chart", label: "차트" },
               { value: "table", label: "표" },
               { value: "leaks", label: "누수" },
+              { value: "agent", label: "에이전트" },
             ]}
           />
         ) : null}
@@ -526,6 +538,8 @@ export function Scoreboard({
         <ScoreboardChart board={filteredBoard} providerByModel={providerByModel} />
       ) : view === "leaks" && !loadingLayout ? (
         <LeakTable leaks={filteredLeaks} />
+      ) : view === "agent" && !loadingLayout ? (
+        <AgentMetricsTable metrics={filteredAgentMetrics} />
       ) : (
       <div className="overflow-x-auto rounded border border-[var(--border)]">
         <table className="w-full min-w-[58rem] text-left text-sm">

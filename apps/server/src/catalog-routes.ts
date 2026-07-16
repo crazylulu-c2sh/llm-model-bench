@@ -7,6 +7,7 @@ import {
   STRESS_WORKLOAD_IDS,
   VISION_SCENARIO_IDS,
   CustomScenarioInputSchema,
+  agentMetricsFromBenchDetails,
   buildScenarioCatalog,
   computeCompare,
   computeScoreboard,
@@ -162,8 +163,11 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
       const board = computeScoreboard(scoringRowsFromBenchDetails(details, filter));
       const rows = board.map((row, i) => ({ rank: i + 1, ...row }));
       // #80: 모델 × 라우트 누수/정체 지표. 랭킹(rows)과 분리 — 같은 details를 재사용해 추가 DB 비용 없음.
-      // task 필터와 무관하게 측정된 모든 시나리오로 집계(agent-safety는 모델·라우트 속성).
+      // task 필터와 무관하게 측정된 모든 시나리오로 집계(agent-safety는 모델·라우트 속성). agent_* 제외.
       const leaks = leakMetricsFromBenchDetails(details);
+      // #105: 모델 × 라우트 에이전트 능력 지표(agent_* 완료 런). 자기-필터 집계라 task 필터 미적용 —
+      // 대상 자체가 agent 시나리오뿐이라 ?task=agent 의 추가 필터는 no-op, 타 task 에선 참고 정보.
+      const agent_metrics = agentMetricsFromBenchDetails(details);
       // #81: 최신 런이 메모리-핏 skip이면 측정 런이 없어 rows에 안 나오므로, 조용히 사라지지 않게 별도 노출.
       const skipped = details
         .map((d) => {
@@ -179,6 +183,7 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
         filter: filterInfo,
         rows,
         leaks,
+        ...(agent_metrics.length ? { agent_metrics } : {}),
         ...(skipped.length ? { skipped } : {}),
         sqlite_available: true,
       });
