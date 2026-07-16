@@ -61,6 +61,39 @@ describe("ScenarioDefSchema validation", () => {
       }).success,
     ).toBe(true);
   });
+
+  it("#105 MockTool argDispatch: 선택 필드로 파싱, responses는 여전히 필수(하위호환)", () => {
+    // argDispatch 있어도 responses 필수 — 스키마 하위호환 + 커스텀 mock-coverage 불변식 유지.
+    expect(
+      AgentLoopSchema.safeParse({
+        maxTurns: 3,
+        mockTools: [
+          {
+            tool: "read_document",
+            responses: ["unused"],
+            argDispatch: { argKey: "id", cases: { doc_aes: "AES" }, fallback: '{"error":"x"}' },
+          },
+        ],
+        completion: { type: "no_tool_calls" },
+      }).success,
+    ).toBe(true);
+    // argDispatch 미지정도 그대로 유효(기존 시퀀스 mock).
+    expect(
+      AgentLoopSchema.safeParse({
+        maxTurns: 3,
+        mockTools: [{ tool: "t", responses: ["a"] }],
+        completion: { type: "no_tool_calls" },
+      }).success,
+    ).toBe(true);
+    // argKey 누락은 거부.
+    expect(
+      AgentLoopSchema.safeParse({
+        maxTurns: 3,
+        mockTools: [{ tool: "t", responses: ["a"], argDispatch: { cases: { a: "b" } } }],
+        completion: { type: "no_tool_calls" },
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("registry", () => {

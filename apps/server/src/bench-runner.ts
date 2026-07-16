@@ -698,6 +698,11 @@ export async function* runBench(
           intermediate_turn_leak?: boolean;
           /** #101: 사고가 per-turn max_tokens 를 소진해 빈 content 로 끝난 턴이 있었는지(no_signal 시그니처). */
           thinking_exhausted_budget?: boolean;
+          /** #105: argDispatch 인자 충실도 원자료(도구 없으면 필드 부재 = 레거시/미측정). */
+          tool_arg_hits?: number;
+          tool_arg_attempts?: number;
+          /** #105: 최종(무도구) 턴 출력 토큰(효율 분자). */
+          final_turn_output_tokens?: number;
           agent_completion_reason?: "completed" | "stall" | "budget_exhausted";
           quality?: { pass: boolean; score?: number; reason?: string };
         }[] = [];
@@ -1415,6 +1420,13 @@ export async function* runBench(
                       valid_tool_call_rate: agentMetrics.valid_tool_call_rate,
                       ...(agentMetrics.intermediate_turn_leak ? { intermediate_turn_leak: true } : {}),
                       ...(agentMetrics.thinking_exhausted_budget ? { thinking_exhausted_budget: true } : {}),
+                      // #105: argDispatch 도구가 있을 때만(null 아님) 카운터 저장 → 레거시/미측정 런은 필드 부재.
+                      ...(agentMetrics.tool_arg_attempts != null
+                        ? { tool_arg_attempts: agentMetrics.tool_arg_attempts, tool_arg_hits: agentMetrics.tool_arg_hits ?? 0 }
+                        : {}),
+                      ...(agentMetrics.final_turn_output_tokens != null
+                        ? { final_turn_output_tokens: agentMetrics.final_turn_output_tokens }
+                        : {}),
                       agent_completion_reason: agentMetrics.completion_reason,
                     }
                   : {}),

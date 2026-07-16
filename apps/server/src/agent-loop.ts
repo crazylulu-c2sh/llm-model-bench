@@ -28,6 +28,20 @@ export type AgentLoopMetrics = {
    * 와 함께 "왜 정체했는가(예산 소진)"를 구분한다.
    */
   thinking_exhausted_budget: boolean;
+  /**
+   * #105: argDispatch 도구(불투명 id 등)를 정확히 복사해 호출한 비율의 원자료.
+   * `tool_arg_attempts` = argDispatch 도구를 호출한 횟수(0 = 호출 자체를 안 함/포기),
+   * `tool_arg_hits` = 그 중 인자 값이 cases에 매칭된 횟수. 시나리오에 argDispatch 도구가
+   * 없으면 둘 다 null(측정 대상 아님). 집계에서 fidelity=hits/attempts, 시도율=attempts>0.
+   */
+  tool_arg_hits: number | null;
+  tool_arg_attempts: number | null;
+  /**
+   * #105: 최종(무도구) 턴의 출력 토큰 수. 출력 효율(유효 최종 답 토큰 ÷ 전 턴 총 usage)의 분자 —
+   * 과사고 모델이 중간 턴 사고로 토큰을 낭비하는 정도를 드러낸다. 최종 턴에 도달 못 하면
+   * (budget_exhausted) null.
+   */
+  final_turn_output_tokens: number | null;
   completion_reason: "completed" | "stall" | "budget_exhausted";
 };
 
@@ -74,6 +88,13 @@ type LoopState = {
   streamCompleted: boolean;
   lastVisible: string;
   lastCombined: string;
+  /** #105: 시나리오에 argDispatch mock 도구가 하나라도 있는지(측정 대상 여부). 러너가 set. */
+  argDispatchConfigured: boolean;
+  /** #105: argDispatch 도구 호출 횟수 / 그 중 인자 매칭(hit) 횟수. */
+  dispatchAttempts: number;
+  dispatchHits: number;
+  /** #105: 최종(무도구) 턴의 출력 토큰(효율 분자). 최종 턴 미도달이면 null 유지. */
+  finalTurnUsageTokens: number | null;
 };
 
 type StepDecision =
@@ -95,15 +116,40 @@ function jsonParses(s: string): boolean {
   }
 }
 
-/** 도구명에 매칭되는 mock 큐에서 다음 캔드 응답을 뽑는다(소진 시 repeatLast 또는 에러). */
-function pullMock(mockTools: readonly MockTool[], toolName: string, cursor: Map<string, number>): string {
+/**
+ * 도구 호출에 대한 mock 응답을 고른다. argDispatch 도구면 인자 값으로 디스패치하고
+ * 그 결과(hit/miss)를 함께 돌려준다(인자 충실도 집계용); 아니면 순서 큐에서 뽑고 dispatch=null.
+ */
+function pullMock(
+  mockTools: readonly MockTool[],
+  toolName: string,
+  argsJson: string,
+  cursor: Map<string, number>,
+): { result: string; dispatch: "hit" | "miss" | null } {
   const mt = mockTools.find((m) => m.tool === toolName);
-  if (!mt) return JSON.stringify({ error: `no mock configured for tool ${toolName}` });
+  if (!mt) return { result: JSON.stringify({ error: `no mock configured for tool ${toolName}` }), dispatch: null };
+
+  if (mt.argDispatch) {
+    const { argKey, cases, fallback } = mt.argDispatch;
+    let key: string | undefined;
+    try {
+      const parsed = JSON.parse(argsJson || "{}") as Record<string, unknown>;
+      const v = parsed?.[argKey];
+      if (v != null) key = String(v);
+    } catch {
+      // 인자 파싱 실패 → miss(잘린/깨진 인자).
+    }
+    if (key != null && Object.prototype.hasOwnProperty.call(cases, key)) {
+      return { result: cases[key]!, dispatch: "hit" };
+    }
+    return { result: fallback ?? JSON.stringify({ error: `unknown_${argKey}` }), dispatch: "miss" };
+  }
+
   const i = cursor.get(toolName) ?? 0;
   cursor.set(toolName, i + 1);
-  if (i < mt.responses.length) return mt.responses[i]!;
-  if (mt.repeatLast) return mt.responses[mt.responses.length - 1]!;
-  return JSON.stringify({ error: "mock responses exhausted" });
+  if (i < mt.responses.length) return { result: mt.responses[i]!, dispatch: null };
+  if (mt.repeatLast) return { result: mt.responses[mt.responses.length - 1]!, dispatch: null };
+  return { result: JSON.stringify({ error: "mock responses exhausted" }), dispatch: null };
 }
 
 /** 한 턴 결과를 분석해 상태를 누적하고 다음 동작(도구 라운드 계속 / 최종)을 결정한다(라우트 공용, 순수). */
@@ -160,15 +206,21 @@ function stepAgentLoop(
     if (turn.content && stripThinkingBlocks(turn.content) !== turn.content.trim()) {
       state.intermediateLeak = true;
     }
-    const toolResults = turn.toolCalls.map((tc) => ({
-      id: tc.id,
-      name: tc.name,
-      result: pullMock(loop.mockTools, tc.name, cursor),
-    }));
+    const toolResults = turn.toolCalls.map((tc) => {
+      const { result, dispatch } = pullMock(loop.mockTools, tc.name, tc.argsJson, cursor);
+      if (dispatch !== null) {
+        state.dispatchAttempts += 1;
+        if (dispatch === "hit") state.dispatchHits += 1;
+      }
+      return { id: tc.id, name: tc.name, result };
+    });
     return { kind: "tools", toolResults };
   }
 
-  // 도구 호출 없음 → 최종 턴. 빈 content면 정체(empty_turn_loop:no_signal), 아니면 완료.
+  // 도구 호출 없음 → 최종 턴. 효율 분자로 이 턴의 출력 토큰을 기록.
+  state.finalTurnUsageTokens = turn.usageOutputTokens;
+
+  // 빈 content면 정체(empty_turn_loop:no_signal), 아니면 완료.
   if (isEmpty) {
     return { kind: "final", reason: "stall", turnsToCompletion: null, visible, combined: turn.combinedText };
   }
@@ -196,6 +248,10 @@ function initState(): LoopState {
     streamCompleted: false,
     lastVisible: "",
     lastCombined: "",
+    argDispatchConfigured: false,
+    dispatchAttempts: 0,
+    dispatchHits: 0,
+    finalTurnUsageTokens: null,
   };
 }
 
@@ -221,6 +277,9 @@ function finalize(
       valid_tool_call_rate: state.turnsExecuted > 0 ? state.validToolTurns / state.turnsExecuted : 0,
       intermediate_turn_leak: state.intermediateLeak,
       thinking_exhausted_budget: state.thinkingExhaustedBudget,
+      tool_arg_hits: state.argDispatchConfigured ? state.dispatchHits : null,
+      tool_arg_attempts: state.argDispatchConfigured ? state.dispatchAttempts : null,
+      final_turn_output_tokens: state.finalTurnUsageTokens,
       completion_reason: reason,
     },
   };
@@ -273,6 +332,7 @@ export async function* runAgentLoopOpenAi(
     { role: "user", content: def.user },
   ];
   const state = initState();
+  state.argDispatchConfigured = loop.mockTools.some((mt) => !!mt.argDispatch);
   const cursor = new Map<string, number>();
 
   for (let t = 0; t < loop.maxTurns; t++) {
@@ -361,6 +421,7 @@ export async function* runAgentLoopAnthropic(
   const tools = runtimeToolsToAnthropic(def.tools);
   const messages: AnthropicMsg[] = [{ role: "user", content: def.user }];
   const state = initState();
+  state.argDispatchConfigured = loop.mockTools.some((mt) => !!mt.argDispatch);
   const cursor = new Map<string, number>();
 
   for (let t = 0; t < loop.maxTurns; t++) {

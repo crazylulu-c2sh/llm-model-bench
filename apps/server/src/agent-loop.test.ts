@@ -94,6 +94,48 @@ function oaReasoningFinish(
   return sseResponse(lines);
 }
 
+/** #105: 최종 text 턴 + usage(효율 분자 final_turn_output_tokens 검증용). */
+function oaTextUsage(content: string, usageTokens: number): Response {
+  return sseResponse([
+    `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`,
+    `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { completion_tokens: usageTokens } })}\n\n`,
+    "data: [DONE]\n\n",
+  ]);
+}
+/** #105: tool_call 턴 + usage(합계 vs 최종턴 구분용). */
+function oaToolCallUsage(name: string, args: string, usageTokens: number): Response {
+  return sseResponse([
+    `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "c1", type: "function", function: { name, arguments: args } }] } }] })}\n\n`,
+    `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "tool_calls" }], usage: { completion_tokens: usageTokens } })}\n\n`,
+    "data: [DONE]\n\n",
+  ]);
+}
+
+/** #105: argDispatch(read_document.id) 시나리오 def. */
+function argDispatchDef(): ScenarioDef {
+  return ScenarioDefSchema.parse({
+    id: "al_argdispatch",
+    system: "You are an agent. Read the document by id, then answer JSON.",
+    user: "Summarize.",
+    tools: [{ name: "read_document", parameters: { type: "object", properties: { id: { type: "string" } } } }],
+    agentLoop: {
+      maxTurns: 5,
+      mockTools: [
+        {
+          tool: "read_document",
+          responses: ["UNUSED-SEQUENCE-BODY"],
+          argDispatch: {
+            argKey: "id",
+            cases: { doc_aes: "AES-BODY", doc_des: "DES-BODY" },
+            fallback: '{"error":"unknown_document_id"}',
+          },
+        },
+      ],
+      completion: { type: "no_tool_calls" },
+    },
+  });
+}
+
 /** turn별 Response 큐를 순서대로 돌려주는 fetchImpl. 요청 바디도 캡처. */
 function queueFetch(responses: Response[]) {
   const bodies: Array<Record<string, unknown>> = [];
@@ -211,6 +253,59 @@ describe("runAgentLoopOpenAi", () => {
     const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
     expect(result.metrics.thinking_exhausted_budget).toBe(true);
   });
+
+  // ─── #105: argDispatch 인자 충실도 ───────────────────────────────────────────
+  it("#105 argDispatch hit: 인자 값이 cases에 매칭 → 해당 응답 되먹임 + hits/attempts=1/1", async () => {
+    const { fetchImpl, bodies } = queueFetch([
+      oaToolCall("read_document", '{"id":"doc_aes"}'),
+      oaText('{"ok":true}'),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: argDispatchDef() }));
+    expect(result.metrics.tool_arg_attempts).toBe(1);
+    expect(result.metrics.tool_arg_hits).toBe(1);
+    const turn2 = bodies[1]!.messages as Array<{ role: string; content?: string }>;
+    expect(turn2.filter((m) => m.role === "tool").map((m) => m.content)).toContain("AES-BODY");
+  });
+
+  it("#105 argDispatch miss: 미지의 id → fallback 에러 되먹임 + hits/attempts=0/1", async () => {
+    const { fetchImpl, bodies } = queueFetch([
+      oaToolCall("read_document", '{"id":"doc_zzz"}'),
+      oaText('{"ok":true}'),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: argDispatchDef() }));
+    expect(result.metrics.tool_arg_attempts).toBe(1);
+    expect(result.metrics.tool_arg_hits).toBe(0);
+    const turn2 = bodies[1]!.messages as Array<{ role: string; content?: string }>;
+    expect(turn2.filter((m) => m.role === "tool").map((m) => m.content).join()).toContain("unknown_document_id");
+  });
+
+  it("#105 argDispatch 인자 파싱 실패(잘린 인자) → miss", async () => {
+    const { fetchImpl } = queueFetch([oaToolCall("read_document", "{not-json"), oaText('{"ok":true}')]);
+    const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: argDispatchDef() }));
+    expect(result.metrics.tool_arg_attempts).toBe(1);
+    expect(result.metrics.tool_arg_hits).toBe(0);
+  });
+
+  it("#105 argDispatch 도구를 아예 호출 안 함 → attempts=0 (포기 신호; null 아님)", async () => {
+    const { fetchImpl } = queueFetch([oaText('{"ok":true}')]);
+    const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: argDispatchDef() }));
+    expect(result.metrics.tool_arg_attempts).toBe(0);
+    expect(result.metrics.tool_arg_hits).toBe(0);
+  });
+
+  it("#105 시퀀스 mock(argDispatch 없음) → tool_arg 카운터는 null(측정 대상 아님)", async () => {
+    const { fetchImpl } = queueFetch([oaToolCall("read_document"), oaText("{}")]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.tool_arg_attempts).toBeNull();
+    expect(result.metrics.tool_arg_hits).toBeNull();
+  });
+
+  it("#105 final_turn_output_tokens = 최종(무도구) 턴 usage(전 턴 합계가 아님)", async () => {
+    const { fetchImpl } = queueFetch([oaToolCallUsage("read_document", "{}", 40), oaTextUsage('{"ok":true}', 50)]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.final_turn_output_tokens).toBe(50);
+    expect(result.usageOutputTokens).toBe(90); // 전 턴 합계 40+50 — 최종 턴만이 아님
+  });
 });
 
 // ─── Anthropic SSE helpers ─────────────────────────────────────────────────────
@@ -230,6 +325,14 @@ function anText(text: string): Response {
     anBlock("message_stop", { type: "message_stop" }),
   ]);
 }
+/** #105: tool_use + input_json(인자) 델타 — argDispatch 미러 테스트용. */
+function anToolUseArgs(name: string, partialJson: string): Response {
+  return sseResponse([
+    anBlock("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tu1", name } }),
+    anBlock("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: partialJson } }),
+    anBlock("message_stop", { type: "message_stop" }),
+  ]);
+}
 
 describe("runAgentLoopAnthropic", () => {
   it("completed: tool_use turn then final text, feeds canned tool_result", async () => {
@@ -245,5 +348,16 @@ describe("runAgentLoopAnthropic", () => {
     const flat = JSON.stringify(turn2);
     expect(flat).toContain("tool_result");
     expect(flat).toContain("DOC-BODY");
+  });
+
+  it("#105 argDispatch hit (messages 라우트): 인자 매칭 → 해당 응답 + hits/attempts=1/1", async () => {
+    const { fetchImpl, bodies } = queueFetch([
+      anToolUseArgs("read_document", '{"id":"doc_des"}'),
+      anText('{"ok":true}'),
+    ]);
+    const { result } = await drive(runAgentLoopAnthropic({ ...argsBase(fetchImpl), def: argDispatchDef() }));
+    expect(result.metrics.tool_arg_attempts).toBe(1);
+    expect(result.metrics.tool_arg_hits).toBe(1);
+    expect(JSON.stringify(bodies[1]!.messages)).toContain("DES-BODY");
   });
 });

@@ -71,6 +71,7 @@ export {
   JudgeRubricSchema,
   ScenarioSamplingSchema,
   MockToolSchema,
+  MockArgDispatchSchema,
   CompletionPredicateSchema,
   AgentLoopSchema,
   ScenarioDefSchema,
@@ -88,6 +89,7 @@ export {
   type JudgeRubric,
   type ScenarioSampling,
   type MockTool,
+  type MockArgDispatch,
   type CompletionPredicate,
   type AgentLoop,
   type ScenarioDef,
@@ -507,6 +509,11 @@ export const BenchResultSchema = z.object({
           intermediate_turn_leak: z.boolean().optional(),
           /** #101: agent_loop — 사고가 per-turn max_tokens를 소진해 빈 content로 끝난 턴이 있었는지(no_signal 시그니처). */
           thinking_exhausted_budget: z.boolean().optional(),
+          /** #105: agent_loop — argDispatch 도구 인자 충실도 원자료(도구 없으면 필드 부재). */
+          tool_arg_hits: z.number().int().optional(),
+          tool_arg_attempts: z.number().int().optional(),
+          /** #105: agent_loop — 최종(무도구) 턴 출력 토큰(효율 분자). */
+          final_turn_output_tokens: z.number().int().optional(),
           /** #79: agent_loop — 루프 종료 사유. */
           agent_completion_reason: z.enum(["completed", "stall", "budget_exhausted"]).optional(),
           quality: z

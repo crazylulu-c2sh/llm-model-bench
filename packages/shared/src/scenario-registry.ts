@@ -38,12 +38,29 @@ export const ScenarioSamplingSchema = z.object({
 });
 export type ScenarioSampling = z.infer<typeof ScenarioSamplingSchema>;
 
+/**
+ * #105: 인자 키 기반 mock 디스패치. 호출 인자의 `argKey` 값으로 응답을 고른다 — 불투명 id를
+ * 정확히 복사해야 매칭되므로 "도구 인자 충실도"(hallucinated/truncated arg)를 측정할 수 있다.
+ * miss(값이 cases에 없음/인자 파싱 실패)는 `fallback` 또는 `{"error":"unknown_<argKey>"}`.
+ */
+export const MockArgDispatchSchema = z.object({
+  argKey: z.string().min(1),
+  cases: z.record(z.string(), z.string().max(200_000)),
+  fallback: z.string().max(200_000).optional(),
+});
+export type MockArgDispatch = z.infer<typeof MockArgDispatchSchema>;
+
 /** #79: 캔드(canned) 도구 결과 큐 — 매칭되는 도구 호출마다 순서대로 소비. */
 export const MockToolSchema = z.object({
   tool: z.string().min(1),
   responses: z.array(z.string().max(200_000)).min(1),
   /** 큐 소진 시 마지막 응답을 반복할지(false면 소진 후 에러 결과). */
   repeatLast: z.boolean().default(true),
+  /**
+   * #105: 존재하면 순서 큐(responses) 대신 인자 값으로 응답을 디스패치한다. responses는 여전히
+   * 필수(스키마 하위호환 + 커스텀 mock-coverage 불변식)지만 argDispatch가 있으면 무시된다.
+   */
+  argDispatch: MockArgDispatchSchema.optional(),
 });
 export type MockTool = z.infer<typeof MockToolSchema>;
 
