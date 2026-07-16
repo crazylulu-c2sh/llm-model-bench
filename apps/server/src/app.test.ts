@@ -75,6 +75,14 @@ describe("catalog / scoreboard", () => {
     expect(budget?.maxTurns).toBeGreaterThan(0);
   });
 
+  it("scenarios?set=agent descriptor는 category:'agent' 로 라벨된다 (#105)", async () => {
+    const r = await req("/api/v1/scenarios?set=agent");
+    const j = (await r.json()) as { scenarios: Array<{ id: string; category: string; isVision: boolean }> };
+    expect(j.scenarios.length).toBeGreaterThan(0);
+    expect(j.scenarios.every((s) => s.category === "agent")).toBe(true);
+    expect(j.scenarios.every((s) => s.isVision === false)).toBe(true);
+  });
+
   it("POST /scenarios registers a custom scenario; set=custom lists it; DELETE removes it (#83)", async () => {
     const post = (body: unknown) =>
       req("/api/v1/scenarios", {
@@ -135,6 +143,17 @@ describe("catalog / scoreboard", () => {
     const j = (await r.json()) as { rows: unknown[]; base_url: string };
     expect(Array.isArray(j.rows)).toBe(true);
     expect(j.base_url).toBe("http://127.0.0.1:1");
+  });
+
+  it("scoreboard?task=agent 는 필터를 빌트인 agent_loop 시나리오로 좁힌다 (#105)", async () => {
+    const r = await req("/api/scoreboard?baseUrl=http://127.0.0.1:1&task=agent");
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { filter?: { task?: string; scenarios?: string[] } };
+    expect(j.filter?.task).toBe("agent");
+    expect(j.filter?.scenarios).toContain("agent_loop_mock_v1");
+    expect(j.filter?.scenarios).toContain("agent_loop_budget_v1");
+    // 텍스트/비전 시나리오는 agent task 필터에 없다.
+    expect(j.filter?.scenarios).not.toContain("chat_hello");
   });
 
   it("scoreboard returns per-model×route leak metrics (#80)", async () => {

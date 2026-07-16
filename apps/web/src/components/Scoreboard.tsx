@@ -257,7 +257,7 @@ function ScoreboardSkeletonRow({
           <ModelLabel modelId={modelId} size={14} />
         </span>
       </td>
-      {Array.from({ length: 9 }, (_, ci) => (
+      {Array.from({ length: 12 }, (_, ci) => (
         <td key={ci} className={`p-2 text-center${ci % 3 === 0 ? ` ${GROUP_BORDER}` : ""}`}>
           <div className={pulse} />
         </td>
@@ -278,7 +278,7 @@ function ScoreboardDataRow({
   rank: number;
   barColor?: string;
   multiModel: boolean;
-  maxSpeed: { text: number; vision: number; total: number };
+  maxSpeed: { text: number; vision: number; agent: number; total: number };
   provider?: ProviderKind;
 }) {
   const cap = b.quality.caveats.includes("judge_capped");
@@ -297,7 +297,7 @@ function ScoreboardDataRow({
           {b.textOnly ? (
             <span
               className="rounded border border-[var(--border)] px-1 py-px text-[10px] text-[var(--muted)]"
-              title="비전 시나리오 미실행 — 총합은 텍스트 점수와 동일"
+              title="비전·에이전트 시나리오 미실행 — 총합은 텍스트 점수와 동일"
             >
               text-only
             </span>
@@ -321,6 +321,15 @@ function ScoreboardDataRow({
       </td>
       <td className="p-2 text-center">
         <TtftCell g={b.speed.vision} />
+      </td>
+      <td className={`p-2 text-center ${GROUP_BORDER}`}>
+        <QualityCell g={b.quality.agent} capped={cap} />
+      </td>
+      <td className="p-2 text-center">
+        <SpeedCell g={b.speed.agent} max={maxSpeed.agent} />
+      </td>
+      <td className="p-2 text-center">
+        <TtftCell g={b.speed.agent} />
       </td>
       <td className={`p-2 text-center ${GROUP_BORDER}`}>
         <QualityCell g={b.quality.total} capped={cap} />
@@ -401,10 +410,11 @@ export function Scoreboard({
   const colorByModel = useMemo(() => buildModelColorMap(rows.map((r) => r.model_id)), [rows]);
   // 속도 막대는 각 열(텍스트/비전/총합) 최고 tok/s(중앙값) 대비 상대 길이 — 열별 max를 미리 구한다(필터 반영).
   const maxSpeed = useMemo(() => {
-    const m = { text: 0, vision: 0, total: 0 };
+    const m = { text: 0, vision: 0, agent: 0, total: 0 };
     for (const b of filteredBoard) {
       if (b.speed.text.tpsMedian != null) m.text = Math.max(m.text, b.speed.text.tpsMedian);
       if (b.speed.vision.tpsMedian != null) m.vision = Math.max(m.vision, b.speed.vision.tpsMedian);
+      if (b.speed.agent.tpsMedian != null) m.agent = Math.max(m.agent, b.speed.agent.tpsMedian);
       if (b.speed.total.tpsMedian != null) m.total = Math.max(m.total, b.speed.total.tpsMedian);
     }
     return m;
@@ -518,7 +528,7 @@ export function Scoreboard({
         <LeakTable leaks={filteredLeaks} />
       ) : (
       <div className="overflow-x-auto rounded border border-[var(--border)]">
-        <table className="w-full min-w-[46rem] text-left text-sm">
+        <table className="w-full min-w-[58rem] text-left text-sm">
           <thead className="bg-[var(--surface)] text-[var(--muted)]">
             <tr>
               <SortHeader
@@ -537,12 +547,16 @@ export function Scoreboard({
                 비전
               </th>
               <th colSpan={3} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+                에이전트
+              </th>
+              <th colSpan={3} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
                 총합
               </th>
             </tr>
             <tr>
               <GroupSortHeaders group="text" sort={sort} onSort={onSortClick} />
               <GroupSortHeaders group="vision" sort={sort} onSort={onSortClick} />
+              <GroupSortHeaders group="agent" sort={sort} onSort={onSortClick} />
               <GroupSortHeaders group="total" sort={sort} onSort={onSortClick} />
             </tr>
           </thead>

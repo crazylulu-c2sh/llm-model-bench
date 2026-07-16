@@ -166,7 +166,7 @@ export function buildOpenApiSpec(): object {
             {
               name: "task",
               in: "query",
-              schema: { type: "string", enum: ["coding", "vision", "tools", "structured", "chat"] },
+              schema: { type: "string", enum: ["coding", "vision", "tools", "structured", "chat", "agent"] },
               description: "시나리오 필터",
             },
           ],

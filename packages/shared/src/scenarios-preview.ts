@@ -128,13 +128,20 @@ export const DEFAULT_SCENARIO_IDS: ScenarioId[] = [
 ];
 
 /** 시나리오 카테고리 — UI 그룹 헤더용 */
-export type ScenarioCategory = "text" | "vision";
-export function scenarioCategory(id: ScenarioId): ScenarioCategory {
-  return id.startsWith("vision_") ? "vision" : "text";
+export type ScenarioCategory = "text" | "vision" | "agent";
+export function scenarioCategory(id: string): ScenarioCategory {
+  if (id.startsWith("vision_")) return "vision";
+  if (id.startsWith("agent_")) return "agent";
+  return "text";
 }
 
 export function isVisionScenario(id: string): boolean {
   return (VISION_SCENARIO_IDS as readonly string[]).includes(id);
+}
+
+/** 멀티턴 에이전트 시나리오(빌트인 `agent_*`). 카테고리는 id 접두에서 파생. */
+export function isAgentScenario(id: string): boolean {
+  return id.startsWith("agent_");
 }
 
 /** 전체 시나리오 (공개 + 스트레스). 시나리오 ID 유효성 검사·테스트 fixture용. */

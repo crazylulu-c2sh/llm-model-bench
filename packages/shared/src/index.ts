@@ -17,6 +17,7 @@ export {
   getScenarioImageAssets,
   getScenarioSystemPromptPreview,
   getScenarioUserPromptPreview,
+  isAgentScenario,
   isScenarioId,
   isStressWorkloadId,
   isVisionScenario,

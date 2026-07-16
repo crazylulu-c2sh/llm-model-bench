@@ -20,8 +20,8 @@ export {
 // 컴포넌트가 재정렬을 생략하고 board를 그대로 써서 computeScoreboard의 2차 키(총합 속도)까지
 // 보존한다(sortEquals + DEFAULT_SCOREBOARD_SORT). 따라서 여기 tie-break는 model_id만으로 충분.
 
-/** 정렬 가능한 컬럼 그룹(텍스트/비전/총합). */
-export type ScoreGroup = "text" | "vision" | "total";
+/** 정렬 가능한 컬럼 그룹(텍스트/비전/에이전트/총합). */
+export type ScoreGroup = "text" | "vision" | "agent" | "total";
 /** 정렬 가능한 지표(품질/속도/지연). */
 export type ScoreMetric = "quality" | "speed" | "latency";
 export type SortDir = "asc" | "desc";

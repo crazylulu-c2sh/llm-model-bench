@@ -1,4 +1,4 @@
-import { isVisionScenario } from "../scenarios-preview";
+import { isAgentScenario, isVisionScenario } from "../scenarios-preview";
 
 /**
  * 속도 점수 = 디코드(출력) TPS 절대 점수. 기준 30 tok/s = base점, 성능에 선형 비례, 상한 없음.
@@ -36,12 +36,14 @@ export type SpeedGroup = {
   tpsMax: number | null;
 };
 
-/** 한 모델의 속도 측 3그룹 슬라이스. */
+/** 한 모델의 속도 측 4그룹 슬라이스. */
 export type ModelSpeedScore = {
   model_id: string;
   text: SpeedGroup;
   /** score=null이면 vision 미실행/미측정 */
   vision: SpeedGroup;
+  /** score=null이면 agent 미실행/미측정 — 멀티턴 에이전트 시나리오(`agent_*`). */
+  agent: SpeedGroup;
   total: SpeedGroup;
   textOnly: boolean;
   /** 풀링 행 중 하나라도 approx tps였는지. */
@@ -103,7 +105,15 @@ export function computeSpeedScores(rows: readonly SpeedInput[]): Map<string, Mod
   const order: string[] = [];
   const acc = new Map<
     string,
-    { text: SpeedAccum; vision: SpeedAccum; total: SpeedAccum; visionAttempted: boolean; textAttempted: boolean }
+    {
+      text: SpeedAccum;
+      vision: SpeedAccum;
+      agent: SpeedAccum;
+      total: SpeedAccum;
+      visionAttempted: boolean;
+      agentAttempted: boolean;
+      textAttempted: boolean;
+    }
   >();
 
   for (const r of rows) {
@@ -112,17 +122,21 @@ export function computeSpeedScores(rows: readonly SpeedInput[]): Map<string, Mod
       m = {
         text: emptySpeed(),
         vision: emptySpeed(),
+        agent: emptySpeed(),
         total: emptySpeed(),
         visionAttempted: false,
+        agentAttempted: false,
         textAttempted: false,
       };
       acc.set(r.model_id, m);
       order.push(r.model_id);
     }
     const vision = isVisionScenario(r.scenario);
+    const agent = isAgentScenario(r.scenario);
     if (vision) m.visionAttempted = true;
+    else if (agent) m.agentAttempted = true;
     else m.textAttempted = true;
-    const grp = vision ? m.vision : m.text;
+    const grp = vision ? m.vision : agent ? m.agent : m.text;
 
     const s = speedScoreForRow(r);
     if (s != null) {
@@ -152,8 +166,9 @@ export function computeSpeedScores(rows: readonly SpeedInput[]): Map<string, Mod
       model_id: id,
       text: speedGroup(m.text),
       vision: speedGroup(m.vision),
+      agent: speedGroup(m.agent),
       total: speedGroup(m.total),
-      textOnly: !m.visionAttempted && m.textAttempted,
+      textOnly: !m.visionAttempted && !m.agentAttempted && m.textAttempted,
       approxCaveat: m.total.approx > 0,
     });
   }

@@ -364,7 +364,36 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
   },
 };
 
+/**
+ * 멀티턴 에이전트 시나리오(`agent_*`) 메타. `META`(Record<ScenarioId>)는 닫힌 유니온이라
+ * 별도 맵으로 둔다 — id는 레지스트리(빌트인)에서 오며 ScenarioId 유니온에 없다.
+ */
+const AGENT_META: Record<string, ScenarioBenchMeta> = {
+  agent_loop_mock_v1: {
+    purposeKo:
+      "멀티턴 에이전트 기본기: read_document → wiki_search → wiki_read 후 최종 JSON 카드를 내는 " +
+      "research-then-answer 루프. 단일-샷이 못 잡는 빈-턴 정체·중간턴 사고 누수를 턴을 가로질러 드러낸다.",
+    criteriaKo:
+      "완료 판정 = 도구 호출을 멈춘 턴(no_tool_calls). 최종 출력의 JSON 카드 품질은 judge(0-3)가 채점. " +
+      "지표: 완료율·turns·유효 도구호출률·중간턴 누수.",
+    toolsSummaryKo: "read_document / wiki_search / wiki_read (모두 mock). maxTurns 6.",
+    routesKo: "chat_completions(OpenAI 호환) / messages(Anthropic) 공통.",
+  },
+  agent_loop_budget_v1: {
+    purposeKo:
+      "하드 예산 변종: agent_loop_mock_v1과 동일 스크립트지만 per-turn max_tokens를 192로 조여, " +
+      "사고를 reasoning_content로 과도하게 흘리는 모델이 예산을 소진해 빈 턴(finish_reason=length)으로 " +
+      "정체하는지 재현한다.",
+    criteriaKo:
+      "절제된 모델은 예산 안에 완주(completed), 과사고 모델은 stall + thinking_exhausted_budget. " +
+      "192는 실측으로 확정한 두 모델을 가르는 예산.",
+    toolsSummaryKo: "read_document / wiki_search / wiki_read (모두 mock). maxTurns 6, max_tokens 192.",
+    routesKo: "chat_completions / messages 공통.",
+  },
+};
+
 export function getScenarioBenchMeta(id: string): ScenarioBenchMeta | null {
   if ((id as ScenarioId) in META) return META[id as ScenarioId];
+  if (id in AGENT_META) return AGENT_META[id]!;
   return null;
 }

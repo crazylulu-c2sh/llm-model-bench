@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_SCENARIO_IDS,
   defaultMaxTokensForVisionScenario,
   getScenarioSystemPromptPreview,
   getScenarioUserPromptPreview,
+  isAgentScenario,
+  isVisionScenario,
+  scenarioCategory,
   VISION_SCENARIO_IDS,
 } from "./scenarios-preview.js";
 
@@ -35,6 +39,33 @@ describe("defaultMaxTokensForVisionScenario", () => {
   it("VISION_SCENARIO_IDS는 모든 비전 시나리오를 망라하고 텍스트 시나리오는 포함하지 않음", () => {
     for (const id of VISION_SCENARIO_IDS) {
       expect(defaultMaxTokensForVisionScenario(id)).not.toBeNull();
+    }
+  });
+});
+
+describe("scenarioCategory / isAgentScenario", () => {
+  it("agent_* → 'agent' 카테고리", () => {
+    expect(scenarioCategory("agent_loop_mock_v1")).toBe("agent");
+    expect(scenarioCategory("agent_loop_budget_v1")).toBe("agent");
+    expect(isAgentScenario("agent_loop_mock_v1")).toBe(true);
+    expect(isAgentScenario("agent_anything")).toBe(true);
+  });
+
+  it("vision_* → 'vision', 나머지 → 'text' (agent 아님)", () => {
+    expect(scenarioCategory("vision_table_ocr_a")).toBe("vision");
+    expect(scenarioCategory("chat_hello")).toBe("text");
+    expect(scenarioCategory("code_sort_js")).toBe("text");
+    expect(isAgentScenario("vision_table_ocr_a")).toBe(false);
+    expect(isAgentScenario("chat_hello")).toBe(false);
+    // vision·agent는 상호배타
+    for (const id of VISION_SCENARIO_IDS) expect(isAgentScenario(id)).toBe(false);
+  });
+
+  it("불변식: 기본 세트(DEFAULT_SCENARIO_IDS)에는 에이전트·비전 시나리오가 없다 — 기본 런 무변화", () => {
+    for (const id of DEFAULT_SCENARIO_IDS) {
+      expect(isAgentScenario(id)).toBe(false);
+      expect(isVisionScenario(id)).toBe(false);
+      expect(scenarioCategory(id)).toBe("text");
     }
   });
 });

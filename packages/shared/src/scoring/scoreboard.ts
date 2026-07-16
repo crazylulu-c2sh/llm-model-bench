@@ -1,4 +1,4 @@
-import { isVisionScenario } from "../scenarios-preview";
+import { isAgentScenario, isVisionScenario } from "../scenarios-preview";
 import { tokensPerSecondFromRun } from "../tps";
 import { compareModelIdAlphanumeric } from "../model-sort";
 import { computeQualityScores, type ModelQualityScore } from "./quality-score";
@@ -54,10 +54,14 @@ export type ScoreboardRow = {
 
 const JUDGE_CAP_REASON_PREFIX = "prefilter passed";
 
-/** LLM_JUDGE_ENABLED 없이 rubric 1로 캡된 vision 런인지(점수 평균 후엔 0.33이 사라지므로 런 단위 판정). */
+/**
+ * LLM_JUDGE_ENABLED 없이 rubric 1로 캡된 런인지(점수 평균 후엔 0.33이 사라지므로 런 단위 판정).
+ * vision·agent 모두 rubric 채점이라 대상 — agent도 포함하지 않으면 judge OFF 상태에서 "33점"이
+ * 경고 없이 표기된다.
+ */
 function isJudgeCappedRun(scenario: string, run: ScoringRunInput): boolean {
   return (
-    isVisionScenario(scenario) &&
+    (isVisionScenario(scenario) || isAgentScenario(scenario)) &&
     run.quality?.score === 0.33 &&
     (run.quality?.reason ?? "").startsWith(JUDGE_CAP_REASON_PREFIX)
   );
@@ -190,7 +194,7 @@ function emptySpeed(id: string): ModelSpeedScore {
     tpsMin: null,
     tpsMax: null,
   } as const;
-  return { model_id: id, text: g, vision: g, total: g, textOnly: false, approxCaveat: false };
+  return { model_id: id, text: g, vision: g, agent: g, total: g, textOnly: false, approxCaveat: false };
 }
 
 /**

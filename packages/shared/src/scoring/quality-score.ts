@@ -1,9 +1,9 @@
-import { isVisionScenario } from "../scenarios-preview";
+import { isAgentScenario, isVisionScenario } from "../scenarios-preview";
 
 /** 점수 신뢰도 경고 플래그(silent 금지). */
 export type QualityCaveat = "judge_capped" | "vision_partial" | "no_quality_data";
 
-/** 한 그룹(text|vision|total)의 절대 품질 점수 슬라이스. */
+/** 한 그룹(text|vision|agent|total)의 절대 품질 점수 슬라이스. */
 export type QualityGroupScore = {
   /** 0~100 평균(미반올림). 점수 가능한 행이 없으면 null("—"). */
   value: number | null;
@@ -13,17 +13,19 @@ export type QualityGroupScore = {
   expected: number;
 };
 
-/** 한 모델의 품질 측 3그룹 슬라이스. */
+/** 한 모델의 품질 측 4그룹 슬라이스. */
 export type ModelQualityScore = {
   model_id: string;
   text: QualityGroupScore;
   /** value=null이면 "—"(N/A) */
   vision: QualityGroupScore;
+  /** value=null이면 "—"(N/A) — 멀티턴 에이전트 시나리오(`agent_*`). */
+  agent: QualityGroupScore;
   total: QualityGroupScore;
-  /** 비전 미실행 → total이 텍스트 전용("text-only"). */
+  /** 비전·에이전트 미실행 → total이 텍스트 전용("text-only"). */
   textOnly: boolean;
   caveats: QualityCaveat[];
-  /** judge OFF로 rubric 캡된 vision 시나리오 수(caveat 상세). */
+  /** judge OFF로 rubric 캡된 vision/agent 시나리오 수(caveat 상세). */
   judgeCappedScenarios: number;
 };
 
@@ -75,18 +77,25 @@ export function computeQualityScores(rows: readonly QualityInput[]): ModelQualit
   const order: string[] = [];
   const byModel = new Map<
     string,
-    { text: GroupAccum; vision: GroupAccum; total: GroupAccum; judgeCapped: Set<string> }
+    { text: GroupAccum; vision: GroupAccum; agent: GroupAccum; total: GroupAccum; judgeCapped: Set<string> }
   >();
 
   for (const r of rows) {
     let m = byModel.get(r.model_id);
     if (!m) {
-      m = { text: emptyAccum(), vision: emptyAccum(), total: emptyAccum(), judgeCapped: new Set() };
+      m = {
+        text: emptyAccum(),
+        vision: emptyAccum(),
+        agent: emptyAccum(),
+        total: emptyAccum(),
+        judgeCapped: new Set(),
+      };
       byModel.set(r.model_id, m);
       order.push(r.model_id);
     }
     const vision = isVisionScenario(r.scenario);
-    const grp = vision ? m.vision : m.text;
+    const agent = isAgentScenario(r.scenario);
+    const grp = vision ? m.vision : agent ? m.agent : m.text;
     grp.attempted.add(r.scenario);
     m.total.attempted.add(r.scenario);
     if (isFiniteScore(r.score)) {
@@ -97,15 +106,17 @@ export function computeQualityScores(rows: readonly QualityInput[]): ModelQualit
       m.total.n += 1;
       m.total.scored.add(r.scenario);
     }
-    if (r.judgeCapped && vision) m.judgeCapped.add(r.scenario);
+    // judge OFF rubric 캡은 vision·agent 모두 rubric 채점이라 대상(text는 0/1 통과율이라 무관).
+    if (r.judgeCapped && (vision || agent)) m.judgeCapped.add(r.scenario);
   }
 
   return order.map((id) => {
     const m = byModel.get(id)!;
     const text = groupScore(m.text);
     const vision = groupScore(m.vision);
+    const agent = groupScore(m.agent);
     const total = groupScore(m.total);
-    const textOnly = vision.expected === 0 && text.expected > 0;
+    const textOnly = vision.expected === 0 && agent.expected === 0 && text.expected > 0;
     const caveats: QualityCaveat[] = [];
     if (m.judgeCapped.size > 0) caveats.push("judge_capped");
     if (vision.expected > 0 && vision.covered < vision.expected) caveats.push("vision_partial");
@@ -114,6 +125,7 @@ export function computeQualityScores(rows: readonly QualityInput[]): ModelQualit
       model_id: id,
       text,
       vision,
+      agent,
       total,
       textOnly,
       caveats,

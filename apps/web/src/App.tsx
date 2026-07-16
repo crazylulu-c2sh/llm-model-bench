@@ -5,6 +5,7 @@ import {
   VISION_SCENARIO_IDS,
   getScenarioBenchMeta,
   inferLlmProfileFamily,
+  isAgentScenario,
   isVisionScenario,
   outputTokensFromRun,
   resolveBenchApiRoutes,
@@ -202,16 +203,24 @@ export function App() {
     [selectedScenarioIds, dynamicScenarioIds],
   );
   const selectedTextCount = useMemo(
-    () => visibleSelectedScenarioIds.filter((id) => !isVisionScenario(id)).length,
+    () => visibleSelectedScenarioIds.filter((id) => !isVisionScenario(id) && !isAgentScenario(id)).length,
     [visibleSelectedScenarioIds],
   );
   const selectedVisionCount = useMemo(
     () => visibleSelectedScenarioIds.filter((id) => isVisionScenario(id)).length,
     [visibleSelectedScenarioIds],
   );
+  const selectedAgentCount = useMemo(
+    () => visibleSelectedScenarioIds.filter((id) => isAgentScenario(id)).length,
+    [visibleSelectedScenarioIds],
+  );
   const totalTextScenarios = useMemo(
     () => (PUBLIC_SCENARIO_IDS as string[]).filter((id) => !isVisionScenario(id)).length,
     [],
+  );
+  const agentScenarioIds = useMemo(
+    () => dynamicScenarios.filter((d) => d.isAgentLoop).map((d) => d.id),
+    [dynamicScenarios],
   );
   const [profileId, setProfileId] = useState<"auto" | LlmProfileFamily>(boot.profileId);
   const [profileMaxTokens, setProfileMaxTokens] = useState(boot.profileMaxTokens);
@@ -1436,7 +1445,7 @@ export function App() {
               <span className="font-medium text-[var(--foreground)]">
                 실행 시나리오{" "}
                 <span className={visibleSelectedScenarioIds.length === 0 ? "text-[var(--danger)]" : "text-[var(--muted)]"}>
-                  ({visibleSelectedScenarioIds.length}/{PUBLIC_SCENARIO_IDS.length})
+                  ({visibleSelectedScenarioIds.length}/{PUBLIC_SCENARIO_IDS.length + dynamicScenarios.length})
                 </span>
               </span>
               <span className="flex items-center gap-2 text-xs">
@@ -1453,6 +1462,18 @@ export function App() {
                 >
                   비전 {selectedVisionCount}/{VISION_SCENARIO_IDS.length}
                 </span>
+                {agentScenarioIds.length > 0 ? (
+                  <span
+                    className={[
+                      "rounded px-1.5 py-0.5",
+                      selectedAgentCount > 0
+                        ? "bg-[var(--accent)]/15 text-[var(--accent)]"
+                        : "bg-[var(--surface-2)] text-[var(--muted)]",
+                    ].join(" ")}
+                  >
+                    에이전트 {selectedAgentCount}/{agentScenarioIds.length}
+                  </span>
+                ) : null}
                 <span className="text-[var(--muted)]">{scenarioPickerOpen ? "▴" : "▾"}</span>
               </span>
             </button>
@@ -1490,6 +1511,16 @@ export function App() {
                   >
                     비전만 (10개)
                   </button>
+                  {agentScenarioIds.length > 0 ? (
+                    <button
+                      type="button"
+                      className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                      onClick={() => setSelectedScenarioIds([...agentScenarioIds])}
+                      title="멀티턴 에이전트 시나리오만 실행 (완료율·처리량·도구 규율)"
+                    >
+                      에이전트만 ({agentScenarioIds.length}개)
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
