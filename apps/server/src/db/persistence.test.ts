@@ -139,3 +139,61 @@ describe("BenchRunPersistence + sqlite", () => {
     expect(updateRunMetaJson(db, "nope", { x: 1 })).toBe(0);
   });
 });
+
+// #110 후속 회귀: 런 도중 기록된 실패 원인이 **종료 시점에 지워지면 안 된다**.
+// 예전 finishRun 은 err 를 안 넘기면 error_code/message 에 NULL 을 덮어썼고, bench 경로
+// (persist-stream)는 항상 err 없이 호출하므로 모든 실패 런의 원인이 유실됐다 —
+// 그 결과 #110 이 추가한 스코어보드 `skipped` 사유가 항상 빈 폴백으로만 나왔다.
+describe("실패 원인 보존 (#110 후속)", () => {
+  function errorCodeOf(db: ReturnType<typeof openBenchDatabase>, runId: string) {
+    return db
+      .prepare("SELECT status, error_code, error_message FROM bench_runs WHERE run_id = ?")
+      .get(runId) as { status: string; error_code: string | null; error_message: string | null };
+  }
+
+  it("error 이벤트로 기록된 원인이 finish 후에도 남는다", () => {
+    const db = openBenchDatabase(":memory:");
+    const p = new BenchRunPersistence(db);
+    const meta = makeBenchRunMeta(req("m-fail"), detect, "run_err_1");
+    p.start(meta);
+    p.onEvent({
+      type: "error",
+      layer: "orchestrator",
+      code: "load_failed",
+      message: "LM Studio load failed: 500",
+    } as StreamEvent);
+    p.finalize();
+
+    const row = errorCodeOf(db, "run_err_1");
+    expect(row.status).toBe("partial");
+    expect(row.error_code).toBe("load_failed");
+    expect(row.error_message).toContain("500");
+  });
+
+  it("명시적으로 넘긴 err 는 기존 값을 덮어쓴다", () => {
+    const db = openBenchDatabase(":memory:");
+    const meta = makeBenchRunMeta(req("m-b"), detect, "run_err_2");
+    insertRun(db, {
+      run_id: meta.run_id,
+      created_at: meta.created_at,
+      base_url: detect.baseUrl.replace(/\/+$/, ""),
+      provider: meta.provider,
+      model_id: meta.model_id,
+      meta,
+      status: "running",
+    });
+    finishRun(db, "run_err_2", "partial", { code: "explicit", message: "explicit reason" });
+    expect(errorCodeOf(db, "run_err_2").error_code).toBe("explicit");
+  });
+
+  it("에러 없는 정상 런은 error_code 가 null 로 남는다", () => {
+    const db = openBenchDatabase(":memory:");
+    const p = new BenchRunPersistence(db);
+    const meta = makeBenchRunMeta(req("m-ok"), detect, "run_ok_1");
+    p.start(meta);
+    p.finalize();
+    const row = errorCodeOf(db, "run_ok_1");
+    expect(row.status).toBe("ok");
+    expect(row.error_code).toBeNull();
+  });
+});
