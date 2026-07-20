@@ -468,12 +468,16 @@ export function finishRun(
   status: RunStatus,
   err?: { code?: string; message?: string },
 ): void {
+  // #110 후속: `err` 를 안 넘기면 **기존 에러를 지우지 않는다**(COALESCE).
+  // 예전엔 무조건 NULL 을 덮어써서, 런 도중 `markRunErrorPartial` 이 기록한 원인이 종료 시점에
+  // 지워졌다 — bench 경로(`persist-stream.ts`)는 `err` 없이 호출하므로 **모든 실패 런의 원인이
+  // 유실**됐고, #110 이 추가한 스코어보드 `skipped` 사유가 항상 빈 폴백으로만 나왔다.
   db.prepare(
     `UPDATE bench_runs SET
       finished_at = @finished_at,
       status = @status,
-      error_code = @error_code,
-      error_message = @error_message
+      error_code = COALESCE(@error_code, error_code),
+      error_message = COALESCE(@error_message, error_message)
      WHERE run_id = @run_id`,
   ).run({
     run_id,
