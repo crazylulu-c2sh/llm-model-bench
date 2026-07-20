@@ -305,40 +305,52 @@ export function StatsModelTable({
 
   return (
     <div className="grid gap-2">
-      {categoryCounts.size > 0 ? (
-        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-          <span className="text-[var(--muted)]">카테고리:</span>
-          {CATEGORY_ORDER.filter((c) => categoryCounts.has(c)).map((c) => {
-            const active = selectedCategories.has(c);
-            return (
-              <button
-                key={c}
-                type="button"
-                onClick={() => toggleCategory(c)}
-                aria-pressed={active}
-                title={`${CATEGORY_LABELS[c]} ${active ? "필터 해제" : "필터 적용"}`}
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors ${
-                  active
-                    ? "border border-[var(--accent)] text-[var(--foreground)]"
-                    : "border border-dashed border-[var(--border)] text-[var(--muted)] opacity-60"
-                }`}
-              >
-                {CATEGORY_LABELS[c]}
-                <span className="text-[var(--muted)]">{categoryCounts.get(c)}</span>
-              </button>
-            );
-          })}
-          {selectedCategories.size > 0 ? (
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="text-[var(--muted)]">카테고리:</span>
+        {/* 3분류는 항상 노출한다 — 측정 0건이어도 그 축이 존재함을 알려야 하므로 숨기지 않음. */}
+        {CATEGORY_ORDER.map((c) => {
+          const count = categoryCounts.get(c) ?? 0;
+          const active = selectedCategories.has(c);
+          // 0건 카테고리는 누르면 빈 표만 되므로 보이되 비활성.
+          const empty = count === 0;
+          return (
             <button
+              key={c}
               type="button"
-              onClick={() => setSelectedCategories(new Set())}
-              className="ml-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--muted)] hover:text-[var(--foreground)]"
+              onClick={() => toggleCategory(c)}
+              disabled={empty}
+              aria-pressed={active}
+              title={
+                empty
+                  ? `${CATEGORY_LABELS[c]} 측정이 있는 모델이 없습니다`
+                  : `${CATEGORY_LABELS[c]} ${active ? "필터 해제" : "필터 적용"}`
+              }
+              style={
+                active ? { background: "color-mix(in srgb, var(--accent) 14%, transparent)" } : undefined
+              }
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 transition-colors ${
+                empty
+                  ? "cursor-not-allowed border-dashed border-[var(--border)] text-[var(--muted)] opacity-55"
+                  : active
+                    ? "border-[var(--accent)] font-medium text-[var(--foreground)]"
+                    : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-sm hover:border-[var(--accent)]"
+              }`}
             >
-              전체
+              {CATEGORY_LABELS[c]}
+              <span className="text-[var(--muted)]">{count}</span>
             </button>
-          ) : null}
-        </div>
-      ) : null}
+          );
+        })}
+        {selectedCategories.size > 0 ? (
+          <button
+            type="button"
+            onClick={() => setSelectedCategories(new Set())}
+            className="ml-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[var(--muted)] shadow-sm hover:text-[var(--foreground)]"
+          >
+            전체
+          </button>
+        ) : null}
+      </div>
       <div className="relative">
         <Search
           className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--muted)]"
