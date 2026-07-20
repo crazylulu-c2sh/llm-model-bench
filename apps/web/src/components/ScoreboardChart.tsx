@@ -336,6 +336,7 @@ export function ScoreboardChart({
             { value: "total", label: GROUP_LABEL.total },
             { value: "text", label: GROUP_LABEL.text },
             { value: "vision", label: GROUP_LABEL.vision },
+            { value: "agent", label: GROUP_LABEL.agent },
           ]}
         />
         <Segmented

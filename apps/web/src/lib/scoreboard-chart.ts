@@ -15,7 +15,7 @@ import { niceCeil } from "./chart-theme";
 
 /** 차트가 그리는 지표. latency는 "낮을수록 좋음/무점수"라 v1 제외(표에만). */
 export type ChartMetric = "quality" | "speed";
-export type ChartGroup = "text" | "vision" | "total";
+export type ChartGroup = "text" | "vision" | "agent" | "total";
 
 export type ScoreboardChartDatum = {
   model_id: string;

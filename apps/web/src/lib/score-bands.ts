@@ -5,7 +5,7 @@ import type { LeakMetric } from "./leak-metrics";
 import { AGENT_SAFE_THRESHOLDS } from "./leak-metrics";
 
 export const CAP_TITLE =
-  "비전 meme/wireframe rubric이 LLM_JUDGE_ENABLED=1 없이 캡됨 — 비전·총합 품질이 낮게 나올 수 있음";
+  "rubric 채점 시나리오(비전·에이전트)가 LLM_JUDGE_ENABLED=1 없이 캡됨 — 해당·총합 품질이 낮게 나올 수 있음";
 export const APPROX_TITLE = "provider가 usage 토큰을 안 줘 chars/4 추정(approx) — CJK·코드에서 오차 큼";
 
 /** 절대 점수 밴드 → 색(기존 tps-tier 토큰 재사용; 비교 상대값 아님). */
@@ -34,7 +34,12 @@ export function speedRelativeBand(value: number, max: number): ScoreBand {
   return "low";
 }
 
-export const GROUP_LABEL: Record<ScoreGroup, string> = { text: "텍스트", vision: "비전", total: "총합" };
+export const GROUP_LABEL: Record<ScoreGroup, string> = {
+  text: "텍스트",
+  vision: "비전",
+  agent: "에이전트",
+  total: "총합",
+};
 export const METRIC_LABEL: Record<ScoreMetric, string> = { quality: "품질", speed: "속도", latency: "지연" };
 
 // ─── #80: 누수/정체 지표(모델 × 라우트) — 낮을수록 좋음(agent-safe) ───────────────

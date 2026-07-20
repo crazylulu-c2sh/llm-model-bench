@@ -43,6 +43,14 @@ export type ResultRow = {
   reasoning_leaked_into_content?: boolean;
   /** #80: 가시 content에 <think>/<|channel|> 태그 잔존(라우트 무관) → 추론 누수 배지의 일반화 신호 */
   channel_tag_leak_detected?: boolean;
+  /** #105: agent_loop 마지막 측정 런의 종료 사유(에이전트 컬럼 배지). */
+  agent_completion_reason?: "completed" | "stall" | "budget_exhausted";
+  /** #105: agent_loop 완료까지 턴 수(완료 배지 부제). */
+  turns_to_completion?: number | null;
+  /** #105: agent_loop 빈 턴 수. */
+  empty_turn_count?: number;
+  /** #105: 사고가 예산을 소진해 빈 턴이 있었는지(예산소진 툴팁). */
+  thinking_exhausted_budget?: boolean;
   pass?: boolean;
   /** 0~1 점수. 비전 시나리오에서 rubric 0~3과 함께 표시. 텍스트 시나리오는 보통 0 또는 1. */
   score?: number;
@@ -135,6 +143,8 @@ export function ResultsTable({
     [rows],
   );
   const multiModel = colorByModel.size >= 2;
+  // #105: 에이전트(멀티턴) 런이 하나라도 있을 때만 에이전트 컬럼 표출 — 비-에이전트 벤치 오염 방지.
+  const anyAgentRow = useMemo(() => rows.some((r) => r.agent_completion_reason != null), [rows]);
   const [sorting, setSorting] = useState<SortingState>(BENCH_EXECUTION_SORT);
 
   const onColumnSort = useCallback((columnId: string) => {
@@ -423,6 +433,52 @@ export function ResultsTable({
         },
         enableSorting: false,
       }),
+      ...(anyAgentRow
+        ? [
+            columnHelper.display({
+              id: "agent",
+              header: () => (
+                <span title="멀티턴 에이전트 시나리오의 종료 상태 — 완료(턴수)/정체/예산소진. 상세 지표는 스코어보드 '에이전트' 뷰.">
+                  에이전트
+                </span>
+              ),
+              cell: ({ row }) => {
+                const { agent_completion_reason, turns_to_completion, empty_turn_count, thinking_exhausted_budget } =
+                  row.original;
+                if (agent_completion_reason == null) return <span className="text-xs text-[var(--muted)]">—</span>;
+                if (agent_completion_reason === "completed") {
+                  return (
+                    <span
+                      className="inline-flex items-center gap-1 rounded border border-[var(--chart-pass)] bg-[var(--surface)] px-1.5 py-0.5 text-xs text-[var(--chart-pass)]"
+                      title={`완료 · ${turns_to_completion ?? "?"}턴`}
+                    >
+                      완료 <span className="font-mono text-[10px] text-[var(--muted)]">{turns_to_completion ?? "?"}턴</span>
+                    </span>
+                  );
+                }
+                const isBudget = agent_completion_reason === "budget_exhausted";
+                const label = isBudget ? "예산소진" : "정체";
+                const colorClass = isBudget
+                  ? "text-[var(--chart-fail)] border-[var(--chart-fail)]"
+                  : "text-[var(--tier-okay)] border-[var(--tier-okay)]";
+                const title =
+                  (isBudget ? "maxTurns 까지 도구 호출만 반복" : "빈 턴으로 정체") +
+                  (thinking_exhausted_budget ? " · 사고가 per-turn 예산 소진" : "") +
+                  (empty_turn_count ? ` · 빈 턴 ${empty_turn_count}` : "");
+                return (
+                  <span
+                    className={`inline-flex items-center gap-1 rounded border bg-[var(--surface)] px-1.5 py-0.5 text-xs ${colorClass}`}
+                    title={title}
+                  >
+                    {label}
+                    {thinking_exhausted_budget ? <span className="text-[10px]">⚠</span> : null}
+                  </span>
+                );
+              },
+              enableSorting: false,
+            }),
+          ]
+        : []),
     ],
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),

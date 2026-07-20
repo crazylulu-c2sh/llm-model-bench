@@ -29,6 +29,13 @@ export type MetricsAgg = {
     empty_response?: boolean;
     channel_tag_leak_detected?: boolean;
     thinking_exhausted_budget?: boolean;
+    empty_turn_count?: number;
+    turns_to_completion?: number | null;
+    valid_tool_call_rate?: number;
+    tool_arg_hits?: number;
+    tool_arg_attempts?: number;
+    final_turn_output_tokens?: number;
+    agent_completion_reason?: "completed" | "stall" | "budget_exhausted";
     quality?: { pass: boolean; score?: number; reason?: string };
   }>;
 };
@@ -87,6 +94,10 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
         tool_call_args_corrupted: last.tool_call_args_corrupted,
         reasoning_leaked_into_content: last.reasoning_leaked_into_content,
         channel_tag_leak_detected: last.channel_tag_leak_detected,
+        agent_completion_reason: last.agent_completion_reason,
+        turns_to_completion: last.turns_to_completion,
+        empty_turn_count: last.empty_turn_count,
+        thinking_exhausted_budget: last.thinking_exhausted_budget,
         pass: last.quality?.pass,
         score: last.quality?.score,
         reason: last.quality?.reason,

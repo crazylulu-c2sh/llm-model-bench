@@ -188,7 +188,7 @@ AI 에이전트가 이 서비스를 프로그래밍적으로 쓸 수 있도록 *
   | POST | `/api/v1/scenarios` | **#83 커스텀 시나리오 등록**(system·user·tools·sampling·api_route·judge 루브릭). zod 검증 실패 시 4xx+필드 에러. 등록 후 built-in과 동일하게 `/bench/stream`·`/runs`·`/scoreboard`로 흐름. 도구는 mock-only |
   | DELETE | `/api/v1/scenarios/:id` | 커스텀 시나리오 삭제(레지스트리+DB) |
   | GET | `/api/v1/catalog` | 시나리오 + 프로파일 + 스트레스 워크로드 한 번에 |
-  | GET | `/api/v1/scoreboard?baseUrl=&modelIds=&task=coding\|vision\|tools\|structured\|chat` | 저장된 최신 런 기반 **서버 사이드 랭킹**(품질·속도) — "X에 어떤 모델이 최고?" |
+  | GET | `/api/v1/scoreboard?baseUrl=&modelIds=&task=coding\|vision\|tools\|structured\|chat\|agent` | 저장된 최신 런 기반 **서버 사이드 랭킹**(품질·속도). 응답의 `leaks[]`(모델×라우트 누수/정체, agent 제외)와 `agent_metrics[]`(#105 멀티턴 에이전트 능력: 완료율·과업 벽시계·인자 충실도·출력 효율) 포함 — "X에 어떤 모델이 최고?" |
   | GET | `/api/v1/compare?runA=&runB=` (또는 `modelA=&modelB=&baseUrl=`) | **#84 회귀 diff** — per-scenario TTFT p50/p95·TPS·품질·정체/누수 델타 + `regression` 플래그(임계 override: `qualityDropAbs`·`tpsRegressionPct`·`ttftRegressionPct`·`flagNewEmptyTurns`). 헤드리스 게이트는 `llm-bench-compare` CLI(`--fail-on-regression`·`--webhook`) |
   | GET | `/api/v1/openapi.json` | OpenAPI 3.1 스펙(Zod 스키마에서 생성) |
   | GET | `/api/v1/docs` | 자립형(오프라인) API 레퍼런스 |

@@ -15,6 +15,7 @@ import {
 import { getScenarioBenchMeta } from "./scenario-meta";
 import { openAiToolsForScenario } from "./scenario-tools";
 import { getScenarioDef } from "./scenario-registry";
+import { BUILTIN_AGENT_LOOP_IDS } from "./agent-loop-builtin";
 
 /**
  * 에이전트 대상 시나리오 카탈로그 — `GET /api/scenarios`(및 MCP `list_scenarios`)가 반환.
@@ -31,7 +32,7 @@ export const ScenarioMetaSchema = z.object({
 
 export const ScenarioDescriptorSchema = z.object({
   id: z.string(),
-  category: z.enum(["text", "vision"]),
+  category: z.enum(["text", "vision", "agent"]),
   isVision: z.boolean(),
   inDefaultSet: z.boolean(),
   inVisionSet: z.boolean(),
@@ -91,7 +92,7 @@ export function buildScenarioCatalog(
     }
     return {
       id,
-      category: scenarioCategory(id as ScenarioId),
+      category: scenarioCategory(id),
       isVision: isVisionScenario(id),
       inDefaultSet: defaultSet.has(id),
       inVisionSet: visionSet.has(id),
@@ -113,7 +114,7 @@ export function buildScenarioCatalog(
 
 // ─── task 필터 → 시나리오 ID 매핑(web·server·mcp 공유) ─────────────────────────
 // `GET /api/scoreboard?task=…`와 web Scoreboard 카테고리 필터가 동일 집합을 쓰도록 단일 소스.
-export const SCOREBOARD_TASKS = ["coding", "vision", "tools", "structured", "chat"] as const;
+export const SCOREBOARD_TASKS = ["coding", "vision", "tools", "structured", "chat", "agent"] as const;
 export type ScoreboardTask = (typeof SCOREBOARD_TASKS)[number];
 
 const TASK_SCENARIO_IDS: Record<ScoreboardTask, readonly string[]> = {
@@ -122,6 +123,7 @@ const TASK_SCENARIO_IDS: Record<ScoreboardTask, readonly string[]> = {
   tools: ["tool_weather", "translate_nist_fips197_pdf_tools"],
   structured: ["structured_action"],
   chat: ["chat_hello", "chat_ping", "chat_time_calendar"],
+  agent: BUILTIN_AGENT_LOOP_IDS,
 };
 
 export function isScoreboardTask(x: string): x is ScoreboardTask {
@@ -145,6 +147,7 @@ const ModelQualityScoreSchema = z.object({
   model_id: z.string(),
   text: QualityGroupScoreSchema,
   vision: QualityGroupScoreSchema,
+  agent: QualityGroupScoreSchema,
   total: QualityGroupScoreSchema,
   textOnly: z.boolean(),
   caveats: z.array(z.enum(["judge_capped", "vision_partial", "no_quality_data"])),
@@ -163,6 +166,7 @@ const ModelSpeedScoreSchema = z.object({
   model_id: z.string(),
   text: SpeedGroupSchema,
   vision: SpeedGroupSchema,
+  agent: SpeedGroupSchema,
   total: SpeedGroupSchema,
   textOnly: z.boolean(),
   approxCaveat: z.boolean(),
@@ -188,6 +192,24 @@ export const LeakMetricsRowSchema = z.object({
   n: z.number().int(),
 });
 export type LeakMetricsRow = z.infer<typeof LeakMetricsRowSchema>;
+// #105: 모델 × api_route 에이전트 능력 지표(agent_* 시나리오 완료 런). leaks 와 별도 — 과업
+// 완료·처리량·도구 규율을 담아 raw TPS 역전을 드러낸다.
+export const AgentMetricsRowSchema = z.object({
+  model_id: z.string(),
+  api_route: z.enum(["chat_completions", "messages"]),
+  n: z.number().int(),
+  task_completion_rate: z.number(),
+  stall_rate: z.number(),
+  budget_exhausted_rate: z.number(),
+  thinking_budget_rate: z.number(),
+  task_ms_median: z.number().nullable(),
+  turns_median: z.number().nullable(),
+  valid_tool_call_rate_mean: z.number().nullable(),
+  tool_arg_fidelity: z.number().nullable(),
+  arg_attempt_rate: z.number().nullable(),
+  output_efficiency: z.number().nullable(),
+});
+export type AgentMetricsRow = z.infer<typeof AgentMetricsRowSchema>;
 export const ScoreboardResponseSchema = z.object({
   base_url: z.string(),
   filter: z.object({
@@ -197,6 +219,8 @@ export const ScoreboardResponseSchema = z.object({
   rows: z.array(ScoreboardRowResponseSchema),
   /** #80: 모델 × 라우트 누수/정체 지표(선택 — 구버전 응답엔 없음). */
   leaks: z.array(LeakMetricsRowSchema).optional(),
+  /** #105: 모델 × 라우트 에이전트 능력 지표(선택 — agent 런 없으면 빈 배열/부재). */
+  agent_metrics: z.array(AgentMetricsRowSchema).optional(),
   /** #81: 메모리-핏 프리플라이트로 skip된 모델(측정 런이 없어 rows엔 없지만 조용히 사라지지 않도록). */
   skipped: z
     .array(z.object({ model_id: z.string(), reason: z.string() }))

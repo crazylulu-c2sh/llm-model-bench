@@ -17,6 +17,7 @@ export {
   getScenarioImageAssets,
   getScenarioSystemPromptPreview,
   getScenarioUserPromptPreview,
+  isAgentScenario,
   isScenarioId,
   isStressWorkloadId,
   isVisionScenario,
@@ -70,6 +71,7 @@ export {
   JudgeRubricSchema,
   ScenarioSamplingSchema,
   MockToolSchema,
+  MockArgDispatchSchema,
   CompletionPredicateSchema,
   AgentLoopSchema,
   ScenarioDefSchema,
@@ -87,13 +89,21 @@ export {
   type JudgeRubric,
   type ScenarioSampling,
   type MockTool,
+  type MockArgDispatch,
   type CompletionPredicate,
   type AgentLoop,
   type ScenarioDef,
   type CustomScenarioInput,
 } from "./scenario-registry";
 // side-effect: built-in agent_loop 정의를 레지스트리에 등록(재-export가 모듈 로드를 강제).
-export { AGENT_LOOP_BUDGET_V1, AGENT_LOOP_MOCK_V1, BUILTIN_AGENT_LOOP_IDS } from "./agent-loop-builtin";
+export {
+  AGENT_LOOP_BUDGET_V1,
+  AGENT_LOOP_DOCS_V1,
+  AGENT_LOOP_ERROR_V1,
+  AGENT_LOOP_GROUNDING_V1,
+  AGENT_LOOP_MOCK_V1,
+  BUILTIN_AGENT_LOOP_IDS,
+} from "./agent-loop-builtin";
 
 export {
   chooseImageDelivery,
@@ -506,6 +516,11 @@ export const BenchResultSchema = z.object({
           intermediate_turn_leak: z.boolean().optional(),
           /** #101: agent_loop — 사고가 per-turn max_tokens를 소진해 빈 content로 끝난 턴이 있었는지(no_signal 시그니처). */
           thinking_exhausted_budget: z.boolean().optional(),
+          /** #105: agent_loop — argDispatch 도구 인자 충실도 원자료(도구 없으면 필드 부재). */
+          tool_arg_hits: z.number().int().optional(),
+          tool_arg_attempts: z.number().int().optional(),
+          /** #105: agent_loop — 최종(무도구) 턴 출력 토큰(효율 분자). */
+          final_turn_output_tokens: z.number().int().optional(),
           /** #79: agent_loop — 루프 종료 사유. */
           agent_completion_reason: z.enum(["completed", "stall", "budget_exhausted"]).optional(),
           quality: z
@@ -685,6 +700,16 @@ export {
   type LeakBenchDetailInput,
   type LeakResultRow,
 } from "./scoring/leak-metrics";
+// #105: 멀티턴 에이전트 능력 지표.
+export {
+  agentMetricsFromBenchDetails,
+  agentMetricsFromRows,
+  type AgentRunInput,
+  type AgentMetrics,
+  type ModelRouteAgentMetrics,
+  type AgentBenchDetailInput,
+  type AgentResultRow,
+} from "./scoring/agent-metrics";
 // #84: 런/모델 회귀 diff.
 export {
   ttftPercentiles,
@@ -716,9 +741,11 @@ export {
   ScoreboardRowResponseSchema,
   ScoreboardResponseSchema,
   LeakMetricsRowSchema,
+  AgentMetricsRowSchema,
   type ScenarioDescriptor,
   type ScenarioCatalogResponse,
   type ScoreboardTask,
   type ScoreboardResponse,
   type LeakMetricsRow,
+  type AgentMetricsRow,
 } from "./scenario-catalog";

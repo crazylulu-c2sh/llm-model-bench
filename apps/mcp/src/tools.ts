@@ -303,7 +303,7 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
       inputSchema: {
         baseUrl: z.string(),
         modelIds: z.array(z.string()).optional(),
-        task: z.enum(["coding", "vision", "tools", "structured", "chat"]).optional(),
+        task: z.enum(["coding", "vision", "tools", "structured", "chat", "agent"]).optional(),
       },
     },
     async ({ baseUrl, modelIds, task }) => {

@@ -75,6 +75,14 @@ describe("catalog / scoreboard", () => {
     expect(budget?.maxTurns).toBeGreaterThan(0);
   });
 
+  it("scenarios?set=agent descriptor는 category:'agent' 로 라벨된다 (#105)", async () => {
+    const r = await req("/api/v1/scenarios?set=agent");
+    const j = (await r.json()) as { scenarios: Array<{ id: string; category: string; isVision: boolean }> };
+    expect(j.scenarios.length).toBeGreaterThan(0);
+    expect(j.scenarios.every((s) => s.category === "agent")).toBe(true);
+    expect(j.scenarios.every((s) => s.isVision === false)).toBe(true);
+  });
+
   it("POST /scenarios registers a custom scenario; set=custom lists it; DELETE removes it (#83)", async () => {
     const post = (body: unknown) =>
       req("/api/v1/scenarios", {
@@ -135,6 +143,17 @@ describe("catalog / scoreboard", () => {
     const j = (await r.json()) as { rows: unknown[]; base_url: string };
     expect(Array.isArray(j.rows)).toBe(true);
     expect(j.base_url).toBe("http://127.0.0.1:1");
+  });
+
+  it("scoreboard?task=agent 는 필터를 빌트인 agent_loop 시나리오로 좁힌다 (#105)", async () => {
+    const r = await req("/api/scoreboard?baseUrl=http://127.0.0.1:1&task=agent");
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { filter?: { task?: string; scenarios?: string[] } };
+    expect(j.filter?.task).toBe("agent");
+    expect(j.filter?.scenarios).toContain("agent_loop_mock_v1");
+    expect(j.filter?.scenarios).toContain("agent_loop_budget_v1");
+    // 텍스트/비전 시나리오는 agent task 필터에 없다.
+    expect(j.filter?.scenarios).not.toContain("chat_hello");
   });
 
   it("scoreboard returns per-model×route leak metrics (#80)", async () => {
@@ -215,6 +234,96 @@ describe("catalog / scoreboard", () => {
     expect(leak?.empty_turn_rate).toBe(0.5); // 1/2
     expect(leak?.channel_tag_leak).toBe(0.5); // 1/2
     expect(leak?.thinking_leak_ratio).toBeCloseTo(0.5, 6); // reasoning 5 tok / total 10 tok
+  });
+
+  it("scoreboard returns per-model×route agent_metrics and excludes agent runs from leaks (#105)", async () => {
+    const db = tryOpenProdBenchDatabase();
+    expect(db).not.toBeNull();
+    const baseUrl = "http://127.0.0.1:9095";
+    const detect: DetectResult = {
+      provider: "openai_compatible",
+      baseUrl,
+      models: [{ id: "agenty" }],
+      steps: [],
+      capabilities: { openaiChat: true, anthropicMessages: false },
+    };
+    const meta = makeBenchRunMeta(
+      { baseUrl, provider: "openai_compatible", modelId: "agenty", skipModelLoad: true },
+      detect,
+      "agent_run_1",
+    );
+    insertRun(db!, {
+      run_id: meta.run_id,
+      created_at: meta.created_at,
+      base_url: baseUrl,
+      provider: meta.provider,
+      model_id: meta.model_id,
+      meta,
+      status: "running",
+    });
+    upsertScenarioAggregate(db!, {
+      run_id: meta.run_id,
+      scenario_id: "agent_loop_mock_v1",
+      api_route: "chat_completions",
+      aggregate_json: JSON.stringify({
+        scenario_id: "agent_loop_mock_v1",
+        api_route: "chat_completions",
+        runs: [
+          {
+            ttft_ms: 10,
+            total_ms: 2000,
+            output_text: '{"title":"x"}',
+            stream_completed: true,
+            usage_output_tokens: 180,
+            final_turn_output_tokens: 120,
+            turns_to_completion: 4,
+            empty_turn_count: 0,
+            valid_tool_call_rate: 0.75,
+            agent_completion_reason: "completed",
+            quality: { pass: true, score: 1 },
+          },
+          {
+            ttft_ms: 10,
+            total_ms: 800,
+            output_text: "",
+            stream_completed: true,
+            usage_output_tokens: 300,
+            empty_response: true,
+            empty_turn_count: 1,
+            thinking_exhausted_budget: true,
+            agent_completion_reason: "stall",
+            quality: { pass: false, score: 0 },
+          },
+        ],
+      }),
+      prompt_preview: "p",
+      prompt_system_preview: "sp",
+    });
+    finishRun(db!, meta.run_id, "ok");
+
+    const r = await req(`/api/scoreboard?baseUrl=${encodeURIComponent(baseUrl)}`);
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as {
+      leaks?: Array<{ model_id: string; n: number }>;
+      agent_metrics?: Array<{
+        model_id: string;
+        api_route: string;
+        n: number;
+        task_completion_rate: number;
+        thinking_budget_rate: number;
+        task_ms_median: number | null;
+        output_efficiency: number | null;
+      }>;
+    };
+    const agent = j.agent_metrics?.find((a) => a.model_id === "agenty" && a.api_route === "chat_completions");
+    expect(agent).toBeDefined();
+    expect(agent?.n).toBe(2);
+    expect(agent?.task_completion_rate).toBe(0.5); // 1/2
+    expect(agent?.thinking_budget_rate).toBe(0.5); // 1/2
+    expect(agent?.task_ms_median).toBe(2000); // 완료 런만
+    expect(agent?.output_efficiency).toBeCloseTo(120 / 180, 6);
+    // agent 런은 leaks 에서 제외 → 이 모델의 leaks 행이 없어야 한다(오염 방지).
+    expect(j.leaks?.some((l) => l.model_id === "agenty")).toBe(false);
   });
 
   it("compare (#84) diffs two runs and flags regression; resolves modelA/modelB", async () => {

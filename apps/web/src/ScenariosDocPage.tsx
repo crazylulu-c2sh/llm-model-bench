@@ -1,4 +1,5 @@
 import {
+  BUILTIN_AGENT_LOOP_IDS,
   DEFAULT_CALENDAR_TIMEZONE,
   PUBLIC_SCENARIO_IDS,
   getScenarioBenchMeta,
@@ -21,6 +22,7 @@ function formatRequestJson(value: unknown): string {
 
 const TEXT_SCENARIO_IDS = PUBLIC_SCENARIO_IDS.filter((id) => scenarioCategory(id) === "text");
 const VISION_SCENARIO_IDS_PUBLIC = PUBLIC_SCENARIO_IDS.filter((id) => scenarioCategory(id) === "vision");
+const AGENT_SCENARIO_IDS: readonly string[] = BUILTIN_AGENT_LOOP_IDS;
 
 const VISION_SUBCATEGORIES = ["OCR", "카운트", "차트", "밈", "와이어프레임"] as const;
 
@@ -193,6 +195,50 @@ function ScenarioArticle({
   );
 }
 
+/**
+ * 멀티턴 에이전트 시나리오 카드(경량). `ScenarioArticle`은 닫힌 `ScenarioId` 유니온 + 단일-턴
+ * 요청 미리보기에 묶여 있어 agent_* 빌트인에 못 쓴다 — 여기선 레지스트리 메타(목적·기준·도구·라우트)만 표시한다.
+ */
+function AgentScenarioArticle({ id }: { id: string }) {
+  const meta = getScenarioBenchMeta(id);
+  return (
+    <article id={id} className="scroll-mt-20 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
+      <h4 className="inline-flex items-center gap-2 font-mono text-sm font-semibold text-[var(--foreground)]">
+        {id}
+        <span className="rounded border border-[var(--accent)] px-1 py-px text-[10px] font-normal text-[var(--accent)]">
+          agent_loop
+        </span>
+      </h4>
+      {meta ? (
+        <dl className="mt-2 space-y-2 text-xs leading-relaxed text-[var(--muted)]">
+          <div>
+            <dt className="font-semibold text-[var(--foreground)]">목적</dt>
+            <dd>{meta.purposeKo}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-[var(--foreground)]">합격 기준</dt>
+            <dd>{meta.criteriaKo}</dd>
+          </div>
+          {meta.toolsSummaryKo ? (
+            <div>
+              <dt className="font-semibold text-[var(--foreground)]">도구</dt>
+              <dd>{meta.toolsSummaryKo}</dd>
+            </div>
+          ) : null}
+          {meta.routesKo ? (
+            <div>
+              <dt className="font-semibold text-[var(--foreground)]">라우트</dt>
+              <dd>{meta.routesKo}</dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : (
+        <p className="mt-2 text-xs text-[var(--muted)]">등록된 메타데이터 없음.</p>
+      )}
+    </article>
+  );
+}
+
 export function ScenariosDocPage() {
   const [hlPreview, setHlPreview] = useState(false);
   const [modal, setModal] = useState<{ url: string; scenarioId: string; category?: string } | null>(null);
@@ -266,6 +312,20 @@ export function ScenariosDocPage() {
               );
             })}
           </div>
+          {AGENT_SCENARIO_IDS.length > 0 ? (
+            <div>
+              <p className="text-xs font-semibold text-[var(--foreground)]">에이전트 ({AGENT_SCENARIO_IDS.length})</p>
+              <ul className="mt-1 space-y-0.5 text-xs">
+                {AGENT_SCENARIO_IDS.map((id) => (
+                  <li key={id}>
+                    <a href={`#${id}`} className="font-mono text-[var(--accent)] no-underline hover:underline">
+                      {id}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       </nav>
 
@@ -309,6 +369,21 @@ export function ScenariosDocPage() {
           );
         })}
       </section>
+
+      {AGENT_SCENARIO_IDS.length > 0 ? (
+        <section className="space-y-4">
+          <h3 className="text-sm font-semibold text-[var(--foreground)]">에이전트 시나리오</h3>
+          <p className="text-xs leading-relaxed text-[var(--muted)]">
+            멀티턴 도구 사용 루프. 단일-샷과 달리 여러 턴에 걸쳐 도구를 호출하고 최종 답을 낸다 — 빈-턴 정체·사고
+            예산 소진·도구 인자 충실도처럼 턴을 가로질러야 드러나는 결함을 측정한다. 모든 도구 응답은 mock이다.
+          </p>
+          <div className="space-y-6">
+            {AGENT_SCENARIO_IDS.map((id) => (
+              <AgentScenarioArticle key={id} id={id} />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <VisionImageModal
         open={modal !== null}
