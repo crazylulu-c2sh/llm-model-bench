@@ -27,6 +27,8 @@ export type AgentScoreContext = {
   toolArgAttempts?: number | null;
   /** 그 중 인자가 정확히 매칭된 횟수. */
   toolArgHits?: number | null;
+  /** #108 후속: 도구별 실제 호출 횟수(mock 매칭된 것만). `retried` 실측 판정에 쓴다. */
+  toolCallCounts?: Record<string, number> | null;
 };
 
 export type AgentRubric = { rubric: 0 | 1 | 2 | 3; reason: string };
@@ -89,7 +91,10 @@ function scoreAesCard(o: Obj): AgentRubric {
   }
   const hits = AGENT_AES_GROUND_TRUTH.markers.filter((m) => hasToken(summary, m)).length;
   // `sources[]` 는 프롬프트가 요구한 필드다 — 아무 문자열이나 넣는 공짜 점수를 막는다.
-  const sourcesOk = sources.some((s) => lc(s).includes(AGENT_AES_GROUND_TRUTH.sourceToken));
+  // 단 **형식은 강요하지 않는다**: 페이지 id(`aes`)든 제목(`Advanced Encryption Standard`)이든 통과.
+  const sourcesOk = sources.some((s) =>
+    AGENT_AES_GROUND_TRUTH.sourceTokens.some((t) => lc(s).includes(t)),
+  );
   if (hits >= 2 && sourcesOk) {
     return { rubric: 3, reason: `agent_det: markers=${hits}/3 sources=ok` };
   }
@@ -97,8 +102,24 @@ function scoreAesCard(o: Obj): AgentRubric {
   return { rubric: 1, reason: `agent_det: markers=${hits}/3 (thin summary)` };
 }
 
-/** `{title, summary, sources[], retried}` 에러 복구 카드 — error_v1. */
-function scoreErrorCard(o: Obj): AgentRubric {
+/**
+ * `{title, summary, sources[], retried}` 에러 복구 카드 — error_v1.
+ *
+ * #108 후속: `retried` 를 **자기신고가 아니라 실측**으로 판정한다. retryable 에러가
+ * `read_document`(답을 얻으려면 반드시 부르는 첫 도구) 1차 응답에 있으므로,
+ * `tool_call_counts.read_document >= 2` 여야 실제로 재시도한 것이다.
+ * (초판은 에러가 `wiki_read` 에 있어 워크플로를 단축한 모델은 **에러를 만나지도 못했다**.)
+ *
+ * 의도적 비대칭: 여기엔 `sources[]` 내용 검사를 넣지 않는다. 이 시나리오가 재는 것은
+ * 에러 복구이지 인용 형식이 아니며, 프롬프트가 형식을 요구하지 않으므로 검사를 추가하면
+ * 이 PR 이 고치고 있는 바로 그 거짓 음성을 하나 더 만드는 셈이다.
+ */
+function scoreErrorCard(o: Obj, ctx: AgentScoreContext): AgentRubric {
+  const reads = ctx.toolCallCounts?.read_document ?? null;
+  // 도구를 아예 안 부르고 환각으로 완주 → 시나리오 미발동. docs/grounding 의 ungrounded 캡과 동일.
+  if (reads === 0) {
+    return { rubric: 1, reason: "agent_det: no read_document call — ungrounded" };
+  }
   const sources = o.sources;
   if (
     !nonEmptyString(o.title) ||
@@ -113,14 +134,26 @@ function scoreErrorCard(o: Obj): AgentRubric {
     return { rubric: 1, reason: "agent_det: summarized the tool error payload" };
   }
   const hits = AGENT_AES_GROUND_TRUTH.markers.filter((m) => hasToken(summary, m)).length;
-  // `supersedes DES` 는 wiki_read **성공 본문에만** 있다 → 재시도가 실제로 성공했다는 방증.
-  // 다만 프롬프트가 "위키 사실을 요약에 넣어라"라고 요구하진 않으므로 **점수 게이트로 쓰지 않고**
-  // 사유 문자열에만 남긴다(자기신고 여부를 운영자가 구분할 수 있게).
-  const corroborated = lc(JSON.stringify(o)).includes(AGENT_AES_GROUND_TRUTH.wikiOnlyMarker);
-  const note = corroborated ? "corroborated" : "self-reported";
   if (hits < 2) return { rubric: 1, reason: `agent_det: markers=${hits}/3 (thin summary)` };
-  if (o.retried === true) return { rubric: 3, reason: `agent_det: retried=true (${note})` };
-  return { rubric: 2, reason: "agent_det: retried=false/missing — recovery not claimed" };
+
+  // 실측 재시도(카운터 없으면 판정 불가 → 자기신고로 폴백하되 사유에 표기).
+  const actuallyRetried = reads == null ? null : reads >= 2;
+  if (actuallyRetried === null) {
+    return o.retried === true
+      ? { rubric: 3, reason: "agent_det: retried=true (unverified — no tool counter)" }
+      : { rubric: 2, reason: "agent_det: retried=false/missing (unverified)" };
+  }
+  if (actuallyRetried && o.retried === true) {
+    return { rubric: 3, reason: `agent_det: retried verified (read_document ×${reads})` };
+  }
+  if (actuallyRetried) {
+    return { rubric: 2, reason: `agent_det: retried ×${reads} but flag not set` };
+  }
+  if (o.retried === true) {
+    // 플래그만 켜고 실제로는 한 번만 부름 = 자기신고 허위.
+    return { rubric: 2, reason: `agent_det: retried=true is false (read_document ×${reads})` };
+  }
+  return { rubric: 2, reason: `agent_det: no retry after error (read_document ×${reads})` };
 }
 
 /** `{title, documents[{id,key_fact}], summary}` 멀티문서 다이제스트 — docs_v1 / docs_budget_v1. */
@@ -211,7 +244,7 @@ function scoreGrounding(o: Obj, ctx: AgentScoreContext): AgentRubric {
 
 const SCORERS: Record<string, (o: Obj, ctx: AgentScoreContext) => AgentRubric> = {
   agent_loop_mock_v1: (o) => scoreAesCard(o),
-  agent_loop_error_v1: (o) => scoreErrorCard(o),
+  agent_loop_error_v1: scoreErrorCard,
   agent_loop_docs_v1: scoreDocsDigest,
   agent_loop_grounding_v1: scoreGrounding,
 };

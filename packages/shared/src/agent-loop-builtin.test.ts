@@ -8,6 +8,7 @@ import {
   BUILTIN_AGENT_LOOP_IDS,
 } from "./agent-loop-builtin";
 import { getScenarioDef, isRegisteredScenario, listScenarioDefs } from "./scenario-registry";
+import { AGENT_AES_GROUND_TRUTH, AGENT_EXPECTED_TOOLS } from "./scenario-scoring-constants";
 
 describe("builtin agent_loop scenarios (#79/#101)", () => {
   it("agent_loop_budget_v1 mirrors mock_v1 but tightens per-turn max_tokens to the separating budget (192)", () => {
@@ -58,13 +59,18 @@ describe("builtin agent_loop scenarios (#79/#101)", () => {
     }
   });
 
-  it("agent_loop_error_v1: wiki_read 시퀀스 mock 1차 에러(retryable)→2차 정상 본문", () => {
+  // #108 후속: 에러는 **불가피한 첫 도구**(read_document)에 있어야 한다. wiki_read 에 두면
+  // 워크플로를 단축한 모델은 에러를 만나지도 못해 시나리오가 아무것도 측정하지 못한다.
+  it("agent_loop_error_v1: read_document 시퀀스 mock 1차 에러(retryable)→2차 정상 본문", () => {
     expect(isRegisteredScenario("agent_loop_error_v1")).toBe(true);
-    const wikiRead = AGENT_LOOP_ERROR_V1.agentLoop!.mockTools.find((m) => m.tool === "wiki_read")!;
-    expect(wikiRead.argDispatch).toBeUndefined(); // 시퀀스 mock
-    expect(wikiRead.responses[0]).toContain("retryable");
-    expect(wikiRead.responses[1]).toContain("Advanced Encryption Standard");
+    const readDoc = AGENT_LOOP_ERROR_V1.agentLoop!.mockTools.find((m) => m.tool === "read_document")!;
+    expect(readDoc.argDispatch).toBeUndefined(); // 시퀀스 mock
+    expect(readDoc.responses[0]).toContain("retryable");
+    expect(readDoc.responses[1]).toContain("Advanced Encryption Standard");
     expect(AGENT_LOOP_ERROR_V1.system).toContain("retryable");
+    // wiki_read 는 이제 에러가 아니라 정상 본문만 준다(건너뛰어도 무방한 도구).
+    const wikiRead = AGENT_LOOP_ERROR_V1.agentLoop!.mockTools.find((m) => m.tool === "wiki_read")!;
+    expect(wikiRead.responses[0]).not.toContain("retryable");
   });
 
   it("agent_loop_grounding_v1: catalog_read argDispatch 는 불투명 UUID형 id를 정확 일치로만 매칭", () => {
@@ -103,5 +109,32 @@ describe("builtin agent_loop scenarios (#79/#101)", () => {
       .map((d) => d.id);
     expect(new Set(BUILTIN_AGENT_LOOP_IDS)).toEqual(new Set(registered));
     expect(BUILTIN_AGENT_LOOP_IDS.length).toBe(5);
+  });
+});
+
+// #108 후속 drift 가드: 채점 상수가 실제 mock/도구와 어긋나면 채점기가 조용히 깨진다.
+describe("agent 채점 상수 drift (#108 후속)", () => {
+  it("AGENT_EXPECTED_TOOLS 의 도구는 해당 시나리오의 mockTools 에 실존한다", () => {
+    for (const def of listScenarioDefs("builtin").filter((d) => d.agentLoop)) {
+      const expected = AGENT_EXPECTED_TOOLS[def.id];
+      expect(expected, `${def.id} 에 expected tools 정의 없음`).toBeDefined();
+      const mocked = new Set(def.agentLoop!.mockTools.map((m) => m.tool));
+      for (const t of expected!) {
+        expect(mocked.has(t), `${def.id}: 지시 도구 ${t} 가 mockTools 에 없음`).toBe(true);
+      }
+    }
+  });
+
+  it("AES sourceTokens 는 실제 mock 응답에서 유래한다(id·제목 둘 다)", () => {
+    const loop = AGENT_LOOP_MOCK_V1.agentLoop!;
+    const corpus = loop.mockTools.flatMap((m) => m.responses).join(" ").toLowerCase();
+    for (const t of AGENT_AES_GROUND_TRUTH.sourceTokens) {
+      expect(corpus, `sourceToken "${t}" 가 mock corpus 에 없음`).toContain(t);
+    }
+  });
+
+  it("errorLeakMarker 는 error_v1 의 실제 에러 페이로드와 일치한다", () => {
+    const readDoc = AGENT_LOOP_ERROR_V1.agentLoop!.mockTools.find((m) => m.tool === "read_document")!;
+    expect(readDoc.responses[0]!.toLowerCase()).toContain(AGENT_AES_GROUND_TRUTH.errorLeakMarker);
   });
 });

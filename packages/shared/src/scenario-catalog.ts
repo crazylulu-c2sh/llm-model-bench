@@ -208,6 +208,10 @@ export const AgentMetricsRowSchema = z.object({
   tool_arg_fidelity: z.number().nullable(),
   arg_attempt_rate: z.number().nullable(),
   output_efficiency: z.number().nullable(),
+  /** #108 후속: 결정론 rubric 평균(0~1) — 라우트별. */
+  quality_mean: z.number().nullable(),
+  /** #108 후속: 지시 도구 중 실제 호출 비율(점수 미반영, 진단용). */
+  workflow_adherence_mean: z.number().nullable(),
 });
 export type AgentMetricsRow = z.infer<typeof AgentMetricsRowSchema>;
 export const ScoreboardResponseSchema = z.object({

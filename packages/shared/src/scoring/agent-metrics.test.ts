@@ -236,3 +236,62 @@ describe("server ≡ browser agent-metrics parity", () => {
     expect(agentMetricsFromRows(mixed, agg)).toEqual(agentMetricsFromBenchDetails(details));
   });
 });
+
+// #108 후속: 라우트별 품질 + 워크플로 준수율(점수 미반영 진단 지표).
+describe("quality_mean / workflow_adherence_mean", () => {
+  it("quality_mean 은 rubric 정규화 점수(0~1)의 평균 — 라우트별 발산을 드러낸다", () => {
+    const details: AgentBenchDetailInput[] = [
+      {
+        meta: { model_id: "M" },
+        scenarios: [
+          {
+            id: "agent_loop_mock_v1",
+            api_route: "chat_completions",
+            runs: [completed({ quality: { score: 1 } }), { agent_completion_reason: "stall", quality: { score: 0 } }],
+          },
+          {
+            id: "agent_loop_mock_v1",
+            api_route: "messages",
+            runs: [completed({ quality: { score: 1 } }), completed({ quality: { score: 1 } })],
+          },
+        ],
+      },
+    ];
+    const rows = agentMetricsFromBenchDetails(details);
+    const chat = rows.find((r) => r.api_route === "chat_completions")!;
+    const msgs = rows.find((r) => r.api_route === "messages")!;
+    expect(chat.quality_mean).toBeCloseTo(0.5, 6); // 정체가 chat 에만
+    expect(msgs.quality_mean).toBe(1);
+  });
+
+  it("workflow_adherence_mean = 지시 도구 중 실제로 부른 비율의 평균", () => {
+    const details: AgentBenchDetailInput[] = [
+      {
+        meta: { model_id: "M" },
+        scenarios: [
+          {
+            id: "agent_loop_mock_v1", // 지시 도구 3종
+            api_route: "chat_completions",
+            runs: [
+              completed({ tool_call_counts: { read_document: 1, wiki_search: 1, wiki_read: 1 } }), // 3/3
+              completed({ tool_call_counts: { read_document: 1 } }), // 1/3 — 단축
+            ],
+          },
+        ],
+      },
+    ];
+    const [row] = agentMetricsFromBenchDetails(details);
+    expect(row.workflow_adherence_mean).toBeCloseTo((1 + 1 / 3) / 2, 6);
+    // 단축은 **점수에 반영되지 않는다** — 완료율은 그대로 1.
+    expect(row.task_completion_rate).toBe(1);
+  });
+
+  it("레거시(필드 부재) 런만이면 둘 다 null", () => {
+    const details: AgentBenchDetailInput[] = [
+      { meta: { model_id: "M" }, scenarios: [{ id: "agent_loop_mock_v1", api_route: "chat_completions", runs: [completed()] }] },
+    ];
+    const [row] = agentMetricsFromBenchDetails(details);
+    expect(row.quality_mean).toBeNull();
+    expect(row.workflow_adherence_mean).toBeNull();
+  });
+});

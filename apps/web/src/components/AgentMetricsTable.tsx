@@ -103,7 +103,7 @@ export function AgentMetricsTable({ metrics }: { metrics: readonly ModelRouteAge
 
   return (
     <div className="overflow-x-auto rounded border border-[var(--border)]">
-      <table className="w-full min-w-[60rem] text-left text-sm">
+      <table className="w-full min-w-[72rem] text-left text-sm">
         <thead className="bg-[var(--surface)] text-[var(--muted)]">
           <tr>
             <AgentSortHeader label="모델" thClassName="p-2 font-medium" sortKey={{ kind: "model" }} sort={sort} onSort={onSort} />
