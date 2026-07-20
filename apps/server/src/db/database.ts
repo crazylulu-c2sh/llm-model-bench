@@ -617,6 +617,8 @@ export type LatestFinishedRunSummary = {
   status: string;
   /** 집계 JSON에 측정 런이 1개 이상 있는 시나리오 행 수 — 0이면 차트·표에 쓸 데이터 없음 */
   scenario_count: number;
+  /** 측정 런이 있는 시나리오 id들을 콤마로 join — 카테고리(text/vision/agent) 필터용. 없으면 null */
+  measured_scenario_ids: string | null;
 };
 
 export function listLatestFinishedRunSummaries(db: DatabaseSync): LatestFinishedRunSummary[] {
@@ -628,7 +630,13 @@ export function listLatestFinishedRunSummaries(db: DatabaseSync): LatestFinished
            FROM bench_scenarios s
            WHERE s.run_id = ranked.run_id
              AND COALESCE(json_array_length(json_extract(s.aggregate_json, '$.runs')), 0) > 0
-         ) AS scenario_count
+         ) AS scenario_count,
+         (
+           SELECT group_concat(s.scenario_id)
+           FROM bench_scenarios s
+           WHERE s.run_id = ranked.run_id
+             AND COALESCE(json_array_length(json_extract(s.aggregate_json, '$.runs')), 0) > 0
+         ) AS measured_scenario_ids
        FROM (
          SELECT run_id, created_at, finished_at, base_url, provider, model_id, status,
            ROW_NUMBER() OVER (

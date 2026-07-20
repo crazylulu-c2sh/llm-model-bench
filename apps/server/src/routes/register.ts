@@ -14,6 +14,8 @@ import {
   DetectBodySchema,
   StressStreamBodySchema,
   leakMetricsFromBenchDetails,
+  scenarioCategory,
+  type ScenarioCategory,
 } from "@llm-bench/shared";
 import { makeBenchRunMeta, runBench, type BenchRequest } from "../bench-runner.js";
 import { detectProvider } from "../detect.js";
@@ -27,6 +29,19 @@ import { SQLITE_PUBLIC_UNAVAILABLE_MSG, normBaseUrl } from "../http-shared.js";
 const RunsQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),
 });
+
+// 저장된 모델 카드 카테고리 칩 순서와 맞춘 고정 정렬.
+const SCENARIO_CATEGORY_ORDER: readonly ScenarioCategory[] = ["text", "vision", "agent"];
+
+/** group_concat된 측정 시나리오 id를 카테고리(text/vision/agent) 배열로 — 중복 제거·고정 순서. */
+function categoriesFromMeasuredIds(joined: string | null): ScenarioCategory[] {
+  if (!joined) return [];
+  const present = new Set<ScenarioCategory>();
+  for (const id of joined.split(",")) {
+    if (id) present.add(scenarioCategory(id));
+  }
+  return SCENARIO_CATEGORY_ORDER.filter((c) => present.has(c));
+}
 
 const STRESS_STATUS_VALUES = ["running", "ok", "partial", "error"] as const;
 const emptyStressFilterOptions = () => ({
@@ -74,6 +89,8 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
           created_at: r.created_at,
           status: r.status,
           scenario_count: r.scenario_count,
+          // 측정 시나리오 id 접두에서 카테고리(text/vision/agent) 파생 — 저장된 모델 카드 필터용.
+          categories: categoriesFromMeasuredIds(r.measured_scenario_ids),
           leaks,
         };
       });

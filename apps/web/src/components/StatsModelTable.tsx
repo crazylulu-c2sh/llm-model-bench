@@ -1,4 +1,5 @@
 import type { StatsModelLatestItem } from "../api-types";
+import type { ScenarioCategory } from "@llm-bench/shared";
 import {
   createColumnHelper,
   flexRender,
@@ -14,6 +15,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ModelLabel } from "./ModelLabel";
 
 export const DEFAULT_STATS_MODEL_SORTING: SortingState = [{ id: "model_id", desc: false }];
+
+// 시나리오 카테고리 칩 필터 — 고정 순서와 라벨. (백엔드 scenarioCategory와 동일한 3분류)
+const CATEGORY_ORDER: ScenarioCategory[] = ["text", "vision", "agent"];
+const CATEGORY_LABELS: Record<ScenarioCategory, string> = {
+  text: "텍스트",
+  vision: "비전",
+  agent: "에이전트",
+};
 
 const POINTER_MOVE_TOGGLE_THRESHOLD_PX = 5;
 
@@ -89,9 +98,45 @@ export function StatsModelTable({
       m.provider.toLowerCase().includes(q),
     [q],
   );
+
+  // 카테고리 칩 필터 — 양성 선택(비어 있으면 전체). 다중 선택은 합집합(OR).
+  const [selectedCategories, setSelectedCategories] = useState<Set<ScenarioCategory>>(
+    () => new Set(),
+  );
+  const matchesCategory = useCallback(
+    (m: StatsModelLatestItem) =>
+      selectedCategories.size === 0 || (m.categories ?? []).some((c) => selectedCategories.has(c)),
+    [selectedCategories],
+  );
+  const matchesFilters = useCallback(
+    (m: StatsModelLatestItem) => matchesQuery(m) && matchesCategory(m),
+    [matchesQuery, matchesCategory],
+  );
+  // 실제 존재하는 카테고리별 모델 수 — 칩 배지·렌더 대상 결정용.
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<ScenarioCategory, number>();
+    for (const m of data) {
+      for (const c of new Set(m.categories ?? [])) {
+        counts.set(c, (counts.get(c) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [data]);
+  const toggleCategory = useCallback((c: ScenarioCategory) => {
+    setSelectedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(c)) next.delete(c);
+      else next.add(c);
+      return next;
+    });
+  }, []);
+
   // 목록이 바뀌면 필터를 초기화해 stale 필터가 새 목록을 가리지 않게 함.
-  useEffect(() => setFilterText(""), [models]);
-  const visibleModels = useMemo(() => data.filter(matchesQuery), [data, matchesQuery]);
+  useEffect(() => {
+    setFilterText("");
+    setSelectedCategories(new Set());
+  }, [models]);
+  const visibleModels = useMemo(() => data.filter(matchesFilters), [data, matchesFilters]);
 
   const selectableRows = useMemo(() => data.filter(canSelectRow), [data, canSelectRow]);
   const allSelectableSelected =
@@ -255,11 +300,57 @@ export function StatsModelTable({
     onSortedRunIdsChange?.(table.getRowModel().rows.map((r) => r.original.run_id));
   }, [data, onSortedRunIdsChange, sorting, table]);
 
-  // 정렬된 전체 행 중 필터에 맞는 행만 표시(데이터/정렬/보고 run_id는 전체 유지).
-  const visibleRows = table.getRowModel().rows.filter((r) => matchesQuery(r.original));
+  // 정렬된 전체 행 중 필터(텍스트+카테고리)에 맞는 행만 표시(데이터/정렬/보고 run_id는 전체 유지).
+  const visibleRows = table.getRowModel().rows.filter((r) => matchesFilters(r.original));
 
   return (
     <div className="grid gap-2">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="text-[var(--muted)]">카테고리:</span>
+        {/* 3분류는 항상 노출한다 — 측정 0건이어도 그 축이 존재함을 알려야 하므로 숨기지 않음. */}
+        {CATEGORY_ORDER.map((c) => {
+          const count = categoryCounts.get(c) ?? 0;
+          const active = selectedCategories.has(c);
+          // 0건 카테고리는 누르면 빈 표만 되므로 보이되 비활성.
+          const empty = count === 0;
+          return (
+            <button
+              key={c}
+              type="button"
+              onClick={() => toggleCategory(c)}
+              disabled={empty}
+              aria-pressed={active}
+              title={
+                empty
+                  ? `${CATEGORY_LABELS[c]} 측정이 있는 모델이 없습니다`
+                  : `${CATEGORY_LABELS[c]} ${active ? "필터 해제" : "필터 적용"}`
+              }
+              style={
+                active ? { background: "color-mix(in srgb, var(--accent) 14%, transparent)" } : undefined
+              }
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 transition-colors ${
+                empty
+                  ? "cursor-not-allowed border-dashed border-[var(--border)] text-[var(--muted)] opacity-55"
+                  : active
+                    ? "border-[var(--accent)] font-medium text-[var(--foreground)]"
+                    : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-sm hover:border-[var(--accent)]"
+              }`}
+            >
+              {CATEGORY_LABELS[c]}
+              <span className="text-[var(--muted)]">{count}</span>
+            </button>
+          );
+        })}
+        {selectedCategories.size > 0 ? (
+          <button
+            type="button"
+            onClick={() => setSelectedCategories(new Set())}
+            className="ml-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[var(--muted)] shadow-sm hover:text-[var(--foreground)]"
+          >
+            전체
+          </button>
+        ) : null}
+      </div>
       <div className="relative">
         <Search
           className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--muted)]"
@@ -371,7 +462,13 @@ export function StatsModelTable({
           {statsModelSortLine(sorting)}
           {" · "}
           선택 {selectableRows.filter((m) => selected[m.run_id]).length} / {selectableRows.length}
-          {q ? ` · 필터 "${q}": ${visibleModels.length}개 표시` : null}
+          {q ? ` · 필터 "${q}"` : null}
+          {selectedCategories.size > 0
+            ? ` · 카테고리: ${CATEGORY_ORDER.filter((c) => selectedCategories.has(c))
+                .map((c) => CATEGORY_LABELS[c])
+                .join("·")}`
+            : null}
+          {q || selectedCategories.size > 0 ? ` · ${visibleModels.length}개 표시` : null}
           {someSelectableSelected && !allSelectableSelected ? " · 일부 선택됨" : null}
         </p>
       </div>

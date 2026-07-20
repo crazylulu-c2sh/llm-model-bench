@@ -1,3 +1,5 @@
+import type { ScenarioCategory } from "@llm-bench/shared";
+
 /** GET /api/runs/:runId · GET .../latest-by-model 의 run 블록 */
 export type BenchScenarioRun = {
   ttft_ms: number | null;
@@ -123,6 +125,8 @@ export type StatsModelLatestItem = {
   status: string;
   /** 측정 런이 있는 시나리오 개수 — 0이면 선택 불가 */
   scenario_count: number;
+  /** 측정 시나리오가 속한 카테고리(text/vision/agent) — 고유·정렬됨. 카드 카테고리 필터용(구버전 응답엔 없음). */
+  categories?: ScenarioCategory[];
   /** #80: 모델 × 라우트 누수/정체 지표(구버전 응답엔 없음). */
   leaks?: LeakMetricsRow[];
 };

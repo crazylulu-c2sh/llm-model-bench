@@ -136,6 +136,70 @@ describe("listLatestFinishedRunSummaries", () => {
     expect(rows[0]?.scenario_count).toBe(1);
   });
 
+  it("measured_scenario_ids lists only scenarios with non-empty runs", () => {
+    const db = openBenchDatabase(":memory:");
+    const meta = makeBenchRunMeta(req("mx"), detect, "run_cats");
+    insertRun(db, {
+      run_id: meta.run_id,
+      created_at: meta.created_at,
+      base_url: meta.base_url.replace(/\/+$/, ""),
+      provider: meta.provider,
+      model_id: meta.model_id,
+      meta,
+      status: "running",
+    });
+    const withRuns = (scenarioId: string) => ({
+      run_id: meta.run_id,
+      scenario_id: scenarioId,
+      api_route: "chat_completions",
+      aggregate_json: JSON.stringify({
+        scenario_id: scenarioId,
+        api_route: "chat_completions",
+        runs: [{ ttft_ms: 1, total_ms: 10, output_text: "x", stream_completed: true }],
+      }),
+      prompt_preview: "p",
+      prompt_system_preview: "sp",
+    });
+    // 카테고리별로 하나씩: text · vision · agent
+    upsertScenarioAggregate(db, withRuns("chat_hello"));
+    upsertScenarioAggregate(db, withRuns("vision_table_ocr_a"));
+    upsertScenarioAggregate(db, withRuns("agent_loop_mock_v1"));
+    // 측정 없는 시나리오는 빠져야 함.
+    upsertScenarioAggregate(db, {
+      run_id: meta.run_id,
+      scenario_id: "empty_runs",
+      api_route: "chat_completions",
+      aggregate_json: JSON.stringify({ scenario_id: "empty_runs", api_route: "chat_completions", runs: [] }),
+      prompt_preview: null,
+      prompt_system_preview: null,
+    });
+    finishRun(db, meta.run_id, "ok");
+
+    const rows = listLatestFinishedRunSummaries(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.scenario_count).toBe(3);
+    const ids = new Set((rows[0]?.measured_scenario_ids ?? "").split(",").filter(Boolean));
+    expect(ids).toEqual(new Set(["chat_hello", "vision_table_ocr_a", "agent_loop_mock_v1"]));
+  });
+
+  it("measured_scenario_ids is null when no scenarios have runs", () => {
+    const db = openBenchDatabase(":memory:");
+    const meta = makeBenchRunMeta(req("mx"), detect, "run_empty");
+    insertRun(db, {
+      run_id: meta.run_id,
+      created_at: meta.created_at,
+      base_url: meta.base_url.replace(/\/+$/, ""),
+      provider: meta.provider,
+      model_id: meta.model_id,
+      meta,
+      status: "running",
+    });
+    finishRun(db, meta.run_id, "ok");
+    const rows = listLatestFinishedRunSummaries(db);
+    expect(rows[0]?.scenario_count).toBe(0);
+    expect(rows[0]?.measured_scenario_ids).toBeNull();
+  });
+
   it("excludes running-only rows without finished_at", () => {
     const db = openBenchDatabase(":memory:");
     const m = makeBenchRunMeta(req("mx"), detect, "run_unfinished");
