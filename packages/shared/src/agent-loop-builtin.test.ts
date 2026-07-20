@@ -35,9 +35,27 @@ describe("builtin agent_loop scenarios (#79/#101)", () => {
     expect(loop.maxTurns).toBe(8);
     const read = loop.mockTools.find((m) => m.tool === "read_document")!;
     expect(read.argDispatch?.argKey).toBe("id");
-    expect(Object.keys(read.argDispatch!.cases)).toEqual(["doc_aes", "doc_des", "doc_rsa"]);
-    expect(AGENT_LOOP_DOCS_V1.judge?.scale).toBe("0-3");
+    // #105: 가상 corpus — 공개 canon(AES/DES/RSA)이면 도구 없이 회상만으로 답이 나와 그라운딩을 못 잰다.
+    expect(Object.keys(read.argDispatch!.cases)).toEqual(["doc_kestrel", "doc_marlin", "doc_quartz"]);
     expect(AGENT_LOOP_DOCS_V1.sampling?.max_tokens).toBe(512);
+  });
+
+  // #105: 빌트인 agent 시나리오는 결정론 채점기가 채점하므로 judge 루브릭을 두지 않는다
+  // (두면 아무도 안 읽는 죽은 설정이 된다). 커스텀은 여전히 judge 필수.
+  it("빌트인 agent 시나리오에는 judge 루브릭이 없다(결정론 채점 전용)", () => {
+    for (const def of listScenarioDefs("builtin").filter((d) => d.agentLoop)) {
+      expect(def.judge, `${def.id} 에 죽은 judge 설정이 남아 있다`).toBeUndefined();
+    }
+  });
+
+  // #105: grounding 은 catalog_search title 이 답을 누설하면 catalog_read 없이도 만점이 난다.
+  it("catalog_search title 은 답을 누설하지 않는다", () => {
+    const search = AGENT_LOOP_GROUNDING_V1.agentLoop!.mockTools.find((m) => m.tool === "catalog_search")!;
+    const titles = (JSON.parse(search.responses[0]!) as Array<{ title: string }>).map((r) => r.title.toLowerCase());
+    // 레코드 본문의 고유 사실 토큰이 title 에 섞여 있으면 안 된다.
+    for (const leak of ["halcyon", "aster", "vela", "marlin", "kestrel"]) {
+      expect(titles.join(" "), `title 이 "${leak}" 을 누설한다`).not.toContain(leak);
+    }
   });
 
   it("agent_loop_error_v1: wiki_read 시퀀스 mock 1차 에러(retryable)→2차 정상 본문", () => {
@@ -55,6 +73,26 @@ describe("builtin agent_loop scenarios (#79/#101)", () => {
     expect(read.argDispatch?.argKey).toBe("id");
     expect(Object.keys(read.argDispatch!.cases)).toEqual(["rec_9f3a1c77-4b2e", "rec_0d84e2ab-77f1"]);
     expect(read.argDispatch?.fallback).toContain("copy the id exactly");
+  });
+
+  // #105 가드: 각 문서의 1차 마커가 **다른 문서 본문에는 없어야** 교차오염 판정이 성립한다.
+  // (초판의 `AES`·`1977` 처럼 여러 문서에 걸치는 토큰이 다시 들어오는 것을 막는다.)
+  it("docs 배타 마커는 실제로 배타적이다", () => {
+    const cases = AGENT_LOOP_DOCS_V1.agentLoop!.mockTools.find((m) => m.tool === "read_document")!.argDispatch!.cases;
+    const markers: Record<string, string[]> = {
+      doc_kestrel: ["halcyon"],
+      doc_marlin: ["vela"],
+      doc_quartz: ["shortest-vector", "duval"],
+    };
+    for (const [ownId, own] of Object.entries(markers)) {
+      for (const m of own) {
+        expect(cases[ownId]!.toLowerCase(), `${ownId} 에 자기 마커 ${m} 없음`).toContain(m);
+        for (const otherId of Object.keys(markers)) {
+          if (otherId === ownId) continue;
+          expect(cases[otherId]!.toLowerCase(), `${otherId} 가 ${ownId} 마커 ${m} 를 오염`).not.toContain(m);
+        }
+      }
+    }
   });
 
   // #105: 드리프트 가드 — BUILTIN_AGENT_LOOP_IDS(상수, task=agent 필터가 소비)가

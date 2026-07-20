@@ -46,17 +46,6 @@ export const AGENT_LOOP_MOCK_V1: ScenarioDef = {
     },
   ],
   sampling: { temperature: 0, max_tokens: 640 },
-  judge: {
-    scale: "0-3",
-    criterion: [
-      "Score the model's FINAL answer as a JSON card.",
-      'It must be a single valid JSON object with keys: title (non-empty string), summary (non-empty string), sources (array of strings).',
-      "3 = valid JSON with all three keys well-formed and a faithful summary;",
-      "2 = valid JSON but a minor issue (e.g. empty sources or thin summary);",
-      "1 = JSON present but wrong shape / missing keys;",
-      "0 = no valid JSON object in the final answer.",
-    ].join(" "),
-  },
   agentLoop: {
     maxTurns: 6,
     mockTools: [
@@ -80,7 +69,8 @@ export const AGENT_LOOP_MOCK_V1: ScenarioDef = {
         repeatLast: true,
       },
     ],
-    // 하네스는 "도구 호출을 멈추면 종료"로 완료를 판정하고, JSON 유효성은 judge가 채점한다.
+    // 하네스는 "도구 호출을 멈추면 종료"로 완료를 판정하고, 최종 출력 품질은
+    // #105 의 결정론 채점기(apps/server/src/scoring/agent-score.ts)가 rubric 0~3 으로 채점한다.
     completion: { type: "no_tool_calls" },
   },
 };
@@ -112,11 +102,17 @@ export const AGENT_LOOP_BUDGET_V1: ScenarioDef = {
 registerScenarioDef(AGENT_LOOP_BUDGET_V1);
 
 /**
- * #105: 멀티문서 다이제스트 — 과업 처리량 + 맥락 유지.
+ * #105: 멀티문서 다이제스트 — 과업 처리량 + 맥락 유지 + **그라운딩**.
  *
  * `list_documents` 로 문서 id 3개를 받고 `read_document(id)` 를 문서별로 호출해(argDispatch 로 id→본문),
  * 각 문서의 핵심 사실을 올바른 id에 귀속해 하나의 JSON 리포트를 낸다. 사실을 문서 간에 뒤섞으면
- * (맥락 유지 실패) judge 가 감점. 가장 긴 과업이라 완료 과업당 벽시계(task_ms)의 지배 항이 된다.
+ * (맥락 유지 실패) 감점. 가장 긴 과업이라 완료 과업당 벽시계(task_ms)의 지배 항이 된다.
+ *
+ * ⚠ **이 문서들의 내용은 전부 가공(fictional)이다 — 실제 암호 알고리즘이 아니다.**
+ * 초판은 AES/DES/RSA 같은 공개 canon 을 썼는데, 실측 결과 모델이 **도구를 쓰지 않고 파라메트릭
+ * 회상만으로** 만점을 냈다(= 그라운딩을 전혀 측정하지 못함). 가상 개체로 바꾸면 도구 출력이
+ * 유일한 정보원이 되어 회상 경로가 원천 차단된다. (canon 을 "틀리게" 적는 위조 대신 가상 개체를
+ * 쓰는 이유: 공개 레포에 허위 암호학 정보를 남기지 않기 위해서다.)
  */
 export const AGENT_LOOP_DOCS_V1: ScenarioDef = {
   id: "agent_loop_docs_v1",
@@ -128,7 +124,9 @@ export const AGENT_LOOP_DOCS_V1: ScenarioDef = {
     "Each documents[] entry must pair a document id with the key fact from THAT document — do not mix facts between documents.",
     "Do not include any text, markdown, or commentary outside that JSON object in your final answer.",
   ].join(" "),
-  user: "Digest all of the ingested source documents into a single JSON report. List them, read each, then answer.",
+  user:
+    "Digest all of the ingested source documents into a single JSON report. List them, read each, then answer. " +
+    "The documents describe internal specifications you have not seen before — rely only on what the tools return.",
   tools: [
     {
       name: "list_documents",
@@ -146,23 +144,12 @@ export const AGENT_LOOP_DOCS_V1: ScenarioDef = {
     },
   ],
   sampling: { temperature: 0, max_tokens: 512 },
-  judge: {
-    scale: "0-3",
-    criterion: [
-      "Score the model's FINAL answer as a multi-document JSON report.",
-      "It must be a single valid JSON object: {title: string, documents: array of {id, key_fact}, summary: string}.",
-      "3 = valid JSON, all three documents present, each key_fact correctly attributed to the right id (doc_aes=128-bit block/Rijndael, doc_des=56-bit key/withdrawn, doc_rsa=public-key/factorization);",
-      "2 = valid JSON but one document thin or missing;",
-      "1 = JSON present but wrong shape OR facts swapped between documents (context-retention failure);",
-      "0 = no valid JSON object in the final answer.",
-    ].join(" "),
-  },
   agentLoop: {
     maxTurns: 8,
     mockTools: [
       {
         tool: "list_documents",
-        responses: ['[{"id":"doc_aes"},{"id":"doc_des"},{"id":"doc_rsa"}]'],
+        responses: ['[{"id":"doc_kestrel"},{"id":"doc_marlin"},{"id":"doc_quartz"}]'],
         repeatLast: true,
       },
       {
@@ -172,13 +159,15 @@ export const AGENT_LOOP_DOCS_V1: ScenarioDef = {
         repeatLast: true,
         argDispatch: {
           argKey: "id",
+          // ⚠ 전부 가공 데이터. 각 문서의 1차 마커(고유명사)는 다른 문서 본문에 절대 등장하지 않게
+          // 문안을 골랐다 — 교차오염 판정의 근거이며 agent-score-drift 테스트가 배타성을 고정한다.
           cases: {
-            doc_aes:
-              "DOCUMENT doc_aes — AES (FIPS-197, 2001): symmetric block cipher, 128-bit block, key sizes 128/192/256, based on the Rijndael cipher.",
-            doc_des:
-              "DOCUMENT doc_des — DES (FIPS 46, 1977): symmetric cipher with a 56-bit key, withdrawn as a standard in 2005, superseded by AES.",
-            doc_rsa:
-              "DOCUMENT doc_rsa — RSA (1977, Rivest–Shamir–Adleman): public-key cryptosystem whose security rests on the difficulty of integer factorization.",
+            doc_kestrel:
+              "DOCUMENT doc_kestrel — Kestrel-3 (internal spec KS-3, 2019): stream cipher with a 192-bit nonce, key sizes 128 and 256, built on the Halcyon permutation.",
+            doc_marlin:
+              "DOCUMENT doc_marlin — Marlin (internal spec ML-1, 2014): block cipher with a 384-bit block, deprecated in 2021 after the Vela distinguisher.",
+            doc_quartz:
+              "DOCUMENT doc_quartz — Quartz (2011, Duval-Renard): lattice-based key exchange whose security rests on the shortest-vector problem.",
           },
           fallback: '{"error":"unknown_document_id — use an id returned by list_documents"}',
         },
@@ -233,17 +222,6 @@ export const AGENT_LOOP_ERROR_V1: ScenarioDef = {
     },
   ],
   sampling: { temperature: 0, max_tokens: 512 },
-  judge: {
-    scale: "0-3",
-    criterion: [
-      "Score the model's FINAL answer as a JSON card produced after a transient tool error.",
-      "It must be a single valid JSON object: {title: string, summary: string, sources: array of strings, retried: boolean}.",
-      "3 = valid card, retried=true, and a faithful AES summary;",
-      "2 = correct content but the retried flag is missing or false;",
-      "1 = wrong shape OR the summary describes the tool error instead of AES;",
-      "0 = no valid JSON object / gave up.",
-    ].join(" "),
-  },
   agentLoop: {
     maxTurns: 8,
     mockTools: [
@@ -281,6 +259,11 @@ registerScenarioDef(AGENT_LOOP_ERROR_V1);
  * `catalog_search` 가 UUID형 record id 2개를 돌려주고, `catalog_read(id)` 는 그 id와 정확히 일치할 때만
  * (argDispatch) 본문을 준다. id를 잘라 쓰거나 지어내면 fallback 에러 → 인자 충실도(tool_arg_fidelity)로
  * 드러난다. 예산은 넉넉(512)해 예산 압박과 분리, 인자 충실도만 측정한다.
+ *
+ * ⚠ **레코드 내용은 전부 가공(fictional)이다.** 초판은 실제 사실(Rijndael 선정·DES 철회)을 썼고,
+ * 더 나쁘게는 `catalog_search` 의 **title 이 답을 그대로 누설**했다("Rijndael selection") — 즉
+ * `catalog_read` 를 부르지 않고도 정답을 낼 수 있었다. 지금은 ① title 을 무의미 토큰으로 바꾸고
+ * ② 본문을 가상 사실로 교체해, 레코드를 실제로 읽지 않으면 fact 를 채울 방법이 없게 했다.
  */
 export const AGENT_LOOP_GROUNDING_V1: ScenarioDef = {
   id: "agent_loop_grounding_v1",
@@ -313,23 +296,14 @@ export const AGENT_LOOP_GROUNDING_V1: ScenarioDef = {
     },
   ],
   sampling: { temperature: 0, max_tokens: 512 },
-  judge: {
-    scale: "0-3",
-    criterion: [
-      "Score the model's FINAL answer {answers: array of {id, fact}}.",
-      "3 = valid JSON with both records present, the exact ids (rec_9f3a1c77-4b2e, rec_0d84e2ab-77f1) and correct facts;",
-      "2 = both facts correct but an id slightly off;",
-      "1 = one record only OR wrong shape;",
-      "0 = no valid JSON object.",
-    ].join(" "),
-  },
   agentLoop: {
     maxTurns: 8,
     mockTools: [
       {
         tool: "catalog_search",
+        // title 은 의도적으로 무의미하다 — 예전 title 은 답을 누설해 catalog_read 없이도 정답이 나왔다.
         responses: [
-          '[{"id":"rec_9f3a1c77-4b2e","title":"Rijndael selection"},{"id":"rec_0d84e2ab-77f1","title":"DES retirement"}]',
+          '[{"id":"rec_9f3a1c77-4b2e","title":"record A"},{"id":"rec_0d84e2ab-77f1","title":"record B"}]',
         ],
         repeatLast: true,
       },
@@ -339,11 +313,12 @@ export const AGENT_LOOP_GROUNDING_V1: ScenarioDef = {
         repeatLast: true,
         argDispatch: {
           argKey: "id",
+          // ⚠ 전부 가공 데이터. 레코드를 실제로 읽지 않으면 알 수 없는 고유명사만 담았다.
           cases: {
             "rec_9f3a1c77-4b2e":
-              "RECORD rec_9f3a1c77-4b2e: In 2000 NIST selected the Rijndael cipher as the Advanced Encryption Standard (FIPS-197).",
+              "RECORD rec_9f3a1c77-4b2e: The Halcyon permutation was adopted for Kestrel-3 in 2019 after the Aster review.",
             "rec_0d84e2ab-77f1":
-              "RECORD rec_0d84e2ab-77f1: DES was withdrawn as a U.S. federal standard in 2005 after its 56-bit key became insecure.",
+              "RECORD rec_0d84e2ab-77f1: Marlin was deprecated in 2021 following the Vela distinguisher.",
           },
           fallback: '{"error":"unknown_id — copy the id exactly from catalog_search results"}',
         },

@@ -374,7 +374,8 @@ const AGENT_META: Record<string, ScenarioBenchMeta> = {
       "멀티턴 에이전트 기본기: read_document → wiki_search → wiki_read 후 최종 JSON 카드를 내는 " +
       "research-then-answer 루프. 단일-샷이 못 잡는 빈-턴 정체·중간턴 사고 누수를 턴을 가로질러 드러낸다.",
     criteriaKo:
-      "완료 판정 = 도구 호출을 멈춘 턴(no_tool_calls). 최종 출력의 JSON 카드 품질은 judge(0-3)가 채점. " +
+      "완료 판정 = 도구 호출을 멈춘 턴(no_tool_calls). 최종 카드는 #105 결정론 채점기가 rubric 0-3 으로 " +
+      "채점한다(LLM judge 불필요): 스키마 + AES 마커 ≥2 + sources 가 문서를 참조하면 3. 정체/예산소진은 0. " +
       "지표: 완료율·turns·유효 도구호출률·중간턴 누수.",
     toolsSummaryKo: "read_document / wiki_search / wiki_read (모두 mock). maxTurns 6.",
     routesKo: "chat_completions(OpenAI 호환) / messages(Anthropic) 공통.",
@@ -386,18 +387,19 @@ const AGENT_META: Record<string, ScenarioBenchMeta> = {
       "정체하는지 재현한다.",
     criteriaKo:
       "절제된 모델은 예산 안에 완주(completed), 과사고 모델은 stall + thinking_exhausted_budget. " +
-      "192는 실측으로 확정한 두 모델을 가르는 예산.",
+      "192는 실측으로 확정한 두 모델을 가르는 예산. 채점은 mock_v1 과 동일한 결정론 규칙(정체 시 rubric 0).",
     toolsSummaryKo: "read_document / wiki_search / wiki_read (모두 mock). maxTurns 6, max_tokens 192.",
     routesKo: "chat_completions / messages 공통.",
   },
   agent_loop_docs_v1: {
     purposeKo:
       "멀티문서 다이제스트: list_documents 로 문서 3개를 받고 read_document(id)(argDispatch)로 각각 읽어, " +
-      "각 문서의 핵심 사실을 올바른 id에 귀속한 하나의 JSON 리포트를 낸다. 과업 처리량과 맥락 유지를 측정 — " +
-      "사실을 문서 간에 뒤섞으면(맥락 유지 실패) 감점.",
+      "각 문서의 핵심 사실을 올바른 id에 귀속한 하나의 JSON 리포트를 낸다. 과업 처리량·맥락 유지·그라운딩을 측정.",
     criteriaKo:
-      "judge(0-3): 세 문서(AES/DES/RSA) 사실이 올바른 id에 귀속되면 3, 사실 뒤바뀜=1. " +
-      "가장 긴 과업이라 완료 과업당 벽시계(task_ms)의 지배 항.",
+      "결정론 채점(0-3): 세 문서 사실이 올바른 id에 귀속(교차오염 없음)되고 read_document 를 3건 다 읽었으면 3, " +
+      "귀속 2/3 또는 덜 읽었으면 2, 그 이하 1. read_document 를 아예 안 부르면 rubric 1 캡(그라운딩 없음). " +
+      "가장 긴 과업이라 완료 과업당 벽시계(task_ms)의 지배 항. " +
+      "※ 이 문서 corpus 는 가공(fictional)이다 — 공개 canon 이면 도구 없이 회상만으로 만점이 나 그라운딩을 못 잰다.",
     toolsSummaryKo: "list_documents / read_document(argDispatch: id→본문) (모두 mock). maxTurns 8, max_tokens 512.",
     routesKo: "chat_completions / messages 공통.",
   },
@@ -406,8 +408,8 @@ const AGENT_META: Record<string, ScenarioBenchMeta> = {
       "에러 복구: wiki_read 첫 호출이 retryable 에러를 돌려주고 두 번째부터 정상 본문. 일시적 도구 오류에서 " +
       "재시도로 회복하는지 본다 — 취약한 모델은 정체하거나 에러 페이로드를 요약한다.",
     criteriaKo:
-      "judge(0-3): 유효 카드 + retried=true + 충실한 요약이면 3, 에러 페이로드를 요약하면 1. " +
-      "최종 JSON에 retried:boolean 포함.",
+      "결정론 채점(0-3): 유효 카드 + 마커 ≥2 + retried=true 면 3, retried 미주장이면 2, 에러 페이로드를 요약하면 1. " +
+      "retried 는 자기신고라, wiki_read 성공 본문에만 있는 표현이 잡히면 사유에 corroborated 로 표기한다(점수 게이트는 아님).",
     toolsSummaryKo: "read_document / wiki_search / wiki_read (시퀀스 mock: 1차 에러→2차 본문). maxTurns 8, max_tokens 512.",
     routesKo: "chat_completions / messages 공통.",
   },
@@ -416,8 +418,10 @@ const AGENT_META: Record<string, ScenarioBenchMeta> = {
       "그라운딩(인자 충실도): catalog_search 가 UUID형 record id 2개를 주고 catalog_read(id)(argDispatch)는 id가 " +
       "정확히 일치할 때만 본문을 준다. 불투명 id를 정확히 복사하는지 — 잘라 쓰거나 지어내면 fallback 에러.",
     criteriaKo:
-      "1차 신호는 tool_arg_fidelity(+ 시도율). judge(0-3): 두 record의 정확한 id + 올바른 사실이면 3. " +
-      "예산 넉넉(512)해 예산 압박과 분리, 인자 충실도만 측정.",
+      "1차 신호는 tool_arg_fidelity(+ 시도율). 결정론 채점(0-3): 두 record 의 id 완전일치 + 각 레코드 고유 사실 + " +
+      "catalog_read 2건 모두 호출이면 3, id 는 맞고 사실이 부족하면 2, id 1/2 또는 미호출이면 1, id 전부 환각이면 0. " +
+      "예산 넉넉(512)해 예산 압박과 분리, 그라운딩만 측정. " +
+      "※ 레코드 corpus 는 가공이고 catalog_search 의 title 도 답을 누설하지 않게 무의미 토큰이다.",
     toolsSummaryKo: "catalog_search / catalog_read(argDispatch: 정확 id 일치) (모두 mock). maxTurns 8, max_tokens 512.",
     routesKo: "chat_completions / messages 공통.",
   },

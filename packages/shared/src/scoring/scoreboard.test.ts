@@ -118,3 +118,50 @@ describe("scoreboard agent 카테고리", () => {
     expect(r.judgeCapped).toBe(true);
   });
 });
+
+// #105: vision 은 `rubricResult()` 가 reason 앞에 `rubric=N | ` 를 붙인다. 예전 `startsWith` 판정으로는
+// **영영 매칭되지 않아** vision 에 judge_capped 경고가 한 번도 뜬 적이 없었다. 실제 포맷으로 고정한다.
+describe("judge_capped — 실제 reason 포맷(vision 접두사)", () => {
+  const visionCappedReal: ScoringRunInput[] = [
+    {
+      ttft_ms: 100,
+      total_ms: 1000,
+      output_text: "x".repeat(40),
+      quality: {
+        pass: false,
+        score: 0.33,
+        // rubricResult(1, "prefilter passed — …") 가 실제로 만드는 문자열
+        reason: "rubric=1 | prefilter passed — set LLM_JUDGE_ENABLED=1 for rubric judging",
+      },
+    },
+  ];
+
+  it("`rubric=1 | prefilter passed …` 도 judge_capped 로 잡힌다", () => {
+    const r = averageRunsToScoringRow("V", "vision_meme_explain_a", "chat_completions", visionCappedReal);
+    expect(r.judgeCapped).toBe(true);
+  });
+
+  it("실제 판정을 받은 vision 런은 캡으로 오인하지 않는다", () => {
+    const judged: ScoringRunInput[] = [
+      {
+        ttft_ms: 100,
+        total_ms: 1000,
+        output_text: "x",
+        quality: { pass: true, score: 1, reason: "rubric=3 | judge: faithful" },
+      },
+    ];
+    expect(averageRunsToScoringRow("V", "vision_meme_explain_a", "chat_completions", judged).judgeCapped).toBe(false);
+  });
+
+  it("#105 결정론 채점 사유(agent_det)는 judge_capped 가 아니다", () => {
+    const det: ScoringRunInput[] = [
+      {
+        ttft_ms: 100,
+        total_ms: 1000,
+        output_text: "x",
+        quality: { pass: false, score: 0.33, reason: "rubric=1 | agent_det: attribution 1/3" },
+      },
+    ];
+    expect(averageRunsToScoringRow("A", "agent_loop_docs_v1", "chat_completions", det).judgeCapped).toBe(false);
+  });
+});

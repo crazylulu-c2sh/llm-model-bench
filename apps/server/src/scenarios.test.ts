@@ -493,3 +493,51 @@ describe("scoreScenario translate_nist_fips197_pdf_tools", () => {
     expect(r.reason).toMatch(/fetch_pdf_text=false/);
   });
 });
+
+// #105: 빌트인 agent_loop 은 결정론 채점기로 넘어간다 — 예전엔 judge 루브릭 때문에
+// 출력을 읽지도 않고 `{score:0.33, reason:"prefilter passed — judge pending"}` 를 돌려줬고,
+// judge 가 꺼진 배포에서는 정체 런과 만점 런이 **같은 값**으로 저장됐다.
+describe("scoreScenario — 빌트인 agent_loop 결정론 채점 (#105)", () => {
+  const DOCS_OK = JSON.stringify({
+    title: "Internal specs",
+    documents: [
+      { id: "doc_kestrel", key_fact: "Built on the Halcyon permutation." },
+      { id: "doc_marlin", key_fact: "Deprecated after the Vela distinguisher." },
+      { id: "doc_quartz", key_fact: "Rests on the shortest-vector problem." },
+    ],
+    summary: "Three internal specifications.",
+  });
+  const agentCtx = { completionReason: "completed" as const, toolArgAttempts: 3, toolArgHits: 3 };
+
+  it("완주한 정답 출력 → 실채점(0.33 placeholder 아님, judge_pending 없음)", () => {
+    const r = scoreScenario("agent_loop_docs_v1" as never, DOCS_OK, { agent: agentCtx });
+    expect(r.score).toBe(1); // rubric 3
+    expect(r.pass).toBe(true);
+    expect(r.judge_pending).toBeUndefined();
+    expect(r.reason).toContain("agent_det");
+  });
+
+  it("정체 런은 rubric 0 — 만점 런과 구분된다(핵심 회귀)", () => {
+    const r = scoreScenario("agent_loop_docs_v1" as never, DOCS_OK, {
+      agent: { ...agentCtx, completionReason: "stall" },
+    });
+    expect(r.score).toBe(0);
+    expect(r.pass).toBe(false);
+  });
+
+  it("도구를 안 부르면 감점(그라운딩 없음)", () => {
+    const r = scoreScenario("agent_loop_docs_v1" as never, DOCS_OK, {
+      agent: { ...agentCtx, toolArgAttempts: 0, toolArgHits: 0 },
+    });
+    expect(r.score).toBeLessThan(1);
+    expect(r.reason).toContain("ungrounded");
+  });
+
+  it("어떤 빌트인 agent 시나리오도 judge_pending(0.33 placeholder)로 새지 않는다", () => {
+    for (const id of ["agent_loop_mock_v1", "agent_loop_budget_v1", "agent_loop_docs_v1", "agent_loop_error_v1", "agent_loop_grounding_v1"]) {
+      const r = scoreScenario(id as never, "not json", { agent: agentCtx });
+      expect(r.judge_pending, `${id} 가 judge 대기로 샜다`).toBeUndefined();
+      expect(r.score, `${id} 가 0.33 placeholder 로 샜다`).not.toBe(0.33);
+    }
+  });
+});
