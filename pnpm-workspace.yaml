@@ -2,6 +2,9 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# pnpm 11: package.json 의 "pnpm" 필드는 더 이상 읽지 않음 — 빌드 스크립트 허용은 여기서만 관리.
+# (구 `pnpm.onlyBuiltDependencies` 는 v11 에서 제거됐고 allowBuilds 가 대체한다.)
+# sharp = 비전 자산 전처리(prepare:vision), esbuild = tsup/vite 번들러 네이티브 바이너리.
 allowBuilds:
   esbuild: true
   sharp: true
