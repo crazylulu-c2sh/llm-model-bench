@@ -63,10 +63,15 @@ function nonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim() !== "";
 }
 
-/** 예산 변종은 본체와 스크립트가 같으므로 같은 채점기를 쓴다. */
+/**
+ * 예산 변종은 본체와 스크립트가 같으므로 같은 채점기를 쓴다.
+ *
+ * (docs 예산 변종은 실측 결과 도입하지 않았다 — max_tokens 384→160 6개 값 전부에서
+ * `google/gemma-4-26b-a4b-qat` 가 정체 없이 완주했다. 이 모델의 과사고는 **과업 의존적**이라
+ * 짧은 AES 카드에서는 예산을 사고로 태우지만 멀티문서 다이제스트에서는 내용을 바로 낸다.)
+ */
 function baseScenarioId(id: string): string {
   if (id === "agent_loop_budget_v1") return "agent_loop_mock_v1";
-  if (id === "agent_loop_docs_budget_v1") return "agent_loop_docs_v1";
   return id;
 }
 
