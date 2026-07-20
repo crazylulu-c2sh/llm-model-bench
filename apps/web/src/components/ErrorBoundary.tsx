@@ -35,7 +35,7 @@ export class ErrorBoundary extends Component<Props, State> {
     const { error } = this.state;
     if (!error) return this.props.children;
     return (
-      <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
+      <section role="alert" className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
         <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">이 페이지를 표시하는 중 오류가 발생했습니다</h2>
         <p className="mb-3 text-xs text-[var(--muted)]">
           다른 탭으로 이동하면 계속 사용할 수 있습니다. 문제가 반복되면 아래 오류 내용과 함께 알려주세요.

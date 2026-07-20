@@ -174,7 +174,7 @@ export function ProviderMonitorPage() {
           {snap.lastFetchedAt ? (
             <span>last: {new Date(snap.lastFetchedAt).toLocaleTimeString()}</span>
           ) : null}
-          {snap.error ? <span className="text-red-500">{snap.error}</span> : null}
+          {snap.error ? <span role="alert" className="text-red-500">{snap.error}</span> : null}
         </div>
       </section>
 

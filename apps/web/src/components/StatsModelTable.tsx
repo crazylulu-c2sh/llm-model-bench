@@ -379,14 +379,31 @@ export function StatsModelTable({
       </div>
       <div className="max-h-64 overflow-auto rounded border border-[var(--border)]">
         <table className="w-full text-left text-sm">
+        <caption className="sr-only">저장된 모델 통계</caption>
         <thead className="text-[var(--muted)]">
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id}>
-              {hg.headers.map((h) => (
-                <th key={h.id} className="sticky top-0 z-[1] bg-[var(--surface)] p-2">
-                  {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
-                </th>
-              ))}
+              {hg.headers.map((h) => {
+                const sorted = h.column.getIsSorted();
+                return (
+                  <th
+                    key={h.id}
+                    scope="col"
+                    aria-sort={
+                      h.column.getCanSort()
+                        ? sorted === "asc"
+                          ? "ascending"
+                          : sorted === "desc"
+                            ? "descending"
+                            : "none"
+                        : undefined
+                    }
+                    className="sticky top-0 z-[1] bg-[var(--surface)] p-2"
+                  >
+                    {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
+                  </th>
+                );
+              })}
             </tr>
           ))}
         </thead>
@@ -407,7 +424,7 @@ export function StatsModelTable({
               <tr
                 key={row.id}
                 className={[
-                  ok ? "cursor-pointer border-t border-[var(--border)] hover:bg-[var(--surface-2)]" : "border-t border-[var(--border)] opacity-55",
+                  ok ? "cursor-pointer border-t border-[var(--border)] hover:bg-[var(--surface-2)] focus-visible:bg-[var(--surface-2)]" : "border-t border-[var(--border)] opacity-55",
                 ].join(" ")}
                 tabIndex={ok ? 0 : -1}
                 aria-disabled={!ok || undefined}

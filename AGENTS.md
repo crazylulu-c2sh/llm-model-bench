@@ -2,6 +2,16 @@
 
 - **Reasoning vs. user-facing language:** Think and reason in English; communicate with the user in Korean unless they explicitly ask for another language.
 - UI follows root `DESIGN.md` (GitHub Primer–inspired light/dark tokens). Prefer CSS variables already defined in `apps/web/src/index.css` over ad-hoc colors.
+- **접근성 (KWCAG 2.2 / WCAG 2.1 AA):** 웹 UI는 KWCAG 2.2(WCAG 2.1 AA 상당)를 목표 수준으로 합니다.
+  - 필수 규약:
+    - 모든 이미지·아이콘: 대체 텍스트 제공, 장식용이면 `aria-hidden="true"`.
+    - 아이콘 전용 버튼: `aria-label` 필수.
+    - 폼 컨트롤: `label` 연결(또는 `aria-label`/`aria-labelledby`).
+    - 클릭 가능한 행·카드 등 비네이티브 인터랙션: 키보드 접근 필수(`role` + `tabIndex` + Enter/Space) — 가능하면 네이티브 `button`/`a` 사용.
+    - 모달·다이얼로그: 초점 트랩 + `Esc` 닫기 + 닫힐 때 트리거로 초점 복귀.
+    - 색 단독으로 의미 전달 금지(아이콘·텍스트 병행). 색 토큰 대비는 `DESIGN.md` 요구를 따름.
+    - 새 창/탭으로 여는 링크는 그 사실을 안내(`aria-label` 또는 시각적 표시).
+  - 게이트(CI): `pnpm --filter @llm-bench/web lint`(eslint-plugin-jsx-a11y), `tests/e2e/a11y.spec.ts`(axe-core WCAG 2.1 AA 스캔), `apps/web/src/index-css-contrast.test.ts`(토큰 대비 회귀).
 - Non-functional requirements (NFR) adopted for v1: API keys via env, session UI (`sessionStorage` by default), or **opt-in** plaintext `localStorage` only after explicit user consent with in-UI risk disclosure; reproducibility fields in bench payloads/results; serial model execution only; partial results + `error` stream events on failure; Vitest HTTP mocks for server provider clients.
 - Do not commit real API keys or customer base URLs in fixtures or logs.
 - **Vision benchmark (v1):** 10 비전 시나리오(`vision_*_a` / `_b`)는 opt-in 입니다.

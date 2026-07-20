@@ -74,7 +74,6 @@ export function StressMonitorGrid({
   const truncated = concurrency > STRESS_MAX_LIVE_CELLS;
   return (
     <section
-      role="region"
       aria-label={regionLabel(runStatus)}
       className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-3 shadow-sm"
     >

@@ -13,6 +13,8 @@ const FallbackPre = forwardRef<HTMLPreElement, { code: string; maxHeight: number
   return (
     <pre
       ref={ref}
+      tabIndex={0}
+      aria-label="코드 내용 (스크롤 가능)"
       className="overflow-auto whitespace-pre-wrap rounded border border-[var(--border)] bg-[var(--surface)] p-3 font-mono text-xs leading-relaxed text-[var(--muted)]"
       style={{ maxHeight }}
     >

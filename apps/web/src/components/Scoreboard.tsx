@@ -37,6 +37,7 @@ import {
   GROUP_LABEL,
   METRIC_LABEL,
   qualityBand,
+  type ScoreBand,
 } from "../lib/score-bands";
 import { getTpsTier, tpsTierColor } from "../lib/tps-tier";
 import { ScoreboardChart, Segmented } from "./ScoreboardChart";
@@ -59,6 +60,12 @@ function Caveat({ title }: { title: string }) {
       *
     </span>
   );
+}
+
+const BAND_LABEL: Record<ScoreBand, string> = { high: "우수", good: "양호", mid: "보통", low: "낮음" };
+
+function qualityBandTitle(g: QualityGroupScore): string | undefined {
+  return g.value == null ? undefined : BAND_LABEL[qualityBand(g.value)];
 }
 
 /** 품질 셀: 밴드색 숫자 + 막대 + (커버리지) + judge-cap `*`. */
@@ -177,7 +184,7 @@ function SortHeader({
     : "none";
   const dirText = active ? (sort.dir === "asc" ? " (오름차순)" : " (내림차순)") : "";
   return (
-    <th className={thClassName} title={title} aria-sort={ariaSort} rowSpan={rowSpan}>
+    <th scope="col" className={thClassName} title={title} aria-sort={ariaSort} rowSpan={rowSpan}>
       <button
         type="button"
         onClick={() => onSort(sortKey)}
@@ -306,7 +313,7 @@ function ScoreboardDataRow({
           ) : null}
         </span>
       </td>
-      <td className={`p-2 text-center ${GROUP_BORDER}`}>
+      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.text)}>
         <QualityCell g={b.quality.text} capped={false} />
       </td>
       <td className="p-2 text-center">
@@ -315,7 +322,7 @@ function ScoreboardDataRow({
       <td className="p-2 text-center">
         <TtftCell g={b.speed.text} />
       </td>
-      <td className={`p-2 text-center ${GROUP_BORDER}`}>
+      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.vision)}>
         <QualityCell g={b.quality.vision} capped={cap} />
       </td>
       <td className="p-2 text-center">
@@ -324,7 +331,7 @@ function ScoreboardDataRow({
       <td className="p-2 text-center">
         <TtftCell g={b.speed.vision} />
       </td>
-      <td className={`p-2 text-center ${GROUP_BORDER}`}>
+      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.agent)}>
         <QualityCell g={b.quality.agent} capped={cap} />
       </td>
       <td className="p-2 text-center">
@@ -333,7 +340,7 @@ function ScoreboardDataRow({
       <td className="p-2 text-center">
         <TtftCell g={b.speed.agent} />
       </td>
-      <td className={`p-2 text-center ${GROUP_BORDER}`}>
+      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.total)}>
         <QualityCell g={b.quality.total} capped={cap} />
       </td>
       <td className="p-2 text-center">
@@ -543,6 +550,7 @@ export function Scoreboard({
       ) : (
       <div className="overflow-x-auto rounded border border-[var(--border)]">
         <table className="w-full min-w-[58rem] text-left text-sm">
+          <caption className="sr-only">모델별 텍스트·비전·에이전트·총합 품질·속도·지연 스코어보드</caption>
           <thead className="bg-[var(--surface)] text-[var(--muted)]">
             <tr>
               <SortHeader
@@ -554,16 +562,16 @@ export function Scoreboard({
                 onSort={onSortClick}
                 rowSpan={2}
               />
-              <th colSpan={3} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+              <th colSpan={3} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
                 텍스트
               </th>
-              <th colSpan={3} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+              <th colSpan={3} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
                 비전
               </th>
-              <th colSpan={3} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+              <th colSpan={3} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
                 에이전트
               </th>
-              <th colSpan={3} className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+              <th colSpan={3} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
                 총합
               </th>
             </tr>

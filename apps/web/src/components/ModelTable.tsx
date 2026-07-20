@@ -40,8 +40,9 @@ function ProfileHintCell({
     else onRequestLeave(hash);
   };
   const linkCls =
-    "text-[var(--muted)] underline-offset-2 hover:text-[var(--accent)] hover:underline focus:outline-none focus:underline";
+    "text-[var(--muted)] underline-offset-2 hover:text-[var(--accent-2)] hover:underline focus:outline-none focus:underline";
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- 행 토글로의 mousedown 전파 차단 가드일 뿐 상호작용 아님
     <span
       className="block max-w-[14rem] truncate font-mono text-[10px] leading-tight"
       title={`${hint.family} · ${hint.preset}`}
@@ -341,14 +342,31 @@ export function ModelTable({
       </div>
       <div className="max-h-64 overflow-auto rounded border border-[var(--border)]">
         <table className="w-full text-left text-sm">
+          <caption className="sr-only">감지된 모델 목록</caption>
           <thead className="text-[var(--muted)]">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
-                {hg.headers.map((h) => (
-                  <th key={h.id} className="sticky top-0 z-[1] bg-[var(--surface)] p-2">
-                    {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
-                  </th>
-                ))}
+                {hg.headers.map((h) => {
+                  const sorted = h.column.getIsSorted();
+                  return (
+                    <th
+                      key={h.id}
+                      scope="col"
+                      aria-sort={
+                        h.column.getCanSort()
+                          ? sorted === "asc"
+                            ? "ascending"
+                            : sorted === "desc"
+                              ? "descending"
+                              : "none"
+                          : undefined
+                      }
+                      className="sticky top-0 z-[1] bg-[var(--surface)] p-2"
+                    >
+                      {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
@@ -369,7 +387,7 @@ export function ModelTable({
                 className={[
                   selectionDisabled
                     ? "border-t border-[var(--border)] opacity-80"
-                    : "cursor-pointer border-t border-[var(--border)] hover:bg-[var(--surface-2)]",
+                    : "cursor-pointer border-t border-[var(--border)] hover:bg-[var(--surface-2)] focus-visible:bg-[var(--surface-2)]",
                   benchActiveModelId != null && row.original.id === benchActiveModelId ? "bench-model-row--active" : "",
                 ]
                   .filter(Boolean)

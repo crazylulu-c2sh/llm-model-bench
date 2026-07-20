@@ -59,13 +59,14 @@ export function ProviderMemoryWidget({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         className="flex w-full items-center justify-between text-sm font-semibold text-[var(--foreground)]"
       >
         <span className="inline-flex items-center gap-2">
           <Cpu className="size-4" aria-hidden />
           메모리 모니터
         </span>
-        {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+        {open ? <ChevronUp className="size-4" aria-hidden /> : <ChevronDown className="size-4" aria-hidden />}
       </button>
       {open ? (
         <div className="mt-2 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">

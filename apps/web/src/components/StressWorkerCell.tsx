@@ -55,7 +55,7 @@ export function StressWorkerCell({
       ? "요청 중"
       : "대기";
   const streamingRing = status === "streaming" ? "ring-1 ring-[var(--accent)]/40" : "";
-  // 셀별 aria-live는 대표 셀(worker 0)만 polite, 나머지는 off로 스크린리더 폭주 방지.
+  // 상태 배지 aria-live는 대표 셀(worker 0)만 polite, 나머지는 off — 스트림 본문이 아닌 상태 전환만 낭독해 스크린리더 폭주 방지.
   const ariaLive: "polite" | "off" = workerIndex === 0 ? "polite" : "off";
   const dimClass = dimmed ? "opacity-50 grayscale" : "";
 
@@ -85,7 +85,7 @@ export function StressWorkerCell({
     >
       <header className="mb-1 flex items-center justify-between">
         <span className="font-mono font-semibold text-[var(--foreground)]">사용자 #{workerIndex + 1}</span>
-        <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ${badge}`}>
+        <span aria-live={ariaLive} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ${badge}`}>
           {status === "streaming" || status === "requesting" ? (
             <Loader2 className="size-3 animate-spin" aria-hidden />
           ) : null}
@@ -111,7 +111,7 @@ export function StressWorkerCell({
       <pre
         ref={responseRef}
         onScroll={onResponseScroll}
-        aria-live={ariaLive}
+        aria-live="off"
         className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-[var(--surface-2)] p-1 font-mono text-[11px] text-[var(--foreground)]"
       >
         {responseText || (status === "streaming" || status === "requesting" ? "…" : "")}

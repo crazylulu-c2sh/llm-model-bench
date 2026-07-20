@@ -1,5 +1,5 @@
 import type { StressStageResult, StressTpsSource } from "@llm-bench/shared";
-import { getTpsTier, tpsTierColor, TPS_TIER_THRESHOLDS } from "../lib/tps-tier";
+import { getTpsTier, tpsTierColor, TPS_TIER_LABEL_KO, TPS_TIER_THRESHOLDS } from "../lib/tps-tier";
 
 function fmt(n: number | null | undefined, digits = 1): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -24,24 +24,25 @@ export function StressResultTable({ stages, expectedScript }: { stages: StressSt
     <div className="overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
       <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">단계별 결과</h2>
       <table className="min-w-full text-left text-xs">
+        <caption className="sr-only">동시성 단계별 스트레스 벤치 결과</caption>
         <thead className="border-b border-[var(--border)] text-[var(--muted)]">
           <tr>
-            <th className="px-2 py-1">동시성</th>
-            <th className="px-2 py-1">TPS</th>
-            <th className="px-2 py-1" title={PER_USER_HEADER_TITLE}>TPS/사용자</th>
-            <th className="px-2 py-1">성공률</th>
-            <th className="px-2 py-1">{hasTtftAnywhere ? "총 p50" : "p50"}</th>
-            <th className="px-2 py-1">{hasTtftAnywhere ? "총 p95" : "p95"}</th>
+            <th scope="col" className="px-2 py-1">동시성</th>
+            <th scope="col" className="px-2 py-1">TPS</th>
+            <th scope="col" className="px-2 py-1" title={PER_USER_HEADER_TITLE}>TPS/사용자</th>
+            <th scope="col" className="px-2 py-1">성공률</th>
+            <th scope="col" className="px-2 py-1">{hasTtftAnywhere ? "총 p50" : "p50"}</th>
+            <th scope="col" className="px-2 py-1">{hasTtftAnywhere ? "총 p95" : "p95"}</th>
             {hasTtftAnywhere ? (
               <>
-                <th className="px-2 py-1" title="Time To First Token (prefill·KV 캐시 지표)">TTFT p50</th>
-                <th className="px-2 py-1" title="Time To First Token (prefill·KV 캐시 지표)">TTFT p95</th>
+                <th scope="col" className="px-2 py-1" title="Time To First Token (prefill·KV 캐시 지표)">TTFT p50</th>
+                <th scope="col" className="px-2 py-1" title="Time To First Token (prefill·KV 캐시 지표)">TTFT p95</th>
               </>
             ) : null}
-            <th className="px-2 py-1">에러율</th>
-            <th className="px-2 py-1">enqueue/drain (ms)</th>
-            <th className="px-2 py-1">source</th>
-            {expectedScript !== "latin" ? <th className="px-2 py-1">예상 응답률({expectedScript})</th> : null}
+            <th scope="col" className="px-2 py-1">에러율</th>
+            <th scope="col" className="px-2 py-1">enqueue/drain (ms)</th>
+            <th scope="col" className="px-2 py-1">source</th>
+            {expectedScript !== "latin" ? <th scope="col" className="px-2 py-1">예상 응답률({expectedScript})</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -55,7 +56,16 @@ export function StressResultTable({ stages, expectedScript }: { stages: StressSt
                 <td className="px-2 py-1 font-mono">
                   {s.tps_unreliable ? <span title="신뢰도 낮음">{fmt(s.aggregate_tps, 1) ?? "—"}*</span> : fmt(s.aggregate_tps, 1)}
                 </td>
-                <td className="px-2 py-1 font-mono" style={{ color: tpsTierColor(perUserTier) }}>{fmt(s.tps_per_user, 2)}</td>
+                <td
+                  className="px-2 py-1 font-mono"
+                  style={{ color: tpsTierColor(perUserTier) }}
+                  title={perUserTier ? TPS_TIER_LABEL_KO[perUserTier] : undefined}
+                >
+                  {fmt(s.tps_per_user, 2)}
+                  {perUserTier ? (
+                    <span className="ml-1 text-[10px] text-[var(--muted)]">{TPS_TIER_LABEL_KO[perUserTier]}</span>
+                  ) : null}
+                </td>
                 <td className="px-2 py-1 font-mono">{(successRate * 100).toFixed(0)}%</td>
                 <td className="px-2 py-1 font-mono">{s.latency_ms.p50 ?? "—"}</td>
                 <td className="px-2 py-1 font-mono">{s.latency_ms.p95 ?? "—"}</td>

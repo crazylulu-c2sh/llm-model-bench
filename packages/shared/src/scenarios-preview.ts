@@ -160,6 +160,7 @@ import {
 } from "./stress-long-context-corpus";
 import { DEFAULT_CALENDAR_TIMEZONE } from "./scenario-scoring-constants";
 import { getScenarioDef } from "./scenario-registry";
+import { visionSubcategoryLabel } from "./vision-category";
 
 const STRESS_PING_USER_BASE = "ping";
 const STRESS_SHORT_REPLY_EN_USER = "In one short sentence, explain what a load test measures.";
@@ -377,10 +378,11 @@ export function getScenarioImageAssets(
   const filename = VISION_IMAGE_FILES[id];
   if (!filename) return [];
   const base = baseUrl?.replace(/\/+$/, "") ?? "";
+  const category = visionSubcategoryLabel(id);
   return [
     {
       url: `${base}/vision/${filename}`,
-      alt: id,
+      alt: category ? `${category} 시나리오 예시 이미지 (${id})` : id,
       mime: "image/jpeg",
     },
   ];

@@ -58,7 +58,7 @@ import {
 } from "./components/BenchProgressPanel";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
 import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
-import { AppHeader } from "./components/AppHeader";
+import { AppHeader, pageTitleForPath } from "./components/AppHeader";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
@@ -156,6 +156,16 @@ export function App() {
   const { choice: themeChoice, setChoice: setThemeChoice, resolved: themeResolved } = useTheme();
   const { pathname } = useLocation();
   const onBenchPage = pathname === "/";
+  const isFirstRouteRef = useRef(true);
+  useEffect(() => {
+    document.title = pageTitleForPath(pathname);
+    if (isFirstRouteRef.current) {
+      // 첫 로드 시 포커스 강탈 금지 — 라우트 '변경' 시에만 본문으로 포커스 이동
+      isFirstRouteRef.current = false;
+      return;
+    }
+    document.getElementById("main")?.focus({ preventScroll: false });
+  }, [pathname]);
   const [boot] = useState(() => readInitialUiState());
   const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
   const [apiKey, setApiKey] = useState(boot.apiKey);
@@ -1304,6 +1314,8 @@ export function App() {
   const benchProgressClass = running ? benchLiveSoft : "";
   const benchStartReady = !running && !!detect && visibleSelectedScenarioIds.length > 0;
   const benchStartEmphasis = benchStartReady || running;
+  const samplingOverridesInvalid =
+    samplingOverridesText.trim().length > 0 && parseSamplingOverridesJson(samplingOverridesText) === null;
 
   const detectButton = (
     <button
@@ -1387,6 +1399,12 @@ export function App() {
           </>
         ) : null}
       </ConfirmDialog>
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-[var(--accent)] focus:px-4 focus:py-2 focus:text-white"
+      >
+        본문 바로가기
+      </a>
       <AppHeader
         themeChoice={themeChoice}
         setThemeChoice={setThemeChoice}
@@ -1394,7 +1412,7 @@ export function App() {
         benchProgress={running ? benchProgress : undefined}
       />
 
-      <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6">
+      <main id="main" tabIndex={-1} className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6 outline-none">
         <ErrorBoundary resetKeys={[pathname]}>
         <Routes>
           <Route
@@ -1454,6 +1472,7 @@ export function App() {
               type="button"
               onClick={() => setScenarioPickerOpen((v) => !v)}
               className="flex w-full items-center justify-between gap-2 text-left"
+              aria-expanded={scenarioPickerOpen}
             >
               <span className="font-medium text-[var(--foreground)]">
                 실행 시나리오{" "}
@@ -1469,7 +1488,7 @@ export function App() {
                   className={[
                     "rounded px-1.5 py-0.5",
                     selectedVisionCount > 0
-                      ? "bg-[var(--accent)]/15 text-[var(--accent)]"
+                      ? "bg-[var(--accent)]/15 text-[var(--accent-2)]"
                       : "bg-[var(--surface-2)] text-[var(--muted)]",
                   ].join(" ")}
                 >
@@ -1480,14 +1499,14 @@ export function App() {
                     className={[
                       "rounded px-1.5 py-0.5",
                       selectedAgentCount > 0
-                        ? "bg-[var(--accent)]/15 text-[var(--accent)]"
+                        ? "bg-[var(--accent)]/15 text-[var(--accent-2)]"
                         : "bg-[var(--surface-2)] text-[var(--muted)]",
                     ].join(" ")}
                   >
                     에이전트 {selectedAgentCount}/{agentScenarioIds.length}
                   </span>
                 ) : null}
-                <span className="text-[var(--muted)]">{scenarioPickerOpen ? "▴" : "▾"}</span>
+                <span className="text-[var(--muted)]" aria-hidden>{scenarioPickerOpen ? "▴" : "▾"}</span>
               </span>
             </button>
             {visibleSelectedScenarioIds.length === 0 ? (
@@ -1681,7 +1700,7 @@ export function App() {
             title="후보 로드 전 필요 RAM vs 여유 RAM을 예측합니다. 안 맞을 때의 동작을 고릅니다 (LM Studio)."
           >
             <span className="mt-1 flex-1">
-              <span className="font-medium text-[var(--foreground)]">메모리-핏 프리플라이트 (LM Studio)</span>
+              <span id="fit-policy-label" className="font-medium text-[var(--foreground)]">메모리-핏 프리플라이트 (LM Studio)</span>
               <span className="mt-0.5 block text-xs leading-snug">
                 후보 로드 전 필요 RAM을 예측해 로그합니다. 안 맞으면: <b>언로드-해서-맞추기</b>는 다른 로드된 모델을 비워 자리를
                 만들고, <b>건너뛰기</b>는 raw 400 대신 사유를 기록하고 스킵합니다. 기본(예측만)은 그대로 진행합니다.
@@ -1692,6 +1711,7 @@ export function App() {
               className="mt-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
               value={fitPolicy}
               disabled={detect?.provider !== "lm_studio"}
+              aria-labelledby="fit-policy-label"
               onChange={(e) => setFitPolicy(e.target.value as "" | "skip" | "unload_other_models")}
             >
               <option value="">예측만(로그)</option>
@@ -1754,7 +1774,7 @@ export function App() {
             </span>
             <NavLink
               to="/profile"
-              className="shrink-0 text-xs font-normal text-[var(--accent)] no-underline hover:underline"
+              className="shrink-0 text-xs font-normal text-[var(--accent-2)] no-underline hover:underline"
             >
               프로파일 수치·규칙 상세
             </NavLink>
@@ -1883,7 +1903,14 @@ export function App() {
                     onChange={(e) => setSamplingOverridesText(e.target.value)}
                     placeholder='{"temperature":0.8,"top_p":0.9}'
                     spellCheck={false}
+                    aria-invalid={samplingOverridesInvalid}
+                    aria-describedby={samplingOverridesInvalid ? "sampling-overrides-error" : undefined}
                   />
+                  {samplingOverridesInvalid ? (
+                    <span id="sampling-overrides-error" className="text-xs text-[var(--danger)]">
+                      유효한 JSON 객체가 아닙니다 — 오버라이드가 적용되지 않습니다
+                    </span>
+                  ) : null}
                 </label>
               </div>
             </details>
@@ -1938,7 +1965,7 @@ export function App() {
                   ? `/scenarios#${benchCurrent.scenario}`
                   : "/scenarios"
               }
-              className="text-xs text-[var(--accent)] no-underline hover:underline"
+              className="text-xs text-[var(--accent-2)] no-underline hover:underline"
             >
               시나리오 상세 문서
             </NavLink>
@@ -1968,7 +1995,7 @@ export function App() {
               onClick={requestBench}
               disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
               aria-busy={running}
-              aria-label="선택한 모델 벤치 실행"
+              aria-label="선택 모델 벤치 실행"
               title={
                 visibleSelectedScenarioIds.length === 0
                   ? "실행할 시나리오를 1개 이상 선택하세요"

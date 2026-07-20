@@ -13,7 +13,7 @@ import {
   type ModelRouteAgentMetrics,
   type SortDir,
 } from "../lib/agent-metrics";
-import { BAND_COLOR, qualityBand } from "../lib/score-bands";
+import { BAND_COLOR, qualityBand, type ScoreBand } from "../lib/score-bands";
 
 function routeLabel(api: string): string {
   if (api === "chat_completions") return "chat";
@@ -28,12 +28,14 @@ function formatValue(v: number | null, col: AgentMetricMeta): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
+const BAND_LABEL: Record<ScoreBand, string> = { high: "우수", good: "양호", mid: "보통", low: "낮음" };
+
 /** 색: 비율 지표만 밴드 색칠(방향 반영). ms·턴 등 절대량은 중립(색 없음). */
-function colorFor(v: number | null, col: AgentMetricMeta): string | undefined {
+function bandFor(v: number | null, col: AgentMetricMeta): ScoreBand | undefined {
   if (v == null || col.format !== "pct") return undefined;
   // higher=클수록 좋음 → 그대로; lower=작을수록 좋음 → 1-v 로 밴드.
   const good = col.dir === "higher" ? v : 1 - v;
-  return BAND_COLOR[qualityBand(good * 100)];
+  return qualityBand(good * 100);
 }
 
 function sortDirIcon(active: boolean, dir: SortDir) {
@@ -67,7 +69,7 @@ function AgentSortHeader({
       : "descending"
     : "none";
   return (
-    <th className={thClassName} title={title} aria-sort={ariaSort}>
+    <th scope="col" className={thClassName} title={title} aria-sort={ariaSort}>
       <button
         type="button"
         onClick={() => onSort(sortKey)}
@@ -104,6 +106,7 @@ export function AgentMetricsTable({ metrics }: { metrics: readonly ModelRouteAge
   return (
     <div className="overflow-x-auto rounded border border-[var(--border)]">
       <table className="w-full min-w-[72rem] text-left text-sm">
+        <caption className="sr-only">모델 × 라우트별 에이전트 능력 지표</caption>
         <thead className="bg-[var(--surface)] text-[var(--muted)]">
           <tr>
             <AgentSortHeader label="모델" thClassName="p-2 font-medium" sortKey={{ kind: "model" }} sort={sort} onSort={onSort} />
@@ -119,7 +122,7 @@ export function AgentMetricsTable({ metrics }: { metrics: readonly ModelRouteAge
                 onSort={onSort}
               />
             ))}
-            <th className="p-2 text-right font-medium" title="이 (모델, 라우트) 슬라이스의 agent 런 수">
+            <th scope="col" className="p-2 text-right font-medium" title="이 (모델, 라우트) 슬라이스의 agent 런 수">
               n
             </th>
           </tr>
@@ -131,8 +134,14 @@ export function AgentMetricsTable({ metrics }: { metrics: readonly ModelRouteAge
               <td className="p-2 text-xs text-[var(--muted)]">{routeLabel(row.api_route)}</td>
               {AGENT_METRIC_COLUMNS.map((col) => {
                 const v = agentMetricValue(row, col.metric);
+                const band = bandFor(v, col);
                 return (
-                  <td key={col.metric} className="p-2 text-right font-mono text-xs" style={{ color: colorFor(v, col) }}>
+                  <td
+                    key={col.metric}
+                    className="p-2 text-right font-mono text-xs"
+                    title={band ? BAND_LABEL[band] : undefined}
+                    style={{ color: band ? BAND_COLOR[band] : undefined }}
+                  >
                     {formatValue(v, col)}
                   </td>
                 );

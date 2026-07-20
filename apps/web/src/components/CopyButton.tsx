@@ -69,7 +69,7 @@ export function CopyButton({
       disabled={isDisabled}
       title={title ?? label}
       aria-label={copied ? copiedLabel : (title ?? label)}
-      className="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex min-h-6 shrink-0 items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
     >
       {copied ? (
         <Check className="size-3 text-green-500" aria-hidden />
