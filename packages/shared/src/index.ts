@@ -37,6 +37,11 @@ export {
 export { getScenarioBenchMeta, type ScenarioBenchMeta } from "./scenario-meta";
 
 export {
+  AGENT_AES_GROUND_TRUTH,
+  AGENT_DOCS_GROUND_TRUTH,
+  AGENT_GROUNDING_GROUND_TRUTH,
+  type AgentDocsGroundTruthId,
+  type AgentGroundingRecordId,
   CHART_VALUE_ABS_TOL,
   COUNT_RED_CARS_MAX_PLAUSIBLE,
   COUNT_RED_CARS_TOL_FAR,

@@ -208,7 +208,9 @@ export function makeBenchRunMeta(
     model_id: input.modelId,
     api_routes: routes,
     scenario_ids: scenarioIds,
-    scenario_bundle_version: "6",
+    // #105: docs/grounding corpus 를 가상 개체로 재작성 + agent 채점을 결정론으로 전환 →
+    // 이전 런(전부 0.33 placeholder, AES canon)과 **비교 불가**.
+    scenario_bundle_version: "7",
     temperature: input.temperature ?? 0.2,
     max_tokens: input.max_tokens ?? 512,
     seed: null,
@@ -1316,6 +1318,17 @@ export async function* runBench(
                   invokedBenchTools,
                   calendarReferenceIso: ref.toISOString(),
                   calendarTimeZone: DEFAULT_CALENDAR_TIMEZONE,
+                  // #105: 결정론 채점기가 정체 여부·도구 사용 증거를 rubric 에 반영한다.
+                  // 메트릭 필드명은 `completion_reason`(저장/emit 시엔 `agent_completion_reason`).
+                  ...(agentMetrics
+                    ? {
+                        agent: {
+                          completionReason: agentMetrics.completion_reason,
+                          toolArgAttempts: agentMetrics.tool_arg_attempts,
+                          toolArgHits: agentMetrics.tool_arg_hits,
+                        },
+                      }
+                    : {}),
                 });
             // D5: 비전 시나리오에서 400 + image/vision/multimodal 본문 매칭이 감지된 경우
             // scoreScenario의 결과(빈 출력 → 0점)를 `upstream_no_vision`로 덮어쓴다.

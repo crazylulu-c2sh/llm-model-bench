@@ -33,16 +33,29 @@ function firstBalancedObject(text: string): string | null {
   return scanBalanced(text, start);
 }
 
+/**
+ * 마지막 **top-level** balanced object. (여러 객체를 연달아 낸 응답에서 마지막이 최종답이라는 관례.)
+ *
+ * #105: 매칭에 성공하면 그 객체 **뒤로 점프**한다 — 예전 구현은 모든 `{` 를 훑어 중첩 객체까지
+ * 후보로 삼는 바람에 `{"answers":[…,{"id":"X"}]}` 에서 안쪽 `{"id":"X"}` 를 돌려줬다.
+ * 기존 호출부(vision·structured_action·judge 응답)는 전부 flat 이라 드러나지 않았지만,
+ * 중첩 스키마를 쓰는 agent 시나리오(docs/grounding)에서는 정통으로 깨진다.
+ */
 function lastBalancedObject(text: string): string | null {
-  const start = text.lastIndexOf("{");
-  if (start < 0) return null;
-  // start부터 보다는 끝에서 가장 가까운 balanced object를 찾기 위해
-  // 먼저 첫번째 balanced를 찾고, 마지막으로 갱신.
   let last: string | null = null;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] !== "{") continue;
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== "{") {
+      i += 1;
+      continue;
+    }
     const obj = scanBalanced(text, i);
-    if (obj) last = obj;
+    if (obj) {
+      last = obj;
+      i += obj.length; // 중첩 진입 금지 — 매칭된 객체 전체를 건너뛴다.
+    } else {
+      i += 1; // 미완성 `{` — 다음 후보로.
+    }
   }
   return last;
 }

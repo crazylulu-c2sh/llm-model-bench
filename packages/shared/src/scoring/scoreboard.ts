@@ -56,14 +56,17 @@ const JUDGE_CAP_REASON_PREFIX = "prefilter passed";
 
 /**
  * LLM_JUDGE_ENABLED 없이 rubric 1로 캡된 런인지(점수 평균 후엔 0.33이 사라지므로 런 단위 판정).
- * vision·agent 모두 rubric 채점이라 대상 — agent도 포함하지 않으면 judge OFF 상태에서 "33점"이
- * 경고 없이 표기된다.
+ *
+ * #105: 판정을 `startsWith` → `includes` 로 고쳤다. vision 경로는 `rubricResult()` 가 reason 앞에
+ * `rubric=N | ` 접두를 붙이므로(`scenarios.ts`) `startsWith` 로는 **영영 매칭되지 않아 vision 에
+ * judge_capped 경고가 한 번도 뜬 적이 없었다**. 기존 단위 테스트 픽스처가 접두사 없는 문자열을 써서
+ * 이 불일치를 잡지 못했다.
  */
 function isJudgeCappedRun(scenario: string, run: ScoringRunInput): boolean {
   return (
     (isVisionScenario(scenario) || isAgentScenario(scenario)) &&
     run.quality?.score === 0.33 &&
-    (run.quality?.reason ?? "").startsWith(JUDGE_CAP_REASON_PREFIX)
+    (run.quality?.reason ?? "").includes(JUDGE_CAP_REASON_PREFIX)
   );
 }
 

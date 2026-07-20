@@ -59,3 +59,38 @@ export const JUDGE_FAILURE_LABELS = [
   "judge_parse_error",
   "judge_network_error",
 ] as const;
+
+// ─── #105: 에이전트 시나리오 결정론 채점 ground truth ──────────────────────────
+// mock 도구가 캔드 응답을 주므로 "모델이 볼 수 있었던 사실"의 전집합이 우리 손에 있다 →
+// LLM judge 없이 rubric 0~3 을 산출할 수 있다. 아래 상수와 `agent-loop-builtin.ts` 의 실제
+// mock 문자열이 어긋나면 채점기가 조용히 깨지므로 drift 테스트가 배타성·실존성을 고정한다.
+//
+// 마커 정책: **1차는 고유명사**(가상 개체라 corpus 밖 등장 확률≈0 → 교차오염 판정이 깨끗),
+// 숫자는 보조. 연도·비트수 단독 판정은 우연 출현 오탐이 있어 쓰지 않는다.
+
+/** `agent_loop_docs_v1` — 문서별 배타 마커. primary 가 판정, numeric 은 보강. */
+export const AGENT_DOCS_GROUND_TRUTH = {
+  doc_kestrel: { primary: ["halcyon"], numeric: ["192"] },
+  doc_marlin: { primary: ["vela"], numeric: ["384"] },
+  doc_quartz: { primary: ["shortest-vector", "duval"], numeric: ["2011"] },
+} as const;
+export type AgentDocsGroundTruthId = keyof typeof AGENT_DOCS_GROUND_TRUTH;
+
+/** `agent_loop_grounding_v1` — 레코드 id → 본문 고유 마커(읽지 않으면 알 수 없는 토큰). */
+export const AGENT_GROUNDING_GROUND_TRUTH = {
+  "rec_9f3a1c77-4b2e": { primary: ["halcyon", "aster"] },
+  "rec_0d84e2ab-77f1": { primary: ["vela", "marlin"] },
+} as const;
+export type AgentGroundingRecordId = keyof typeof AGENT_GROUNDING_GROUND_TRUTH;
+
+/** `agent_loop_mock_v1`/`budget_v1`/`error_v1` — AES canon 유지 시나리오의 마커. */
+export const AGENT_AES_GROUND_TRUTH = {
+  /** 요약이 실제 문서를 반영하는지(≥2 히트면 충실). */
+  markers: ["rijndael", "fips-197", "128"] as const,
+  /** `wiki_read` **성공 본문에만** 등장 — read_document 본문엔 없다. 위키 도달/재시도 성공의 증거. */
+  wikiOnlyMarker: "supersedes des",
+  /** `sources[]` 가 참조해야 하는 문서 식별자. */
+  sourceToken: "aes",
+  /** 에러 페이로드를 본문으로 오인 요약했는지. */
+  errorLeakMarker: "page_load_failed",
+} as const;

@@ -30,6 +30,7 @@ import {
   normalizeQuarter,
   parseSignedPercent,
 } from "./scoring/normalize.js";
+import { scoreAgentScenario, type AgentScoreContext } from "./scoring/agent-score.js";
 import { buildImagePart } from "./vision-assets.js";
 
 export type { ScenarioId };
@@ -213,6 +214,8 @@ export type ScoreContext = {
   invokedBenchTools?: string[];
   calendarReferenceIso?: string;
   calendarTimeZone?: string;
+  /** #105: agent_loop 런의 결정론 채점 컨텍스트(하네스 메트릭에서 전달). */
+  agent?: AgentScoreContext;
 };
 
 function scoreChatMinimal(output: string): { pass: boolean; reason?: string } {
@@ -292,10 +295,17 @@ export function scoreScenario(
   output: string,
   ctx?: ScoreContext,
 ): { pass: boolean; score?: number; reason?: string; judge_pending?: true } {
-  // #79/#83: 레지스트리 시나리오(agent_loop·커스텀). judge 루브릭이 있으면 prefilter 통과 후 judge 대기,
-  // 없으면 메트릭-only(루프 완료로 pass). 실제 완료/정체는 per-run agent_completion_reason에 기록됨.
+  // #79/#83/#105: 레지스트리 시나리오(agent_loop·커스텀).
+  //  1) 빌트인 agent_loop → 결정론 채점기(judge 불필요, API 키 없이도 재현 가능)
+  //  2) judge 루브릭 보유(커스텀) → prefilter 통과 후 judge 대기
+  //  3) 그 외 → 메트릭-only
   const registered = getScenarioDef(id);
   if (registered) {
+    // #105: 빌트인 전용. 커스텀은 정답이 없으므로 judge 필수 규약을 유지한다.
+    if (registered.source === "builtin") {
+      const det = scoreAgentScenario(id, output, ctx?.agent);
+      if (det) return rubricResult(det.rubric, det.reason);
+    }
     if (registered.judge) {
       return { pass: false, score: 0.33, reason: "prefilter passed — judge pending", judge_pending: true };
     }
