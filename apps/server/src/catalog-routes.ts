@@ -154,9 +154,11 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
       }
 
       const map = dbMod.latestFinishedRunsByModels(db, norm, ids);
-      const details = ids
+      // #109 후속: summary row 를 버리지 않고 붙든다 — 측정 0건(로드 실패 등) 판정에 필요.
+      const summaries = ids
         .map((mid) => map.get(mid))
-        .filter((row): row is NonNullable<typeof row> => Boolean(row))
+        .filter((row): row is NonNullable<typeof row> => Boolean(row));
+      const details = summaries
         .map((row) => runQueries.benchResultDetailFromDb(db, row.run_id))
         .filter((d): d is NonNullable<typeof d> => Boolean(d));
 
@@ -169,15 +171,29 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
       // 대상 자체가 agent 시나리오뿐이라 ?task=agent 의 추가 필터는 no-op, 타 task 에선 참고 정보.
       const agent_metrics = agentMetricsFromBenchDetails(details);
       // #81: 최신 런이 메모리-핏 skip이면 측정 런이 없어 rows에 안 나오므로, 조용히 사라지지 않게 별도 노출.
-      const skipped = details
-        .map((d) => {
-          const pf = (d.meta as { preflight_memory_fit?: { action?: string; reason?: string } })
-            .preflight_memory_fit;
-          return pf?.action === "skip"
-            ? { model_id: d.meta.model_id, reason: pf.reason ?? "won't fit" }
-            : null;
-        })
-        .filter((x): x is { model_id: string; reason: string } => x != null);
+      // #109 후속: 하드 로드 실패(status=partial, 측정 0건)도 같은 부류인데 여태 빠져 있었다
+      // — 실측에서 google/gemma-4-31b-qat 가 2회 연속 rows·skipped 어디에도 없었다.
+      // 우선순위: preflight skip(기존 사유 유지) → 측정 0건(error_code/message) → model_id 로 dedupe.
+      const skippedByModel = new Map<string, { model_id: string; reason: string }>();
+      for (const d of details) {
+        const pf = (d.meta as { preflight_memory_fit?: { action?: string; reason?: string } })
+          .preflight_memory_fit;
+        if (pf?.action === "skip") {
+          skippedByModel.set(d.meta.model_id, {
+            model_id: d.meta.model_id,
+            reason: pf.reason ?? "won't fit",
+          });
+        }
+      }
+      for (const row of summaries) {
+        if (row.scenario_count > 0 || skippedByModel.has(row.model_id)) continue;
+        const detail = row.error_message?.trim() || row.error_code?.trim();
+        skippedByModel.set(row.model_id, {
+          model_id: row.model_id,
+          reason: detail ? `no measured scenarios — ${detail.slice(0, 200)}` : "no measured scenarios",
+        });
+      }
+      const skipped = [...skippedByModel.values()];
       return c.json({
         base_url: norm,
         filter: filterInfo,

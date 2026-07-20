@@ -57,6 +57,7 @@ export type AgentMetricsRow = {
   output_efficiency: number | null;
   quality_mean: number | null;
   workflow_adherence_mean: number | null;
+  tool_call_excess_mean: number | null;
 };
 
 /** #80: GET /api/scoreboard·/api/stats/model-latest 의 모델 × 라우트 누수/정체 지표. */

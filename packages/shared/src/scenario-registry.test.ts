@@ -146,9 +146,23 @@ describe("CustomScenarioInputSchema (#83)", () => {
     expect(CustomScenarioInputSchema.safeParse(ok).success).toBe(true);
   });
 
-  it("does not carry a client-supplied source (omitted)", () => {
-    const parsed = CustomScenarioInputSchema.parse({ ...valid, source: "builtin" } as Record<string, unknown>);
-    expect("source" in parsed).toBe(false);
+  // #109 후속: `.strict()` 도입 — 예전엔 클라이언트가 보낸 `source` 를 **조용히 버렸지만**
+  // 이제는 거부한다. 보안 의도("클라이언트가 builtin 을 self-assign 못 함")는 그대로이고,
+  // 수상한 입력에 조용히 성공하는 대신 실패로 알린다.
+  it("클라이언트가 source 를 보내면 거부한다(조용한 무시 아님)", () => {
+    const r = CustomScenarioInputSchema.safeParse({ ...valid, source: "builtin" } as Record<string, unknown>);
+    expect(r.success).toBe(false);
+  });
+
+  // #109 후속: 이 스키마는 ScenarioDefSchema 파생이라 거기에 필드를 추가하면 무인증 POST 바디에서
+  // 자동 수용된다. `.strict()` 가 그 자동 유입을 막는다.
+  it("스키마에 없는 키는 거부한다(미래 필드 자동 유입 차단)", () => {
+    const r = CustomScenarioInputSchema.safeParse({ ...valid, checks: [{ type: "always_pass" }] } as Record<string, unknown>);
+    expect(r.success).toBe(false);
+  });
+
+  it("정상 입력은 그대로 통과한다", () => {
+    expect(CustomScenarioInputSchema.safeParse(valid).success).toBe(true);
   });
 });
 

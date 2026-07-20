@@ -39,7 +39,9 @@ export { getScenarioBenchMeta, type ScenarioBenchMeta } from "./scenario-meta";
 export {
   AGENT_AES_GROUND_TRUTH,
   AGENT_DOCS_GROUND_TRUTH,
+  AGENT_CHAIN_GROUND_TRUTH,
   AGENT_EXPECTED_TOOLS,
+  AGENT_EXPECTED_TOOL_CALLS,
   AGENT_GROUNDING_GROUND_TRUTH,
   type AgentDocsGroundTruthId,
   type AgentGroundingRecordId,
@@ -104,6 +106,7 @@ export {
 // side-effect: built-in agent_loop 정의를 레지스트리에 등록(재-export가 모듈 로드를 강제).
 export {
   AGENT_LOOP_BUDGET_V1,
+  AGENT_LOOP_CHAIN_V1,
   AGENT_LOOP_DOCS_V1,
   AGENT_LOOP_ERROR_V1,
   AGENT_LOOP_GROUNDING_V1,

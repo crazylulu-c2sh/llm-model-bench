@@ -211,7 +211,8 @@ export function makeBenchRunMeta(
     // #105: docs/grounding corpus 를 가상 개체로 재작성 + agent 채점을 결정론으로 전환.
     // #108 후속(v8): error_v1 의 에러를 read_document 로 이동 + sources 판정 완화 + retried 실측 →
     // 이전 런과 **비교 불가**.
-    scenario_bundle_version: "8",
+    // #109 후속(v9): agent_loop_chain_v1 추가 — agent 품질의 분모가 5→6 으로 바뀐다.
+    scenario_bundle_version: "9",
     temperature: input.temperature ?? 0.2,
     max_tokens: input.max_tokens ?? 512,
     seed: null,

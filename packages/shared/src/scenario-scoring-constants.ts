@@ -102,6 +102,19 @@ export const AGENT_AES_GROUND_TRUTH = {
 } as const;
 
 /**
+ * #109 후속: `agent_loop_chain_v1` — 3홉 체인의 각 홉 산출물. 최종 답이 셋을 모두 요구하므로
+ * 어느 홉을 건너뛰면 그 필드를 채울 수 없다. 마커는 docs/grounding corpus 와 겹치지 않는다.
+ */
+export const AGENT_CHAIN_GROUND_TRUTH = {
+  /** hop1 산출 — search 가 준다. */
+  ref: "REF-7K2Q",
+  /** hop2 산출 — resolve(ref) 가 준다. */
+  recordId: "rec_ch_41d8",
+  /** hop3 고유 사실 — fetch(record_id) 로만 알 수 있다. */
+  factMarkers: ["ridgeway", "ambleside"] as const,
+} as const;
+
+/**
  * #108 후속: 시나리오가 **프롬프트로 지시한** 도구 목록 — 워크플로 준수율 집계용.
  *
  * `ScenarioDef.tools[]`(노출한 도구)나 workflow 문장 파싱 대신 상수로 고정한다. 배타 마커와 같은
@@ -115,4 +128,24 @@ export const AGENT_EXPECTED_TOOLS: Record<string, readonly string[]> = {
   agent_loop_error_v1: ["read_document", "wiki_search", "wiki_read"],
   agent_loop_docs_v1: ["list_documents", "read_document"],
   agent_loop_grounding_v1: ["catalog_search", "catalog_read"],
+  agent_loop_chain_v1: ["search", "resolve", "fetch"],
+};
+
+/**
+ * #109 후속: 시나리오별 **합리적 도구 호출 수** — 도구 남용(thrashing) 탐지용 분모.
+ *
+ * 집계는 `max(0, 실제호출/기대치 − 1)`(초과분만). 단순 비율을 쓰면 단축(1/3=0.33)이
+ * "가장 좋음"으로 정렬돼 `workflow_adherence_mean` 과 신호가 충돌한다 — 초과분만 재면
+ * **0 = 낭비 없음, >0 = 남용**으로 의미가 하나로 고정된다.
+ *
+ * ⚠ `agent_loop_error_v1` 의 4회는 **재시도를 포함한** 값이다. 재시도를 안 한 런(3회)도 초과분은
+ * 0 이므로 **이 지표는 재시도 실패를 잡지 않는다** — 그건 rubric(`retried verified`)의 몫이다.
+ */
+export const AGENT_EXPECTED_TOOL_CALLS: Record<string, number> = {
+  agent_loop_mock_v1: 3,
+  agent_loop_budget_v1: 3,
+  agent_loop_error_v1: 4,
+  agent_loop_docs_v1: 4,
+  agent_loop_grounding_v1: 3,
+  agent_loop_chain_v1: 3,
 };

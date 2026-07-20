@@ -428,6 +428,19 @@ const AGENT_META: Record<string, ScenarioBenchMeta> = {
     toolsSummaryKo: "catalog_search / catalog_read(argDispatch: 정확 id 일치) (모두 mock). maxTurns 8, max_tokens 512.",
     routesKo: "chat_completions / messages 공통.",
   },
+  agent_loop_chain_v1: {
+    purposeKo:
+      "3홉 순수 체이닝: search → ref, resolve(ref) → record_id, fetch(record_id) → 유일한 사실. " +
+      "최종 답 {ref, record_id, fact} 이 세 홉의 산출물을 각각 요구하므로 어느 홉을 건너뛰면 그 필드를 채울 수 없다. " +
+      "상위권 천장(서로 다른 두 모델이 공동 1위로 붙던 문제)을 깨려고 추가했다 — 단축을 감점하는 대신 " +
+      "과업 자체를 체인으로 만든 것이다.",
+    criteriaKo:
+      "결정론 채점(0-3): ref·record_id 완전일치 + fact 에 레코드 고유 마커 + fetch 호출이면 3, " +
+      "ref·record_id 는 맞고 fact 가 약하면 2, record_id 부터 틀리거나 fetch 미호출이면 1, ref 부터 틀리면 0. " +
+      "사유 문자열은 hop=N 규격이라 어느 홉에서 끊겼는지 바로 집계된다. corpus 는 가공(fictional)이라 회상 불가.",
+    toolsSummaryKo: "search / resolve(argDispatch: ref) / fetch(argDispatch: record_id) (모두 mock). maxTurns 8, max_tokens 512.",
+    routesKo: "chat_completions / messages 공통.",
+  },
 };
 
 export function getScenarioBenchMeta(id: string): ScenarioBenchMeta | null {

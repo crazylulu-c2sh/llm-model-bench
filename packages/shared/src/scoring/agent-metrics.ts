@@ -1,5 +1,5 @@
 import { isAgentScenario } from "../scenarios-preview";
-import { AGENT_EXPECTED_TOOLS } from "../scenario-scoring-constants";
+import { AGENT_EXPECTED_TOOLS, AGENT_EXPECTED_TOOL_CALLS } from "../scenario-scoring-constants";
 
 /**
  * #105: 멀티턴 에이전트 능력 지표(모델 × api_route 슬라이스).
@@ -63,6 +63,15 @@ export type AgentMetrics = {
    * 순위를 해석할 때 "단축해서 얻은 점수인가"를 볼 수 있게 하는 진단용 지표.
    */
   workflow_adherence_mean: number | null;
+  /**
+   * #109 후속: 도구 **초과** 호출 비율의 평균 — `max(0, 실제/기대 − 1)`.
+   * **0 = 낭비 없음**(정상이든 적게 쓰든), **>0 = 남용**(실측: glm-4.7-flash 가 grounding 에서
+   * catalog_read 를 7회(기대 2회) 불러 예산 소진 → ≈1.67).
+   *
+   * 단순 비율이 아니라 초과분만 재는 이유: 비율이면 단축(1/3=0.33)이 "가장 좋음"으로 정렬돼
+   * `workflow_adherence_mean` 과 신호가 충돌한다. 적게 부른 것은 여기서 0 이고 준수율이 따로 잰다.
+   */
+  tool_call_excess_mean: number | null;
 };
 
 /** model × route 키가 붙은 에이전트 지표 행. */
@@ -110,6 +119,7 @@ type AgentAccum = {
   effRuns: number;
   qualityScores: number[];
   adherence: number[];
+  excess: number[];
 };
 
 function emptyAccum(): AgentAccum {
@@ -131,6 +141,7 @@ function emptyAccum(): AgentAccum {
     effRuns: 0,
     qualityScores: [],
     adherence: [],
+    excess: [],
   };
 }
 
@@ -186,6 +197,13 @@ function accumulate(
         acc.adherence.push(called / expectedTools.length);
       }
 
+      // #109 후속: 도구 초과 호출(남용). 적게 부른 것은 0 으로 클램프 — 준수율과 신호를 분리한다.
+      const expectedCalls = AGENT_EXPECTED_TOOL_CALLS[slice.scenario];
+      if (expectedCalls && expectedCalls > 0 && counts) {
+        const total = Object.values(counts).reduce((a, b) => a + b, 0);
+        acc.excess.push(Math.max(0, total / expectedCalls - 1));
+      }
+
       // 출력 효율: 완료 + 최종턴 토큰·usage 양쪽 존재 + usage>0.
       if (
         completed &&
@@ -227,6 +245,8 @@ function accumulate(
           : null,
       workflow_adherence_mean:
         acc.adherence.length > 0 ? acc.adherence.reduce((a, b) => a + b, 0) / acc.adherence.length : null,
+      tool_call_excess_mean:
+        acc.excess.length > 0 ? acc.excess.reduce((a, b) => a + b, 0) / acc.excess.length : null,
     };
   });
 }
