@@ -21,7 +21,8 @@ export type AgentMetric =
   | "arg_attempt_rate"
   | "output_efficiency"
   | "quality_mean"
-  | "workflow_adherence_mean";
+  | "workflow_adherence_mean"
+  | "tool_call_excess_mean";
 
 export type SortDir = "asc" | "desc";
 export type AgentSortKey = { kind: "model" } | { kind: "route" } | { kind: "metric"; metric: AgentMetric };
@@ -54,6 +55,7 @@ export const AGENT_METRIC_COLUMNS: readonly AgentMetricMeta[] = [
   { metric: "output_efficiency", label: "출력효율", title: "Σ최종턴 토큰 / Σ전 턴 usage 토큰 — 중간 턴 사고 낭비의 역수(높을수록 좋음)", dir: "higher", format: "pct" },
   { metric: "quality_mean", label: "품질(rubric)", title: "결정론 rubric 평균 — **0~1 스케일**(다른 비율 지표와 의미가 다름). 스코어보드 메인 품질은 라우트를 풀링하므로 여기서 라우트별 발산을 본다", dir: "higher", format: "pct" },
   { metric: "workflow_adherence_mean", label: "워크플로", title: "시나리오가 지시한 도구 중 실제로 부른 비율 — **점수에 반영되지 않는다**(적게 쓰고 정답이면 효율). 순위 해석용 진단 지표", dir: "higher", format: "pct" },
+  { metric: "tool_call_excess_mean", label: "도구초과", title: "도구 초과 호출 비율 max(0, 실제/기대−1) — 0=낭비 없음, >0=남용(예: 같은 도구를 반복 호출하다 예산 소진). 적게 부른 것은 0 이고 '워크플로' 컬럼이 따로 잰다. error_v1 의 기대치는 재시도를 포함하므로 이 지표는 재시도 실패를 잡지 않는다(품질 rubric 의 몫)", dir: "lower", format: "pct" },
 ];
 
 /** 기본 정렬 = 완료율 내림차순. */

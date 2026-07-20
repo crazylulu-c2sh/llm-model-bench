@@ -534,7 +534,7 @@ describe("scoreScenario — 빌트인 agent_loop 결정론 채점 (#105)", () =>
   });
 
   it("어떤 빌트인 agent 시나리오도 judge_pending(0.33 placeholder)로 새지 않는다", () => {
-    for (const id of ["agent_loop_mock_v1", "agent_loop_budget_v1", "agent_loop_docs_v1", "agent_loop_error_v1", "agent_loop_grounding_v1"]) {
+    for (const id of ["agent_loop_mock_v1", "agent_loop_budget_v1", "agent_loop_docs_v1", "agent_loop_error_v1", "agent_loop_grounding_v1", "agent_loop_chain_v1"]) {
       const r = scoreScenario(id as never, "not json", { agent: agentCtx });
       expect(r.judge_pending, `${id} 가 judge 대기로 샜다`).toBeUndefined();
       expect(r.score, `${id} 가 0.33 placeholder 로 샜다`).not.toBe(0.33);

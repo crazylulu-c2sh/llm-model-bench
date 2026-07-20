@@ -212,6 +212,8 @@ export const AgentMetricsRowSchema = z.object({
   quality_mean: z.number().nullable(),
   /** #108 후속: 지시 도구 중 실제 호출 비율(점수 미반영, 진단용). */
   workflow_adherence_mean: z.number().nullable(),
+  /** #109 후속: 도구 초과 호출 비율(0=낭비 없음, >0=남용). */
+  tool_call_excess_mean: z.number().nullable(),
 });
 export type AgentMetricsRow = z.infer<typeof AgentMetricsRowSchema>;
 export const ScoreboardResponseSchema = z.object({

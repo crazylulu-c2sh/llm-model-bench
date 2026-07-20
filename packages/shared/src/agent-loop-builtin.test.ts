@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENT_LOOP_BUDGET_V1,
+  AGENT_LOOP_CHAIN_V1,
   AGENT_LOOP_DOCS_V1,
   AGENT_LOOP_ERROR_V1,
   AGENT_LOOP_GROUNDING_V1,
@@ -8,7 +9,14 @@ import {
   BUILTIN_AGENT_LOOP_IDS,
 } from "./agent-loop-builtin";
 import { getScenarioDef, isRegisteredScenario, listScenarioDefs } from "./scenario-registry";
-import { AGENT_AES_GROUND_TRUTH, AGENT_EXPECTED_TOOLS } from "./scenario-scoring-constants";
+import {
+  AGENT_AES_GROUND_TRUTH,
+  AGENT_CHAIN_GROUND_TRUTH,
+  AGENT_DOCS_GROUND_TRUTH,
+  AGENT_EXPECTED_TOOLS,
+  AGENT_EXPECTED_TOOL_CALLS,
+  AGENT_GROUNDING_GROUND_TRUTH,
+} from "./scenario-scoring-constants";
 
 describe("builtin agent_loop scenarios (#79/#101)", () => {
   it("agent_loop_budget_v1 mirrors mock_v1 but tightens per-turn max_tokens to the separating budget (192)", () => {
@@ -108,7 +116,7 @@ describe("builtin agent_loop scenarios (#79/#101)", () => {
       .filter((d) => d.agentLoop)
       .map((d) => d.id);
     expect(new Set(BUILTIN_AGENT_LOOP_IDS)).toEqual(new Set(registered));
-    expect(BUILTIN_AGENT_LOOP_IDS.length).toBe(5);
+    expect(BUILTIN_AGENT_LOOP_IDS.length).toBe(6);
   });
 });
 
@@ -136,5 +144,59 @@ describe("agent 채점 상수 drift (#108 후속)", () => {
   it("errorLeakMarker 는 error_v1 의 실제 에러 페이로드와 일치한다", () => {
     const readDoc = AGENT_LOOP_ERROR_V1.agentLoop!.mockTools.find((m) => m.tool === "read_document")!;
     expect(readDoc.responses[0]!.toLowerCase()).toContain(AGENT_AES_GROUND_TRUTH.errorLeakMarker);
+  });
+});
+
+// #109 후속: 3홉 체이닝 — 각 홉이 다음 홉의 입력을 만들고, 최종 답이 셋을 모두 요구한다.
+describe("agent_loop_chain_v1 (#109 후속)", () => {
+  const loop = () => AGENT_LOOP_CHAIN_V1.agentLoop!;
+
+  it("search 는 ref 만 준다 — record_id/fact 를 흘리면 체인을 건너뛸 수 있다", () => {
+    const search = loop().mockTools.find((m) => m.tool === "search")!;
+    const body = search.responses[0]!;
+    expect(body).toContain(AGENT_CHAIN_GROUND_TRUTH.ref);
+    expect(body).not.toContain(AGENT_CHAIN_GROUND_TRUTH.recordId);
+    for (const m of AGENT_CHAIN_GROUND_TRUTH.factMarkers) {
+      expect(body.toLowerCase()).not.toContain(m);
+    }
+  });
+
+  it("resolve·fetch 는 이전 홉 산출물을 정확히 넘겨야만 매칭된다(argDispatch)", () => {
+    const resolve = loop().mockTools.find((m) => m.tool === "resolve")!;
+    const fetchTool = loop().mockTools.find((m) => m.tool === "fetch")!;
+    expect(resolve.argDispatch?.argKey).toBe("ref");
+    expect(Object.keys(resolve.argDispatch!.cases)).toEqual([AGENT_CHAIN_GROUND_TRUTH.ref]);
+    expect(fetchTool.argDispatch?.argKey).toBe("record_id");
+    expect(Object.keys(fetchTool.argDispatch!.cases)).toEqual([AGENT_CHAIN_GROUND_TRUTH.recordId]);
+  });
+
+  it("fact 마커는 fetch 응답에 실존한다", () => {
+    const fetchTool = loop().mockTools.find((m) => m.tool === "fetch")!;
+    const body = fetchTool.argDispatch!.cases[AGENT_CHAIN_GROUND_TRUTH.recordId]!.toLowerCase();
+    for (const m of AGENT_CHAIN_GROUND_TRUTH.factMarkers) expect(body).toContain(m);
+  });
+
+  // 배타성: chain 마커가 docs/grounding corpus 와 겹치면 교차오염 판정이 서로 간섭한다.
+  it("chain 마커는 docs/grounding 마커와 겹치지 않는다", () => {
+    const others = [
+      ...Object.values(AGENT_DOCS_GROUND_TRUTH).flatMap((v) => [...v.primary]),
+      ...Object.values(AGENT_GROUNDING_GROUND_TRUTH).flatMap((v) => [...v.primary]),
+    ];
+    for (const m of AGENT_CHAIN_GROUND_TRUTH.factMarkers) {
+      expect(others, `chain 마커 ${m} 가 다른 시나리오 마커와 충돌`).not.toContain(m);
+    }
+  });
+});
+
+// #109 후속: 남용 탐지 분모도 전 시나리오에 있어야 한다.
+describe("AGENT_EXPECTED_TOOL_CALLS drift (#109 후속)", () => {
+  it("모든 빌트인 agent 시나리오에 기대 호출 수가 정의돼 있고 양수다", () => {
+    for (const def of listScenarioDefs("builtin").filter((d) => d.agentLoop)) {
+      const n = AGENT_EXPECTED_TOOL_CALLS[def.id];
+      expect(n, `${def.id} 에 기대 호출 수 없음`).toBeDefined();
+      expect(n!).toBeGreaterThan(0);
+      // 지시 도구 수보다 적으면 초과분이 항상 양수로 나와 오탐이 된다.
+      expect(n!).toBeGreaterThanOrEqual(AGENT_EXPECTED_TOOLS[def.id]!.length);
+    }
   });
 });

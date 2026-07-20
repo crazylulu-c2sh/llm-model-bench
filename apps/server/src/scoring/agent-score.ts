@@ -1,5 +1,6 @@
 import {
   AGENT_AES_GROUND_TRUTH,
+  AGENT_CHAIN_GROUND_TRUTH,
   AGENT_DOCS_GROUND_TRUTH,
   AGENT_GROUNDING_GROUND_TRUTH,
 } from "@llm-bench/shared";
@@ -242,11 +243,40 @@ function scoreGrounding(o: Obj, ctx: AgentScoreContext): AgentRubric {
   return { rubric: 1, reason: `agent_det: ids ${idHits}/2 facts ${factHits}/2` };
 }
 
+/**
+ * `{ref, record_id, fact}` 3홉 체인 — chain_v1.
+ *
+ * 최종 답이 세 홉의 산출물을 각각 요구하므로, 어느 홉을 건너뛰면 그 필드를 채울 수 없다.
+ * reason 은 **`hop=N` 규격으로 고정**한다 — 재측정 스크립트가 "어디서 끊겼는지"를 바로 집계한다.
+ */
+function scoreChain(o: Obj, ctx: AgentScoreContext): AgentRubric {
+  const fetches = ctx.toolCallCounts?.fetch ?? null;
+  // 마지막 홉 미도달 = 체인 미완성. docs/grounding 의 ungrounded 캡과 같은 패턴.
+  if (fetches === 0) {
+    return { rubric: 1, reason: "agent_det: hop=3 fetch not called — ungrounded" };
+  }
+  if (!nonEmptyString(o.ref) || !nonEmptyString(o.record_id) || !nonEmptyString(o.fact)) {
+    return { rubric: 1, reason: "agent_det: hop=0 schema incomplete" };
+  }
+  // 불투명 토큰이라 완전일치만 인정(절단·환각 탐지).
+  if (o.ref.trim() !== AGENT_CHAIN_GROUND_TRUTH.ref) {
+    return { rubric: 0, reason: `agent_det: hop=1 ref mismatch (${o.ref.slice(0, 24)})` };
+  }
+  if (o.record_id.trim() !== AGENT_CHAIN_GROUND_TRUTH.recordId) {
+    return { rubric: 1, reason: `agent_det: hop=2 record_id mismatch (${o.record_id.slice(0, 24)})` };
+  }
+  const fact = lc(o.fact);
+  const factOk = AGENT_CHAIN_GROUND_TRUTH.factMarkers.some((m) => hasToken(fact, m));
+  if (!factOk) return { rubric: 2, reason: "agent_det: hop=3 fact weak" };
+  return { rubric: 3, reason: `agent_det: hop=3 ok (chain complete, fetch ×${fetches ?? "n/a"})` };
+}
+
 const SCORERS: Record<string, (o: Obj, ctx: AgentScoreContext) => AgentRubric> = {
   agent_loop_mock_v1: (o) => scoreAesCard(o),
   agent_loop_error_v1: scoreErrorCard,
   agent_loop_docs_v1: scoreDocsDigest,
   agent_loop_grounding_v1: scoreGrounding,
+  agent_loop_chain_v1: scoreChain,
 };
 
 /** 이 시나리오에 결정론 채점기가 있는가(가드 테스트가 BUILTIN_AGENT_LOOP_IDS 전수 검사에 사용). */

@@ -567,7 +567,13 @@ export function listScenariosForRun(db: DatabaseSync, run_id: string): ScenarioR
     .all(run_id) as ScenarioRow[];
 }
 
-export type LatestRunRow = RunSummaryRow & { meta_json: string };
+export type LatestRunRow = RunSummaryRow & {
+  meta_json: string;
+  /** #109 후속: 측정 런이 있는 시나리오 수. 0 이면 스코어보드 rows 에 안 나오므로 skipped 로 노출한다. */
+  scenario_count: number;
+  error_code: string | null;
+  error_message: string | null;
+};
 
 /** 각 model_id당 base_url 일치 런 중 finished_at/created_at 최신 1건 */
 export function latestFinishedRunsByModels(
@@ -578,7 +584,16 @@ export function latestFinishedRunsByModels(
   const norm = baseUrl.replace(/\/+$/, "");
   const out = new Map<string, LatestRunRow>();
   const sel = db.prepare(
-    `SELECT r.run_id, r.created_at, r.finished_at, r.base_url, r.provider, r.model_id, r.status, r.meta_json
+    // #109 후속: error_code/message + scenario_count 를 함께 가져온다 — 측정 0건(로드 실패 등)
+    // 모델이 스코어보드에서 조용히 사라지지 않게 skipped 로 노출하기 위한 근거.
+    `SELECT r.run_id, r.created_at, r.finished_at, r.base_url, r.provider, r.model_id, r.status, r.meta_json,
+       r.error_code, r.error_message,
+       (
+         SELECT COUNT(*)
+         FROM bench_scenarios s
+         WHERE s.run_id = r.run_id
+           AND COALESCE(json_array_length(json_extract(s.aggregate_json, '$.runs')), 0) > 0
+       ) AS scenario_count
      FROM bench_runs r
      WHERE r.base_url = ? AND r.model_id = ? AND r.status IN ('ok', 'partial') AND r.finished_at IS NOT NULL
      ORDER BY datetime(r.finished_at) DESC, datetime(r.created_at) DESC, r.rowid DESC

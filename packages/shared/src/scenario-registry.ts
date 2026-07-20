@@ -129,6 +129,11 @@ export const RESERVED_ID_PREFIXES = [
  */
 export const CustomScenarioInputSchema = ScenarioDefSchema.omit({ source: true })
   .extend({ judge: JudgeRubricSchema })
+  // #109 후속: 미지의 키를 거부한다. 이 스키마는 `ScenarioDefSchema` 파생이라, 앞으로 거기에
+  // 필드를 추가하면 **무인증 POST /api/scenarios 바디에서 자동으로 수용**된다(배포 벤치는
+  // `BENCH_API_KEYS` 미설정 = 인증 비활성이 기본값). 채점 규칙 같은 걸 데이터로 넣게 되는
+  // 사고를 스키마 단계에서 예방적으로 막는다.
+  .strict()
   .superRefine((def, ctx) => {
     if (RESERVED_ID_PREFIXES.some((p) => def.id.startsWith(p))) {
       ctx.addIssue({

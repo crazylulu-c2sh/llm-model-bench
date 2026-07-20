@@ -337,6 +337,106 @@ export const AGENT_LOOP_GROUNDING_V1: ScenarioDef = {
 
 registerScenarioDef(AGENT_LOOP_GROUNDING_V1);
 
+/**
+ * #109 후속: 3홉 **순수 체이닝** — 상위권 천장 해소용.
+ *
+ * 실측에서 `gemma-4-26b-a4b-it@q4_k_m` 과 `gemma-4-12b-it@q4_k_xl` 이 **공동 1위(100)** 로 붙었다.
+ * 워크플로 준수율은 1.00 vs 0.60 으로 달랐지만 그건 진단 지표이지 점수가 아니다(#109 결정:
+ * 단축은 효율로 인정하고 감점하지 않는다). 그래서 **감점 대신 과업 자체를 체인으로** 만든다.
+ *
+ *   search(topic)    → ref            (hop1 산출)
+ *   resolve(ref)     → record_id      (hop2 — ref 를 정확히 넘겨야 함)
+ *   fetch(record_id) → 유일한 사실      (hop3 — record_id 를 정확히 넘겨야 함)
+ *
+ * 최종 답 `{ref, record_id, fact}` 이 **세 홉의 산출물을 각각 요구**하므로, 어느 홉을 건너뛰면
+ * 감점당하는 게 아니라 **그 필드를 채울 방법이 없다**.
+ *
+ * ⚠ 내용은 전부 가공(fictional)이며, `docs`/`grounding` 의 마커와 **겹치지 않는 새 고유명사**를 쓴다
+ * (교차오염 판정이 서로 간섭하지 않도록 — 배타성 drift 테스트가 고정).
+ */
+export const AGENT_LOOP_CHAIN_V1: ScenarioDef = {
+  id: "agent_loop_chain_v1",
+  source: "builtin",
+  system: [
+    "You are an autonomous agent. Follow a three-step lookup chain, then produce a FINAL answer.",
+    "Workflow: call search to get a ref code, then call resolve with that EXACT ref to get a record id, then call fetch with that EXACT record id to get the fact.",
+    "Each step's output is the next step's input — copy the values character-for-character; do not invent them.",
+    'The FINAL answer MUST be a single JSON object: {"ref": string, "record_id": string, "fact": string}.',
+    "Do not include any text, markdown, or commentary outside that JSON object in your final answer.",
+  ].join(" "),
+  user:
+    "Look up the ratification detail through the catalog chain and report the ref, the record id, and the fact. " +
+    "These are internal records you have not seen before — rely only on what the tools return.",
+  tools: [
+    {
+      name: "search",
+      description: "Search the internal catalog; returns a ref code.",
+      parameters: {
+        type: "object",
+        properties: { topic: { type: "string", description: "topic to search" } },
+        required: [],
+      },
+    },
+    {
+      name: "resolve",
+      description: "Resolve a ref code to a record id.",
+      parameters: {
+        type: "object",
+        properties: { ref: { type: "string", description: "exact ref code from search" } },
+        required: ["ref"],
+      },
+    },
+    {
+      name: "fetch",
+      description: "Fetch a record by its exact record id.",
+      parameters: {
+        type: "object",
+        properties: { record_id: { type: "string", description: "exact record id from resolve" } },
+        required: ["record_id"],
+      },
+    },
+  ],
+  sampling: { temperature: 0, max_tokens: 512 },
+  agentLoop: {
+    maxTurns: 8,
+    mockTools: [
+      {
+        tool: "search",
+        // hop1 은 ref 만 준다 — record_id 나 fact 를 흘리면 체인을 건너뛸 수 있다(grounding 초판의 title 누설 교훈).
+        responses: ['{"ref":"REF-7K2Q"}'],
+        repeatLast: true,
+      },
+      {
+        tool: "resolve",
+        responses: ['{"error":"call search first to obtain a ref"}'],
+        repeatLast: true,
+        argDispatch: {
+          argKey: "ref",
+          cases: { "REF-7K2Q": '{"record_id":"rec_ch_41d8"}' },
+          fallback: '{"error":"unknown_ref — pass the ref exactly as returned by search"}',
+        },
+      },
+      {
+        tool: "fetch",
+        responses: ['{"error":"call resolve first to obtain a record id"}'],
+        repeatLast: true,
+        argDispatch: {
+          argKey: "record_id",
+          // ⚠ 가공 데이터. 마커(ridgeway·ambleside)는 docs/grounding corpus 에 등장하지 않는다.
+          cases: {
+            rec_ch_41d8:
+              "RECORD rec_ch_41d8: The Ridgeway protocol was ratified at the Ambleside review; its checkpoint interval is 48 blocks.",
+          },
+          fallback: '{"error":"unknown_record_id — pass the record id exactly as returned by resolve"}',
+        },
+      },
+    ],
+    completion: { type: "no_tool_calls" },
+  },
+};
+
+registerScenarioDef(AGENT_LOOP_CHAIN_V1);
+
 /** 기본 제공 agent_loop id 목록(catalog set=agent 등). agent-loop-builtin.test.ts 가 레지스트리와의 드리프트를 가드. */
 export const BUILTIN_AGENT_LOOP_IDS: readonly string[] = [
   AGENT_LOOP_MOCK_V1.id,
@@ -344,4 +444,5 @@ export const BUILTIN_AGENT_LOOP_IDS: readonly string[] = [
   AGENT_LOOP_DOCS_V1.id,
   AGENT_LOOP_ERROR_V1.id,
   AGENT_LOOP_GROUNDING_V1.id,
+  AGENT_LOOP_CHAIN_V1.id,
 ];

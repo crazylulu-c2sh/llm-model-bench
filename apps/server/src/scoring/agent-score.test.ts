@@ -256,3 +256,63 @@ describe("숫자 마커 경계 가드", () => {
     expect(scoreAgentScenario("agent_loop_docs_v1", json(withKeySizes), ok())?.rubric).toBe(3);
   });
 });
+
+// ─── #109 후속: 3홉 체이닝 ─────────────────────────────────────────────────────
+describe("agent_loop_chain_v1 (3홉 순수 체이닝)", () => {
+  const CHAIN_OK = {
+    ref: "REF-7K2Q",
+    record_id: "rec_ch_41d8",
+    fact: "The Ridgeway protocol was ratified at the Ambleside review.",
+  };
+  const ctx = (fetches: number | null): AgentScoreContext => ({
+    completionReason: "completed",
+    toolArgAttempts: 2,
+    toolArgHits: 2,
+    ...(fetches == null ? {} : { toolCallCounts: { search: 1, resolve: 1, fetch: fetches } }),
+  });
+
+  it("세 홉 모두 통과 → 3, reason 은 hop=3 ok", () => {
+    const r = scoreAgentScenario("agent_loop_chain_v1", json(CHAIN_OK), ctx(1));
+    expect(r?.rubric).toBe(3);
+    expect(r?.reason).toContain("hop=3 ok");
+  });
+
+  it("hop3 미도달(fetch 0회) → rubric 1 캡", () => {
+    const r = scoreAgentScenario("agent_loop_chain_v1", json(CHAIN_OK), ctx(0));
+    expect(r?.rubric).toBe(1);
+    expect(r?.reason).toContain("hop=3 fetch not called");
+  });
+
+  it("hop1 ref 환각 → 0", () => {
+    const r = scoreAgentScenario("agent_loop_chain_v1", json({ ...CHAIN_OK, ref: "REF-XXXX" }), ctx(1));
+    expect(r?.rubric).toBe(0);
+    expect(r?.reason).toContain("hop=1 ref mismatch");
+  });
+
+  it("hop2 record_id 절단 → 1", () => {
+    const r = scoreAgentScenario("agent_loop_chain_v1", json({ ...CHAIN_OK, record_id: "rec_ch" }), ctx(1));
+    expect(r?.rubric).toBe(1);
+    expect(r?.reason).toContain("hop=2 record_id mismatch");
+  });
+
+  it("hop3 fact 가 약함(홉3 정보 미반영) → 2", () => {
+    const vague = { ...CHAIN_OK, fact: "A protocol was ratified at a review." };
+    const r = scoreAgentScenario("agent_loop_chain_v1", json(vague), ctx(1));
+    expect(r?.rubric).toBe(2);
+    expect(r?.reason).toContain("hop=3 fact weak");
+  });
+
+  it("스키마 결손 → 1 (hop=0)", () => {
+    const r = scoreAgentScenario("agent_loop_chain_v1", json({ ref: "REF-7K2Q" }), ctx(1));
+    expect(r?.rubric).toBe(1);
+    expect(r?.reason).toContain("hop=0");
+  });
+
+  it("정체는 본문 무관 0", () => {
+    const r = scoreAgentScenario("agent_loop_chain_v1", json(CHAIN_OK), {
+      ...ctx(1),
+      completionReason: "stall",
+    });
+    expect(r?.rubric).toBe(0);
+  });
+});

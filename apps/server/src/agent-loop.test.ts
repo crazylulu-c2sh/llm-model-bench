@@ -1,5 +1,10 @@
 import type { BenchRunMeta, ScenarioDef, StreamEvent } from "@llm-bench/shared";
-import { AGENT_LOOP_ERROR_V1, AGENT_LOOP_GROUNDING_V1, ScenarioDefSchema } from "@llm-bench/shared";
+import {
+  AGENT_LOOP_CHAIN_V1,
+  AGENT_LOOP_ERROR_V1,
+  AGENT_LOOP_GROUNDING_V1,
+  ScenarioDefSchema,
+} from "@llm-bench/shared";
 import { describe, expect, it, vi } from "vitest";
 import { runAgentLoopAnthropic, runAgentLoopOpenAi, type AgentLoopResult } from "./agent-loop.js";
 
@@ -454,5 +459,34 @@ describe("agent_loop_error_v1 happy path (#108 후속)", () => {
     // 2번째 요청엔 에러가, 3번째엔 실제 본문이 되먹여진다.
     expect(JSON.stringify(bodies[1]!.messages)).toContain("retryable");
     expect(JSON.stringify(bodies[2]!.messages)).toContain("Advanced Encryption Standard");
+  });
+});
+
+// #109 후속: 3홉 체인 mock 배선 회귀 가드 — 각 홉의 산출물이 다음 홉으로 실제 전달되는지.
+describe("agent_loop_chain_v1 happy path (#109 후속)", () => {
+  it("search → resolve(ref) → fetch(record_id) → 최종, 각 홉 결과가 되먹여진다", async () => {
+    const { fetchImpl, bodies } = queueFetch([
+      oaToolCall("search", '{"topic":"ratification"}'),
+      oaToolCall("resolve", '{"ref":"REF-7K2Q"}'),
+      oaToolCall("fetch", '{"record_id":"rec_ch_41d8"}'),
+      oaText('{"ref":"REF-7K2Q","record_id":"rec_ch_41d8","fact":"Ridgeway ratified at Ambleside."}'),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: AGENT_LOOP_CHAIN_V1 }));
+    expect(result.metrics.completion_reason).toBe("completed");
+    expect(result.metrics.tool_call_counts).toEqual({ search: 1, resolve: 1, fetch: 1 });
+    // hop1 결과(ref)가 2번째 요청에, hop2 결과(record_id)가 3번째에, hop3 본문이 4번째에 들어간다.
+    expect(JSON.stringify(bodies[1]!.messages)).toContain("REF-7K2Q");
+    expect(JSON.stringify(bodies[2]!.messages)).toContain("rec_ch_41d8");
+    expect(JSON.stringify(bodies[3]!.messages)).toContain("Ridgeway");
+  });
+
+  it("ref 를 틀리게 넘기면 fallback 에러가 오고 체인이 끊긴다", async () => {
+    const { fetchImpl, bodies } = queueFetch([
+      oaToolCall("search", '{"topic":"x"}'),
+      oaToolCall("resolve", '{"ref":"REF-WRONG"}'),
+      oaText('{"ref":"REF-WRONG","record_id":"?","fact":"?"}'),
+    ]);
+    await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: AGENT_LOOP_CHAIN_V1 }));
+    expect(JSON.stringify(bodies[2]!.messages)).toContain("unknown_ref");
   });
 });

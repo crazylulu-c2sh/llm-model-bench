@@ -295,3 +295,39 @@ describe("quality_mean / workflow_adherence_mean", () => {
     expect(row.workflow_adherence_mean).toBeNull();
   });
 });
+
+// #109 후속: 도구 남용은 **초과분만** 잰다 — 단축은 0 이고 workflow_adherence 가 따로 잰다.
+describe("tool_call_excess_mean", () => {
+  const slice = (counts: Record<string, number>) => ({
+    meta: { model_id: "M" },
+    scenarios: [
+      {
+        id: "agent_loop_grounding_v1", // 기대 호출 3회
+        api_route: "chat_completions",
+        runs: [completed({ tool_call_counts: counts })],
+      },
+    ],
+  });
+
+  it("정상(3/3) → 0", () => {
+    const [row] = agentMetricsFromBenchDetails([slice({ catalog_search: 1, catalog_read: 2 })]);
+    expect(row.tool_call_excess_mean).toBe(0);
+  });
+
+  it("단축(1/3) → 0 — 0 미만으로 안 내려간다(준수율과 신호 분리)", () => {
+    const [row] = agentMetricsFromBenchDetails([slice({ catalog_search: 1 })]);
+    expect(row.tool_call_excess_mean).toBe(0);
+  });
+
+  it("남용(8/3) → ≈1.67 — glm-4.7-flash 실측 케이스", () => {
+    const [row] = agentMetricsFromBenchDetails([slice({ catalog_search: 1, catalog_read: 7 })]);
+    expect(row.tool_call_excess_mean).toBeCloseTo(8 / 3 - 1, 6);
+  });
+
+  it("카운터 없는 레거시 런 → null", () => {
+    const [row] = agentMetricsFromBenchDetails([
+      { meta: { model_id: "M" }, scenarios: [{ id: "agent_loop_grounding_v1", api_route: "chat_completions", runs: [completed()] }] },
+    ]);
+    expect(row.tool_call_excess_mean).toBeNull();
+  });
+});

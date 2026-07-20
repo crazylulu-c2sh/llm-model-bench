@@ -537,3 +537,49 @@ describe("OpenAPI spec", () => {
     expect(html).not.toMatch(/<script[^>]+src=/i); // 외부 스크립트 없음
   });
 });
+
+// #109 후속: 하드 로드 실패(status=partial, 측정 0건)는 rows 에도 안 나오고 skipped 도 preflight 전용이라
+// **조용히 사라졌다**(실측: google/gemma-4-31b-qat 2회 연속). skipped 로 노출한다.
+describe("scoreboard skipped — 측정 0건 모델 노출 (#109 후속)", () => {
+  it("로드 실패로 측정 시나리오가 0건이면 skipped 에 사유와 함께 뜬다", async () => {
+    const db = tryOpenProdBenchDatabase();
+    expect(db).not.toBeNull();
+    const baseUrl = "http://127.0.0.1:9094";
+    const detect: DetectResult = {
+      provider: "lm_studio",
+      baseUrl,
+      models: [{ id: "toobig2" }],
+      steps: [],
+      capabilities: { openaiChat: true, anthropicMessages: false },
+    };
+    const meta = makeBenchRunMeta(
+      { baseUrl, provider: "lm_studio", modelId: "toobig2", skipModelLoad: false },
+      detect,
+      "loadfail_run_1",
+    );
+    insertRun(db!, {
+      run_id: meta.run_id,
+      created_at: meta.created_at,
+      base_url: baseUrl,
+      provider: meta.provider,
+      model_id: meta.model_id,
+      meta,
+      status: "running",
+    });
+    // 측정 시나리오를 하나도 남기지 않고 error 와 함께 partial 종료 = 하드 로드 실패 모양.
+    finishRun(db!, meta.run_id, "partial", { code: "load_failed", message: "LM Studio load failed: 500" });
+
+    const r = await req(`/api/scoreboard?baseUrl=${encodeURIComponent(baseUrl)}`);
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as {
+      rows: Array<{ model_id: string }>;
+      skipped?: Array<{ model_id: string; reason: string }>;
+    };
+    // rows 에는 없지만(측정이 없으니) skipped 에는 있어야 한다.
+    expect(j.rows.some((x) => x.model_id === "toobig2")).toBe(false);
+    const s = j.skipped?.filter((x) => x.model_id === "toobig2") ?? [];
+    expect(s).toHaveLength(1); // dedupe — 한 번만
+    expect(s[0]!.reason).toContain("no measured scenarios");
+    expect(s[0]!.reason).toContain("load failed");
+  });
+});
