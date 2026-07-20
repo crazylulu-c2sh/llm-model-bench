@@ -33,6 +33,8 @@ export type BenchScenarioRun = {
   tool_arg_attempts?: number;
   /** #105: agent_loop — 최종(무도구) 턴 출력 토큰(효율 분자). */
   final_turn_output_tokens?: number;
+  /** #108 후속: agent_loop — 도구별 실제 호출 횟수. */
+  tool_call_counts?: Record<string, number>;
   /** #79: agent_loop — 루프 종료 사유. */
   agent_completion_reason?: "completed" | "stall" | "budget_exhausted";
   quality?: { pass: boolean; score?: number; reason?: string };
@@ -53,6 +55,8 @@ export type AgentMetricsRow = {
   tool_arg_fidelity: number | null;
   arg_attempt_rate: number | null;
   output_efficiency: number | null;
+  quality_mean: number | null;
+  workflow_adherence_mean: number | null;
 };
 
 /** #80: GET /api/scoreboard·/api/stats/model-latest 의 모델 × 라우트 누수/정체 지표. */

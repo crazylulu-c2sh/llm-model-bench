@@ -42,6 +42,15 @@ export type AgentLoopMetrics = {
    * (budget_exhausted) null.
    */
   final_turn_output_tokens: number | null;
+  /**
+   * #108 후속: 도구별 실제 호출 횟수. `error_v1` 의 `retried` 자기신고를 실측으로 반증하고,
+   * 워크플로 준수율(지시 도구 중 실제로 부른 비율)을 낼 수 있게 한다.
+   *
+   * 카운트 규칙: **mock 이 매칭된 호출만**(미선언 도구 제외). 인자 유효성으로는 거르지 않는다 —
+   * 시퀀스 mock 은 인자가 깨져도 호출이 성립하고 응답을 실제로 소비하므로, 인자로 거르면
+   * "재시도했는데 안 한 것으로" 오판한다. 인자 품질은 valid_tool_call_rate·tool_arg_* 가 따로 잰다.
+   */
+  tool_call_counts: Record<string, number>;
   completion_reason: "completed" | "stall" | "budget_exhausted";
 };
 
@@ -95,6 +104,8 @@ type LoopState = {
   dispatchHits: number;
   /** #105: 최종(무도구) 턴의 출력 토큰(효율 분자). 최종 턴 미도달이면 null 유지. */
   finalTurnUsageTokens: number | null;
+  /** #108 후속: 도구별 실제 호출 횟수(mock 매칭된 것만). */
+  toolCallCounts: Map<string, number>;
 };
 
 type StepDecision =
@@ -125,9 +136,15 @@ function pullMock(
   toolName: string,
   argsJson: string,
   cursor: Map<string, number>,
-): { result: string; dispatch: "hit" | "miss" | null } {
+): { result: string; dispatch: "hit" | "miss" | null; matched: boolean } {
   const mt = mockTools.find((m) => m.tool === toolName);
-  if (!mt) return { result: JSON.stringify({ error: `no mock configured for tool ${toolName}` }), dispatch: null };
+  if (!mt) {
+    return {
+      result: JSON.stringify({ error: `no mock configured for tool ${toolName}` }),
+      dispatch: null,
+      matched: false,
+    };
+  }
 
   if (mt.argDispatch) {
     const { argKey, cases, fallback } = mt.argDispatch;
@@ -140,16 +157,16 @@ function pullMock(
       // 인자 파싱 실패 → miss(잘린/깨진 인자).
     }
     if (key != null && Object.prototype.hasOwnProperty.call(cases, key)) {
-      return { result: cases[key]!, dispatch: "hit" };
+      return { result: cases[key]!, dispatch: "hit", matched: true };
     }
-    return { result: fallback ?? JSON.stringify({ error: `unknown_${argKey}` }), dispatch: "miss" };
+    return { result: fallback ?? JSON.stringify({ error: `unknown_${argKey}` }), dispatch: "miss", matched: true };
   }
 
   const i = cursor.get(toolName) ?? 0;
   cursor.set(toolName, i + 1);
-  if (i < mt.responses.length) return { result: mt.responses[i]!, dispatch: null };
-  if (mt.repeatLast) return { result: mt.responses[mt.responses.length - 1]!, dispatch: null };
-  return { result: JSON.stringify({ error: "mock responses exhausted" }), dispatch: null };
+  if (i < mt.responses.length) return { result: mt.responses[i]!, dispatch: null, matched: true };
+  if (mt.repeatLast) return { result: mt.responses[mt.responses.length - 1]!, dispatch: null, matched: true };
+  return { result: JSON.stringify({ error: "mock responses exhausted" }), dispatch: null, matched: true };
 }
 
 /** 한 턴 결과를 분석해 상태를 누적하고 다음 동작(도구 라운드 계속 / 최종)을 결정한다(라우트 공용, 순수). */
@@ -207,7 +224,9 @@ function stepAgentLoop(
       state.intermediateLeak = true;
     }
     const toolResults = turn.toolCalls.map((tc) => {
-      const { result, dispatch } = pullMock(loop.mockTools, tc.name, tc.argsJson, cursor);
+      const { result, dispatch, matched } = pullMock(loop.mockTools, tc.name, tc.argsJson, cursor);
+      // mock 이 매칭된 호출만 센다(미선언 도구 제외). 인자 유효성은 여기서 안 본다 — 위 주석 참조.
+      if (matched) state.toolCallCounts.set(tc.name, (state.toolCallCounts.get(tc.name) ?? 0) + 1);
       if (dispatch !== null) {
         state.dispatchAttempts += 1;
         if (dispatch === "hit") state.dispatchHits += 1;
@@ -252,6 +271,7 @@ function initState(): LoopState {
     dispatchAttempts: 0,
     dispatchHits: 0,
     finalTurnUsageTokens: null,
+    toolCallCounts: new Map(),
   };
 }
 
@@ -280,6 +300,7 @@ function finalize(
       tool_arg_hits: state.argDispatchConfigured ? state.dispatchHits : null,
       tool_arg_attempts: state.argDispatchConfigured ? state.dispatchAttempts : null,
       final_turn_output_tokens: state.finalTurnUsageTokens,
+      tool_call_counts: Object.fromEntries(state.toolCallCounts),
       completion_reason: reason,
     },
   };

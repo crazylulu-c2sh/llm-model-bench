@@ -1,4 +1,5 @@
 import { isAgentScenario } from "../scenarios-preview";
+import { AGENT_EXPECTED_TOOLS } from "../scenario-scoring-constants";
 
 /**
  * #105: 멀티턴 에이전트 능력 지표(모델 × api_route 슬라이스).
@@ -22,6 +23,10 @@ export type AgentRunInput = {
   /** #105: 최종(무도구) 턴 출력 토큰(효율 분자). */
   final_turn_output_tokens?: number | null;
   usage_output_tokens?: number | null;
+  /** #108 후속: 도구별 실제 호출 횟수 — 워크플로 준수율 산출. */
+  tool_call_counts?: Record<string, number> | null;
+  /** #108 후속: 결정론 rubric 정규화 점수(0~1). 라우트별 품질 평균에 쓴다(`ScoringRunInput` 과 같은 형태). */
+  quality?: { score?: number | null } | null;
 };
 
 /** 한 (model, api_route) 슬라이스의 에이전트 지표. */
@@ -46,6 +51,18 @@ export type AgentMetrics = {
   arg_attempt_rate: number | null;
   /** Σfinal_turn_output_tokens / Σusage_output_tokens (완료+양쪽 존재+usage>0, 0..1 clamp). 대상 0건이면 null. */
   output_efficiency: number | null;
+  /**
+   * #108 후속: 결정론 rubric 평균(**0~1 스케일** — 다른 rate 지표와 의미가 다르다).
+   * 스코어보드 `quality.agent` 는 라우트를 풀링하므로 라우트별 발산(예: chat 에서만 정체)이 가려진다.
+   * 여기서 라우트별로 노출한다.
+   */
+  quality_mean: number | null;
+  /**
+   * #108 후속: 시나리오가 지시한 도구 중 실제로 부른 비율의 평균(0~1).
+   * **점수에 반영되지 않는다** — 도구를 적게 쓰고 정답을 내면 효율이지 결함이 아니라는 판단.
+   * 순위를 해석할 때 "단축해서 얻은 점수인가"를 볼 수 있게 하는 진단용 지표.
+   */
+  workflow_adherence_mean: number | null;
 };
 
 /** model × route 키가 붙은 에이전트 지표 행. */
@@ -91,6 +108,8 @@ type AgentAccum = {
   effFinalSum: number;
   effUsageSum: number;
   effRuns: number;
+  qualityScores: number[];
+  adherence: number[];
 };
 
 function emptyAccum(): AgentAccum {
@@ -110,6 +129,8 @@ function emptyAccum(): AgentAccum {
     effFinalSum: 0,
     effUsageSum: 0,
     effRuns: 0,
+    qualityScores: [],
+    adherence: [],
   };
 }
 
@@ -154,6 +175,17 @@ function accumulate(
         if (run.tool_arg_attempts > 0) acc.argRunsAttempted += 1;
       }
 
+      // #108 후속: 결정론 rubric 평균(0~1) — 라우트별 발산을 드러낸다.
+      if (isFiniteNum(run.quality?.score)) acc.qualityScores.push(run.quality.score);
+
+      // #108 후속: 워크플로 준수율 = 지시 도구 중 실제로 부른 비율(점수 미반영, 진단용).
+      const expectedTools = AGENT_EXPECTED_TOOLS[slice.scenario];
+      const counts = run.tool_call_counts;
+      if (expectedTools && expectedTools.length > 0 && counts) {
+        const called = expectedTools.filter((t) => (counts[t] ?? 0) > 0).length;
+        acc.adherence.push(called / expectedTools.length);
+      }
+
       // 출력 효율: 완료 + 최종턴 토큰·usage 양쪽 존재 + usage>0.
       if (
         completed &&
@@ -189,6 +221,12 @@ function accumulate(
         acc.effRuns > 0 && acc.effUsageSum > 0
           ? Math.min(1, Math.max(0, acc.effFinalSum / acc.effUsageSum))
           : null,
+      quality_mean:
+        acc.qualityScores.length > 0
+          ? acc.qualityScores.reduce((a, b) => a + b, 0) / acc.qualityScores.length
+          : null,
+      workflow_adherence_mean:
+        acc.adherence.length > 0 ? acc.adherence.reduce((a, b) => a + b, 0) / acc.adherence.length : null,
     };
   });
 }

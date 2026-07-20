@@ -182,8 +182,14 @@ registerScenarioDef(AGENT_LOOP_DOCS_V1);
 /**
  * #105: 에러 복구 — 일시적 도구 오류에서 재시도로 회복하는지.
  *
- * `wiki_read` 첫 호출은 `retryable:true` 에러를 돌려주고(시퀀스 mock), 두 번째 호출부터 정상 본문.
+ * `read_document` 첫 호출이 `retryable:true` 에러를 돌려주고(시퀀스 mock), 두 번째 호출부터 정상 본문.
  * 취약한 모델은 정체하거나 에러 페이로드를 요약하지만, 규율 있는 모델은 재시도해 완주한다.
+ *
+ * ⚠ **에러는 반드시 "불가피한 첫 도구"에 둔다.** 초판은 에러를 워크플로 3번째인 `wiki_read` 에
+ * 뒀는데, 워크플로를 단축해 `read_document` 만 부르고 답한 모델(실측: gemma-4-12b-it@q4_k_xl,
+ * turns=2)은 **에러를 만난 적조차 없어** 이 시나리오가 아무것도 측정하지 못했다. 단축 자체는
+ * 감점하지 않되(효율로 인정), 문제를 건너뛸 수는 없게 만든 것이다.
+ * 재시도 여부는 `tool_call_counts.read_document >= 2` 로 **실측**한다(자기신고 `retried` 반증).
  */
 export const AGENT_LOOP_ERROR_V1: ScenarioDef = {
   id: "agent_loop_error_v1",
@@ -227,7 +233,10 @@ export const AGENT_LOOP_ERROR_V1: ScenarioDef = {
     mockTools: [
       {
         tool: "read_document",
+        // 1차 호출 = 일시 에러(retryable), 2차+ = 정상 본문. repeatLast 로 재시도 시 실제 내용을 준다.
+        // 답을 얻으려면 반드시 부르는 도구라 **어떤 모델도 에러를 피할 수 없다**.
         responses: [
+          '{"error":"document_load_failed","retryable":true,"hint":"retry the same call once"}',
           "SOURCE DOCUMENT: The Advanced Encryption Standard (AES), specified in NIST FIPS-197 (2001), is a symmetric block cipher. Block size is 128 bits; supported key sizes are 128, 192, and 256 bits. It is based on the Rijndael cipher.",
         ],
         repeatLast: true,
@@ -239,9 +248,7 @@ export const AGENT_LOOP_ERROR_V1: ScenarioDef = {
       },
       {
         tool: "wiki_read",
-        // 1차 호출 = 일시 에러(retryable), 2차+ = 정상 본문. repeatLast 로 재시도 시 실제 내용을 준다.
         responses: [
-          '{"error":"page_load_failed","retryable":true,"hint":"retry the same id once"}',
           "WIKI(aes): Advanced Encryption Standard — the Rijndael cipher selected by NIST as FIPS-197; supersedes DES.",
         ],
         repeatLast: true,

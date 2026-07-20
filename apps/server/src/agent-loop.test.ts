@@ -403,3 +403,56 @@ describe("runAgentLoopAnthropic", () => {
     expect(JSON.stringify(bodies[1]!.messages)).toContain("DES-BODY");
   });
 });
+
+// ─── #108 후속: per-tool 호출 카운터 ───────────────────────────────────────────
+describe("tool_call_counts", () => {
+  it("도구별로 정확히 집계되고, 같은 도구 반복 호출이 누적된다", async () => {
+    const { fetchImpl } = queueFetch([
+      oaToolCall("read_document"),
+      oaToolCall("read_document"), // 재시도
+      oaToolCall("wiki_search", '{"query":"aes"}'),
+      oaText('{"ok":true}'),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.tool_call_counts).toEqual({ read_document: 2, wiki_search: 1 });
+  });
+
+  it("미선언(mock 없는) 도구 호출은 세지 않는다", async () => {
+    const { fetchImpl } = queueFetch([oaToolCall("nonexistent_tool"), oaText('{"ok":true}')]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.tool_call_counts).toEqual({});
+  });
+
+  it("인자가 깨진 호출도 센다 — 시퀀스 mock 은 응답을 실제로 소비하므로 재시도로 인정해야 한다", async () => {
+    const { fetchImpl } = queueFetch([oaToolCall("read_document", "{broken"), oaText('{"ok":true}')]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.tool_call_counts.read_document).toBe(1);
+    // 인자 품질은 별도 지표가 잰다(여기서 겹쳐 재지 않는다).
+    expect(result.metrics.valid_tool_call_rate).toBeLessThan(1);
+  });
+
+  it("messages 라우트도 동일하게 집계한다", async () => {
+    const { fetchImpl } = queueFetch([anToolUse("read_document"), anToolUse("read_document"), anText("{}")]);
+    const { result } = await drive(runAgentLoopAnthropic(argsBase(fetchImpl)));
+    expect(result.metrics.tool_call_counts).toEqual({ read_document: 2 });
+  });
+});
+
+// #108 후속: error_v1 corpus 이동(에러가 read_document 로) 회귀 가드 — happy path 통합.
+describe("agent_loop_error_v1 happy path (#108 후속)", () => {
+  it("1차 에러 → 재시도 → 정상 본문 → 완주, read_document 2회로 집계", async () => {
+    const { fetchImpl, bodies } = queueFetch([
+      oaToolCall("read_document"), // 1차 → retryable 에러
+      oaToolCall("read_document"), // 재시도 → 정상 본문
+      oaText('{"title":"AES","summary":"s","sources":["aes"],"retried":true}'),
+    ]);
+    const { result } = await drive(
+      runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: AGENT_LOOP_ERROR_V1 }),
+    );
+    expect(result.metrics.completion_reason).toBe("completed");
+    expect(result.metrics.tool_call_counts.read_document).toBe(2);
+    // 2번째 요청엔 에러가, 3번째엔 실제 본문이 되먹여진다.
+    expect(JSON.stringify(bodies[1]!.messages)).toContain("retryable");
+    expect(JSON.stringify(bodies[2]!.messages)).toContain("Advanced Encryption Standard");
+  });
+});

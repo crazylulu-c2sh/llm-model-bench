@@ -208,9 +208,10 @@ export function makeBenchRunMeta(
     model_id: input.modelId,
     api_routes: routes,
     scenario_ids: scenarioIds,
-    // #105: docs/grounding corpus 를 가상 개체로 재작성 + agent 채점을 결정론으로 전환 →
-    // 이전 런(전부 0.33 placeholder, AES canon)과 **비교 불가**.
-    scenario_bundle_version: "7",
+    // #105: docs/grounding corpus 를 가상 개체로 재작성 + agent 채점을 결정론으로 전환.
+    // #108 후속(v8): error_v1 의 에러를 read_document 로 이동 + sources 판정 완화 + retried 실측 →
+    // 이전 런과 **비교 불가**.
+    scenario_bundle_version: "8",
     temperature: input.temperature ?? 0.2,
     max_tokens: input.max_tokens ?? 512,
     seed: null,
@@ -705,6 +706,8 @@ export async function* runBench(
           tool_arg_attempts?: number;
           /** #105: 최종(무도구) 턴 출력 토큰(효율 분자). */
           final_turn_output_tokens?: number;
+          /** #108 후속: 도구별 실제 호출 횟수(재시도 실측·워크플로 준수율). */
+          tool_call_counts?: Record<string, number>;
           agent_completion_reason?: "completed" | "stall" | "budget_exhausted";
           quality?: { pass: boolean; score?: number; reason?: string };
         }[] = [];
@@ -1326,6 +1329,7 @@ export async function* runBench(
                           completionReason: agentMetrics.completion_reason,
                           toolArgAttempts: agentMetrics.tool_arg_attempts,
                           toolArgHits: agentMetrics.tool_arg_hits,
+                          toolCallCounts: agentMetrics.tool_call_counts,
                         },
                       }
                     : {}),
@@ -1439,6 +1443,9 @@ export async function* runBench(
                         : {}),
                       ...(agentMetrics.final_turn_output_tokens != null
                         ? { final_turn_output_tokens: agentMetrics.final_turn_output_tokens }
+                        : {}),
+                      ...(Object.keys(agentMetrics.tool_call_counts ?? {}).length
+                        ? { tool_call_counts: agentMetrics.tool_call_counts }
                         : {}),
                       agent_completion_reason: agentMetrics.completion_reason,
                     }

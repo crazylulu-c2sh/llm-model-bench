@@ -19,7 +19,9 @@ export type AgentMetric =
   | "valid_tool_call_rate_mean"
   | "tool_arg_fidelity"
   | "arg_attempt_rate"
-  | "output_efficiency";
+  | "output_efficiency"
+  | "quality_mean"
+  | "workflow_adherence_mean";
 
 export type SortDir = "asc" | "desc";
 export type AgentSortKey = { kind: "model" } | { kind: "route" } | { kind: "metric"; metric: AgentMetric };
@@ -50,6 +52,8 @@ export const AGENT_METRIC_COLUMNS: readonly AgentMetricMeta[] = [
   { metric: "tool_arg_fidelity", label: "인자충실도", title: "Σtool_arg_hits / Σattempts — 불투명 id를 정확히 복사한 비율(높을수록 좋음). argDispatch 시나리오만", dir: "higher", format: "pct" },
   { metric: "arg_attempt_rate", label: "인자시도율", title: "attempts>0 런 비율 — 낮으면 복잡한 id를 보고 호출 자체를 포기(충실도와 함께 읽을 것)", dir: "higher", format: "pct" },
   { metric: "output_efficiency", label: "출력효율", title: "Σ최종턴 토큰 / Σ전 턴 usage 토큰 — 중간 턴 사고 낭비의 역수(높을수록 좋음)", dir: "higher", format: "pct" },
+  { metric: "quality_mean", label: "품질(rubric)", title: "결정론 rubric 평균 — **0~1 스케일**(다른 비율 지표와 의미가 다름). 스코어보드 메인 품질은 라우트를 풀링하므로 여기서 라우트별 발산을 본다", dir: "higher", format: "pct" },
+  { metric: "workflow_adherence_mean", label: "워크플로", title: "시나리오가 지시한 도구 중 실제로 부른 비율 — **점수에 반영되지 않는다**(적게 쓰고 정답이면 효율). 순위 해석용 진단 지표", dir: "higher", format: "pct" },
 ];
 
 /** 기본 정렬 = 완료율 내림차순. */

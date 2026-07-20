@@ -87,10 +87,32 @@ export type AgentGroundingRecordId = keyof typeof AGENT_GROUNDING_GROUND_TRUTH;
 export const AGENT_AES_GROUND_TRUTH = {
   /** 요약이 실제 문서를 반영하는지(≥2 히트면 충실). */
   markers: ["rijndael", "fips-197", "128"] as const,
-  /** `wiki_read` **성공 본문에만** 등장 — read_document 본문엔 없다. 위키 도달/재시도 성공의 증거. */
+  /** `wiki_read` **성공 본문에만** 등장 — read_document 본문엔 없다. */
   wikiOnlyMarker: "supersedes des",
-  /** `sources[]` 가 참조해야 하는 문서 식별자. */
-  sourceToken: "aes",
-  /** 에러 페이로드를 본문으로 오인 요약했는지. */
-  errorLeakMarker: "page_load_failed",
+  /**
+   * `sources[]` 가 참조해야 하는 문서 식별자 — **id 든 제목이든 하나만 맞으면 통과**.
+   *
+   * 프롬프트는 `"sources": string[]` 만 요구하고 형식을 지정하지 않는다. 초판은 id(`aes`)만
+   * 인정해 제목으로 인용한 모델(`"Wiki: Advanced Encryption Standard"`)을 부당하게 감점했고,
+   * 그 감점이 26b 변종 순위를 뒤집었다. 의도(무의미한 인용 걸러내기)는 유지하되 형식은 강요하지 않는다.
+   */
+  sourceTokens: ["aes", "advanced encryption standard"] as const,
+  /** 에러 페이로드를 본문으로 오인 요약했는지(`error_v1` 의 retryable 에러 코드). */
+  errorLeakMarker: "document_load_failed",
 } as const;
+
+/**
+ * #108 후속: 시나리오가 **프롬프트로 지시한** 도구 목록 — 워크플로 준수율 집계용.
+ *
+ * `ScenarioDef.tools[]`(노출한 도구)나 workflow 문장 파싱 대신 상수로 고정한다. 배타 마커와 같은
+ * 철학이며 drift 테스트가 실존성을 지킨다. **점수에는 반영하지 않는다** — 도구를 적게 쓰고도
+ * 정답을 내면 효율이지 결함이 아니라는 판단(실측: gemma-4-12b-it@q4_k_xl 가 1/3 도구로 완주).
+ * 다만 그 사실이 보이지 않으면 순위를 해석할 수 없으므로 지표로만 노출한다.
+ */
+export const AGENT_EXPECTED_TOOLS: Record<string, readonly string[]> = {
+  agent_loop_mock_v1: ["read_document", "wiki_search", "wiki_read"],
+  agent_loop_budget_v1: ["read_document", "wiki_search", "wiki_read"],
+  agent_loop_error_v1: ["read_document", "wiki_search", "wiki_read"],
+  agent_loop_docs_v1: ["list_documents", "read_document"],
+  agent_loop_grounding_v1: ["catalog_search", "catalog_read"],
+};

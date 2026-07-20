@@ -97,6 +97,7 @@ type MetricsAgg = {
     tool_arg_hits?: number;
     tool_arg_attempts?: number;
     final_turn_output_tokens?: number;
+    tool_call_counts?: Record<string, number>;
     agent_completion_reason?: "completed" | "stall" | "budget_exhausted";
     quality?: { pass: boolean; score?: number; reason?: string };
   }>;

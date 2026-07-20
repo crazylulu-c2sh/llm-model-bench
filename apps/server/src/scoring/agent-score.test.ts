@@ -82,9 +82,18 @@ describe("agent_loop_mock_v1 / budget_v1 (AES 카드)", () => {
     expect(scoreAgentScenario("agent_loop_mock_v1", json(AES_CARD), ctx)?.rubric).toBe(3);
   });
 
-  it("(마) sources 가 문서를 참조하지 않으면 3점 불가", () => {
-    const r = scoreAgentScenario("agent_loop_mock_v1", json({ ...AES_CARD, sources: ["misc"] }), ctx);
+  it("(마) sources 가 문서를 전혀 참조하지 않으면 3점 불가", () => {
+    const r = scoreAgentScenario("agent_loop_mock_v1", json({ ...AES_CARD, sources: ["none"] }), ctx);
     expect(r?.rubric).toBe(2);
+  });
+
+  // #108 후속: 프롬프트가 sources 형식을 요구한 적이 없으므로 id 든 제목이든 인정한다.
+  // 초판은 id(`aes`)만 인정해 제목 인용 모델을 부당 감점했고 26b 순위를 뒤집었다.
+  it("(마) 제목으로 인용해도 통과 — id 형식을 강요하지 않는다", () => {
+    const byTitle = { ...AES_CARD, sources: ["SOURCE DOCUMENT", "Wiki: Advanced Encryption Standard"] };
+    expect(scoreAgentScenario("agent_loop_mock_v1", json(byTitle), ctx)?.rubric).toBe(3);
+    const byId = { ...AES_CARD, sources: ["SOURCE DOCUMENT", "wiki:aes"] };
+    expect(scoreAgentScenario("agent_loop_mock_v1", json(byId), ctx)?.rubric).toBe(3);
   });
 
   it("스키마 결손 → 1", () => {
@@ -102,26 +111,58 @@ describe("agent_loop_mock_v1 / budget_v1 (AES 카드)", () => {
   });
 });
 
-describe("agent_loop_error_v1", () => {
-  const ctx = ok({ toolArgAttempts: null, toolArgHits: null });
+describe("agent_loop_error_v1 (재시도 실측)", () => {
+  // read_document 에 에러가 있으므로 카운터가 재시도 진위를 판정한다.
+  const ctx = (reads: number | null, over: Partial<AgentScoreContext> = {}): AgentScoreContext => ({
+    completionReason: "completed",
+    toolArgAttempts: null,
+    toolArgHits: null,
+    ...(reads == null ? {} : { toolCallCounts: { read_document: reads, wiki_search: 1 } }),
+    ...over,
+  });
   const card = { ...AES_CARD, retried: true };
 
-  it("retried=true + 마커 → 3", () => {
-    expect(scoreAgentScenario("agent_loop_error_v1", json(card), ctx)?.rubric).toBe(3);
-  });
-
-  it("(다) 위키 본문 마커가 있으면 사유에 corroborated 로 남는다(점수 게이트 아님)", () => {
-    const withWiki = { ...card, summary: `${card.summary} It supersedes DES.` };
-    const r = scoreAgentScenario("agent_loop_error_v1", json(withWiki), ctx);
+  it("실제 재시도(read_document ×2) + retried=true → 3", () => {
+    const r = scoreAgentScenario("agent_loop_error_v1", json(card), ctx(2));
     expect(r?.rubric).toBe(3);
-    expect(r?.reason).toContain("corroborated");
-    // 위키 마커가 없어도 3점은 유지되되 self-reported 로 표기된다.
-    expect(scoreAgentScenario("agent_loop_error_v1", json(card), ctx)?.reason).toContain("self-reported");
+    expect(r?.reason).toContain("verified");
   });
 
-  it("retried=false/누락 → 2", () => {
-    expect(scoreAgentScenario("agent_loop_error_v1", json({ ...card, retried: false }), ctx)?.rubric).toBe(2);
-    expect(scoreAgentScenario("agent_loop_error_v1", json(AES_CARD), ctx)?.rubric).toBe(1); // retried 자체가 없으면 스키마 결손
+  it("자기신고 허위 — 플래그만 true 이고 실제로는 1회 → 2", () => {
+    const r = scoreAgentScenario("agent_loop_error_v1", json(card), ctx(1));
+    expect(r?.rubric).toBe(2);
+    expect(r?.reason).toContain("is false");
+  });
+
+  it("재시도는 했는데 플래그를 안 켬 → 2", () => {
+    const r = scoreAgentScenario("agent_loop_error_v1", json({ ...card, retried: false }), ctx(2));
+    expect(r?.rubric).toBe(2);
+    expect(r?.reason).toContain("flag not set");
+  });
+
+  it("에러 후 포기(1회, 플래그 false) → 2", () => {
+    expect(scoreAgentScenario("agent_loop_error_v1", json({ ...card, retried: false }), ctx(1))?.rubric).toBe(2);
+  });
+
+  it("도구 미호출(read_document 0회) → rubric 1 캡 — 시나리오 미발동", () => {
+    const r = scoreAgentScenario("agent_loop_error_v1", json(card), ctx(0));
+    expect(r?.rubric).toBe(1);
+    expect(r?.reason).toContain("ungrounded");
+  });
+
+  it("카운터 부재(레거시 런) → 자기신고 폴백 + unverified 표기", () => {
+    const r = scoreAgentScenario("agent_loop_error_v1", json(card), ctx(null));
+    expect(r?.rubric).toBe(3);
+    expect(r?.reason).toContain("unverified");
+  });
+
+  it("retried 필드 자체가 없으면 스키마 결손 → 1", () => {
+    expect(scoreAgentScenario("agent_loop_error_v1", json(AES_CARD), ctx(2))?.rubric).toBe(1);
+  });
+
+  it("에러 페이로드를 요약하면 1", () => {
+    const leak = { ...card, summary: "The tool returned document_load_failed so I stopped." };
+    expect(scoreAgentScenario("agent_loop_error_v1", json(leak), ctx(2))?.rubric).toBe(1);
   });
 });
 

@@ -22,6 +22,8 @@ function mrow(p: Partial<ModelRouteAgentMetrics> & { model_id: string }): ModelR
     tool_arg_fidelity: null,
     arg_attempt_rate: null,
     output_efficiency: null,
+    quality_mean: null,
+    workflow_adherence_mean: null,
     ...p,
   };
 }

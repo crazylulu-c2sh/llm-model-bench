@@ -405,12 +405,15 @@ const AGENT_META: Record<string, ScenarioBenchMeta> = {
   },
   agent_loop_error_v1: {
     purposeKo:
-      "에러 복구: wiki_read 첫 호출이 retryable 에러를 돌려주고 두 번째부터 정상 본문. 일시적 도구 오류에서 " +
-      "재시도로 회복하는지 본다 — 취약한 모델은 정체하거나 에러 페이로드를 요약한다.",
+      "에러 복구: read_document 첫 호출이 retryable 에러를 돌려주고 두 번째부터 정상 본문. 일시적 도구 오류에서 " +
+      "재시도로 회복하는지 본다 — 취약한 모델은 정체하거나 에러 페이로드를 요약한다. " +
+      "에러를 '답을 얻으려면 반드시 부르는 첫 도구'에 둔 이유: 워크플로를 단축한 모델이 에러를 만나지도 못해 " +
+      "시나리오가 아무것도 측정하지 못하는 일을 막기 위해서다(단축 자체는 감점하지 않는다).",
     criteriaKo:
-      "결정론 채점(0-3): 유효 카드 + 마커 ≥2 + retried=true 면 3, retried 미주장이면 2, 에러 페이로드를 요약하면 1. " +
-      "retried 는 자기신고라, wiki_read 성공 본문에만 있는 표현이 잡히면 사유에 corroborated 로 표기한다(점수 게이트는 아님).",
-    toolsSummaryKo: "read_document / wiki_search / wiki_read (시퀀스 mock: 1차 에러→2차 본문). maxTurns 8, max_tokens 512.",
+      "결정론 채점(0-3): 재시도를 **실측**으로 판정한다 — tool_call_counts.read_document ≥2 여야 진짜 재시도다. " +
+      "유효 카드 + 마커 ≥2 + 실측 재시도 + retried=true 일치면 3; 재시도했는데 플래그 누락이거나 " +
+      "플래그만 켜고 실제로는 1회면 2(자기신고 허위); 에러 페이로드 요약·스키마 결손·도구 미호출은 1.",
+    toolsSummaryKo: "read_document(시퀀스 mock: 1차 에러→2차 본문) / wiki_search / wiki_read. maxTurns 8, max_tokens 512.",
     routesKo: "chat_completions / messages 공통.",
   },
   agent_loop_grounding_v1: {

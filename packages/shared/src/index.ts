@@ -39,6 +39,7 @@ export { getScenarioBenchMeta, type ScenarioBenchMeta } from "./scenario-meta";
 export {
   AGENT_AES_GROUND_TRUTH,
   AGENT_DOCS_GROUND_TRUTH,
+  AGENT_EXPECTED_TOOLS,
   AGENT_GROUNDING_GROUND_TRUTH,
   type AgentDocsGroundTruthId,
   type AgentGroundingRecordId,
@@ -526,6 +527,8 @@ export const BenchResultSchema = z.object({
           tool_arg_attempts: z.number().int().optional(),
           /** #105: agent_loop — 최종(무도구) 턴 출력 토큰(효율 분자). */
           final_turn_output_tokens: z.number().int().optional(),
+          /** #108 후속: agent_loop — 도구별 실제 호출 횟수(재시도 실측·워크플로 준수율). */
+          tool_call_counts: z.record(z.string(), z.number().int()).optional(),
           /** #79: agent_loop — 루프 종료 사유. */
           agent_completion_reason: z.enum(["completed", "stall", "budget_exhausted"]).optional(),
           quality: z
