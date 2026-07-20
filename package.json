@@ -6,6 +6,7 @@
   "scripts": {
     "postinstall": "pnpm --filter @llm-bench/shared run build",
     "dev": "node scripts/dev.mjs",
+    "dev:kill": "node scripts/dev-kill.mjs",
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
