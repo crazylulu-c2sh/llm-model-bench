@@ -318,6 +318,7 @@ export function getScenarioSystemPromptPreview(id: string): string {
       return [
         "You are a code-generation assistant.",
         "Return only one fenced ```js``` block with no prose.",
+        "Output only the sortNums function definition — no example calls, no console.log, no exports, and no second code block.",
         "Do not add comments or docstrings inside the code — return only the code itself.",
         "Do not use built-in sort helpers.",
       ].join(" ");

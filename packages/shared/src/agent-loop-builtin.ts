@@ -127,7 +127,8 @@ export const AGENT_LOOP_DOCS_V1: ScenarioDef = {
   ].join(" "),
   user:
     "Digest all of the ingested source documents into a single JSON report. List them, read each, then answer. " +
-    "The documents describe internal specifications you have not seen before — rely only on what the tools return.",
+    "The documents describe internal specifications you have not seen before — rely only on what the tools return. " +
+    "Do not answer from prior knowledge or fill in any key_fact from memory; read every document before answering.",
   tools: [
     {
       name: "list_documents",
@@ -280,7 +281,7 @@ export const AGENT_LOOP_GROUNDING_V1: ScenarioDef = {
     "You are an autonomous agent. Answer using a catalog you must search first.",
     "Workflow: call catalog_search to get record ids, then call catalog_read once for EACH record id, copying the id EXACTLY as returned (the ids are opaque and must match character-for-character), then stop calling tools and output the final answer.",
     'The FINAL answer MUST be a single JSON object: {"answers": [{"id": string, "fact": string}]}.',
-    "Do not invent, abbreviate, or truncate ids. Do not include any text outside that JSON object.",
+    "Do not invent, abbreviate, or truncate ids. Do not include any text outside that JSON object. If catalog_read returns an error, re-copy the id verbatim from the catalog_search results and read it again — never guess or fill in a fact from memory.",
   ].join(" "),
   user: "Look up every record from the catalog and report each id with its fact.",
   tools: [
