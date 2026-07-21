@@ -20,6 +20,7 @@ import {
   WIREFRAME_MIN_SEMANTIC_TAGS,
   WIREFRAME_SEMANTIC_TAGS,
   cueAlternationSource,
+  type ProviderKind,
   type ScenarioId,
 } from "@llm-bench/shared";
 import { z } from "zod";
@@ -48,6 +49,7 @@ export type ScenarioPromptContext = {
   referenceAt?: Date;
   /** IANA — 기본 Asia/Seoul */
   calendarTimeZone?: string;
+  providerKind?: ProviderKind;
 };
 
 /** 벤치 요청·UI `scenario_start`와 동일한 user 텍스트 */
@@ -96,7 +98,9 @@ export function buildMessages(
     const origin = ctx?.publicAssetsOrigin?.trim()
       ? ctx.publicAssetsOrigin.trim()
       : resolvePublicAssetsOrigin({ publicAssetsOrigin: ctx?.publicAssetsOrigin });
-    const imagePart = buildImagePart(id, origin, "openai");
+    const imagePart = buildImagePart(id, origin, "openai", {
+      rawBase64: ctx?.providerKind === "lm_studio",
+    });
     messages.push({
       role: "user",
       content: [
