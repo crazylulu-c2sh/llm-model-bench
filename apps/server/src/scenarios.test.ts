@@ -8,6 +8,7 @@ import {
 import {
   anthropicMessagesForScenario,
   buildMessages,
+  calendarReferenceAt,
   detectScript,
   expectedCalendarTriple,
   scoreScenario,
@@ -246,6 +247,25 @@ describe("expectedCalendarTriple", () => {
     const iso = "2024-01-15T15:00:00.000Z";
     const t = expectedCalendarTriple(iso, "Asia/Seoul");
     expect(t).toEqual(["2024-01-15", "2024-01-16", "2024-01-17"]);
+  });
+});
+
+describe("calendarReferenceAt", () => {
+  it("UTC date를 유지하고 시각을 T06:00:00.000Z로 고정", () => {
+    const now = new Date("2026-07-21T05:37:26.036Z");
+    expect(calendarReferenceAt(now).toISOString()).toBe("2026-07-21T06:00:00.000Z");
+  });
+
+  it("UTC 자정 직전 입력에서도 UTC date 유지", () => {
+    const now = new Date("2026-07-21T23:50:00.000Z");
+    expect(calendarReferenceAt(now).toISOString()).toBe("2026-07-21T06:00:00.000Z");
+  });
+
+  it("Asia/Seoul에서 항상 UTC 날짜와 같은 당일 반환", () => {
+    // T06:00Z + 9h = T15:00 Seoul → 당일
+    const ref = calendarReferenceAt(new Date("2026-07-21T05:37:26.036Z"));
+    const [, today] = expectedCalendarTriple(ref.toISOString(), "Asia/Seoul")!;
+    expect(today).toBe("2026-07-21");
   });
 });
 

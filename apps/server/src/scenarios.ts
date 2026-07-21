@@ -173,6 +173,18 @@ function calendarYmdAddDays(y: number, mo: number, d: number, deltaDays: number)
   return `${yy}-${mm}-${dd}`;
 }
 
+/**
+ * 벤치 실행 시각의 UTC 날짜를 유지하되 시각을 T06:00Z로 고정한다.
+ * Asia/Seoul(UTC+9)에서 항상 당일 15:00 → UTC 날짜 = Seoul 날짜.
+ * 벤치 실행 시간대(UTC 오전/오후)에 무관하게 채점 결과를 안정시킨다.
+ */
+export function calendarReferenceAt(now: Date): Date {
+  return new Date(Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+    6, 0, 0, 0,
+  ));
+}
+
 /** [yesterday, today, tomorrow] YYYY-MM-DD in `timeZone` for instant `iso` */
 export function expectedCalendarTriple(iso: string, timeZone: string): [string, string, string] | null {
   const today = ymdPartsInTimeZone(iso, timeZone);
