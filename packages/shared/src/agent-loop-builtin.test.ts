@@ -147,33 +147,74 @@ describe("agent 채점 상수 drift (#108 후속)", () => {
   });
 });
 
-// #109 후속: 3홉 체이닝 — 각 홉이 다음 홉의 입력을 만들고, 최종 답이 셋을 모두 요구한다.
-describe("agent_loop_chain_v1 (#109 후속)", () => {
+// #110 후속: 방해 후보 + 기권 — "틀릴 수 있는 선택지"의 배선을 고정한다.
+describe("agent_loop_chain_v1 — 방해 후보 + 기권 (#110 후속)", () => {
   const loop = () => AGENT_LOOP_CHAIN_V1.agentLoop!;
+  const searchTool = () => loop().mockTools.find((m) => m.tool === "search")!;
+  const resolveTool = () => loop().mockTools.find((m) => m.tool === "resolve")!;
+  const fetchTool = () => loop().mockTools.find((m) => m.tool === "fetch")!;
 
-  it("search 는 ref 만 준다 — record_id/fact 를 흘리면 체인을 건너뛸 수 있다", () => {
-    const search = loop().mockTools.find((m) => m.tool === "search")!;
-    const body = search.responses[0]!;
-    expect(body).toContain(AGENT_CHAIN_GROUND_TRUTH.ref);
-    expect(body).not.toContain(AGENT_CHAIN_GROUND_TRUTH.recordId);
-    for (const m of AGENT_CHAIN_GROUND_TRUTH.factMarkers) {
-      expect(body.toLowerCase()).not.toContain(m);
+  it("1차 search 는 active 후보가 정확히 하나(= 정답), 2차는 전부 superseded(= 기권)", () => {
+    const [first, second] = searchTool().responses as [string, string];
+    const parse = (b: string) => JSON.parse(b) as { ref: string; status: string }[];
+    const firstActive = parse(first).filter((c) => c.status === "active");
+    expect(firstActive.map((c) => c.ref)).toEqual([AGENT_CHAIN_GROUND_TRUTH.activeRef]);
+    expect(parse(first).length).toBeGreaterThan(1); // 방해 후보가 실제로 있어야 선택이 성립
+    expect(parse(second).some((c) => c.status === "active")).toBe(false);
+    expect(searchTool().repeatLast).toBe(true); // 재조회해도 기권 상황이 유지된다
+  });
+
+  it("search 는 ref 만 준다 — record_id/fact 를 흘리면 홉을 건너뛸 수 있다", () => {
+    const corpus = searchTool().responses.join(" ").toLowerCase();
+    expect(corpus).not.toContain(AGENT_CHAIN_GROUND_TRUTH.activeRecordId);
+    for (const m of AGENT_CHAIN_GROUND_TRUTH.factMarkers) expect(corpus).not.toContain(m);
+  });
+
+  /**
+   * 이 시나리오의 **핵심 성질**: 오답 후보도 성공을 돌려준다. fallback 에러가 오답을 즉시
+   * 알려주면 "그럴듯하지만 틀린 답"이 불가능해지고, 스위트는 다시 생존만 재게 된다.
+   */
+  it("resolve 는 superseded ref 도 성공시킨다 — 오답 경로에 안전망이 없다", () => {
+    const cases = resolveTool().argDispatch!.cases;
+    expect(resolveTool().argDispatch?.argKey).toBe("ref");
+    const refs = [AGENT_CHAIN_GROUND_TRUTH.activeRef, ...AGENT_CHAIN_GROUND_TRUTH.supersededRefs];
+    for (const ref of refs) {
+      expect(cases[ref], `resolve 가 ${ref} 를 처리하지 않음`).toBeDefined();
+      expect(cases[ref]!.toLowerCase()).not.toContain("error");
+    }
+    // search 가 실제로 내놓은 ref 집합과 정확히 일치해야 한다(누락 = 함정이 안 걸림).
+    const listed = searchTool()
+      .responses.flatMap((b) => JSON.parse(b) as { ref: string }[])
+      .map((c) => c.ref);
+    expect(Object.keys(cases).sort()).toEqual([...listed].sort());
+  });
+
+  it("fetch 는 오답 레코드에도 자연스러운 본문을 준다(마커 없이)", () => {
+    const cases = fetchTool().argDispatch!.cases;
+    expect(fetchTool().argDispatch?.argKey).toBe("record_id");
+    const ok = cases[AGENT_CHAIN_GROUND_TRUTH.activeRecordId]!.toLowerCase();
+    for (const m of AGENT_CHAIN_GROUND_TRUTH.factMarkers) expect(ok).toContain(m);
+    for (const rid of AGENT_CHAIN_GROUND_TRUTH.supersededRecordIds) {
+      const body = cases[rid];
+      expect(body, `fetch 가 ${rid} 를 처리하지 않음`).toBeDefined();
+      expect(body!.toLowerCase()).not.toContain("error");
+      // 오답 본문에 정답 마커가 있으면 채점기가 오답을 정답으로 본다.
+      for (const m of AGENT_CHAIN_GROUND_TRUTH.factMarkers) {
+        expect(body!.toLowerCase(), `${rid} 본문에 정답 마커 ${m} 누출`).not.toContain(m);
+      }
     }
   });
 
-  it("resolve·fetch 는 이전 홉 산출물을 정확히 넘겨야만 매칭된다(argDispatch)", () => {
-    const resolve = loop().mockTools.find((m) => m.tool === "resolve")!;
-    const fetchTool = loop().mockTools.find((m) => m.tool === "fetch")!;
-    expect(resolve.argDispatch?.argKey).toBe("ref");
-    expect(Object.keys(resolve.argDispatch!.cases)).toEqual([AGENT_CHAIN_GROUND_TRUTH.ref]);
-    expect(fetchTool.argDispatch?.argKey).toBe("record_id");
-    expect(Object.keys(fetchTool.argDispatch!.cases)).toEqual([AGENT_CHAIN_GROUND_TRUTH.recordId]);
-  });
-
-  it("fact 마커는 fetch 응답에 실존한다", () => {
-    const fetchTool = loop().mockTools.find((m) => m.tool === "fetch")!;
-    const body = fetchTool.argDispatch!.cases[AGENT_CHAIN_GROUND_TRUTH.recordId]!.toLowerCase();
-    for (const m of AGENT_CHAIN_GROUND_TRUTH.factMarkers) expect(body).toContain(m);
+  it("resolve 매핑은 ground truth 의 record id 집합과 일치한다", () => {
+    const mapped = Object.values(resolveTool().argDispatch!.cases).map(
+      (v) => (JSON.parse(v) as { record_id: string }).record_id,
+    );
+    expect(mapped.sort()).toEqual(
+      [
+        AGENT_CHAIN_GROUND_TRUTH.activeRecordId,
+        ...AGENT_CHAIN_GROUND_TRUTH.supersededRecordIds,
+      ].sort(),
+    );
   });
 
   // 배타성: chain 마커가 docs/grounding corpus 와 겹치면 교차오염 판정이 서로 간섭한다.
