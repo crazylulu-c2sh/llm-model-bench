@@ -6,7 +6,7 @@
 - Do not commit real API keys or customer base URLs in fixtures or logs.
 - **Vision benchmark (v1):** 10 비전 시나리오(`vision_*_a` / `_b`)는 opt-in 입니다.
   - 자산: `apps/web/public/vision/*.jpg` (원본은 `docs/vision_bench/`). 갱신 시 `pnpm prepare:vision` 실행. JPEG를 쓰는 이유: LM Studio 일부 비전 빌드가 `image/webp` MIME을 거부함 (이전 WebP 자산은 v1.2에서 제거).
-  - 이미지 전달: loopback/사설망 origin은 자동 base64 인라인, 공개 origin은 URL. 분기는 `apps/server/src/vision-assets.ts` 단일 모듈이 담당. LM Studio(`provider === "lm_studio"`) OpenAI 경로는 `data:` prefix 없는 raw base64를 사용함 — `buildImagePart` `opts.rawBase64` 참고.
+  - 이미지 전달: loopback/사설망 origin은 자동 base64 인라인, 공개 origin은 URL. 분기는 `apps/server/src/vision-assets.ts` 단일 모듈이 담당. LM Studio(`provider === "lm_studio"`) OpenAI 경로는 origin IP와 무관하게 base64 인라인(`data:image/jpeg;base64,...`)을 강제함 — `buildImagePart` `opts.forceInline` 참고.
   - 채점: 0~3 루브릭 → `score: 0|0.33|0.67|1`, pass는 `score >= 0.67`. `packages/shared/src/scenarios-preview.ts#rubricToScore` 단일 호출 지점.
   - LLM-as-Judge: `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 설정 시에만 meme/wireframe 시나리오의 judge가 호출됨. 비활성 시 prefilter 통과 + rubric 1(pass: false)로 기록.
   - 클라이언트는 `POST /api/bench/stream` body에 `scenarioIds: string[]`를 명시적으로 전달. 미전송 시 서버는 `DEFAULT_SCENARIO_IDS`(텍스트 8개)만 실행.
