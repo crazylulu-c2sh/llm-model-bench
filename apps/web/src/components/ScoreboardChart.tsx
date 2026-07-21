@@ -85,7 +85,9 @@ function vendorBarFill(vendor: VendorKey): string {
 }
 
 function truncName(s: string): string {
-  return s.length > 18 ? `${s.slice(0, 17)}…` : s;
+  // 네임스페이스 보존으로 이름이 길어져 한도를 상향(`LGAI-EXAONE/EXAONE-4.0-1.2B`≈27자까지 온전 노출).
+  // 초과분은 말줄임 + 전체 id는 아래 <title> 툴팁으로 확인.
+  return s.length > 28 ? `${s.slice(0, 27)}…` : s;
 }
 
 /**
@@ -375,10 +377,10 @@ export function ScoreboardChart({
       ) : (
         <div className="overflow-x-auto" role="img" aria-label={summary}>
           <div style={{ minWidth }}>
-            <ResponsiveContainer width="100%" height={360}>
+            <ResponsiveContainer width="100%" height={400}>
               <BarChart
                 data={rechartsData}
-                margin={{ top: 24, right: 16, left: 0, bottom: 88 }}
+                margin={{ top: 24, right: 16, left: 0, bottom: 120 }}
                 barCategoryGap="22%"
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
@@ -389,7 +391,7 @@ export function ScoreboardChart({
                   tickLine={false}
                   axisLine={{ stroke: "var(--chart-grid)" }}
                   tick={<ModelTick data={displayData} meta={meta} />}
-                  height={96}
+                  height={128}
                 />
                 <YAxis
                   type="number"
