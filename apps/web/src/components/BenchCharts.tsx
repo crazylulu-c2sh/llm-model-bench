@@ -51,15 +51,21 @@ function modelColor(i: number, kind: "ttft" | "tps"): string {
   return `hsl(${h} 70% ${l}%)`;
 }
 
+/** 비교 레이더 시리즈: 색 외 구분 단서용 대시 패턴("0"=실선) */
+const RADAR_SERIES_DASH = ["0", "6 3", "2 2", "8 3 2 3", "4 4", "1 3"];
+
 function tooltipMetricFormatter(
   value: TooltipValueType | undefined,
   name: number | string | undefined,
+  item?: { payload?: { pass?: boolean } },
 ): [string, string] {
   // Recharts v3: value is ValueType|undefined (number|string|array), name is NameType|undefined.
   const n = String(name);
   const num = Number(value);
-  if (n.includes("TPS")) return [Number.isFinite(num) ? `${Math.round(num * 10) / 10} tok/s` : "—", n];
-  return [`${Math.round(num)} ms`, n];
+  const pass = item?.payload?.pass;
+  const passText = pass === undefined ? "" : pass ? " · 통과" : " · 미통과";
+  if (n.includes("TPS")) return [Number.isFinite(num) ? `${Math.round(num * 10) / 10} tok/s${passText}` : "—", n];
+  return [`${Math.round(num)} ms${passText}`, n];
 }
 
 function yTickHideSpacer(label: string | number): string {
@@ -380,45 +386,47 @@ function MetricRadarSingle({
     <div className="min-w-0">
       <h3 className="mb-0.5 text-xs font-semibold text-[var(--foreground)]">{title}</h3>
       <RadarSubtitle metric={metric} scope="single" />
-      <ResponsiveContainer width="100%" height={height}>
-        <RadarChart
-          data={data}
-          cx="50%"
-          cy="50%"
-          innerRadius="14%"
-          outerRadius="68%"
-          margin={{ top: 6, right: 20, bottom: 4, left: 20 }}
-        >
-          <PolarGrid stroke="var(--chart-grid)" />
-          <PolarAngleAxis
-            dataKey="axisKey"
-            tick={{ fill: "var(--chart-tick)", fontSize: 9 }}
-            tickFormatter={(v) => tickFmt.get(String(v)) ?? String(v)}
-          />
-          <PolarRadiusAxis
-            angle={30}
-            domain={domain}
-            tickFormatter={(v) => formatRadarTick(metric, Number(v))}
-            tick={{ fill: "var(--chart-tick)", fontSize: 8 }}
-          />
-          <Radar
-            name={legendName}
-            dataKey="rawValue"
-            stroke={stroke}
-            fill={stroke}
-            fillOpacity={0.35}
-            strokeWidth={2}
-            isAnimationActive={false}
-            dot={{ r: 2, fillOpacity: 1 }}
-          />
-          <Tooltip content={<SingleRadarTooltip metric={metric} />} />
-          <Legend
-            verticalAlign="bottom"
-            height={RADAR_LEGEND_HEIGHT_PX}
-            wrapperStyle={{ fontSize: 10, color: "var(--chart-tick)" }}
-          />
-        </RadarChart>
-      </ResponsiveContainer>
+      <div role="img" aria-label={`${title} 레이더 차트(축: 시나리오·API) — 정확한 값은 막대 차트와 표 참조`}>
+        <ResponsiveContainer width="100%" height={height}>
+          <RadarChart
+            data={data}
+            cx="50%"
+            cy="50%"
+            innerRadius="14%"
+            outerRadius="68%"
+            margin={{ top: 6, right: 20, bottom: 4, left: 20 }}
+          >
+            <PolarGrid stroke="var(--chart-grid)" />
+            <PolarAngleAxis
+              dataKey="axisKey"
+              tick={{ fill: "var(--chart-tick)", fontSize: 9 }}
+              tickFormatter={(v) => tickFmt.get(String(v)) ?? String(v)}
+            />
+            <PolarRadiusAxis
+              angle={30}
+              domain={domain}
+              tickFormatter={(v) => formatRadarTick(metric, Number(v))}
+              tick={{ fill: "var(--chart-tick)", fontSize: 8 }}
+            />
+            <Radar
+              name={legendName}
+              dataKey="rawValue"
+              stroke={stroke}
+              fill={stroke}
+              fillOpacity={0.35}
+              strokeWidth={2}
+              isAnimationActive={false}
+              dot={{ r: 2, fillOpacity: 1 }}
+            />
+            <Tooltip content={<SingleRadarTooltip metric={metric} />} />
+            <Legend
+              verticalAlign="bottom"
+              height={RADAR_LEGEND_HEIGHT_PX}
+              wrapperStyle={{ fontSize: 10, color: "var(--chart-tick)" }}
+            />
+          </RadarChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -447,48 +455,54 @@ function MetricRadarCompare({
     <div className="min-w-0">
       <h3 className="mb-0.5 text-xs font-semibold text-[var(--foreground)]">{title}</h3>
       <RadarSubtitle metric={metric} scope="compare" />
-      <ResponsiveContainer width="100%" height={height}>
-        <RadarChart
-          data={data}
-          cx="50%"
-          cy="50%"
-          innerRadius="14%"
-          outerRadius="66%"
-          margin={{ top: 6, right: 20, bottom: 4, left: 20 }}
-        >
-          <PolarGrid stroke="var(--chart-grid)" />
-          <PolarAngleAxis
-            dataKey="axisKey"
-            tick={{ fill: "var(--chart-tick)", fontSize: 9 }}
-            tickFormatter={(v) => tickFmt.get(String(v)) ?? String(v)}
-          />
-          <PolarRadiusAxis
-            angle={30}
-            domain={domain}
-            tickFormatter={(v) => formatRadarTick(metric, Number(v))}
-            tick={{ fill: "var(--chart-tick)", fontSize: 8 }}
-          />
-          <Tooltip content={<CompareRadarTooltip metric={metric} compareSeries={compareSeries} />} />
-          <Legend
-            verticalAlign="bottom"
-            height={RADAR_LEGEND_HEIGHT_PX}
-            wrapperStyle={{ fontSize: 10, color: "var(--chart-tick)" }}
-          />
-          {compareSeries.map((s, i) => (
-            <Radar
-              key={`radar-${metric}-${i}-${s.modelId || "unknown"}`}
-              name={s.label || s.modelId || `model_${i}`}
-              dataKey={`raw_m${i}`}
-              stroke={modelColor(i, metric)}
-              fill={modelColor(i, metric)}
-              fillOpacity={0.18}
-              strokeWidth={2.5}
-              isAnimationActive={false}
-              dot={{ r: 2.5, fillOpacity: 1, strokeWidth: 1, stroke: "var(--surface)" }}
+      <div
+        role="img"
+        aria-label={`${title} 모델 비교 레이더 차트(모델 ${compareSeries.length}개, 축: 시나리오·API) — 정확한 값은 막대 차트와 표 참조`}
+      >
+        <ResponsiveContainer width="100%" height={height}>
+          <RadarChart
+            data={data}
+            cx="50%"
+            cy="50%"
+            innerRadius="14%"
+            outerRadius="66%"
+            margin={{ top: 6, right: 20, bottom: 4, left: 20 }}
+          >
+            <PolarGrid stroke="var(--chart-grid)" />
+            <PolarAngleAxis
+              dataKey="axisKey"
+              tick={{ fill: "var(--chart-tick)", fontSize: 9 }}
+              tickFormatter={(v) => tickFmt.get(String(v)) ?? String(v)}
             />
-          ))}
-        </RadarChart>
-      </ResponsiveContainer>
+            <PolarRadiusAxis
+              angle={30}
+              domain={domain}
+              tickFormatter={(v) => formatRadarTick(metric, Number(v))}
+              tick={{ fill: "var(--chart-tick)", fontSize: 8 }}
+            />
+            <Tooltip content={<CompareRadarTooltip metric={metric} compareSeries={compareSeries} />} />
+            <Legend
+              verticalAlign="bottom"
+              height={RADAR_LEGEND_HEIGHT_PX}
+              wrapperStyle={{ fontSize: 10, color: "var(--chart-tick)" }}
+            />
+            {compareSeries.map((s, i) => (
+              <Radar
+                key={`radar-${metric}-${i}-${s.modelId || "unknown"}`}
+                name={s.label || s.modelId || `model_${i}`}
+                dataKey={`raw_m${i}`}
+                stroke={modelColor(i, metric)}
+                strokeDasharray={RADAR_SERIES_DASH[i % RADAR_SERIES_DASH.length]}
+                fill={modelColor(i, metric)}
+                fillOpacity={0.18}
+                strokeWidth={i % 2 === 0 ? 2.5 : 2}
+                isAnimationActive={false}
+                dot={{ r: 2.5, fillOpacity: 1, strokeWidth: 1, stroke: "var(--surface)" }}
+              />
+            ))}
+          </RadarChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -537,7 +551,7 @@ function RadarPanelsColumn({
     <div className="flex min-h-0 flex-col gap-5">
       {dense ? (
         <p className="text-xs leading-snug text-[var(--muted)]">
-          항목이 많아 레이더는 요약용입니다. 정확한 값은 왼쪽 막대 차트를 사용하세요.
+          항목이 많아 레이더는 요약용입니다. 정확한 값은 지표별 막대 차트를 사용하세요.
         </p>
       ) : null}
       {compareKeyMismatch ? (
@@ -663,123 +677,144 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
     return (
       <div className="grid gap-8 lg:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-2 overflow-x-hidden">
-          <ResponsiveContainer width="100%" height={compareLatencyHeight}>
-            <BarChart
-              layout="vertical"
-              {...BAR_COMPACT_GAP}
-              data={flatRowsSpaced}
-              margin={{ ...COMPARE_BAR_MARGIN }}
-              onClick={(e) => {
-                // Recharts v3: no activePayload on click param — resolve row from data via activeIndex.
-                const idx = e?.activeIndex;
-                fireCompareClick(typeof idx === "number" ? flatRowsSpaced[idx] : undefined);
-              }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
-              <XAxis type="number" tick={{ fill: "var(--chart-tick)", fontSize: 10 }} />
-              <YAxis
-                type="category"
-                dataKey="barLabel"
-                width={280}
-                tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
-                tickFormatter={yTickHideSpacer}
-                interval={0}
-              />
-              <Tooltip
-                {...rechartsTooltipShell}
-                formatter={tooltipMetricFormatter}
-                content={(props) => {
-                  if (!props.active || !props.payload?.[0]) return null;
-                  const row = props.payload[0].payload as FlatBarDatum;
-                  if (row.categorySpacer) return null;
-                  return <DefaultTooltipContent {...props} formatter={tooltipMetricFormatter} />;
+          <div role="img" aria-label={`TTFT 모델 비교 막대 차트(모델 ${compareSeries.length}개) — 자세한 값은 아래 결과 표 참조`}>
+            <ResponsiveContainer width="100%" height={compareLatencyHeight}>
+              <BarChart
+                layout="vertical"
+                {...BAR_COMPACT_GAP}
+                data={flatRowsSpaced}
+                margin={{ ...COMPARE_BAR_MARGIN }}
+                onClick={(e) => {
+                  // Recharts v3: no activePayload on click param — resolve row from data via activeIndex.
+                  const idx = e?.activeIndex;
+                  fireCompareClick(typeof idx === "number" ? flatRowsSpaced[idx] : undefined);
                 }}
-              />
-              {avgTtftCmp !== undefined ? (
-                <ReferenceLine
-                  x={avgTtftCmp}
-                  stroke="var(--chart-ref-line)"
-                  strokeDasharray="4 4"
-                  label={{ value: "avg TTFT", fill: "var(--chart-tick)", fontSize: 10, position: "top" }}
-                />
-              ) : null}
-              <Bar
-                stackId="latency"
-                dataKey="ttft"
-                name="TTFT (ms)"
-                fill="var(--chart-ttft)"
-                radius={[0, 2, 2, 0]}
               >
-                {flatRowsSpaced.map((entry, i) => (
-                  <Cell
-                    key={`cmp-ttft-${i}`}
-                    fill={entry.categorySpacer ? "transparent" : barFill(entry.pass, "ttft")}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-          <ResponsiveContainer width="100%" height={compareTpsHeight}>
-            <BarChart
-              layout="vertical"
-              {...BAR_COMPACT_GAP}
-              data={flatRowsSpaced}
-              margin={{ ...TPS_COMPARE_BAR_MARGIN }}
-              onClick={(e) => {
-                // Recharts v3: no activePayload on click param — resolve row from data via activeIndex.
-                const idx = e?.activeIndex;
-                fireCompareClick(typeof idx === "number" ? flatRowsSpaced[idx] : undefined);
-              }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
-              <XAxis
-                type="number"
-                tick={{ fill: "var(--chart-tick)", fontSize: 9 }}
-                label={{ value: "tok/s", position: "insideBottomRight", fill: "var(--chart-tick)", fontSize: 10 }}
-              />
-              <YAxis
-                type="category"
-                dataKey="barLabel"
-                width={280}
-                tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
-                tickFormatter={yTickHideSpacer}
-                interval={0}
-              />
-              <Tooltip
-                {...rechartsTooltipShell}
-                formatter={tooltipMetricFormatter}
-                content={(props) => {
-                  if (!props.active || !props.payload?.[0]) return null;
-                  const row = props.payload[0].payload as FlatBarDatum;
-                  if (row.categorySpacer) return null;
-                  return <DefaultTooltipContent {...props} formatter={tooltipMetricFormatter} />;
-                }}
-              />
-              {avgTpsCmp !== undefined ? (
-                <ReferenceLine
-                  x={avgTpsCmp}
-                  stroke="var(--chart-ref-line)"
-                  strokeDasharray="3 3"
-                  label={{ value: "avg TPS", fill: "var(--chart-tick)", fontSize: 9, position: "top" }}
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
+                <XAxis type="number" tick={{ fill: "var(--chart-tick)", fontSize: 10 }} />
+                <YAxis
+                  type="category"
+                  dataKey="barLabel"
+                  width={280}
+                  tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
+                  tickFormatter={yTickHideSpacer}
+                  interval={0}
                 />
-              ) : null}
-              <Bar dataKey="tps" name="TPS (tok/s)" fill="var(--chart-tps)" radius={[0, 2, 2, 0]}>
-                {flatRowsSpaced.map((entry, i) => {
-                  if (entry.categorySpacer) {
-                    return <Cell key={`cmp-tps-${i}`} fill="transparent" />;
-                  }
-                  const tpsVal = entry.tps;
-                  const fill =
-                    tpsVal <= 0
-                      ? "transparent"
-                      : entry.pass === false
-                        ? "var(--chart-fail)"
-                        : modelColor(entry.seriesIndex, "tps");
-                  return <Cell key={`cmp-tps-${i}`} fill={fill} />;
-                })}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+                <Tooltip
+                  {...rechartsTooltipShell}
+                  formatter={tooltipMetricFormatter}
+                  content={(props) => {
+                    if (!props.active || !props.payload?.[0]) return null;
+                    const row = props.payload[0].payload as FlatBarDatum;
+                    if (row.categorySpacer) return null;
+                    return <DefaultTooltipContent {...props} formatter={tooltipMetricFormatter} />;
+                  }}
+                />
+                {avgTtftCmp !== undefined ? (
+                  <ReferenceLine
+                    x={avgTtftCmp}
+                    stroke="var(--chart-ref-line)"
+                    strokeDasharray="4 4"
+                    label={{ value: "avg TTFT", fill: "var(--chart-tick)", fontSize: 10, position: "top" }}
+                  />
+                ) : null}
+                <Bar
+                  stackId="latency"
+                  dataKey="ttft"
+                  name="TTFT (ms)"
+                  fill="var(--chart-ttft)"
+                  radius={[0, 2, 2, 0]}
+                >
+                  {flatRowsSpaced.map((entry, i) => {
+                    const fail = !entry.categorySpacer && entry.pass === false;
+                    return (
+                      <Cell
+                        key={`cmp-ttft-${i}`}
+                        fill={entry.categorySpacer ? "transparent" : barFill(entry.pass, "ttft")}
+                        fillOpacity={fail ? 0.55 : 1}
+                        stroke={fail ? "var(--chart-fail)" : undefined}
+                        strokeDasharray={fail ? "4 2" : undefined}
+                        strokeWidth={fail ? 1.5 : 0}
+                      />
+                    );
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div role="img" aria-label={`TPS 모델 비교 막대 차트(모델 ${compareSeries.length}개) — 자세한 값은 아래 결과 표 참조`}>
+            <ResponsiveContainer width="100%" height={compareTpsHeight}>
+              <BarChart
+                layout="vertical"
+                {...BAR_COMPACT_GAP}
+                data={flatRowsSpaced}
+                margin={{ ...TPS_COMPARE_BAR_MARGIN }}
+                onClick={(e) => {
+                  // Recharts v3: no activePayload on click param — resolve row from data via activeIndex.
+                  const idx = e?.activeIndex;
+                  fireCompareClick(typeof idx === "number" ? flatRowsSpaced[idx] : undefined);
+                }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
+                <XAxis
+                  type="number"
+                  tick={{ fill: "var(--chart-tick)", fontSize: 9 }}
+                  label={{ value: "tok/s", position: "insideBottomRight", fill: "var(--chart-tick)", fontSize: 10 }}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="barLabel"
+                  width={280}
+                  tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
+                  tickFormatter={yTickHideSpacer}
+                  interval={0}
+                />
+                <Tooltip
+                  {...rechartsTooltipShell}
+                  formatter={tooltipMetricFormatter}
+                  content={(props) => {
+                    if (!props.active || !props.payload?.[0]) return null;
+                    const row = props.payload[0].payload as FlatBarDatum;
+                    if (row.categorySpacer) return null;
+                    return <DefaultTooltipContent {...props} formatter={tooltipMetricFormatter} />;
+                  }}
+                />
+                {avgTpsCmp !== undefined ? (
+                  <ReferenceLine
+                    x={avgTpsCmp}
+                    stroke="var(--chart-ref-line)"
+                    strokeDasharray="3 3"
+                    label={{ value: "avg TPS", fill: "var(--chart-tick)", fontSize: 9, position: "top" }}
+                  />
+                ) : null}
+                <Bar dataKey="tps" name="TPS (tok/s)" fill="var(--chart-tps)" radius={[0, 2, 2, 0]}>
+                  {flatRowsSpaced.map((entry, i) => {
+                    if (entry.categorySpacer) {
+                      return <Cell key={`cmp-tps-${i}`} fill="transparent" />;
+                    }
+                    const tpsVal = entry.tps;
+                    const fill =
+                      tpsVal <= 0
+                        ? "transparent"
+                        : entry.pass === false
+                          ? "var(--chart-fail)"
+                          : modelColor(entry.seriesIndex, "tps");
+                    const fail = tpsVal > 0 && entry.pass === false;
+                    return (
+                      <Cell
+                        key={`cmp-tps-${i}`}
+                        fill={fill}
+                        fillOpacity={fail ? 0.55 : 1}
+                        stroke={fail ? "var(--chart-fail)" : undefined}
+                        strokeDasharray={fail ? "4 2" : undefined}
+                        strokeWidth={fail ? 1.5 : 0}
+                      />
+                    );
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
           <MetricChartLegend variant="compare" />
         </div>
         <div className="min-h-72 min-w-0">
@@ -833,136 +868,154 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
   return (
     <div className="grid gap-8 lg:grid-cols-2">
       <div className="flex min-w-0 flex-col gap-2 overflow-x-hidden">
-        <ResponsiveContainer width="100%" height={sessionLatencyHeight}>
-          <BarChart
-            layout="vertical"
-            {...BAR_COMPACT_GAP}
-            data={sessionBarData}
-            margin={{ ...LIVE_BAR_MARGIN }}
-            onClick={(e) => {
-              // Recharts v3: no activePayload on click param — resolve row from data via activeIndex.
-              const idx = e?.activeIndex;
-              const raw = typeof idx === "number" ? sessionBarData[idx] : undefined;
-              if (raw?.categorySpacer) return;
-              if (raw?.scenario && onBarPayload) onBarPayload(raw);
-            }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
-            <XAxis type="number" tick={{ fill: "var(--chart-tick)", fontSize: 10 }} />
-            <YAxis
-              type="category"
-              dataKey="fullLabel"
-              width={280}
-              tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
-              tickFormatter={yTickHideSpacer}
-              interval={0}
-            />
-            <Tooltip
-              {...rechartsTooltipShell}
-              formatter={tooltipMetricFormatter}
-              content={(props) => {
-                if (!props.active || !props.payload?.[0]) return null;
-                const row = props.payload[0].payload as ChartRow;
-                if (row.categorySpacer) return null;
-                return <DefaultTooltipContent {...props} formatter={tooltipMetricFormatter} />;
+        <div role="img" aria-label="TTFT 시나리오별 막대 차트 — 자세한 값은 아래 결과 표 참조">
+          <ResponsiveContainer width="100%" height={sessionLatencyHeight}>
+            <BarChart
+              layout="vertical"
+              {...BAR_COMPACT_GAP}
+              data={sessionBarData}
+              margin={{ ...LIVE_BAR_MARGIN }}
+              onClick={(e) => {
+                // Recharts v3: no activePayload on click param — resolve row from data via activeIndex.
+                const idx = e?.activeIndex;
+                const raw = typeof idx === "number" ? sessionBarData[idx] : undefined;
+                if (raw?.categorySpacer) return;
+                if (raw?.scenario && onBarPayload) onBarPayload(raw);
               }}
-              labelFormatter={(_, i) => {
-                const r = sessionBarData[Number(i)];
-                if (!r || r.categorySpacer) return "";
-                return `${r.scenario} · ${r.api}`;
-              }}
-            />
-            {avgTtft !== undefined ? (
-              <ReferenceLine
-                x={avgTtft}
-                stroke="var(--chart-ref-line)"
-                strokeDasharray="4 4"
-                label={{ value: "avg TTFT", fill: "var(--chart-tick)", fontSize: 10, position: "top" }}
-              />
-            ) : null}
-            <Bar
-              stackId="latency"
-              dataKey="ttft"
-              name="TTFT (ms)"
-              fill="var(--chart-ttft)"
-              radius={[0, 2, 2, 0]}
             >
-              {sessionBarData.map((entry) => (
-                <Cell
-                  key={`ttft-${entry.id}`}
-                  fill={entry.categorySpacer ? "transparent" : barFill(entry.pass, "ttft")}
-                />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-        <ResponsiveContainer width="100%" height={sessionTpsHeight}>
-          <BarChart
-            layout="vertical"
-            {...BAR_COMPACT_GAP}
-            data={sessionBarData}
-            margin={{ ...TPS_SESSION_BAR_MARGIN }}
-            onClick={(e) => {
-              // Recharts v3: no activePayload on click param — resolve row from data via activeIndex.
-              const idx = e?.activeIndex;
-              const raw = typeof idx === "number" ? sessionBarData[idx] : undefined;
-              if (raw?.categorySpacer) return;
-              if (raw?.scenario && onBarPayload) onBarPayload(raw);
-            }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
-            <XAxis
-              type="number"
-              tick={{ fill: "var(--chart-tick)", fontSize: 9 }}
-              label={{ value: "tok/s", position: "insideBottomRight", fill: "var(--chart-tick)", fontSize: 10 }}
-            />
-            <YAxis
-              type="category"
-              dataKey="fullLabel"
-              width={280}
-              tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
-              tickFormatter={yTickHideSpacer}
-              interval={0}
-            />
-            <Tooltip
-              {...rechartsTooltipShell}
-              formatter={tooltipMetricFormatter}
-              content={(props) => {
-                if (!props.active || !props.payload?.[0]) return null;
-                const row = props.payload[0].payload as ChartRow;
-                if (row.categorySpacer) return null;
-                return <DefaultTooltipContent {...props} formatter={tooltipMetricFormatter} />;
-              }}
-              labelFormatter={(_, i) => {
-                const r = sessionBarData[Number(i)];
-                if (!r || r.categorySpacer) return "";
-                return `${r.scenario} · ${r.api}`;
-              }}
-            />
-            {avgTps !== undefined ? (
-              <ReferenceLine
-                x={avgTps}
-                stroke="var(--chart-ref-line)"
-                strokeDasharray="3 3"
-                label={{ value: "avg TPS", fill: "var(--chart-tick)", fontSize: 9, position: "top" }}
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
+              <XAxis type="number" tick={{ fill: "var(--chart-tick)", fontSize: 10 }} />
+              <YAxis
+                type="category"
+                dataKey="fullLabel"
+                width={280}
+                tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
+                tickFormatter={yTickHideSpacer}
+                interval={0}
               />
-            ) : null}
-            <Bar dataKey="tps" name="TPS (tok/s)" fill="var(--chart-tps)" radius={[0, 2, 2, 0]}>
-              {sessionBarData.map((entry) => (
-                <Cell
-                  key={`tps-${entry.id}`}
-                  fill={
-                    entry.categorySpacer
-                      ? "transparent"
-                      : entry.tps > 0
-                        ? barFill(entry.pass, "tps")
-                        : "transparent"
-                  }
+              <Tooltip
+                {...rechartsTooltipShell}
+                formatter={tooltipMetricFormatter}
+                content={(props) => {
+                  if (!props.active || !props.payload?.[0]) return null;
+                  const row = props.payload[0].payload as ChartRow;
+                  if (row.categorySpacer) return null;
+                  return <DefaultTooltipContent {...props} formatter={tooltipMetricFormatter} />;
+                }}
+                labelFormatter={(_, i) => {
+                  const r = sessionBarData[Number(i)];
+                  if (!r || r.categorySpacer) return "";
+                  return `${r.scenario} · ${r.api}`;
+                }}
+              />
+              {avgTtft !== undefined ? (
+                <ReferenceLine
+                  x={avgTtft}
+                  stroke="var(--chart-ref-line)"
+                  strokeDasharray="4 4"
+                  label={{ value: "avg TTFT", fill: "var(--chart-tick)", fontSize: 10, position: "top" }}
                 />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+              ) : null}
+              <Bar
+                stackId="latency"
+                dataKey="ttft"
+                name="TTFT (ms)"
+                fill="var(--chart-ttft)"
+                radius={[0, 2, 2, 0]}
+              >
+                {sessionBarData.map((entry) => {
+                  const fail = !entry.categorySpacer && entry.pass === false;
+                  return (
+                    <Cell
+                      key={`ttft-${entry.id}`}
+                      fill={entry.categorySpacer ? "transparent" : barFill(entry.pass, "ttft")}
+                      fillOpacity={fail ? 0.55 : 1}
+                      stroke={fail ? "var(--chart-fail)" : undefined}
+                      strokeDasharray={fail ? "4 2" : undefined}
+                      strokeWidth={fail ? 1.5 : 0}
+                    />
+                  );
+                })}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div role="img" aria-label="TPS 시나리오별 막대 차트 — 자세한 값은 아래 결과 표 참조">
+          <ResponsiveContainer width="100%" height={sessionTpsHeight}>
+            <BarChart
+              layout="vertical"
+              {...BAR_COMPACT_GAP}
+              data={sessionBarData}
+              margin={{ ...TPS_SESSION_BAR_MARGIN }}
+              onClick={(e) => {
+                // Recharts v3: no activePayload on click param — resolve row from data via activeIndex.
+                const idx = e?.activeIndex;
+                const raw = typeof idx === "number" ? sessionBarData[idx] : undefined;
+                if (raw?.categorySpacer) return;
+                if (raw?.scenario && onBarPayload) onBarPayload(raw);
+              }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
+              <XAxis
+                type="number"
+                tick={{ fill: "var(--chart-tick)", fontSize: 9 }}
+                label={{ value: "tok/s", position: "insideBottomRight", fill: "var(--chart-tick)", fontSize: 10 }}
+              />
+              <YAxis
+                type="category"
+                dataKey="fullLabel"
+                width={280}
+                tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
+                tickFormatter={yTickHideSpacer}
+                interval={0}
+              />
+              <Tooltip
+                {...rechartsTooltipShell}
+                formatter={tooltipMetricFormatter}
+                content={(props) => {
+                  if (!props.active || !props.payload?.[0]) return null;
+                  const row = props.payload[0].payload as ChartRow;
+                  if (row.categorySpacer) return null;
+                  return <DefaultTooltipContent {...props} formatter={tooltipMetricFormatter} />;
+                }}
+                labelFormatter={(_, i) => {
+                  const r = sessionBarData[Number(i)];
+                  if (!r || r.categorySpacer) return "";
+                  return `${r.scenario} · ${r.api}`;
+                }}
+              />
+              {avgTps !== undefined ? (
+                <ReferenceLine
+                  x={avgTps}
+                  stroke="var(--chart-ref-line)"
+                  strokeDasharray="3 3"
+                  label={{ value: "avg TPS", fill: "var(--chart-tick)", fontSize: 9, position: "top" }}
+                />
+              ) : null}
+              <Bar dataKey="tps" name="TPS (tok/s)" fill="var(--chart-tps)" radius={[0, 2, 2, 0]}>
+                {sessionBarData.map((entry) => {
+                  const fail = !entry.categorySpacer && entry.tps > 0 && entry.pass === false;
+                  return (
+                    <Cell
+                      key={`tps-${entry.id}`}
+                      fill={
+                        entry.categorySpacer
+                          ? "transparent"
+                          : entry.tps > 0
+                            ? barFill(entry.pass, "tps")
+                            : "transparent"
+                      }
+                      fillOpacity={fail ? 0.55 : 1}
+                      stroke={fail ? "var(--chart-fail)" : undefined}
+                      strokeDasharray={fail ? "4 2" : undefined}
+                      strokeWidth={fail ? 1.5 : 0}
+                    />
+                  );
+                })}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
         <MetricChartLegend variant="session" />
         {onBarPayload ? (
           <p className="mt-1 text-center text-xs text-[var(--muted)]">막대를 클릭하면 해당 시나리오 상세를 엽니다.</p>

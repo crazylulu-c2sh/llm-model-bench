@@ -502,14 +502,31 @@ export function ResultsTable({
           style={shouldScroll ? { maxHeight: `calc(${maxRows + 2} * 2.25rem)` } : undefined}
         >
           <table className="w-full min-w-[36rem] text-left text-sm">
+            <caption className="sr-only">시나리오별 벤치 결과</caption>
             <thead className="bg-[var(--surface)] text-[var(--muted)]">
               {table.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
-                  {hg.headers.map((h) => (
-                    <th key={h.id} className={`p-2${shouldScroll ? " sticky top-0 z-[1] bg-[var(--surface)]" : ""}`}>
-                      {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
-                    </th>
-                  ))}
+                  {hg.headers.map((h) => {
+                    const sorted = isBenchExecutionSort(sorting) ? false : h.column.getIsSorted();
+                    return (
+                      <th
+                        key={h.id}
+                        scope="col"
+                        aria-sort={
+                          h.column.getCanSort()
+                            ? sorted === "asc"
+                              ? "ascending"
+                              : sorted === "desc"
+                                ? "descending"
+                                : "none"
+                            : undefined
+                        }
+                        className={`p-2${shouldScroll ? " sticky top-0 z-[1] bg-[var(--surface)]" : ""}`}
+                      >
+                        {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
+                      </th>
+                    );
+                  })}
                 </tr>
               ))}
             </thead>
@@ -519,8 +536,18 @@ export function ResultsTable({
                 return (
                   <tr
                     key={row.id}
-                    className={`border-t border-[var(--border)] ${onRowClick ? "cursor-pointer hover:bg-[var(--surface)]" : ""}`}
+                    className={`border-t border-[var(--border)] ${onRowClick ? "cursor-pointer hover:bg-[var(--surface)] focus-visible:bg-[var(--surface-2)]" : ""}`}
+                    tabIndex={onRowClick ? 0 : undefined}
+                    aria-label={
+                      onRowClick ? `${row.original.model_id} ${row.original.scenario} 상세 열기` : undefined
+                    }
                     onClick={() => onRowClick?.(row.original)}
+                    onKeyDown={(e) => {
+                      if (!onRowClick) return;
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      e.preventDefault();
+                      onRowClick(row.original);
+                    }}
                   >
                     {row.getVisibleCells().map((cell, ci) => (
                       <td
@@ -567,7 +594,7 @@ export function ResultsTable({
           </table>
           {onRowClick ? (
             <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
-              행을 클릭하면 프롬프트·출력 상세를 볼 수 있습니다.
+              행을 클릭하거나 Enter 키로 프롬프트·출력 상세를 볼 수 있습니다.
             </p>
           ) : null}
         </div>
@@ -584,7 +611,7 @@ export function ResultsTable({
       ) : null}
       {hasEngineProtocolWarning ? (
         <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
-          <span className="text-amber-500">⚠</span> 시나리오 옆 표시 행은 <strong>도구 인자 손상</strong> 또는 <strong>추론 누수</strong>가 감지됐습니다 — LM Studio 엔진 프로토콜 회귀(bug-tracker #1922 등)일 수 있어 점수가 오염됐을 수 있습니다. LM Studio를 0.4.19+로 올리거나 "Use LM Studio Engine Protocol"을 끄고 재측정하세요(<a className="underline" href="/profile#lmstudio-host" target="_blank" rel="noreferrer">조치 안내</a>).
+          <span className="text-amber-500">⚠</span> 시나리오 옆 표시 행은 <strong>도구 인자 손상</strong> 또는 <strong>추론 누수</strong>가 감지됐습니다 — LM Studio 엔진 프로토콜 회귀(bug-tracker #1922 등)일 수 있어 점수가 오염됐을 수 있습니다. LM Studio를 0.4.19+로 올리거나 "Use LM Studio Engine Protocol"을 끄고 재측정하세요(<a className="underline" href="/profile#lmstudio-host" target="_blank" rel="noreferrer" title="새 창에서 열림">조치 안내<span className="sr-only">(새 창)</span></a>).
         </p>
       ) : null}
     </div>

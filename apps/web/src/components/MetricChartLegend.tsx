@@ -14,22 +14,22 @@ export function MetricChartLegend({ variant }: { variant: "session" | "compare" 
           <span className="size-3 shrink-0 rounded-sm bg-[var(--chart-tps)]" aria-hidden />
           <span>
             <strong>TPS</strong> (tok/s) — 출력 길이 기반 근사 토큰 ÷ 총 소요 시간
-            {variant === "session" ? " (아래 막대 차트)" : " (비교 시 아래 차트)"}
+            {variant === "session" ? " (TPS 전용 막대 차트)" : " (비교 시 TPS 전용 차트)"}
           </span>
         </span>
       </div>
       {variant === "compare" ? (
         <p className="text-center text-[11px] leading-snug text-[var(--muted)]">
-          비교 막대: 실행(시나리오·API·모델)마다 위 차트는 <strong className="text-[var(--foreground)]">TTFT</strong>를 ms 단위로
-          표시하고, 아래 차트는 같은 순서로{" "}
+          비교 막대: 실행(시나리오·API·모델)마다 <strong className="text-[var(--foreground)]">TTFT</strong> 막대 차트는 ms
+          단위로 표시하고, TPS 전용 차트는 같은 순서로{" "}
           <strong className="text-[var(--foreground)]">TPS</strong>만 표시합니다. TPS 막대 색은 모델별로 구분됩니다.{" "}
           시나리오·API 묶음(모델 수만큼의 연속 행) 사이에는 빈 띠로 간격을 둡니다.
         </p>
       ) : (
         <p className="text-center text-[11px] leading-snug text-[var(--muted)]">
-          라이브 막대: 위 차트는 <strong className="text-[var(--foreground)]">TTFT</strong>(ms), 아래 차트는 동일 순서의{" "}
-          <strong className="text-[var(--foreground)]">TPS</strong>입니다. 모델이 2개 이상이면 시나리오·API 블록 사이에 빈 띠로
-          구분합니다.
+          라이브 막대: <strong className="text-[var(--foreground)]">TTFT</strong> 막대 차트는 ms 단위, TPS 전용 차트는 동일
+          순서의 <strong className="text-[var(--foreground)]">TPS</strong>입니다. 모델이 2개 이상이면 시나리오·API 블록 사이에 빈
+          띠로 구분합니다.
         </p>
       )}
     </div>

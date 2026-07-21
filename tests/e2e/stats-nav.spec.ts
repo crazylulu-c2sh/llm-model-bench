@@ -65,14 +65,15 @@ test("stats: 모델 선택 후 다른 탭으로 실제 전환된다 (nav 트랜�
   });
 
   await page.goto("/stats");
-  await expect(page.getByRole("tab", { name: "모델 통계" })).toHaveAttribute("aria-selected", "true");
+  const nav = page.getByRole("navigation", { name: "주요 메뉴" });
+  await expect(nav.getByRole("link", { name: "모델 통계" })).toHaveAttribute("aria-current", "page");
 
   // 표시된 선택 가능 모델 전체 선택 → 상세 로드 → 무거운 서브트리 마운트
   await page.getByRole("button", { name: "표시된 선택 가능 항목 전체 선택" }).click();
   await expect(page.getByRole("heading", { name: "스코어보드" })).toBeVisible();
 
   // 다른 탭 클릭: URL만이 아니라 실제 내용이 스왑되어야 한다.
-  await page.getByRole("tab", { name: "모델 벤치" }).click();
+  await nav.getByRole("link", { name: "모델 벤치" }).click();
   await expect(page).toHaveURL(new URL("/", baseURL!).href);
   await expect(page.getByRole("heading", { name: "모델 선택" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "스코어보드" })).toHaveCount(0);

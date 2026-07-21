@@ -72,8 +72,8 @@ type OrderMode = "score" | "vendor";
 /** 모델당 벤더·정제명·양자화(렌더마다 regex 방지). */
 type ModelMeta = { vendor: VendorKey; display: string; quant: string | null };
 
-/** 상위 3위 포디움 색(금/은/동). 그 외 null. 라이트/다크 양쪽에서 읽히는 중간 명도. */
-const PODIUM_COLOR: Record<number, string> = { 1: "#E8A317", 2: "#9AA5B1", 3: "#C77B30" };
+/** 상위 3위 포디움 색(금/은/동) — index.css --podium-1/2/3 토큰(다크=기존값, 라이트=대비 심화). 그 외 null. */
+const PODIUM_COLOR: Record<number, string> = { 1: "var(--podium-1)", 2: "var(--podium-2)", 3: "var(--podium-3)" };
 function podiumColor(rank: number): string | null {
   return PODIUM_COLOR[rank] ?? null;
 }

@@ -6,10 +6,12 @@ import {
   scoreToRubric,
 } from "@llm-bench/shared";
 import { AlertTriangle, X } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { JsonCodeBlock } from "./JsonCodeBlock";
 import { CopyButton } from "./CopyButton";
 import { buildScenarioDetailClipboardText } from "./scenario-detail-clipboard";
 import { useScrollLock } from "../useScrollLock";
+import { useFocusTrap } from "../useFocusTrap";
 
 export type ScenarioDetailPayload = {
   title: string;
@@ -46,7 +48,24 @@ export function ScenarioDetailDrawer({
   hlPreview: boolean;
   onClose: () => void;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
   useScrollLock(open && payload != null);
+  useFocusTrap(panelRef, open && payload != null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    const t = window.setTimeout(() => closeRef.current?.focus(), 0);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.clearTimeout(t);
+    };
+  }, [open, onClose]);
 
   if (!open || !payload) return null;
 
@@ -68,7 +87,10 @@ export function ScenarioDetailDrawer({
         aria-label="닫기"
         onClick={onClose}
       />
-      <div className="relative z-10 flex max-h-[min(92svh,720px)] w-full max-w-2xl flex-col rounded-t-lg border border-[var(--border)] bg-[var(--surface-2)] shadow-xl sm:rounded-lg">
+      <div
+        ref={panelRef}
+        className="relative z-10 flex max-h-[min(92svh,720px)] w-full max-w-2xl flex-col rounded-t-lg border border-[var(--border)] bg-[var(--surface-2)] shadow-xl sm:rounded-lg"
+      >
         <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
           <div>
             <h2 id="scenario-detail-title" className="text-sm font-semibold text-[var(--foreground)]">
@@ -84,6 +106,7 @@ export function ScenarioDetailDrawer({
               title="모달 전체 내용을 정규화해 복사(스크린샷 대체용)"
             />
             <button
+              ref={closeRef}
               type="button"
               className="rounded p-1 text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
               onClick={onClose}
@@ -95,7 +118,7 @@ export function ScenarioDetailDrawer({
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 text-sm">
           {payload.toolCallArgsCorrupted || payload.reasoningLeakedIntoContent ? (
-            <div className="flex items-start gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-snug text-amber-500">
+            <div className="flex items-start gap-2 rounded border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-xs leading-snug text-[var(--warning)]">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
               <div className="space-y-1">
                 {payload.toolCallArgsCorrupted ? (
@@ -117,8 +140,9 @@ export function ScenarioDetailDrawer({
                     href="/profile#lmstudio-host"
                     target="_blank"
                     rel="noreferrer"
+                    title="새 창에서 열림"
                   >
-                    조치 안내
+                    조치 안내<span className="sr-only"> (새 창)</span>
                   </a>
                 </p>
               </div>
@@ -145,7 +169,7 @@ export function ScenarioDetailDrawer({
                 {payload.ttft_ms != null ? `${formatTtftMs(payload.ttft_ms)} ms` : "—"}
               </p>
               {payload.reasoningHidden ? (
-                <p className="mt-1 inline-flex items-start gap-1 text-[11px] leading-snug text-amber-500">
+                <p className="mt-1 inline-flex items-start gap-1 text-[11px] leading-snug text-[var(--warning)]">
                   <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
                   <span>추론 숨김 — TTFT는 첫 가시 토큰까지(숨은 추론 포함). chat·사고 OFF와 직접 비교 주의.</span>
                 </p>

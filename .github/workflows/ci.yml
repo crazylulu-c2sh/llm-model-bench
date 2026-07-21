@@ -42,6 +42,9 @@ jobs:
       - name: Typecheck # tsc --noEmit ×3 (타입 레벨 회귀 — transpile-only 빌드가 못 잡는 부분)
         run: pnpm run typecheck
 
+      - name: Lint (web a11y) # jsx-a11y 접근성 게이트 (KWCAG 2.2 / WCAG 2.1 AA)
+        run: pnpm --filter @llm-bench/web lint
+
       - name: Build # shared → server(verify-bundle node:sqlite 가드) → web
         run: pnpm run build
 

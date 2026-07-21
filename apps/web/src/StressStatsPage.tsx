@@ -307,7 +307,7 @@ export function StressStatsPage() {
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
         <h2 className="mb-3 text-sm font-semibold text-[var(--foreground)]">프로바이더 런 ({items.length}건{hasMore ? "+" : ""})</h2>
         {listLoading && items.length === 0 ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
+          <div role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]">
             <Loader2 className="size-4 animate-spin" aria-hidden /> 불러오는 중…
           </div>
         ) : items.length === 0 ? (
@@ -369,7 +369,7 @@ export function StressStatsPage() {
                       <td className="px-2 py-1">
                         <button
                           type="button"
-                          className="rounded p-1 text-[var(--muted)] hover:bg-[var(--danger)]/10 hover:text-[var(--danger)]"
+                          className="rounded p-1.5 text-[var(--muted)] hover:bg-[var(--danger)]/10 hover:text-[var(--danger)]"
                           aria-label="런 삭제"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -395,7 +395,7 @@ export function StressStatsPage() {
               disabled={loadMoreLoading}
             >
               {loadMoreLoading ? (
-                <span className="inline-flex items-center gap-1">
+                <span role="status" className="inline-flex items-center gap-1">
                   <Loader2 className="size-3 animate-spin" aria-hidden /> 더 불러오는 중…
                 </span>
               ) : (
@@ -411,7 +411,7 @@ export function StressStatsPage() {
         {!selectedRunId ? (
           <p className="py-6 text-center text-sm text-[var(--muted)]">위 리스트에서 런을 선택하세요.</p>
         ) : detailLoading || !detail ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
+          <div role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]">
             <Loader2 className="size-4 animate-spin" aria-hidden /> 불러오는 중…
           </div>
         ) : (

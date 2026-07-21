@@ -293,7 +293,7 @@ export function StatsPage() {
           (model_id + Base URL) 조합마다 SQLite에 기록된 가장 최근 완료 런입니다. 시나리오 측정 집계가 없는 런은 선택할 수 없습니다.
         </p>
         {listLoading ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
+          <div role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]">
             <Loader2 className="size-4 animate-spin" aria-hidden />
             목록 불러오는 중…
           </div>
@@ -315,7 +315,7 @@ export function StatsPage() {
                 선택 해제
               </button>
               {detailLoading ? (
-                <span className="inline-flex items-center gap-1 text-xs text-[var(--muted)]">
+                <span role="status" className="inline-flex items-center gap-1 text-xs text-[var(--muted)]">
                   <Loader2 className="size-3.5 animate-spin" aria-hidden />
                   상세 로드 중…
                 </span>

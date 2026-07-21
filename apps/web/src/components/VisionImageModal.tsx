@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useScrollLock } from "../useScrollLock";
+import { useFocusTrap } from "../useFocusTrap";
 
 export type VisionImageModalProps = {
   open: boolean;
@@ -26,8 +27,10 @@ export function VisionImageModal({
 }: VisionImageModalProps) {
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useScrollLock(open);
+  useFocusTrap(panelRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -57,6 +60,7 @@ export function VisionImageModal({
         onClick={onClose}
       />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -65,7 +69,7 @@ export function VisionImageModal({
         <header className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2">
           <h2 id={titleId} className="flex items-baseline gap-2 text-sm font-semibold text-[var(--foreground)]">
             {categoryLabel ? (
-              <span className="rounded bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--accent)]">
+              <span className="rounded bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--accent-2)]">
                 {categoryLabel}
               </span>
             ) : null}

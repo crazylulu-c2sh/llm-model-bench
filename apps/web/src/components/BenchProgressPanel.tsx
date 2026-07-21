@@ -55,7 +55,7 @@ export function formatBenchProgressSummary({
 function lineClass(kind: BenchStepKind): string {
   if (kind === "err") return "text-[var(--danger)]";
   if (kind === "ok") return "text-[var(--chart-pass)]";
-  if (kind === "warn") return "text-[var(--warning,#d97706)]";
+  if (kind === "warn") return "text-[var(--warning)]";
   return "text-[var(--muted)]";
 }
 
@@ -108,7 +108,7 @@ export function BenchProgressPanel({
 
       {progress && progress.total > 0 ? (
         <div className="mb-3">
-          <div className="mb-1 flex items-center justify-between gap-2 text-xs text-[var(--muted)]">
+          <div role="status" className="mb-1 flex items-center justify-between gap-2 text-xs text-[var(--muted)]">
             <span className="font-semibold uppercase tracking-wide">실행률</span>
             <span className="font-mono tabular-nums text-[var(--foreground)]">
               {progress.pct}% · {progress.completed}/{progress.total}

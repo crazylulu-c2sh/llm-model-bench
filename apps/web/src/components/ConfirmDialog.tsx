@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useScrollLock } from "../useScrollLock";
+import { useFocusTrap } from "../useFocusTrap";
 
 export type ConfirmDialogProps = {
   open: boolean;
@@ -28,8 +29,10 @@ export function ConfirmDialog({
   const titleId = useId();
   const descId = useId();
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useScrollLock(open);
+  useFocusTrap(panelRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -63,6 +66,7 @@ export function ConfirmDialog({
         }}
       />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

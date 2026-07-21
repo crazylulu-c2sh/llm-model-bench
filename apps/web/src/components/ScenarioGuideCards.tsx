@@ -55,7 +55,7 @@ export function ScenarioGuideCards({
               <div className="flex items-center justify-between gap-2">
                 <h3 className="font-mono text-[11px] font-medium text-[var(--foreground)]">{id}</h3>
                 {isVision ? (
-                  <span className="rounded bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
+                  <span className="rounded bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--accent-2)]">
                     Vision
                   </span>
                 ) : null}

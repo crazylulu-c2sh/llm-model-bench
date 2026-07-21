@@ -25,6 +25,12 @@
 | `--tier-good`  | `#d4a72c`   | 사용자당 TPS — 쓸만     |
 | `--tier-okay`  | `#db6d28`   | 사용자당 TPS — 채택가능 |
 | `--tier-slow`  | `#f85149`   | 사용자당 TPS — 너무 느림 |
+| `--warning`    | `#d4a72c`   | 경고 텍스트·콜아웃      |
+| `--border-input` | `#6e7681` | 폼 컨트롤 테두리 (UI 3:1) |
+| `--focus-ring` | `#3fb950`   | `:focus-visible` 아웃라인 (UI 3:1) |
+| `--podium-1/2/3` | `#e8a317` / `#9aa5b1` / `#c77b30` | 순위 1·2·3위 강조 |
+
+**대비 요구 (KWCAG 5.4.3):** 텍스트 토큰(`--foreground`/`--muted`/`--danger`/`--accent-2`/`--warning`/`--tier-*`/`--podium-*`)은 `--surface`·`--surface-2` 위에서 **4.5:1 이상**, UI 컴포넌트 토큰(`--border-input`/`--focus-ring`)은 **3:1 이상** — `apps/web/src/index-css-contrast.test.ts`가 회귀를 감시합니다. 라이트 테마 전경 토큰(`--accent-2`/`--danger`/`--muted` 등)은 알파 틴트 배지(15~20%) 위에서도 4.5:1이 나오도록 다크 톤으로 심화되어 있습니다.
 
 ## 타이포그래피
 

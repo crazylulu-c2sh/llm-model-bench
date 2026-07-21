@@ -36,7 +36,11 @@ export function StressTpsChart({ stages }: { stages: StressStageResult[] }) {
           사용자당 TPS 막대 색 = 체감 등급
         </span>
       </h2>
-      <div className="h-64 w-full">
+      <div
+        className="h-64 w-full"
+        role="img"
+        aria-label="동시 사용자 단계별 집계 TPS 차트 — 자세한 값은 단계별 결과 표 참조"
+      >
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -82,7 +86,7 @@ export function StressTpsChart({ stages }: { stages: StressStageResult[] }) {
         </ResponsiveContainer>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--muted)]">
-        <span className="text-[var(--muted)]/80">사용자당 TPS:</span>
+        <span className="text-[var(--muted)]">사용자당 TPS:</span>
         <span className="inline-flex items-center gap-1">
           <span className="inline-block size-2 rounded-sm" style={{ background: "var(--tier-fast)" }} />
           {TPS_TIER_LABEL_KO.fast} ≥ {TPS_TIER_THRESHOLDS.fast}
@@ -99,7 +103,7 @@ export function StressTpsChart({ stages }: { stages: StressStageResult[] }) {
           <span className="inline-block size-2 rounded-sm" style={{ background: "var(--tier-slow)" }} />
           {TPS_TIER_LABEL_KO.slow} &lt; {TPS_TIER_THRESHOLDS.okay}
         </span>
-        <span className="text-[var(--muted)]/70">· 표 집계 TPS의 <code className="font-mono">*</code>(신뢰도 낮음) 단계는 막대 생략 + 회색 · approx는 chars/4 추정이라 CJK에서 한 단계 낮게 보일 수 있음</span>
+        <span className="text-[var(--muted)]">· 표 집계 TPS의 <code className="font-mono">*</code>(신뢰도 낮음) 단계는 막대 생략 + 회색 · approx는 chars/4 추정이라 CJK에서 한 단계 낮게 보일 수 있음</span>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
         ramp 단계 종료마다 갱신됩니다. 동시성이 증가하다 TPS가 평탄해지면 처리량 한계, 하락하면 큐잉/리소스 경합 신호입니다.

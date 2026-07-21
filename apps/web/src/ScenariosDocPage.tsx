@@ -65,9 +65,9 @@ function ScenarioArticle({
       className="scroll-mt-20 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm"
     >
       <div className="flex items-center justify-between gap-2">
-        <h3 className="font-mono text-sm font-semibold text-[var(--foreground)]">{id}</h3>
+        <h4 className="font-mono text-sm font-semibold text-[var(--foreground)]">{id}</h4>
         {isVision ? (
-          <span className="rounded bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
+          <span className="rounded bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--accent-2)]">
             Vision
           </span>
         ) : null}
@@ -205,7 +205,7 @@ function AgentScenarioArticle({ id }: { id: string }) {
     <article id={id} className="scroll-mt-20 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
       <h4 className="inline-flex items-center gap-2 font-mono text-sm font-semibold text-[var(--foreground)]">
         {id}
-        <span className="rounded border border-[var(--accent)] px-1 py-px text-[10px] font-normal text-[var(--accent)]">
+        <span className="rounded border border-[var(--accent)] px-1 py-px text-[10px] font-normal text-[var(--accent-2)]">
           agent_loop
         </span>
       </h4>
@@ -284,7 +284,7 @@ export function ScenariosDocPage() {
             <ul className="mt-1 space-y-0.5 text-xs">
               {TEXT_SCENARIO_IDS.map((id) => (
                 <li key={id}>
-                  <a href={`#${id}`} className="font-mono text-[var(--accent)] no-underline hover:underline">
+                  <a href={`#${id}`} className="font-mono text-[var(--accent-2)] no-underline hover:underline">
                     {id}
                   </a>
                 </li>
@@ -302,7 +302,7 @@ export function ScenariosDocPage() {
                   <ul className="mt-0.5 space-y-0.5 text-xs">
                     {ids.map((id) => (
                       <li key={id}>
-                        <a href={`#${id}`} className="font-mono text-[var(--accent)] no-underline hover:underline">
+                        <a href={`#${id}`} className="font-mono text-[var(--accent-2)] no-underline hover:underline">
                           {id}
                         </a>
                       </li>
@@ -318,7 +318,7 @@ export function ScenariosDocPage() {
               <ul className="mt-1 space-y-0.5 text-xs">
                 {AGENT_SCENARIO_IDS.map((id) => (
                   <li key={id}>
-                    <a href={`#${id}`} className="font-mono text-[var(--accent)] no-underline hover:underline">
+                    <a href={`#${id}`} className="font-mono text-[var(--accent-2)] no-underline hover:underline">
                       {id}
                     </a>
                   </li>

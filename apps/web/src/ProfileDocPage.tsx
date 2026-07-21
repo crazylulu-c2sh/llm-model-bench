@@ -53,7 +53,7 @@ function runtimeNotesForFamily(id: LlmProfileFamily): ReactNode[] {
       </li>,
       <li key="gemma_lmstudio">
         LM Studio Reasoning Parsing·템플릿 크래시는{" "}
-        <a className="text-[var(--accent)] hover:underline" href="#lmstudio-host">
+        <a className="text-[var(--accent-2)] underline" href="#lmstudio-host">
           LM Studio 호스트 설정
         </a>
         카드를 참고하세요.
@@ -131,7 +131,7 @@ function RuntimeNotes({ family }: { family: LlmProfileFamily }) {
 
 function PresetAnchor({ name }: { name: SamplingPresetName }) {
   return (
-    <a href={`#preset-${name}`} className="font-mono text-xs text-[var(--accent)] hover:underline">
+    <a href={`#preset-${name}`} className="font-mono text-xs text-[var(--accent-2)] underline">
       {name}
     </a>
   );
@@ -139,7 +139,7 @@ function PresetAnchor({ name }: { name: SamplingPresetName }) {
 
 function FamilyAnchor({ id }: { id: LlmProfileFamily }) {
   return (
-    <a href={`#${id}`} className="font-mono text-xs text-[var(--accent)] hover:underline">
+    <a href={`#${id}`} className="font-mono text-xs text-[var(--accent-2)] underline">
       {id}
     </a>
   );
@@ -345,7 +345,7 @@ function LmStudioHostCard() {
           <code className="font-mono text-xs">Use LM Studio Engine Protocol</code>이 켜진 0.4.14~0.4.18 베타 런타임에서 스트리밍{" "}
           <code className="font-mono text-xs">tool_calls</code> 인자가 <code className="font-mono text-xs">{"{}{}"}</code>로 연결·손상되거나(bug-tracker #1922),
           추론이 <code className="font-mono text-xs">reasoning_content</code> 대신 본문 <code className="font-mono text-xs">content</code>로 새어 들어옵니다(0.4.19에서 수정).
-          벤치 결과 표·상세에 <span className="text-amber-500">⚠</span> 배지로 감지됩니다.{" "}
+          벤치 결과 표·상세에 <span className="text-[var(--warning)]">⚠</span> 배지로 감지됩니다.{" "}
           <strong className="text-[var(--foreground)]">LM Studio를 0.4.19+로 올리거나</strong> 이 옵션을 끄고 재측정하세요.
           Developer의 "When applicable, separate reasoning_content and content in API responses"도 켜 두면 좋습니다.
         </li>
@@ -469,13 +469,13 @@ export function ProfileDocPage() {
           <li>
             <strong className="text-[var(--foreground)]">패밀리별 세부 동작</strong> (<code className="font-mono text-xs">enable_thinking</code>,{" "}
             <code className="font-mono text-xs">reasoning_effort</code>, <code className="font-mono text-xs">reasoning_split</code> 등)은 아래 각 모델 카드의 "런타임 노트"를 참고하세요 (
-            <a className="text-[var(--accent)] hover:underline" href="#gemma4">gemma4</a>,{" "}
-            <a className="text-[var(--accent)] hover:underline" href="#qwen36">qwen36</a>,{" "}
-            <a className="text-[var(--accent)] hover:underline" href="#nemotron3">nemotron3</a>,{" "}
-            <a className="text-[var(--accent)] hover:underline" href="#glm47_flash">glm47_flash</a>,{" "}
-            <a className="text-[var(--accent)] hover:underline" href="#gpt_oss">gpt_oss</a>,{" "}
-            <a className="text-[var(--accent)] hover:underline" href="#minimax">minimax</a>). LM Studio 호스트는{" "}
-            <a className="text-[var(--accent)] hover:underline" href="#lmstudio-host">별도 카드</a>.
+            <a className="text-[var(--accent-2)] underline" href="#gemma4">gemma4</a>,{" "}
+            <a className="text-[var(--accent-2)] underline" href="#qwen36">qwen36</a>,{" "}
+            <a className="text-[var(--accent-2)] underline" href="#nemotron3">nemotron3</a>,{" "}
+            <a className="text-[var(--accent-2)] underline" href="#glm47_flash">glm47_flash</a>,{" "}
+            <a className="text-[var(--accent-2)] underline" href="#gpt_oss">gpt_oss</a>,{" "}
+            <a className="text-[var(--accent-2)] underline" href="#minimax">minimax</a>). LM Studio 호스트는{" "}
+            <a className="text-[var(--accent-2)] underline" href="#lmstudio-host">별도 카드</a>.
           </li>
           <li>
             <strong className="text-[var(--foreground)]">samplingOverrides</strong> JSON은 선택된 프리셋 수치 위에 얕게 덮어씁니다. 서버는{" "}

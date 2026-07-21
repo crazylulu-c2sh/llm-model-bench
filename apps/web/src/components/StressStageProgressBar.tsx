@@ -30,7 +30,13 @@ export function StressStageProgressBar({
       const bar = barRef.current;
       const label = labelRef.current;
       if (fill) fill.style.width = `${pct}%`;
-      if (bar) bar.setAttribute("aria-valuenow", String(pct));
+      if (bar) {
+        bar.setAttribute("aria-valuenow", String(pct));
+        bar.setAttribute(
+          "aria-valuetext",
+          elapsed > stageDurationMs ? `단계 진행 ${pct}% · drain 중` : `단계 진행 ${pct}%`,
+        );
+      }
       if (label) label.textContent = elapsed > stageDurationMs ? "drain 중…" : `${pct}%`;
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -50,6 +56,7 @@ export function StressStageProgressBar({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={0}
+        aria-valuetext="단계 진행 0%"
         aria-label="단계 진행"
         className="h-1 flex-1 overflow-hidden rounded bg-[var(--surface)]"
       >

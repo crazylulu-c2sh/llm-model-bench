@@ -22,6 +22,8 @@ export const HighlightCode = forwardRef<
       {({ className, style, tokens, getLineProps, getTokenProps }) => (
         <pre
           ref={ref}
+          tabIndex={0}
+          aria-label="코드 내용 (스크롤 가능)"
           className={`${className} max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded border border-[var(--border)] font-mono text-xs leading-relaxed`}
           style={{
             ...style,

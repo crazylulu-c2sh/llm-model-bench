@@ -37,6 +37,12 @@ function ThemeIcon({ choice }: { choice: ThemeChoice }) {
   return <Monitor className="size-4 text-[var(--muted)]" aria-hidden />;
 }
 
+/** KWCAG 6.4.2 제목 제공: 라우트별 document.title — NAV_TABS 라벨 재사용 (App.tsx에서 소비) */
+export function pageTitleForPath(pathname: string): string {
+  const tab = NAV_TABS.find((t) => t.to === pathname);
+  return tab ? `${tab.label} · LLM Model Bench` : "LLM Model Bench";
+}
+
 function subtitleForPath(pathname: string): string {
   if (pathname === "/stats") return "SQLite에 저장된 최신 런 기준 메트릭·결과";
   if (pathname === "/provider-stats") return "SQLite에 저장된 프로바이더 벤치 런 — 필터·익스포트·삭제";
@@ -125,8 +131,7 @@ export function AppHeader({
           </p>
         </div>
       </div>
-      <div className="relative z-10 min-w-0 justify-self-center xl:px-2" role="tablist" aria-label="페이지">
-        <span className="sr-only">페이지</span>
+      <nav className="relative z-10 min-w-0 justify-self-center xl:px-2" aria-label="주요 메뉴">
         <div className="flex max-w-full min-w-0 flex-nowrap justify-center gap-1 overflow-x-auto rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] p-1 shadow-sm">
           {NAV_TABS.map(({ to, end, label, icon: Icon }) => {
             const isActive = end ? pathname === to : pathname === to;
@@ -135,9 +140,8 @@ export function AppHeader({
               key={to}
               to={to}
               end={end}
-              role="tab"
               aria-label={label}
-              aria-selected={isActive}
+              aria-current={isActive ? "page" : undefined}
               title={label}
               className={tabLinkClass(isActive)}
             >
@@ -149,7 +153,7 @@ export function AppHeader({
             );
           })}
         </div>
-      </div>
+      </nav>
       <label className="relative z-10 grid justify-self-end gap-1 text-sm">
         <span className="inline-flex items-center gap-1 text-[var(--muted)]">
           <SunMoon className="size-3.5" aria-hidden />

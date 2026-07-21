@@ -48,6 +48,15 @@ function monogram(label: string): string {
   return alpha ? alpha.slice(0, 2).toUpperCase() : "?";
 }
 
+/** 이니셜 칩 잉크색 — 브랜드 배경과 4.5:1이 보장되게 흰/검을 상대휘도로 선택 (KWCAG 5.4.3) */
+function chipInk(bg: string): string {
+  if (bg.startsWith("var(")) return "var(--surface)";
+  const n = parseInt(bg.slice(1), 16);
+  const ch = [16, 8, 0].map((sh) => ((n >> sh) & 255) / 255).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  const lum = 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+  return 1.05 / (lum + 0.05) >= 4.5 ? "#fff" : "#000";
+}
+
 /** DOM 벤더 아이콘(표·툴팁용). 로고 있으면 SVG, 없으면 색 이니셜 칩. */
 export function VendorIcon({
   vendor,
@@ -89,7 +98,7 @@ export function VendorIcon({
         height: size,
         borderRadius: size * 0.28,
         background: vendor === "unknown" ? "var(--muted)" : brand.color,
-        color: "#fff",
+        color: chipInk(vendor === "unknown" ? "var(--muted)" : brand.color),
         fontSize: size * 0.46,
         fontWeight: 700,
         lineHeight: 1,
@@ -124,7 +133,7 @@ export function vendorGlyphSvg(vendor: VendorKey, cx: number, top: number, size:
         dominantBaseline="central"
         fontSize={size * 0.46}
         fontWeight={700}
-        fill="#fff"
+        fill={chipInk(vendor === "unknown" ? "var(--muted)" : brand.color)}
       >
         {monogram(brand.label)}
       </text>
