@@ -214,7 +214,9 @@ export function makeBenchRunMeta(
     // #108 후속(v8): error_v1 의 에러를 read_document 로 이동 + sources 판정 완화 + retried 실측 →
     // 이전 런과 **비교 불가**.
     // #109 후속(v9): agent_loop_chain_v1 추가 — agent 품질의 분모가 5→6 으로 바뀐다.
-    scenario_bundle_version: "10",
+    // v11: 시나리오 프롬프트 하드닝(형식·앵커·deferral false-FAIL 제거) — 모델 입력이 바뀌어
+    // 이전 런과 **비교 불가**. 채점 로직·threshold·ground-truth 는 불변.
+    scenario_bundle_version: "11",
     temperature: input.temperature ?? 0.2,
     max_tokens: input.max_tokens ?? 512,
     seed: null,

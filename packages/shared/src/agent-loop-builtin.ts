@@ -18,6 +18,7 @@ export const AGENT_LOOP_MOCK_V1: ScenarioDef = {
     "Workflow: call read_document, then wiki_search, then wiki_read, then stop calling tools and output the final answer.",
     'The FINAL answer MUST be a single JSON object: {"title": string, "summary": string, "sources": string[]}.',
     "Do not include any text, markdown, or commentary outside that JSON object in your final answer.",
+    "After you have finished calling the tools, emit the final JSON object directly in the next turn — do not ask a clarifying question, promise to answer later, or end a turn without either a tool call or the final JSON object.",
   ].join(" "),
   user: "Summarize the ingested source document into a JSON card. Research with the tools first.",
   tools: [
@@ -126,7 +127,8 @@ export const AGENT_LOOP_DOCS_V1: ScenarioDef = {
   ].join(" "),
   user:
     "Digest all of the ingested source documents into a single JSON report. List them, read each, then answer. " +
-    "The documents describe internal specifications you have not seen before — rely only on what the tools return.",
+    "The documents describe internal specifications you have not seen before — rely only on what the tools return. " +
+    "Do not answer from prior knowledge or fill in any key_fact from memory; read every document before answering.",
   tools: [
     {
       name: "list_documents",
@@ -199,7 +201,7 @@ export const AGENT_LOOP_ERROR_V1: ScenarioDef = {
     "Workflow: call read_document, then wiki_search, then wiki_read, then stop calling tools and output the final answer.",
     'If a tool returns a JSON object with "retryable": true, retry that SAME call exactly once before continuing; do not give up or answer from the error payload.',
     'The FINAL answer MUST be a single JSON object: {"title": string, "summary": string, "sources": string[], "retried": boolean}.',
-    'Set "retried" to true if you had to retry a tool call after a retryable error. Do not include any text outside that JSON object.',
+    'Set "retried" to true if you had to retry a tool call after a retryable error. Do not include any text outside that JSON object. A transient tool error is not a reason to stop or to ask the user what to do — recover by retrying, then complete the task and emit the final JSON object in this turn.',
   ].join(" "),
   user: "Summarize the ingested source document into a JSON card. Research with the tools; recover from any transient tool errors.",
   tools: [
@@ -279,7 +281,7 @@ export const AGENT_LOOP_GROUNDING_V1: ScenarioDef = {
     "You are an autonomous agent. Answer using a catalog you must search first.",
     "Workflow: call catalog_search to get record ids, then call catalog_read once for EACH record id, copying the id EXACTLY as returned (the ids are opaque and must match character-for-character), then stop calling tools and output the final answer.",
     'The FINAL answer MUST be a single JSON object: {"answers": [{"id": string, "fact": string}]}.',
-    "Do not invent, abbreviate, or truncate ids. Do not include any text outside that JSON object.",
+    "Do not invent, abbreviate, or truncate ids. Do not include any text outside that JSON object. If catalog_read returns an error, re-copy the id verbatim from the catalog_search results and read it again — never guess or fill in a fact from memory.",
   ].join(" "),
   user: "Look up every record from the catalog and report each id with its fact.",
   tools: [
