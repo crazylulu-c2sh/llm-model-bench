@@ -36,20 +36,29 @@ describe("vision image assets on disk", () => {
   });
 });
 
+const PUBLIC_ORIGIN = "https://example.com";
+
 describe("buildImagePart — openai route", () => {
-  it("rawBase64 미지정 → data:image/jpeg;base64, prefix 포함", () => {
+  it("rawBase64 미지정 + loopback → data:image/jpeg;base64, prefix 포함", () => {
     const part = buildImagePart(SCENARIO, LOOPBACK, "openai");
     expect(part.image_url.url).toMatch(/^data:image\/jpeg;base64,/);
   });
 
-  it("rawBase64: false → data:image/jpeg;base64, prefix 포함", () => {
+  it("rawBase64: false + loopback → data:image/jpeg;base64, prefix 포함", () => {
     const part = buildImagePart(SCENARIO, LOOPBACK, "openai", { rawBase64: false });
     expect(part.image_url.url).toMatch(/^data:image\/jpeg;base64,/);
   });
 
-  it("rawBase64: true → data: prefix 없는 순수 base64", () => {
+  it("rawBase64: true + loopback → data: prefix 없는 순수 base64", () => {
     const part = buildImagePart(SCENARIO, LOOPBACK, "openai", { rawBase64: true });
     expect(part.image_url.url).not.toMatch(/^data:/);
+    expect(part.image_url.url).toMatch(/^[A-Za-z0-9+/]+=*$/);
+  });
+
+  it("rawBase64: true + 공개 origin → 네트워크 무관하게 순수 base64 강제", () => {
+    const part = buildImagePart(SCENARIO, PUBLIC_ORIGIN, "openai", { rawBase64: true });
+    expect(part.image_url.url).not.toMatch(/^data:/);
+    expect(part.image_url.url).not.toMatch(/^https?:/);
     expect(part.image_url.url).toMatch(/^[A-Za-z0-9+/]+=*$/);
   });
 });
