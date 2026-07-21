@@ -70,17 +70,13 @@ function isQuantTag(t: string): boolean {
 }
 
 /**
- * 표시용 짧은 이름: 네임스페이스(org/, hf.co/org/)·양자화 태그(@…, :QUANT, -GGUF/-BF16)를 벗긴다.
+ * 표시용 짧은 이름: 레지스트리 호스트(hf.co/, huggingface.co/)·양자화 태그(@…, :QUANT, -GGUF/-BF16)를 벗긴다.
+ * org 네임스페이스(org/, org 다단계)는 게시자 정체성으로 보존한다(같은 base 모델의 재배포본 구분).
  * 크기 태그(:1.2b 등)와 의미 있는 변형(-it/-instruct/-base/-qat…)은 보존. 대소문자 원본 유지.
  */
 export function cleanModelDisplayName(modelId: string): string {
   const original = modelId.trim();
-  let s = original.replace(HOST_PREFIX, "");
-  const slash = s.lastIndexOf("/");
-  if (slash >= 0) {
-    const ns = s.slice(0, slash).toLowerCase();
-    if (ns !== "unsloth") s = s.slice(slash + 1); // org/ 네임스페이스 제거 (파인튜너는 보존)
-  }
+  let s = original.replace(HOST_PREFIX, ""); // 레지스트리 호스트만 제거, org 네임스페이스는 보존
   const at = s.indexOf("@");
   if (at >= 0) s = s.slice(0, at); // @q4_k_m 등
   const colon = s.lastIndexOf(":");
@@ -88,10 +84,8 @@ export function cleanModelDisplayName(modelId: string): string {
   while (CONTAINER_SUFFIX.test(s)) s = s.replace(CONTAINER_SUFFIX, ""); // -GGUF/-BF16 반복 제거
   s = s.replace(/[-_.\s]+$/, "").trim();
   if (s !== "") return s;
-  // 전부 벗겨져 빈 문자열이면 원본 마지막 세그먼트로 폴백
-  const seg = original.replace(HOST_PREFIX, "");
-  const sl = seg.lastIndexOf("/");
-  return sl >= 0 ? seg.slice(sl + 1) : seg;
+  // 전부 벗겨져 빈 문자열이면 호스트만 제거한 원본으로 폴백(네임스페이스 보존)
+  return original.replace(HOST_PREFIX, "");
 }
 
 /** 양자화/정밀도 태그만 추출(칩 표시용). 없으면 null. 크기 태그(:0.5b 등)는 null. */

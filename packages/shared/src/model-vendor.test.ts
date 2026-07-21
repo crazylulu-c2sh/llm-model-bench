@@ -45,26 +45,28 @@ describe("inferModelVendor", () => {
 describe("cleanModelDisplayName", () => {
   const cases: Array<[string, string]> = [
     ["gemma-4-e2b-it", "gemma-4-e2b-it"],
-    ["google/gemma-4-12b-qat", "gemma-4-12b-qat"],
+    ["google/gemma-4-12b-qat", "google/gemma-4-12b-qat"], // org 네임스페이스 보존
     ["functiongemma:270m", "functiongemma:270m"], // 270m = size, 보존
-    ["unsloth/gemma-4-12b-it-qat", "unsloth/gemma-4-12b-it-qat"], // 파인튜너 네임스페이스 보존
+    ["unsloth/gemma-4-12b-it-qat", "unsloth/gemma-4-12b-it-qat"], // 네임스페이스 보존
     ["qwen2.5-coder-32b-instruct", "qwen2.5-coder-32b-instruct"],
-    ["qwen/qwen3-coder-next", "qwen3-coder-next"],
+    ["qwen/qwen3-coder-next", "qwen/qwen3-coder-next"], // org 네임스페이스 보존
     ["qwen3.6-35b-a3b@q4_k_m", "qwen3.6-35b-a3b"],
     ["qwen2.5:0.5b", "qwen2.5:0.5b"], // size 보존
-    ["Qwen/Qwen3-8B", "Qwen3-8B"], // 대소문자 보존
+    ["Qwen/Qwen3-8B", "Qwen/Qwen3-8B"], // 네임스페이스·대소문자 보존
     ["meta-llama-3.1-8b-instruct", "meta-llama-3.1-8b-instruct"],
     ["llama3:8b", "llama3:8b"],
     ["deepseek-coder-6.7b-base", "deepseek-coder-6.7b-base"],
-    ["nvidia/nemotron-3-nano-omni", "nemotron-3-nano-omni"],
-    ["nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16", "Nemotron-3-Nano-Omni-30B-A3B-Reasoning"],
-    ["openai/gpt-oss-20b", "gpt-oss-20b"],
+    ["nvidia/nemotron-3-nano-omni", "nvidia/nemotron-3-nano-omni"], // org 네임스페이스 보존
+    ["nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16", "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning"], // 네임스페이스 보존, -BF16만 제거
+    ["openai/gpt-oss-20b", "openai/gpt-oss-20b"], // org 네임스페이스 보존
     ["minimax-m2.7@iq2_m", "minimax-m2.7"],
     ["MiniMax-M2.7", "MiniMax-M2.7"],
-    ["unsloth/MiniMax-M2.7-GGUF", "unsloth/MiniMax-M2.7"], // 파인튜너 네임스페이스 보존, -GGUF만 제거
+    ["unsloth/MiniMax-M2.7-GGUF", "unsloth/MiniMax-M2.7"], // 네임스페이스 보존, -GGUF만 제거
+    ["mlx-community/Qwen3-8B-bf16", "mlx-community/Qwen3-8B"], // 특례 아닌 org도 보존, -bf16만 제거
+    ["ggml-org/gemma-3-4b-it-GGUF", "ggml-org/gemma-3-4b-it"], // 특례 아닌 org도 보존, -GGUF만 제거
     ["glm-4.7-flash", "glm-4.7-flash"],
     ["exaone4.0:1.2b", "exaone4.0:1.2b"],
-    ["hf.co/LGAI-EXAONE/EXAONE-4.0-1.2B-GGUF:Q4_K_M", "EXAONE-4.0-1.2B"],
+    ["hf.co/LGAI-EXAONE/EXAONE-4.0-1.2B-GGUF:Q4_K_M", "LGAI-EXAONE/EXAONE-4.0-1.2B"], // 호스트(hf.co)만 제거, org 보존
   ];
   it.each(cases)("%s → %s", (id, expected) => {
     expect(cleanModelDisplayName(id)).toBe(expected);
