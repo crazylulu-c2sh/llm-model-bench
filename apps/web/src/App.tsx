@@ -1514,7 +1514,7 @@ export function App() {
                 <span className="text-[var(--muted)]" aria-hidden>{scenarioPickerOpen ? "▴" : "▾"}</span>
               </span>
             </button>
-            {visibleSelectedScenarioIds.length === 0 ? (
+            {visibleSelectedScenarioIds.length === 0 && !scenarioPickerOpen ? (
               <p className="mt-2 text-xs text-[var(--danger)]">
                 실행할 시나리오를 1개 이상 선택해야 합니다.
               </p>
