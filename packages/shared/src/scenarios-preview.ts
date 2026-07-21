@@ -298,7 +298,8 @@ export function getScenarioSystemPromptPreview(id: string): string {
     case "chat_time_calendar":
       return [
         "You are a date-format assistant.",
-        "Return Korean text and ensure required YYYY-MM-DD substrings are present exactly as requested.",
+        "Treat the date on the first user line as the authoritative today — compute yesterday and tomorrow strictly by ±1 calendar day from that exact date, and do not substitute today's real-world date or any year from your training data.",
+        "Return Korean text and ensure the required YYYY-MM-DD substrings are present exactly as requested.",
       ].join(" ");
     case "tool_weather":
       return [
@@ -317,30 +318,32 @@ export function getScenarioSystemPromptPreview(id: string): string {
       return [
         "You are a code-generation assistant.",
         "Return only one fenced ```js``` block with no prose.",
+        "Do not add comments or docstrings inside the code — return only the code itself.",
         "Do not use built-in sort helpers.",
       ].join(" ");
     case "code_sort_py":
       return [
         "You are a code-generation assistant.",
         "Return only one fenced ```python``` block with no prose.",
+        "Do not add comments or docstrings inside the code — return only the code the task requires.",
         "Do not use built-in sort helpers.",
       ].join(" ");
     case "translate_nist_fips197_pdf_tools":
       return [
         "You are a tool-using translation assistant.",
-        "For PDF sources you MUST call fetch_pdf_text (not fetch_url).",
-        "Read the full source first, then write a concise Korean-only summary under 1000 characters.",
+        "For PDF sources you MUST call fetch_pdf_text (not fetch_url) to actually read the document — do not summarize from memory or prior knowledge of the standard. If fetch_url returns a binary/PDF error, retry the same URL with fetch_pdf_text.",
+        "Read the full source first, then write a concise Korean-only summary. Aim for roughly 500–800 characters and never reach 1000 characters (the summary is rejected at 1000 or more).",
         "No quotes, no English, do not paste the full document.",
       ].join(" ");
     case "vision_table_ocr_a":
     case "vision_table_ocr_b":
-      return "You are a strict JSON OCR assistant. Output a single JSON object only — no markdown, no prose.";
+      return "You are a strict JSON OCR assistant. Read the requested value directly from the attached table image and transcribe it — do not defer to a tool or refuse. Output a single JSON object only — no markdown, no prose.";
     case "vision_count_red_cars_a":
     case "vision_count_red_cars_b":
-      return "You are a strict counting assistant. Reply with JSON only, no prose. Count carefully and avoid guessing.";
+      return "You are a strict counting assistant. Count carefully from the image itself, then commit to your single best-estimate integer count — do not refuse, hedge, or abstain because the image is dense or ambiguous. Reply with exactly one minimal JSON object and nothing else — no prose, no second JSON object, and no additional count value anywhere.";
     case "vision_chart_peak_a":
     case "vision_chart_peak_b":
-      return "You are a strict chart-reading assistant. Output a single JSON object only.";
+      return "You are a strict chart-reading assistant. Reply with the single requested JSON object only — no markdown, no preamble, no explanation, no uncertainty hedging.";
     case "vision_meme_explain_a":
     case "vision_meme_explain_b":
       return [
