@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { lmStudioIsModelLoaded, lmStudioUnload } from "./lmstudio.js";
+import { lmStudioIsModelLoaded, lmStudioLoad, lmStudioUnload } from "./lmstudio.js";
 
 function jsonResponse(obj: unknown, status = 200) {
   return Promise.resolve(
@@ -60,6 +60,53 @@ describe("lmStudioIsModelLoaded", () => {
     const r = await lmStudioIsModelLoaded("http://localhost:1234", "gemma-4-e2b-it", { fetchImpl });
     expect(r.ok).toBe(true);
     expect(r.loaded).toBe(false);
+  });
+});
+
+describe("lmStudioLoad", () => {
+  it("sends only { model } when no ttl", async () => {
+    let sent: unknown = null;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models/load")) {
+        sent = init?.body ? JSON.parse(String(init.body)) : null;
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await lmStudioLoad("http://localhost:1234", "my-model", { fetchImpl });
+    expect(r.ok).toBe(true);
+    expect(sent).toEqual({ model: "my-model" });
+  });
+
+  it("includes ttl (seconds) in load body when ttlSeconds > 0", async () => {
+    let sent: unknown = null;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models/load")) {
+        sent = init?.body ? JSON.parse(String(init.body)) : null;
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await lmStudioLoad("http://localhost:1234", "my-model", { fetchImpl, ttlSeconds: 300 });
+    expect(r.ok).toBe(true);
+    expect(sent).toEqual({ model: "my-model", ttl: 300 });
+  });
+
+  it("ignores non-positive/invalid ttl", async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models/load")) {
+        bodies.push(init?.body ? JSON.parse(String(init.body)) : null);
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({}, 404);
+    });
+    await lmStudioLoad("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 0 });
+    await lmStudioLoad("http://localhost:1234", "m", { fetchImpl, ttlSeconds: -5 });
+    expect(bodies).toEqual([{ model: "m" }, { model: "m" }]);
   });
 });
 

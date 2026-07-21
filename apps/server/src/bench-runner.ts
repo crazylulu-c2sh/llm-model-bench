@@ -18,6 +18,7 @@ import {
   isRegisteredScenario,
   isVisionScenario,
   normalizeScenarioIdsForBench,
+  providerSupportsLoadTtl,
   resolveBenchApiRoutes,
   rubricToScore,
   stripThinkingBlocks,
@@ -64,6 +65,7 @@ import {
   lmStudioLoad,
   lmStudioUnload,
 } from "./lmstudio.js";
+import { ollamaKeepAliveLoad } from "./ollama.js";
 import { preflightMemoryFit } from "./memory-preflight.js";
 import {
   runAgentLoopAnthropic,
@@ -101,6 +103,8 @@ export type BenchRequest = {
   unloadOtherModels?: boolean;
   /** LM Studio: 이번 런이 lmStudioLoad로 대상을 올린 경우에만 종료 시 unload (베스트 에포트) */
   autoUnloadAfterBench?: boolean;
+  /** 로드 시 TTL(초). lm_studio는 load `ttl`, ollama는 `keep_alive`. 그 외 프로바이더는 무시. */
+  loadTtlSeconds?: number;
   /** #81: 메모리-핏 프리플라이트 정책(`skip` | `unload_other_models`; 미지정이면 예측만 로그 후 진행). */
   fitPolicy?: FitPolicy;
   /** Vite `public/` 베이스 URL (예: window.location.origin) — nist.fips.197.pdf 툴 fetch 허용 */
@@ -223,6 +227,12 @@ export function makeBenchRunMeta(
     measured_runs: input.measuredRuns ?? 3,
     unload_other_models: !!input.unloadOtherModels,
     auto_unload_after_bench: !!input.autoUnloadAfterBench,
+    load_ttl_seconds:
+      providerSupportsLoadTtl(input.provider) &&
+      typeof input.loadTtlSeconds === "number" &&
+      input.loadTtlSeconds > 0
+        ? Math.floor(input.loadTtlSeconds)
+        : undefined,
     fit_policy: input.fitPolicy,
     public_assets_origin: resolvePublicAssetsOrigin(input),
     contention_guard_enabled: cc.enabled,
@@ -591,6 +601,15 @@ export async function* runBench(
     }
   }
 
+  // 로드 TTL(초) — 지원 백엔드(lm_studio·ollama)에서만 유효. lm_studio는 load `ttl`,
+  // ollama는 `keep_alive`(preload + 벤치 종료 후 재적용)로 적용된다.
+  const loadTtlSeconds =
+    providerSupportsLoadTtl(input.provider) &&
+    typeof input.loadTtlSeconds === "number" &&
+    input.loadTtlSeconds > 0
+      ? Math.floor(input.loadTtlSeconds)
+      : undefined;
+
   let modelLoadedByThisBench = false;
   if (input.provider === "lm_studio" && !input.skipModelLoad) {
     const loaded = await lmStudioIsModelLoaded(base, input.modelId, {
@@ -607,6 +626,7 @@ export async function* runBench(
       const load = await lmStudioLoad(base, input.modelId, {
         fetchImpl,
         apiKey: input.apiKey,
+        ttlSeconds: loadTtlSeconds,
       });
       if (!load.ok) {
         yield {
@@ -619,6 +639,14 @@ export async function* runBench(
       }
       modelLoadedByThisBench = true;
     }
+  } else if (input.provider === "ollama" && loadTtlSeconds != null) {
+    // Ollama: 명시적 load 단계가 없으므로 네이티브 /api/generate(빈 prompt)로 preload +
+    // keep_alive TTL 적용. skipModelLoad와 무관하게 동작한다(웹은 ollama에 skipModelLoad=true를 보냄).
+    await ollamaKeepAliveLoad(base, input.modelId, {
+      ttlSeconds: loadTtlSeconds,
+      fetchImpl,
+      apiKey: input.apiKey,
+    });
   }
 
   let lmStudioPrepare:
@@ -1646,6 +1674,15 @@ export async function* runBench(
         ok: u.ok,
         status: u.status,
       };
+    }
+    // Ollama: /v1/chat/completions 추론이 매 요청마다 keep_alive를 기본 5분으로 리셋하므로,
+    // 마지막에 네이티브로 지정 TTL을 다시 적용해 벤치 후 로드 유지 시간을 확정한다(베스트 에포트).
+    if (input.provider === "ollama" && loadTtlSeconds != null) {
+      await ollamaKeepAliveLoad(base, input.modelId, {
+        ttlSeconds: loadTtlSeconds,
+        fetchImpl,
+        apiKey: input.apiKey,
+      });
     }
   }
 }

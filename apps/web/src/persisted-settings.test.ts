@@ -229,3 +229,26 @@ describe("readInitialUiState contention guard + v2→v3 migration", () => {
     expect(s.contentionMaxRetries).toBe("4");
   });
 });
+
+describe("readInitialUiState loadTtlSeconds", () => {
+  it("defaults to empty string (미적용)", () => {
+    const s = readInitialUiState();
+    expect(s.loadTtlSeconds).toBe("");
+  });
+
+  it("reads persisted number as string", () => {
+    window.localStorage.setItem(
+      PREFS_STORAGE_KEY,
+      JSON.stringify({ v: 3, loadTtlSeconds: 900 }),
+    );
+    expect(readInitialUiState().loadTtlSeconds).toBe("900");
+  });
+
+  it("falls back to empty string when persisted value is not finite", () => {
+    window.localStorage.setItem(
+      PREFS_STORAGE_KEY,
+      JSON.stringify({ v: 3, loadTtlSeconds: "oops" }),
+    );
+    expect(readInitialUiState().loadTtlSeconds).toBe("");
+  });
+});

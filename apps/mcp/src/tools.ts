@@ -218,6 +218,8 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
         apiRoutes: z.array(z.enum(["chat_completions", "messages"])).optional(),
         /** #81: 메모리-핏 프리플라이트 정책(LM Studio). 미지정이면 예측만 로그 후 진행. */
         fitPolicy: z.enum(["skip", "unload_other_models"]).optional(),
+        /** 로드 시 TTL(초). 지원 백엔드(lm_studio·ollama)에서만 적용, 그 외는 무시. */
+        loadTtlSeconds: z.number().int().positive().optional(),
       },
     },
     async (args, extra) => {
@@ -241,6 +243,7 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
           max_tokens: args.max_tokens,
           apiRoutes: args.apiRoutes,
           fitPolicy: args.fitPolicy,
+          loadTtlSeconds: args.loadTtlSeconds,
         };
         const result = await drainBenchStream(client, cfg, { detect, bench }, extra as ProgressExtra);
         return ok(result);

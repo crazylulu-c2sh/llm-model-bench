@@ -55,6 +55,8 @@ export interface StressRunMeta {
   unload_other_models?: boolean;
   auto_unload_after_bench?: boolean;
   skip_model_load?: boolean;
+  /** 로드 시 적용한 TTL(초). LM Studio는 load `ttl`, Ollama는 `keep_alive`. */
+  load_ttl_seconds?: number;
   created_at: string;
 }
 

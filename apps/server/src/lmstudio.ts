@@ -153,16 +153,23 @@ export async function lmStudioIsModelLoaded(
   return { ok: true, status: listed.status, loaded: false, body: listed.body };
 }
 
-/** LM Studio REST load — tries common paths; body uses model key from List API. */
+/**
+ * LM Studio REST load — tries common paths; body uses model key from List API.
+ * `ttlSeconds`(>0) 지정 시 payload에 `ttl`(초)을 실어 idle 후 자동 언로드(자동-이빅트)를 건다.
+ */
 export async function lmStudioLoad(
   baseUrl: string,
   modelKey: string,
-  opts: { fetchImpl?: FetchLike; apiKey?: string } = {},
+  opts: { fetchImpl?: FetchLike; apiKey?: string; ttlSeconds?: number } = {},
 ): Promise<{ ok: boolean; status: number; body: string }> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const root = apiRoot(baseUrl);
   const candidates = [`${root}/api/v1/models/load`, `${root}/api/v0/models/load`];
-  const body = JSON.stringify({ model: modelKey });
+  const ttl =
+    typeof opts.ttlSeconds === "number" && Number.isFinite(opts.ttlSeconds) && opts.ttlSeconds > 0
+      ? Math.floor(opts.ttlSeconds)
+      : undefined;
+  const body = JSON.stringify(ttl != null ? { model: modelKey, ttl } : { model: modelKey });
   for (const url of candidates) {
     const r = await fetchImpl(url, {
       method: "POST",
