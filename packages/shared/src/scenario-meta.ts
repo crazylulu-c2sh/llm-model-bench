@@ -166,7 +166,7 @@ const META: Record<ScenarioId, ScenarioBenchMeta> = {
     criteriaKo:
       `벤치 러너가 \`${DEFAULT_CALENDAR_TIMEZONE}\`로 고정한 달력 기준 어제·오늘·내일의 YYYY-MM-DD 세 값이 모두 출력에 포함되면 합격입니다.`,
     promptNotesKo:
-      `벤치 러너가 UTC T06:00으로 고정한 \`referenceAt\`(ISO)과 \`calendarTimeZone\`이 프롬프트에 포함됩니다(실행 시간대 무관하게 Seoul=UTC 당일). 미리보기는 문서/통계 화면에서 현재 시각·${DEFAULT_CALENDAR_TIMEZONE}로 예시를 둡니다.`,
+      `벤치 러너가 UTC T06:00으로 고정한 \`referenceAt\`를 \`${DEFAULT_CALENDAR_TIMEZONE}\`로 변환한 날짜(YYYY-MM-DD)를 프롬프트에 직접 주입합니다. 모델은 타임존 변환 없이 ±1일 계산만 수행하면 됩니다.`,
     toolsSummaryKo: "없음.",
     routesKo: "일반 채팅 메시지; 양 라우트 지원 시 각각 측정.",
     implementationKo: "서버가 동일 기준 시각으로 기대 날짜 세 개를 계산해 부분 문자열 포함 여부로 판정합니다.",

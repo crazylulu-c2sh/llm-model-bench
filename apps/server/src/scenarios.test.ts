@@ -454,14 +454,15 @@ describe("prompt preview ↔ buildMessages wiring", () => {
     }
   });
 
-  it("injects origin into translate prompt and reference ISO into calendar prompt", () => {
+  it("injects origin into translate prompt and Seoul date into calendar prompt", () => {
     const translate = buildMessages("translate_nist_fips197_pdf_tools", ctx);
     expect(openAiUserText(translate.messages[1]?.content)).toContain(
       "http://127.0.0.1:21104/nist.fips.197.pdf",
     );
     const calendar = buildMessages("chat_time_calendar", ctx);
-    expect(openAiUserText(calendar.messages[1]?.content)).toContain("2024-01-15T15:00:00.000Z");
-    expect(openAiUserText(calendar.messages[1]?.content)).toContain("Asia/Seoul");
+    // ctx.referenceAt = 2024-01-15T15:00:00.000Z → Asia/Seoul(+9) = 2024-01-16T00:00
+    expect(openAiUserText(calendar.messages[1]?.content)).toContain("2024-01-16");
+    expect(openAiUserText(calendar.messages[1]?.content)).toContain("오늘 날짜");
   });
 
   it("vision scenarios send [text, image] multipart on both routes", () => {
