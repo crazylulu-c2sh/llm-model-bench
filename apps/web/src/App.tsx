@@ -18,15 +18,21 @@ import type { SortingState } from "@tanstack/react-table";
 import {
   Activity,
   AlertTriangle,
+  Bot,
+  CheckSquare,
   ChevronDown,
   ChevronUp,
   Download,
+  Eye,
   History,
   KeyRound,
+  Layers,
   Link2,
   Loader2,
+  MessageSquare,
   Monitor,
   Play,
+  Square,
 } from "lucide-react";
 import type {
   BenchRunDetailResponse,
@@ -1500,45 +1506,67 @@ export function App() {
                 <div className="flex flex-wrap gap-2 text-xs">
                   <button
                     type="button"
-                    className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
                     onClick={() => setSelectedScenarioIds([...DEFAULT_SCENARIO_IDS])}
                     title="기존 텍스트 8개만 실행"
                   >
+                    <MessageSquare className="size-3" aria-hidden />
                     기본 (텍스트 8개)
                   </button>
                   <button
                     type="button"
-                    className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
                     onClick={() =>
                       setSelectedScenarioIds([...DEFAULT_SCENARIO_IDS, ...VISION_SCENARIO_IDS])
                     }
                     title="처음 실행하는 모델용: 텍스트 8 + 비전 10 = 18개 시나리오"
                   >
-                    전체 18개 (텍스트+비전)
+                    <Layers className="size-3" aria-hidden />
+                    텍스트+비전 (18개)
                   </button>
                   <button
                     type="button"
-                    className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
                     onClick={() => setSelectedScenarioIds([...VISION_SCENARIO_IDS])}
                     title="이미 텍스트 벤치 완료한 모델에 비전 10개만 추가로 실행"
                   >
+                    <Eye className="size-3" aria-hidden />
                     비전만 (10개)
                   </button>
                   {agentScenarioIds.length > 0 ? (
-                    <button
-                      type="button"
-                      className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
-                      onClick={() => setSelectedScenarioIds([...agentScenarioIds])}
-                      title="멀티턴 에이전트 시나리오만 실행 (완료율·처리량·도구 규율)"
-                    >
-                      에이전트만 ({agentScenarioIds.length}개)
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                        onClick={() => setSelectedScenarioIds([...agentScenarioIds])}
+                        title="멀티턴 에이전트 시나리오만 실행 (완료율·처리량·도구 규율)"
+                      >
+                        <Bot className="size-3" aria-hidden />
+                        에이전트만 ({agentScenarioIds.length}개)
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                        onClick={() =>
+                          setSelectedScenarioIds([
+                            ...DEFAULT_SCENARIO_IDS,
+                            ...VISION_SCENARIO_IDS,
+                            ...agentScenarioIds,
+                          ])
+                        }
+                        title="텍스트 + 비전 + 에이전트 전체 선택"
+                      >
+                        <CheckSquare className="size-3" aria-hidden />
+                        전체 선택 ({DEFAULT_SCENARIO_IDS.length + VISION_SCENARIO_IDS.length + agentScenarioIds.length}개)
+                      </button>
+                    </>
                   ) : null}
                   <button
                     type="button"
-                    className="rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
                     onClick={() => setSelectedScenarioIds([])}
                   >
+                    <Square className="size-3" aria-hidden />
                     모두 해제
                   </button>
                 </div>
