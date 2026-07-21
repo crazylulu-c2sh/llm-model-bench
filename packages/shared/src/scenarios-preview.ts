@@ -222,7 +222,7 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
       }).format(new Date(iso));
       return [
         `오늘 날짜 (${tz}): ${todayStr}`,
-        "Reply briefly in Korean. Your reply must include exactly three Gregorian dates as YYYY-MM-DD substrings: yesterday, today, and tomorrow. Short Korean prose is allowed, but all three dates must appear.",
+        "Reply briefly in Korean. Using the date on the first line as today, include exactly three Gregorian dates as YYYY-MM-DD substrings — yesterday (that date minus one day), today (that exact date), and tomorrow (that date plus one day). Short Korean prose is allowed, but all three YYYY-MM-DD dates must appear in this final reply, not only in your reasoning.",
       ].join("\n");
     }
     case "tool_weather":
@@ -303,13 +303,15 @@ export function getScenarioSystemPromptPreview(id: string): string {
     case "tool_weather":
       return [
         "You are a tool-using assistant.",
-        "When the user asks for weather, call the available weather tool before giving the final answer.",
+        "You MUST call the available weather tool whenever the user asks about current or forecast conditions — do not answer weather from memory or prior knowledge.",
+        "The weather tool is read-only and ready to use: call it immediately in this turn without asking for permission, then give the final answer based on its result.",
       ].join(" ");
     case "structured_action":
       return [
         "You are a strict JSON assistant.",
-        "Output must be valid JSON only — no markdown fences, no prose, and no extra keys.",
-        'Respond with a single object: {"action":"<string>","confidence":<number>} where confidence is between 0 and 1 inclusive.',
+        "Return only JSON and nothing else — no preamble, no Markdown backticks, no prose, no extra keys, and no text before or after.",
+        "Emit exactly one object and stop; do not append a second object, a trailing note, or a follow-up question.",
+        'Respond with a single object: {"action":"<string>","confidence":<number>} where action is one of submit/revise/hold and confidence is a number between 0 and 1 inclusive.',
       ].join(" ");
     case "code_sort_js":
       return [
