@@ -11,7 +11,7 @@ describe("inferModelVendor", () => {
     ["gemma-4-e2b-it", "google"],
     ["google/gemma-4-12b-qat", "google"],
     ["functiongemma:270m", "google"],
-    ["unsloth/gemma-4-12b-it-qat", "google"],
+    ["unsloth/gemma-4-12b-it-qat", "unsloth"], // unsloth/ 네임스페이스 우선 (기반 gemma보다)
     ["qwen2.5-coder-32b-instruct", "alibaba"],
     ["qwen/qwen3-coder-next", "alibaba"],
     ["qwen3.6-35b-a3b@q4_k_m", "alibaba"],
@@ -27,7 +27,7 @@ describe("inferModelVendor", () => {
     ["gpt-oss-120b", "openai"],
     ["minimax-m2.7@iq2_m", "minimax"],
     ["MiniMax-M2.7", "minimax"],
-    ["unsloth/MiniMax-M2.7-GGUF", "minimax"],
+    ["unsloth/MiniMax-M2.7-GGUF", "unsloth"], // unsloth/ 네임스페이스 우선
     ["glm-4.7-flash", "zhipu"],
     ["exaone4.0:1.2b", "lg"],
     ["hf.co/LGAI-EXAONE/EXAONE-4.0-1.2B-GGUF:Q4_K_M", "lg"],
@@ -47,7 +47,7 @@ describe("cleanModelDisplayName", () => {
     ["gemma-4-e2b-it", "gemma-4-e2b-it"],
     ["google/gemma-4-12b-qat", "gemma-4-12b-qat"],
     ["functiongemma:270m", "functiongemma:270m"], // 270m = size, 보존
-    ["unsloth/gemma-4-12b-it-qat", "gemma-4-12b-it-qat"],
+    ["unsloth/gemma-4-12b-it-qat", "unsloth/gemma-4-12b-it-qat"], // 파인튜너 네임스페이스 보존
     ["qwen2.5-coder-32b-instruct", "qwen2.5-coder-32b-instruct"],
     ["qwen/qwen3-coder-next", "qwen3-coder-next"],
     ["qwen3.6-35b-a3b@q4_k_m", "qwen3.6-35b-a3b"],
@@ -61,7 +61,7 @@ describe("cleanModelDisplayName", () => {
     ["openai/gpt-oss-20b", "gpt-oss-20b"],
     ["minimax-m2.7@iq2_m", "minimax-m2.7"],
     ["MiniMax-M2.7", "MiniMax-M2.7"],
-    ["unsloth/MiniMax-M2.7-GGUF", "MiniMax-M2.7"],
+    ["unsloth/MiniMax-M2.7-GGUF", "unsloth/MiniMax-M2.7"], // 파인튜너 네임스페이스 보존, -GGUF만 제거
     ["glm-4.7-flash", "glm-4.7-flash"],
     ["exaone4.0:1.2b", "exaone4.0:1.2b"],
     ["hf.co/LGAI-EXAONE/EXAONE-4.0-1.2B-GGUF:Q4_K_M", "EXAONE-4.0-1.2B"],
