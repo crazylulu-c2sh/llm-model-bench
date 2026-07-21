@@ -14,6 +14,8 @@ export function isLoopbackOrPrivateOrigin(origin: string): boolean {
   if (/^10\./.test(h)) return true;
   if (/^192\.168\./.test(h)) return true;
   if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(h)) return true;
+  // RFC 6598 Shared Address Space (100.64.0.0/10) — CGNAT / Tailscale 대역
+  if (/^100\.(6[4-9]|[789]\d|1[01]\d|12[0-7])\./.test(h)) return true;
   return false;
 }
 
