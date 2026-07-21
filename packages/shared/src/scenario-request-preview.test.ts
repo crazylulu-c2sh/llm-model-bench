@@ -46,14 +46,15 @@ describe("getScenarioBenchRequestPreview", () => {
     expect(img?.image_url?.url).toBe("https://bench.example.com/vision/count_red_cars_b.jpg");
   });
 
-  it("chat_time_calendar injects reference ISO into user message", () => {
+  it("chat_time_calendar injects Seoul date into user message", () => {
     const ref = "2025-01-15T09:00:00.000Z";
+    // 2025-01-15T09:00Z + 9h = 2025-01-15T18:00 Seoul → 당일
     const p = getScenarioBenchRequestPreview("chat_time_calendar", {
       referenceIso: ref,
       calendarTimeZone: "Asia/Seoul",
     });
     const user = p.openAiChatCompletions?.messages[1] as { content: string };
-    expect(user.content).toContain(ref);
+    expect(user.content).toContain("2025-01-15");
     expect(user.content).toContain("Asia/Seoul");
   });
 });

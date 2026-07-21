@@ -213,10 +213,15 @@ export function getScenarioUserPromptPreview(id: string, opts?: ScenarioPromptPr
     case "chat_time_calendar": {
       const iso = opts?.referenceIso ?? new Date().toISOString();
       const tz = opts?.calendarTimeZone ?? DEFAULT_CALENDAR_TIMEZONE;
+      const todayStr = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date(iso));
       return [
-        `Reference instant (ISO 8601): ${iso}`,
-        `Interpret calendar dates in time zone: ${tz}.`,
-        "Reply briefly in Korean. Your reply must include exactly three Gregorian dates as YYYY-MM-DD substrings: yesterday, today, and tomorrow relative to that reference instant (in that time zone). Short Korean prose is allowed, but all three dates must appear.",
+        `오늘 날짜 (${tz}): ${todayStr}`,
+        "Reply briefly in Korean. Your reply must include exactly three Gregorian dates as YYYY-MM-DD substrings: yesterday, today, and tomorrow. Short Korean prose is allowed, but all three dates must appear.",
       ].join("\n");
     }
     case "tool_weather":
@@ -291,8 +296,7 @@ export function getScenarioSystemPromptPreview(id: string): string {
       return LONG_CONTEXT_SYSTEM_JA;
     case "chat_time_calendar":
       return [
-        "You are a strict date-format assistant.",
-        "Follow the user-provided reference instant and time zone exactly.",
+        "You are a date-format assistant.",
         "Return Korean text and ensure required YYYY-MM-DD substrings are present exactly as requested.",
       ].join(" ");
     case "tool_weather":

@@ -81,13 +81,14 @@ describe("scenario prompt previews", () => {
     expect(sys).not.toMatch(/^\s*$/);
   });
 
-  it("chat_time_calendar injects referenceIso and calendarTimeZone deterministically", () => {
+  it("chat_time_calendar injects Seoul date and calendarTimeZone deterministically", () => {
     const ref = "2025-06-10T12:00:00.000Z";
+    // 2025-06-10T12:00Z + 9h = 2025-06-10T21:00 Seoul → 당일
     const user = getScenarioUserPromptPreview("chat_time_calendar", {
       referenceIso: ref,
       calendarTimeZone: "Asia/Seoul",
     });
-    expect(user).toContain(ref);
+    expect(user).toContain("2025-06-10");
     expect(user).toContain("Asia/Seoul");
     expect(getScenarioUserPromptPreview("chat_time_calendar", {
       referenceIso: ref,
