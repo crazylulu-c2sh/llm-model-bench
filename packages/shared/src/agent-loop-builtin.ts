@@ -338,39 +338,44 @@ export const AGENT_LOOP_GROUNDING_V1: ScenarioDef = {
 registerScenarioDef(AGENT_LOOP_GROUNDING_V1);
 
 /**
- * #109 후속: 3홉 **순수 체이닝** — 상위권 천장 해소용.
+ * #110 후속: **방해 후보 + 기권** — "틀릴 수 있는 선택지"를 처음으로 도입한다.
  *
- * 실측에서 `gemma-4-26b-a4b-it@q4_k_m` 과 `gemma-4-12b-it@q4_k_xl` 이 **공동 1위(100)** 로 붙었다.
- * 워크플로 준수율은 1.00 vs 0.60 으로 달랐지만 그건 진단 지표이지 점수가 아니다(#109 결정:
- * 단축은 효율로 인정하고 감점하지 않는다). 그래서 **감점 대신 과업 자체를 체인으로** 만든다.
+ * 초판(3홉 순수 체이닝)은 상위권 천장을 깨지 못했다. 실측 사후분석 결과:
+ *  - chain 완주 15런이 **전부 turns=4**(이론상 최소치)·calls{search:1,resolve:1,fetch:1}.
+ *    각 홉의 선택지가 1개(분기 계수 1)라 과업이 "직전 도구 출력의 문자열을 옮겨 적기"로 축소됐다.
+ *  - 품질 0.17 짜리 모델이 도구 응답 봉투째 복사해 만점을 받았다.
+ *  - 항목-총점 상관 0.543 으로 6종 중 최저이면서 만점률 최고 → **신호를 희석**하고 있었다.
  *
- *   search(topic)    → ref            (hop1 산출)
- *   resolve(ref)     → record_id      (hop2 — ref 를 정확히 넘겨야 함)
- *   fetch(record_id) → 유일한 사실      (hop3 — record_id 를 정확히 넘겨야 함)
+ * 더 근본적으로, 10모델 × 6시나리오 × 2라우트 = **120셀에서 내용 오류가 0건**이었다. 정답이 유일하고
+ * 틀린 인자는 fallback 에러로 즉시 걸러지니 **틀릴 수가 없는 구조**였고, 스위트는 "정확성"이 아니라
+ * "생존(답을 낼 수 있는가)"만 재고 있었다.
  *
- * 최종 답 `{ref, record_id, fact}` 이 **세 홉의 산출물을 각각 요구**하므로, 어느 홉을 건너뛰면
- * 감점당하는 게 아니라 **그 필드를 채울 방법이 없다**.
+ * 그래서 두 가지를 넣는다:
+ *  1. **방해 후보** — search 가 후보 3개를 주고 그중 `status:"active"` 하나만 정답이다.
+ *     **잘못된 후보를 골라도 resolve/fetch 가 성공을 돌려준다**(그럴듯한 본문까지). 즉 처음으로
+ *     "그럴듯하지만 틀린 답"이 가능해진다 — fallback 에러라는 안전망이 없다.
+ *  2. **기권** — 2차 조회는 후보가 전부 superseded 다. 정답이 없으면 기권해야 하고,
+ *     아무거나 골라 답하면 환각으로 감점된다.
  *
- * ⚠ 내용은 전부 가공(fictional)이며, `docs`/`grounding` 의 마커와 **겹치지 않는 새 고유명사**를 쓴다
- * (교차오염 판정이 서로 간섭하지 않도록 — 배타성 drift 테스트가 고정).
+ * ⚠ 내용은 전부 가공(fictional)이며 docs/grounding 및 이전 chain 마커와 겹치지 않는다(배타성 drift 테스트).
  */
 export const AGENT_LOOP_CHAIN_V1: ScenarioDef = {
   id: "agent_loop_chain_v1",
   source: "builtin",
   system: [
-    "You are an autonomous agent. Follow a three-step lookup chain, then produce a FINAL answer.",
-    "Workflow: call search to get a ref code, then call resolve with that EXACT ref to get a record id, then call fetch with that EXACT record id to get the fact.",
-    "Each step's output is the next step's input — copy the values character-for-character; do not invent them.",
-    'The FINAL answer MUST be a single JSON object: {"ref": string, "record_id": string, "fact": string}.',
-    "Do not include any text, markdown, or commentary outside that JSON object in your final answer.",
+    "You are an autonomous agent. Run TWO lookups, then produce a FINAL answer.",
+    "For each lookup: call search to list candidates, pick the ONE candidate whose status is \"active\" (ignore \"superseded\" ones), call resolve with that EXACT ref to get a record id, then call fetch with that EXACT record id to get the fact.",
+    "If a lookup returns NO candidate with status \"active\", you MUST abstain for that lookup instead of guessing — resolve and fetch will happily return data for superseded refs, so check the status yourself.",
+    'The FINAL answer MUST be a single JSON object: {"results": [item, item]} where each item is either {"ref": string, "record_id": string, "fact": string} or {"abstained": true}.',
+    "results must have exactly two entries, in lookup order. Do not include any text outside that JSON object.",
   ].join(" "),
   user:
-    "Look up the ratification detail through the catalog chain and report the ref, the record id, and the fact. " +
-    "These are internal records you have not seen before — rely only on what the tools return.",
+    "Run the two catalog lookups in order and report the results array. " +
+    "These are internal records you have not seen before — rely only on what the tools return, and honour the status field.",
   tools: [
     {
       name: "search",
-      description: "Search the internal catalog; returns a ref code.",
+      description: "List catalog candidates for the next lookup; each has a ref and a status.",
       parameters: {
         type: "object",
         properties: { topic: { type: "string", description: "topic to search" } },
@@ -379,7 +384,7 @@ export const AGENT_LOOP_CHAIN_V1: ScenarioDef = {
     },
     {
       name: "resolve",
-      description: "Resolve a ref code to a record id.",
+      description: "Resolve a ref code to a record id. Works for any known ref, including superseded ones.",
       parameters: {
         type: "object",
         properties: { ref: { type: "string", description: "exact ref code from search" } },
@@ -401,31 +406,51 @@ export const AGENT_LOOP_CHAIN_V1: ScenarioDef = {
     maxTurns: 8,
     mockTools: [
       {
+        // 시퀀스 mock: 1차 조회는 active 가 하나 있고, 2차는 전부 superseded(기권해야).
+        // repeatLast 로 3회차 이후에도 2차 응답이 유지된다 — 기권 케이스를 다시 확인해도 결과가 같다.
         tool: "search",
-        // hop1 은 ref 만 준다 — record_id 나 fact 를 흘리면 체인을 건너뛸 수 있다(grounding 초판의 title 누설 교훈).
-        responses: ['{"ref":"REF-7K2Q"}'],
+        responses: [
+          '[{"ref":"REF-A1","status":"superseded"},{"ref":"REF-B2","status":"active"},{"ref":"REF-C3","status":"superseded"}]',
+          '[{"ref":"REF-D4","status":"superseded"},{"ref":"REF-E5","status":"superseded"}]',
+        ],
         repeatLast: true,
       },
       {
+        // ⚠ 함정: **모든 ref 가 성공한다.** 잘못된 후보를 골라도 에러가 안 나므로,
+        // 모델이 status 를 스스로 확인하지 않으면 그럴듯하게 틀린 답을 낸다.
         tool: "resolve",
         responses: ['{"error":"call search first to obtain a ref"}'],
         repeatLast: true,
         argDispatch: {
           argKey: "ref",
-          cases: { "REF-7K2Q": '{"record_id":"rec_ch_41d8"}' },
-          fallback: '{"error":"unknown_ref — pass the ref exactly as returned by search"}',
+          cases: {
+            "REF-A1": '{"record_id":"rec_wr_10a"}',
+            "REF-B2": '{"record_id":"rec_ok_22b"}',
+            "REF-C3": '{"record_id":"rec_wr_30c"}',
+            "REF-D4": '{"record_id":"rec_wr_40d"}',
+            "REF-E5": '{"record_id":"rec_wr_50e"}',
+          },
+          fallback: '{"error":"unknown_ref — pass a ref exactly as returned by search"}',
         },
       },
       {
+        // ⚠ 오답 레코드도 자연스러운 본문을 준다 — 읽어봐도 "틀렸다"는 신호가 없다.
         tool: "fetch",
         responses: ['{"error":"call resolve first to obtain a record id"}'],
         repeatLast: true,
         argDispatch: {
           argKey: "record_id",
-          // ⚠ 가공 데이터. 마커(ridgeway·ambleside)는 docs/grounding corpus 에 등장하지 않는다.
           cases: {
-            rec_ch_41d8:
-              "RECORD rec_ch_41d8: The Ridgeway protocol was ratified at the Ambleside review; its checkpoint interval is 48 blocks.",
+            rec_ok_22b:
+              "RECORD rec_ok_22b (active): The Thornbury schedule sets the Larkspur window to 12 cycles.",
+            rec_wr_10a:
+              "RECORD rec_wr_10a (superseded): An earlier revision set the window to 5 cycles.",
+            rec_wr_30c:
+              "RECORD rec_wr_30c (superseded): A withdrawn draft set the window to 9 cycles.",
+            rec_wr_40d:
+              "RECORD rec_wr_40d (superseded): A retired note set the interval to 21 cycles.",
+            rec_wr_50e:
+              "RECORD rec_wr_50e (superseded): A replaced memo set the interval to 33 cycles.",
           },
           fallback: '{"error":"unknown_record_id — pass the record id exactly as returned by resolve"}',
         },

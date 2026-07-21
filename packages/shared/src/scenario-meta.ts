@@ -387,7 +387,10 @@ const AGENT_META: Record<string, ScenarioBenchMeta> = {
       "정체하는지 재현한다.",
     criteriaKo:
       "절제된 모델은 예산 안에 완주(completed), 과사고 모델은 stall + thinking_exhausted_budget. " +
-      "192는 실측으로 확정한 두 모델을 가르는 예산. 채점은 mock_v1 과 동일한 결정론 규칙(정체 시 rubric 0).",
+      "192는 실측으로 확정한 두 모델을 가르는 예산. 결정론 채점(0-3)은 **완주 여부만 본다** — " +
+      "카드 스키마를 갖춰 완주하면 3, 스키마 미완이면 1, 정체·예산소진·파싱 실패면 0. " +
+      "내용 마커·sources 인용은 보지 않는다: 같은 스크립트를 쓰는 mock_v1 이 이미 재고 있어, " +
+      "여기서 또 재면 같은 감점이 시나리오 2개 × 라우트 2개 = 4번 계상돼 총점이 왜곡된다.",
     toolsSummaryKo: "read_document / wiki_search / wiki_read (모두 mock). maxTurns 6, max_tokens 192.",
     routesKo: "chat_completions / messages 공통.",
   },
@@ -430,15 +433,21 @@ const AGENT_META: Record<string, ScenarioBenchMeta> = {
   },
   agent_loop_chain_v1: {
     purposeKo:
-      "3홉 순수 체이닝: search → ref, resolve(ref) → record_id, fetch(record_id) → 유일한 사실. " +
-      "최종 답 {ref, record_id, fact} 이 세 홉의 산출물을 각각 요구하므로 어느 홉을 건너뛰면 그 필드를 채울 수 없다. " +
-      "상위권 천장(서로 다른 두 모델이 공동 1위로 붙던 문제)을 깨려고 추가했다 — 단축을 감점하는 대신 " +
-      "과업 자체를 체인으로 만든 것이다.",
+      "방해 후보 + 기권: 조회 2회를 돌려 각각 후보 중 status=\"active\" 인 하나만 따라가고, " +
+      "active 가 없는 조회(2차)는 기권해야 한다. 핵심은 **잘못된 후보를 골라도 resolve/fetch 가 " +
+      "그럴듯한 본문과 함께 성공을 돌려준다**는 것 — 다른 시나리오처럼 fallback 에러가 오답을 " +
+      "즉시 알려주지 않는다. 초판(3홉 순수 체이닝)은 홉마다 선택지가 1개뿐이라 과업이 " +
+      "\"직전 도구 출력을 옮겨 적기\"로 축소됐고, 실측에서 완주 런이 전부 최소 턴수·만점이라 " +
+      "오히려 변별력을 희석했다. 그래서 스위트 최초로 **틀릴 수 있는 선택지**를 넣었다.",
     criteriaKo:
-      "결정론 채점(0-3): ref·record_id 완전일치 + fact 에 레코드 고유 마커 + fetch 호출이면 3, " +
-      "ref·record_id 는 맞고 fact 가 약하면 2, record_id 부터 틀리거나 fetch 미호출이면 1, ref 부터 틀리면 0. " +
-      "사유 문자열은 hop=N 규격이라 어느 홉에서 끊겼는지 바로 집계된다. corpus 는 가공(fictional)이라 회상 불가.",
-    toolsSummaryKo: "search / resolve(argDispatch: ref) / fetch(argDispatch: record_id) (모두 mock). maxTurns 8, max_tokens 512.",
+      "결정론 채점(0-3): 맞은 항목 수 사다리 — 2/2면 3, 1/2면 2, 0/2(스키마는 유효)면 1, " +
+      "정체·예산소진·JSON 파싱 실패는 0. 항목1은 active 레코드 id 완전일치 + fact 에 그 레코드 고유 마커, " +
+      "항목2는 abstained=true 여야 정답이며 superseded 레코드로 답을 지어내면 오답이다. " +
+      "사유는 select=<판정> abstain=<판정> 규격이라 오답 유형(hallucinated/wrong/abstained)이 바로 집계된다. " +
+      "corpus 는 가공(fictional)이라 회상 불가.",
+    toolsSummaryKo:
+      "search(시퀀스: 1차 후보 3개·2차 후보 2개) / resolve(argDispatch: ref — superseded 도 성공) / " +
+      "fetch(argDispatch: record_id — 오답 레코드도 본문 반환) (모두 mock). maxTurns 8, max_tokens 512.",
     routesKo: "chat_completions / messages 공통.",
   },
 };

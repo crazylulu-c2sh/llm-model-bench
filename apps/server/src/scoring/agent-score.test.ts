@@ -41,10 +41,15 @@ describe("scoreAgentScenario — 대상 판별", () => {
     expect(scoreAgentScenario("vision_table_ocr_a", "{}", ok())).toBeNull();
   });
 
-  it("예산 변종은 본체와 같은 채점기를 쓴다", () => {
-    const a = scoreAgentScenario("agent_loop_mock_v1", json(AES_CARD), ok({ toolArgAttempts: null }));
-    const b = scoreAgentScenario("agent_loop_budget_v1", json(AES_CARD), ok({ toolArgAttempts: null }));
-    expect(b).toEqual(a);
+  // #113 후속: 초판은 budget_v1 → mock_v1 별칭으로 **같은 채점기**를 썼다. 두 시나리오는
+  // max_tokens 만 다르므로 같은 내용 감점이 시나리오 2개 × 라우트 2개 = 4번 계상됐다.
+  it("예산 변종은 본체와 **다른** 채점기를 쓴다(중복 계상 제거)", () => {
+    const thin = { title: "t", summary: "A cipher standard.", sources: ["nothing relevant"] };
+    const mock = scoreAgentScenario("agent_loop_mock_v1", json(thin), ok({ toolArgAttempts: null }));
+    const budget = scoreAgentScenario("agent_loop_budget_v1", json(thin), ok({ toolArgAttempts: null }));
+    // 내용이 얇아 mock 은 감점, budget 은 "예산 안에 완주" 자체가 통과 기준이라 만점.
+    expect(mock?.rubric).toBe(1);
+    expect(budget?.rubric).toBe(3);
   });
 
   // §4 폴백 구멍 봉쇄: judge 를 제거했으므로 채점기가 없는 빌트인은 metrics-only
@@ -75,7 +80,7 @@ describe("공통 규약", () => {
   });
 });
 
-describe("agent_loop_mock_v1 / budget_v1 (AES 카드)", () => {
+describe("agent_loop_mock_v1 (AES 카드)", () => {
   const ctx = ok({ toolArgAttempts: null, toolArgHits: null });
 
   it("마커≥2 + sources 유효 → 3", () => {
@@ -257,62 +262,140 @@ describe("숫자 마커 경계 가드", () => {
   });
 });
 
-// ─── #109 후속: 3홉 체이닝 ─────────────────────────────────────────────────────
-describe("agent_loop_chain_v1 (3홉 순수 체이닝)", () => {
-  const CHAIN_OK = {
-    ref: "REF-7K2Q",
-    record_id: "rec_ch_41d8",
-    fact: "The Ridgeway protocol was ratified at the Ambleside review.",
+// ─── #113 후속: 예산 변종 전용 채점기 ─────────────────────────────────────────
+describe("agent_loop_budget_v1 (완주 여부만)", () => {
+  const ctx = ok({ toolArgAttempts: null, toolArgHits: null });
+
+  it("카드 스키마를 갖춰 완주 → 3", () => {
+    expect(scoreAgentScenario("agent_loop_budget_v1", json(AES_CARD), ctx)?.rubric).toBe(3);
+  });
+
+  it("내용 마커·sources 를 보지 않는다 — mock_v1 이 재는 축을 중복 계상하지 않는다", () => {
+    const noMarkers = { title: "t", summary: "It is a cipher.", sources: ["irrelevant"] };
+    expect(scoreAgentScenario("agent_loop_budget_v1", json(noMarkers), ctx)?.rubric).toBe(3);
+  });
+
+  it("스키마 결손 → 1", () => {
+    const r = scoreAgentScenario("agent_loop_budget_v1", json({ title: "t", summary: "s" }), ctx);
+    expect(r?.rubric).toBe(1);
+  });
+
+  it("예산 소진(정체) → 0 — 이 시나리오가 실제로 재는 것", () => {
+    const r = scoreAgentScenario("agent_loop_budget_v1", json(AES_CARD), {
+      ...ctx,
+      completionReason: "budget_exhausted",
+    });
+    expect(r?.rubric).toBe(0);
+  });
+});
+
+// ─── #113 후속: 방해 후보 + 기권 ───────────────────────────────────────────────
+describe("agent_loop_chain_v1 (방해 후보 + 기권)", () => {
+  const SELECT_OK = {
+    ref: "REF-B2",
+    record_id: "rec_ok_22b",
+    fact: "The Thornbury schedule sets the Larkspur window to 12 cycles.",
   };
+  /** superseded 후보를 따라가 그럴듯하게 지어낸 답(= 함정 발동). */
+  const HALLUCINATED = {
+    ref: "REF-D4",
+    record_id: "rec_wr_40d",
+    fact: "A retired note set the interval to 21 cycles.",
+  };
+  const ABSTAIN = { abstained: true };
+  const results = (a: unknown, b: unknown) => json({ results: [a, b] });
+
   const ctx = (fetches: number | null): AgentScoreContext => ({
     completionReason: "completed",
     toolArgAttempts: 2,
     toolArgHits: 2,
-    ...(fetches == null ? {} : { toolCallCounts: { search: 1, resolve: 1, fetch: fetches } }),
+    ...(fetches == null ? {} : { toolCallCounts: { search: 2, resolve: 1, fetch: fetches } }),
   });
 
-  it("세 홉 모두 통과 → 3, reason 은 hop=3 ok", () => {
-    const r = scoreAgentScenario("agent_loop_chain_v1", json(CHAIN_OK), ctx(1));
+  it("2/2 (active 선택 + 기권) → 3", () => {
+    const r = scoreAgentScenario("agent_loop_chain_v1", results(SELECT_OK, ABSTAIN), ctx(1));
     expect(r?.rubric).toBe(3);
-    expect(r?.reason).toContain("hop=3 ok");
+    expect(r?.reason).toContain("select=ok abstain=ok");
   });
 
-  it("hop3 미도달(fetch 0회) → rubric 1 캡", () => {
-    const r = scoreAgentScenario("agent_loop_chain_v1", json(CHAIN_OK), ctx(0));
-    expect(r?.rubric).toBe(1);
-    expect(r?.reason).toContain("hop=3 fetch not called");
-  });
-
-  it("hop1 ref 환각 → 0", () => {
-    const r = scoreAgentScenario("agent_loop_chain_v1", json({ ...CHAIN_OK, ref: "REF-XXXX" }), ctx(1));
-    expect(r?.rubric).toBe(0);
-    expect(r?.reason).toContain("hop=1 ref mismatch");
-  });
-
-  it("hop2 record_id 절단 → 1", () => {
-    const r = scoreAgentScenario("agent_loop_chain_v1", json({ ...CHAIN_OK, record_id: "rec_ch" }), ctx(1));
-    expect(r?.rubric).toBe(1);
-    expect(r?.reason).toContain("hop=2 record_id mismatch");
-  });
-
-  it("hop3 fact 가 약함(홉3 정보 미반영) → 2", () => {
-    const vague = { ...CHAIN_OK, fact: "A protocol was ratified at a review." };
-    const r = scoreAgentScenario("agent_loop_chain_v1", json(vague), ctx(1));
+  // 이 스위트가 처음으로 잡을 수 있게 된 실패 유형 — 이전 6종은 "답을 못 냄"만 잡았다.
+  it("기권해야 할 조회에서 superseded 레코드로 답을 지어냄 → 1/2 + hallucinated", () => {
+    const r = scoreAgentScenario("agent_loop_chain_v1", results(SELECT_OK, HALLUCINATED), ctx(2));
     expect(r?.rubric).toBe(2);
-    expect(r?.reason).toContain("hop=3 fact weak");
+    expect(r?.reason).toContain("abstain=hallucinated");
   });
 
-  it("스키마 결손 → 1 (hop=0)", () => {
-    const r = scoreAgentScenario("agent_loop_chain_v1", json({ ref: "REF-7K2Q" }), ctx(1));
+  it("방해 후보를 골라 선택도 틀림 → 0/2", () => {
+    const wrongPick = {
+      ref: "REF-A1",
+      record_id: "rec_wr_10a",
+      fact: "An earlier revision set the window to 5 cycles.",
+    };
+    const r = scoreAgentScenario("agent_loop_chain_v1", results(wrongPick, HALLUCINATED), ctx(2));
     expect(r?.rubric).toBe(1);
-    expect(r?.reason).toContain("hop=0");
+    expect(r?.reason).toContain("select=hallucinated abstain=hallucinated");
+  });
+
+  it("active 후보가 있는데 기권 → 오답(과소신뢰)", () => {
+    const r = scoreAgentScenario("agent_loop_chain_v1", results(ABSTAIN, ABSTAIN), ctx(1));
+    expect(r?.rubric).toBe(2);
+    expect(r?.reason).toContain("select=abstained");
+  });
+
+  it("record_id 는 맞지만 fact 가 레코드 내용을 안 담으면 오답(회상으로 채운 경우)", () => {
+    const vague = { ...SELECT_OK, fact: "A schedule sets a window." };
+    const r = scoreAgentScenario("agent_loop_chain_v1", results(vague, ABSTAIN), ctx(1));
+    expect(r?.rubric).toBe(2);
+    expect(r?.reason).toContain("select=wrong");
+  });
+
+  it("results[] 결손/개수 불일치 → 1", () => {
+    expect(scoreAgentScenario("agent_loop_chain_v1", json(SELECT_OK), ctx(1))?.rubric).toBe(1);
+    const one = scoreAgentScenario("agent_loop_chain_v1", json({ results: [SELECT_OK] }), ctx(1));
+    expect(one?.rubric).toBe(1);
+    expect(one?.reason).toContain("expected 2");
+  });
+
+  it("fetch 미호출 → rubric 1 캡(근거 없는 답)", () => {
+    const r = scoreAgentScenario("agent_loop_chain_v1", results(SELECT_OK, ABSTAIN), ctx(0));
+    expect(r?.rubric).toBe(1);
+    expect(r?.reason).toContain("ungrounded");
+  });
+
+  it("카운터 부재(레거시 런)에는 캡을 적용하지 않는다", () => {
+    expect(scoreAgentScenario("agent_loop_chain_v1", results(SELECT_OK, ABSTAIN), ctx(null))?.rubric).toBe(3);
   });
 
   it("정체는 본문 무관 0", () => {
-    const r = scoreAgentScenario("agent_loop_chain_v1", json(CHAIN_OK), {
+    const r = scoreAgentScenario("agent_loop_chain_v1", results(SELECT_OK, ABSTAIN), {
       ...ctx(1),
       completionReason: "stall",
     });
     expect(r?.rubric).toBe(0);
+  });
+
+  /**
+   * 초판 사다리는 **비단조**였다: `ref` 불일치 = 0, 스키마 미완 = 1 — 정답 필드를 하나 더
+   * 채우면 점수가 내려갔다(실측에서 한 모델이 이 경로로 위로 오채점됐다). 신판은 "맞은 항목 수"
+   * 사다리라 구조적으로 불가능하지만, 회귀를 여기서 고정한다.
+   */
+  it("단조성: 답을 더 정확하게 만들수록 점수가 내려가지 않는다", () => {
+    const rubricOf = (a: unknown, b: unknown) =>
+      scoreAgentScenario("agent_loop_chain_v1", results(a, b), ctx(2))!.rubric;
+    // 같은 항목2(기권 성공)를 두고 항목1 을 점점 정확하게 채워 간다.
+    const ladder = [
+      {},                                              // 빈 항목
+      { ref: "REF-B2" },                               // ref 만
+      { ref: "REF-B2", record_id: "rec_ok_22b" },      // + record_id
+      SELECT_OK,                                       // + fact
+    ];
+    const scores = ladder.map((item) => rubricOf(item, ABSTAIN));
+    for (let i = 1; i < scores.length; i += 1) {
+      expect(scores[i], `단계 ${i} 에서 점수 하락: ${scores.join(" → ")}`).toBeGreaterThanOrEqual(
+        scores[i - 1]!,
+      );
+    }
+    // 항목2 도 마찬가지: 지어낸 답 → 기권으로 고치면 올라가야 한다.
+    expect(rubricOf(SELECT_OK, ABSTAIN)).toBeGreaterThan(rubricOf(SELECT_OK, HALLUCINATED));
   });
 });

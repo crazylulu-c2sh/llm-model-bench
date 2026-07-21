@@ -462,29 +462,51 @@ describe("agent_loop_error_v1 happy path (#108 후속)", () => {
   });
 });
 
-// #109 후속: 3홉 체인 mock 배선 회귀 가드 — 각 홉의 산출물이 다음 홉으로 실제 전달되는지.
-describe("agent_loop_chain_v1 happy path (#109 후속)", () => {
-  it("search → resolve(ref) → fetch(record_id) → 최종, 각 홉 결과가 되먹여진다", async () => {
+// #113 후속: 방해 후보 + 기권 mock 배선 회귀 가드 — 이 시나리오의 성질은 "오답도 성공한다"이므로
+// 배선이 무너지면(오답에 에러가 나면) 조용히 예전의 "틀릴 수 없는 구조"로 돌아간다.
+describe("agent_loop_chain_v1 방해 후보 + 기권 (#113 후속)", () => {
+  it("1차 search 는 후보 3개, 2차는 전부 superseded — 시퀀스가 조회 순서대로 나온다", async () => {
     const { fetchImpl, bodies } = queueFetch([
-      oaToolCall("search", '{"topic":"ratification"}'),
-      oaToolCall("resolve", '{"ref":"REF-7K2Q"}'),
-      oaToolCall("fetch", '{"record_id":"rec_ch_41d8"}'),
-      oaText('{"ref":"REF-7K2Q","record_id":"rec_ch_41d8","fact":"Ridgeway ratified at Ambleside."}'),
+      oaToolCall("search", '{"topic":"first"}'),
+      oaToolCall("resolve", '{"ref":"REF-B2"}'),
+      oaToolCall("fetch", '{"record_id":"rec_ok_22b"}'),
+      oaToolCall("search", '{"topic":"second"}'),
+      oaText('{"results":[{"ref":"REF-B2","record_id":"rec_ok_22b","fact":"Thornbury / Larkspur 12 cycles."},{"abstained":true}]}'),
     ]);
     const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: AGENT_LOOP_CHAIN_V1 }));
     expect(result.metrics.completion_reason).toBe("completed");
-    expect(result.metrics.tool_call_counts).toEqual({ search: 1, resolve: 1, fetch: 1 });
-    // hop1 결과(ref)가 2번째 요청에, hop2 결과(record_id)가 3번째에, hop3 본문이 4번째에 들어간다.
-    expect(JSON.stringify(bodies[1]!.messages)).toContain("REF-7K2Q");
-    expect(JSON.stringify(bodies[2]!.messages)).toContain("rec_ch_41d8");
-    expect(JSON.stringify(bodies[3]!.messages)).toContain("Ridgeway");
+    expect(result.metrics.tool_call_counts).toEqual({ search: 2, resolve: 1, fetch: 1 });
+    // hop 결과가 되먹여진다: 1차 후보 → record_id → 본문 → 2차 후보(active 없음).
+    expect(JSON.stringify(bodies[1]!.messages)).toContain("REF-B2");
+    expect(JSON.stringify(bodies[2]!.messages)).toContain("rec_ok_22b");
+    expect(JSON.stringify(bodies[3]!.messages)).toContain("Thornbury");
+    const afterSecondSearch = JSON.stringify(bodies[4]!.messages);
+    expect(afterSecondSearch).toContain("REF-D4");
+    expect(afterSecondSearch).not.toContain('"status":"active"');
   });
 
-  it("ref 를 틀리게 넘기면 fallback 에러가 오고 체인이 끊긴다", async () => {
+  /** 이 시나리오의 핵심 함정 — 다른 시나리오와 달리 오답 인자에 안전망(fallback 에러)이 없다. */
+  it("superseded ref 를 넘겨도 resolve·fetch 가 성공한다(그럴듯한 오답이 가능)", async () => {
     const { fetchImpl, bodies } = queueFetch([
       oaToolCall("search", '{"topic":"x"}'),
-      oaToolCall("resolve", '{"ref":"REF-WRONG"}'),
-      oaText('{"ref":"REF-WRONG","record_id":"?","fact":"?"}'),
+      oaToolCall("resolve", '{"ref":"REF-A1"}'),
+      oaToolCall("fetch", '{"record_id":"rec_wr_10a"}'),
+      oaText('{"results":[{"ref":"REF-A1","record_id":"rec_wr_10a","fact":"5 cycles."},{"abstained":true}]}'),
+    ]);
+    await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: AGENT_LOOP_CHAIN_V1 }));
+    const afterResolve = JSON.stringify(bodies[2]!.messages);
+    expect(afterResolve).toContain("rec_wr_10a");
+    expect(afterResolve).not.toContain("unknown_ref");
+    const afterFetch = JSON.stringify(bodies[3]!.messages);
+    expect(afterFetch).toContain("superseded");
+    expect(afterFetch).not.toContain("unknown_record_id");
+  });
+
+  it("존재하지 않는 ref 는 여전히 fallback 에러(오타·환각은 걸린다)", async () => {
+    const { fetchImpl, bodies } = queueFetch([
+      oaToolCall("search", '{"topic":"x"}'),
+      oaToolCall("resolve", '{"ref":"REF-ZZ"}'),
+      oaText('{"results":[{"abstained":true},{"abstained":true}]}'),
     ]);
     await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: AGENT_LOOP_CHAIN_V1 }));
     expect(JSON.stringify(bodies[2]!.messages)).toContain("unknown_ref");

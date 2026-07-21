@@ -102,16 +102,25 @@ export const AGENT_AES_GROUND_TRUTH = {
 } as const;
 
 /**
- * #109 후속: `agent_loop_chain_v1` — 3홉 체인의 각 홉 산출물. 최종 답이 셋을 모두 요구하므로
- * 어느 홉을 건너뛰면 그 필드를 채울 수 없다. 마커는 docs/grounding corpus 와 겹치지 않는다.
+ * #110 후속: `agent_loop_chain_v1` — **방해 후보 + 기권**.
+ *
+ * 1차 조회는 후보 3개 중 `status:"active"` 하나(REF-B2)만 정답이고, 2차 조회는 후보가 전부
+ * superseded 라 **기권**해야 한다. 함정은 `resolve`/`fetch` 가 **오답 후보에도 성공을 돌려준다**는
+ * 것 — fallback 에러라는 안전망이 없어 "그럴듯하지만 틀린 답"이 처음으로 가능해진다.
+ *
+ * 마커는 docs/grounding 및 초판 chain 과 겹치지 않는다(배타성 drift 테스트가 고정).
  */
 export const AGENT_CHAIN_GROUND_TRUTH = {
-  /** hop1 산출 — search 가 준다. */
-  ref: "REF-7K2Q",
-  /** hop2 산출 — resolve(ref) 가 준다. */
-  recordId: "rec_ch_41d8",
-  /** hop3 고유 사실 — fetch(record_id) 로만 알 수 있다. */
-  factMarkers: ["ridgeway", "ambleside"] as const,
+  /** 1차 조회의 유일한 active 후보. */
+  activeRef: "REF-B2",
+  /** 그 후보의 record id. */
+  activeRecordId: "rec_ok_22b",
+  /** active 레코드 본문에만 있는 마커. */
+  factMarkers: ["thornbury", "larkspur"] as const,
+  /** 오답(superseded) 레코드 id — 이걸 답으로 내면 환각(잘못된 후보 선택). */
+  supersededRecordIds: ["rec_wr_10a", "rec_wr_30c", "rec_wr_40d", "rec_wr_50e"] as const,
+  /** 오답(superseded) ref — record_id 를 안 싣고 ref 만 실은 답의 환각 판정용. */
+  supersededRefs: ["REF-A1", "REF-C3", "REF-D4", "REF-E5"] as const,
 } as const;
 
 /**
@@ -147,5 +156,5 @@ export const AGENT_EXPECTED_TOOL_CALLS: Record<string, number> = {
   agent_loop_error_v1: 4,
   agent_loop_docs_v1: 4,
   agent_loop_grounding_v1: 3,
-  agent_loop_chain_v1: 3,
+  agent_loop_chain_v1: 4,
 };

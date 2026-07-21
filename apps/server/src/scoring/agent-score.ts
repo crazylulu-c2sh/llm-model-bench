@@ -67,20 +67,20 @@ function nonEmptyString(v: unknown): v is string {
 }
 
 /**
- * 예산 변종은 본체와 스크립트가 같으므로 같은 채점기를 쓴다.
- *
- * (docs 예산 변종은 실측 결과 도입하지 않았다 — max_tokens 384→160 6개 값 전부에서
- * `google/gemma-4-26b-a4b-qat` 가 정체 없이 완주했다. 이 모델의 과사고는 **과업 의존적**이라
- * 짧은 AES 카드에서는 예산을 사고로 태우지만 멀티문서 다이제스트에서는 내용을 바로 낸다.)
+ * `toolCallCounts` 는 **호출된 도구만** key 로 넣는다(`agent-loop.ts` 의 `if (matched) …set`).
+ * 따라서 `counts?.foo ?? null` 은 미호출과 레거시(카운터 필드 자체 없음)를 구분하지 못해
+ * `=== 0` 가드가 영원히 죽는다(#113 후속에서 실증). 여기서 둘을 분리한다:
+ * - 카운터 객체가 있으면 키 부재 = **미호출 0**
+ * - 카운터 객체가 없으면(레거시 런) `null` = 판정 불가 → 캡 미적용
  */
-function baseScenarioId(id: string): string {
-  if (id === "agent_loop_budget_v1") return "agent_loop_mock_v1";
-  return id;
+function callCount(counts: Record<string, number> | null | undefined, tool: string): number | null {
+  if (!counts) return null;
+  return counts[tool] ?? 0;
 }
 
 // ─── 시나리오별 채점기 ─────────────────────────────────────────────────────────
 
-/** `{title, summary, sources[]}` AES 카드 — mock_v1 / budget_v1. */
+/** `{title, summary, sources[]}` AES 카드 — mock_v1. */
 function scoreAesCard(o: Obj): AgentRubric {
   const sources = o.sources;
   if (!nonEmptyString(o.title) || !nonEmptyString(o.summary) || !Array.isArray(sources)) {
@@ -104,6 +104,25 @@ function scoreAesCard(o: Obj): AgentRubric {
 }
 
 /**
+ * 예산 변종 — budget_v1. **완주 여부만 본다.**
+ *
+ * 초판은 `mock_v1` 채점기를 그대로 재사용했다(`baseScenarioId` 별칭). 두 시나리오는 `max_tokens`
+ * 640→192 만 다르므로 **같은 내용 감점이 시나리오 2개 × 라우트 2개 = 4번 계상**됐고, 한 모델의
+ * 총점이 사실상 `sources[]` 인용 형식 하나로 결정되는 왜곡이 생겼다.
+ *
+ * 이 시나리오의 목적은 #101 회귀 가드 — **과사고 모델이 좁은 예산 하에서 정체하는가**이다.
+ * 그건 `completionReason`(래퍼가 stall/budget_exhausted → 0) 과 카드 스키마 충족 여부로 충분하다.
+ * 내용 마커·인용 형식 검사는 같은 스크립트를 쓰는 `mock_v1` 이 이미 재고 있으므로 여기선 보지 않는다.
+ */
+function scoreBudgetCard(o: Obj): AgentRubric {
+  const sources = o.sources;
+  if (!nonEmptyString(o.title) || !nonEmptyString(o.summary) || !Array.isArray(sources)) {
+    return { rubric: 1, reason: "agent_det: schema incomplete under budget" };
+  }
+  return { rubric: 3, reason: "agent_det: completed under budget (card schema ok)" };
+}
+
+/**
  * `{title, summary, sources[], retried}` 에러 복구 카드 — error_v1.
  *
  * #108 후속: `retried` 를 **자기신고가 아니라 실측**으로 판정한다. retryable 에러가
@@ -116,7 +135,7 @@ function scoreAesCard(o: Obj): AgentRubric {
  * 이 PR 이 고치고 있는 바로 그 거짓 음성을 하나 더 만드는 셈이다.
  */
 function scoreErrorCard(o: Obj, ctx: AgentScoreContext): AgentRubric {
-  const reads = ctx.toolCallCounts?.read_document ?? null;
+  const reads = callCount(ctx.toolCallCounts, "read_document");
   // 도구를 아예 안 부르고 환각으로 완주 → 시나리오 미발동. docs/grounding 의 ungrounded 캡과 동일.
   if (reads === 0) {
     return { rubric: 1, reason: "agent_det: no read_document call — ungrounded" };
@@ -243,36 +262,91 @@ function scoreGrounding(o: Obj, ctx: AgentScoreContext): AgentRubric {
   return { rubric: 1, reason: `agent_det: ids ${idHits}/2 facts ${factHits}/2` };
 }
 
+/** chain 항목 판정 라벨 — reason 문자열 규격이자 재측정 스크립트의 집계 키. */
+type ChainVerdict = "ok" | "hallucinated" | "wrong" | "abstained" | "missing";
+
+function chainItemObj(v: unknown): Obj | null {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Obj) : null;
+}
+
+/** 답이 superseded(오답) 후보를 따라간 흔적인가 — record_id 든 ref 든 하나만 걸리면 환각. */
+function followedSuperseded(item: Obj): boolean {
+  const rid = lc(item.record_id).trim();
+  const ref = lc(item.ref).trim();
+  return (
+    AGENT_CHAIN_GROUND_TRUTH.supersededRecordIds.some((x) => rid === x.toLowerCase()) ||
+    AGENT_CHAIN_GROUND_TRUTH.supersededRefs.some((x) => ref === x.toLowerCase())
+  );
+}
+
 /**
- * `{ref, record_id, fact}` 3홉 체인 — chain_v1.
+ * `{results:[선택항목, 기권항목]}` — chain_v1 (**방해 후보 + 기권**).
  *
- * 최종 답이 세 홉의 산출물을 각각 요구하므로, 어느 홉을 건너뛰면 그 필드를 채울 수 없다.
- * reason 은 **`hop=N` 규격으로 고정**한다 — 재측정 스크립트가 "어디서 끊겼는지"를 바로 집계한다.
+ * 초판(3홉 순수 체이닝)의 사다리는 **비단조**였다: `ref` 불일치는 0, 스키마 미완은 1 —
+ * 즉 정답 필드를 하나 더 채우면 점수가 내려갔다(실측에서 한 모델이 이 경로로 위로 오채점됐다).
+ * 여기서는 **맞은 항목 수**만으로 사다리를 만들어 그 클래스의 버그를 구조적으로 없앤다.
+ *
+ * - 항목1(선택): active 후보의 `record_id` 완전일치 + `fact` 에 그 레코드 고유 마커 → 정답.
+ *   `ref` 는 **판정하지 않는다**(초판 비단조의 진원지이자, 정답을 가리키는 필드가 이미 둘 있다).
+ * - 항목2(기권): `abstained === true` → 정답. superseded 레코드를 읽고 답을 지어내면 `hallucinated`.
+ *
+ * reason 규격: `agent_det: select=<verdict> abstain=<verdict> correct=N/2`.
  */
 function scoreChain(o: Obj, ctx: AgentScoreContext): AgentRubric {
-  const fetches = ctx.toolCallCounts?.fetch ?? null;
-  // 마지막 홉 미도달 = 체인 미완성. docs/grounding 의 ungrounded 캡과 같은 패턴.
-  if (fetches === 0) {
-    return { rubric: 1, reason: "agent_det: hop=3 fetch not called — ungrounded" };
+  const results = o.results;
+  if (!Array.isArray(results) || results.length !== 2) {
+    const n = Array.isArray(results) ? `len=${results.length}` : "missing";
+    return { rubric: 1, reason: `agent_det: results[] ${n} (expected 2)` };
   }
-  if (!nonEmptyString(o.ref) || !nonEmptyString(o.record_id) || !nonEmptyString(o.fact)) {
-    return { rubric: 1, reason: "agent_det: hop=0 schema incomplete" };
+
+  // ── 항목1: 유일한 active 후보를 골랐는가 ──────────────────────────────────
+  const first = chainItemObj(results[0]);
+  let select: ChainVerdict;
+  if (!first) {
+    select = "missing";
+  } else if (first.abstained === true) {
+    // active 후보가 실재하는 조회에서 기권 = 과소신뢰 오답.
+    select = "abstained";
+  } else if (
+    lc(first.record_id).trim() === AGENT_CHAIN_GROUND_TRUTH.activeRecordId &&
+    AGENT_CHAIN_GROUND_TRUTH.factMarkers.some((m) => hasToken(lc(first.fact), m))
+  ) {
+    select = "ok";
+  } else if (followedSuperseded(first)) {
+    select = "hallucinated";
+  } else {
+    select = "wrong";
   }
-  // 불투명 토큰이라 완전일치만 인정(절단·환각 탐지).
-  if (o.ref.trim() !== AGENT_CHAIN_GROUND_TRUTH.ref) {
-    return { rubric: 0, reason: `agent_det: hop=1 ref mismatch (${o.ref.slice(0, 24)})` };
+
+  // ── 항목2: active 후보가 없으니 기권했는가 ────────────────────────────────
+  const second = chainItemObj(results[1]);
+  let abstain: ChainVerdict;
+  if (!second) {
+    abstain = "missing";
+  } else if (second.abstained === true) {
+    abstain = "ok";
+  } else if (followedSuperseded(second)) {
+    // 함정 발동: resolve/fetch 가 성공을 돌려주니 그럴듯한 오답이 만들어진다.
+    abstain = "hallucinated";
+  } else {
+    abstain = "wrong";
   }
-  if (o.record_id.trim() !== AGENT_CHAIN_GROUND_TRUTH.recordId) {
-    return { rubric: 1, reason: `agent_det: hop=2 record_id mismatch (${o.record_id.slice(0, 24)})` };
+
+  const correct = (select === "ok" ? 1 : 0) + (abstain === "ok" ? 1 : 0);
+  const reason = `agent_det: select=${select} abstain=${abstain} correct=${correct}/2`;
+
+  // 마지막 홉 미도달 = 근거 없이 낸 답. 카운터가 없는 레거시 런에는 적용하지 않는다.
+  if (callCount(ctx.toolCallCounts, "fetch") === 0) {
+    return { rubric: 1, reason: `${reason} (fetch not called — ungrounded)` };
   }
-  const fact = lc(o.fact);
-  const factOk = AGENT_CHAIN_GROUND_TRUTH.factMarkers.some((m) => hasToken(fact, m));
-  if (!factOk) return { rubric: 2, reason: "agent_det: hop=3 fact weak" };
-  return { rubric: 3, reason: `agent_det: hop=3 ok (chain complete, fetch ×${fetches ?? "n/a"})` };
+  if (correct === 2) return { rubric: 3, reason };
+  if (correct === 1) return { rubric: 2, reason };
+  return { rubric: 1, reason };
 }
 
 const SCORERS: Record<string, (o: Obj, ctx: AgentScoreContext) => AgentRubric> = {
   agent_loop_mock_v1: (o) => scoreAesCard(o),
+  agent_loop_budget_v1: (o) => scoreBudgetCard(o),
   agent_loop_error_v1: scoreErrorCard,
   agent_loop_docs_v1: scoreDocsDigest,
   agent_loop_grounding_v1: scoreGrounding,
@@ -281,7 +355,7 @@ const SCORERS: Record<string, (o: Obj, ctx: AgentScoreContext) => AgentRubric> =
 
 /** 이 시나리오에 결정론 채점기가 있는가(가드 테스트가 BUILTIN_AGENT_LOOP_IDS 전수 검사에 사용). */
 export function hasAgentScorer(id: string): boolean {
-  return Object.prototype.hasOwnProperty.call(SCORERS, baseScenarioId(id));
+  return Object.prototype.hasOwnProperty.call(SCORERS, id);
 }
 
 /**
@@ -294,7 +368,7 @@ export function scoreAgentScenario(
   output: string,
   ctx?: AgentScoreContext,
 ): AgentRubric | null {
-  const scorer = SCORERS[baseScenarioId(id)];
+  const scorer = SCORERS[id];
   if (!scorer) return null;
 
   const reason = ctx?.completionReason;
