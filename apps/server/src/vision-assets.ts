@@ -75,6 +75,7 @@ export function buildImagePart(
   id: ScenarioId,
   origin: string,
   route: "openai",
+  opts?: { rawBase64?: boolean },
 ): OpenAiImagePart;
 export function buildImagePart(
   id: ScenarioId,
@@ -85,16 +86,17 @@ export function buildImagePart(
   id: ScenarioId,
   origin: string,
   route: "openai" | "anthropic",
+  opts?: { rawBase64?: boolean },
 ): OpenAiImagePart | AnthropicImagePart {
   const delivery = chooseImageDelivery(origin);
   const asset = loadVisionImageBytes(id);
   if (delivery === "base64") {
     const data = asset.bytes.toString("base64");
     if (route === "openai") {
-      return {
-        type: "image_url",
-        image_url: { url: `data:${asset.mediaType};base64,${data}` },
-      };
+      const url = opts?.rawBase64
+        ? data
+        : `data:${asset.mediaType};base64,${data}`;
+      return { type: "image_url", image_url: { url } };
     }
     return {
       type: "image",

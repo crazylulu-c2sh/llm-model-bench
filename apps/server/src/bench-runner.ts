@@ -3,6 +3,7 @@ import type {
   BenchTaskMode,
   DetectResult,
   FitPolicy,
+  ProviderKind,
   StreamEvent,
   SystemSnapshot,
   ThinkingIntent,
@@ -411,6 +412,7 @@ function prepareOpenAiMessages(
     publicAssetsOrigin?: string;
     referenceAt: Date;
     calendarTimeZone: string;
+    providerKind?: ProviderKind;
   },
   scenarioMeta: BenchRunMeta,
 ): {
@@ -767,6 +769,7 @@ export async function* runBench(
             publicAssetsOrigin: assetOrigin,
             referenceAt: ref,
             calendarTimeZone: DEFAULT_CALENDAR_TIMEZONE,
+            providerKind: input.provider,
           };
           const scenarioMeta = makeScenarioBenchRunMeta(
             input,
