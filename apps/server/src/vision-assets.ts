@@ -88,7 +88,8 @@ export function buildImagePart(
   route: "openai" | "anthropic",
   opts?: { rawBase64?: boolean },
 ): OpenAiImagePart | AnthropicImagePart {
-  const delivery = chooseImageDelivery(origin);
+  // rawBase64: true → 네트워크 구성과 무관하게 항상 base64 인라인 강제
+  const delivery = opts?.rawBase64 ? "base64" : chooseImageDelivery(origin);
   const asset = loadVisionImageBytes(id);
   if (delivery === "base64") {
     const data = asset.bytes.toString("base64");
