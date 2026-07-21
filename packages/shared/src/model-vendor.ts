@@ -15,6 +15,7 @@ export type VendorKey =
   | "lg"
   | "zhipu"
   | "minimax"
+  | "unsloth"
   | "unknown";
 
 /**
@@ -28,6 +29,7 @@ const VENDOR_RULES: ReadonlyArray<readonly [VendorKey, RegExp]> = [
   ["openai", /gpt[-_]?oss/],
   ["nvidia", /(^|[/_-])nvidia\//],
   ["nvidia", /nemotron/],
+  ["unsloth", /(^|[/_-])unsloth\//],
   ["minimax", /minimax/],
   ["deepseek", /deepseek/],
   ["zhipu", /(chat)?glm/],
@@ -75,7 +77,10 @@ export function cleanModelDisplayName(modelId: string): string {
   const original = modelId.trim();
   let s = original.replace(HOST_PREFIX, "");
   const slash = s.lastIndexOf("/");
-  if (slash >= 0) s = s.slice(slash + 1); // org/ 네임스페이스 제거
+  if (slash >= 0) {
+    const ns = s.slice(0, slash).toLowerCase();
+    if (ns !== "unsloth") s = s.slice(slash + 1); // org/ 네임스페이스 제거 (파인튜너는 보존)
+  }
   const at = s.indexOf("@");
   if (at >= 0) s = s.slice(0, at); // @q4_k_m 등
   const colon = s.lastIndexOf(":");

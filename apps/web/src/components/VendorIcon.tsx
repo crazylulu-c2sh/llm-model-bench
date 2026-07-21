@@ -40,6 +40,7 @@ export const VENDOR_BRAND: Record<VendorKey, Brand> = {
   lg: { label: "EXAONE", color: "#A50034", path: null },
   zhipu: { label: "GLM", color: "#3859FF", path: null },
   minimax: { label: "MiniMax", color: "#E1341E", path: null },
+  unsloth: { label: "Unsloth", color: "#F97316", path: null },
   unknown: { label: "기타", color: "var(--muted)", path: null },
 };
 
