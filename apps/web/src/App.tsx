@@ -26,7 +26,6 @@ import {
   Eye,
   History,
   KeyRound,
-  Layers,
   Link2,
   Loader2,
   MessageSquare,
@@ -1523,45 +1522,58 @@ export function App() {
             {scenarioPickerOpen ? (
               <div className="mt-2 space-y-3">
                 <div className="flex flex-wrap gap-2 text-xs">
+                  {(() => {
+                    const allDefaultSelected = DEFAULT_SCENARIO_IDS.every(id => selectedScenarioIds.includes(id));
+                    const allVisionSelected = VISION_SCENARIO_IDS.every(id => selectedScenarioIds.includes(id));
+                    const allAgentSelected = agentScenarioIds.length > 0 && agentScenarioIds.every(id => selectedScenarioIds.includes(id));
+                    return (
+                      <>
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
-                    onClick={() => setSelectedScenarioIds([...DEFAULT_SCENARIO_IDS])}
-                    title="기존 텍스트 8개만 실행"
+                    onClick={() => {
+                      if (allDefaultSelected) {
+                        setSelectedScenarioIds(prev => prev.filter(id => !(DEFAULT_SCENARIO_IDS as string[]).includes(id)));
+                      } else {
+                        setSelectedScenarioIds(prev => [...new Set([...prev, ...DEFAULT_SCENARIO_IDS])]);
+                      }
+                    }}
+                    title="텍스트 시나리오 8개 토글"
                   >
                     <MessageSquare className="size-3" aria-hidden />
-                    기본 (텍스트 8개)
+                    텍스트 ({DEFAULT_SCENARIO_IDS.length}개)
                   </button>
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
-                    onClick={() =>
-                      setSelectedScenarioIds([...DEFAULT_SCENARIO_IDS, ...VISION_SCENARIO_IDS])
-                    }
-                    title="처음 실행하는 모델용: 텍스트 8 + 비전 10 = 18개 시나리오"
-                  >
-                    <Layers className="size-3" aria-hidden />
-                    텍스트+비전 (18개)
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
-                    onClick={() => setSelectedScenarioIds([...VISION_SCENARIO_IDS])}
-                    title="이미 텍스트 벤치 완료한 모델에 비전 10개만 추가로 실행"
+                    onClick={() => {
+                      if (allVisionSelected) {
+                        setSelectedScenarioIds(prev => prev.filter(id => !(VISION_SCENARIO_IDS as string[]).includes(id)));
+                      } else {
+                        setSelectedScenarioIds(prev => [...new Set([...prev, ...VISION_SCENARIO_IDS])]);
+                      }
+                    }}
+                    title="비전 시나리오 10개 토글"
                   >
                     <Eye className="size-3" aria-hidden />
-                    비전만 (10개)
+                    비전 ({VISION_SCENARIO_IDS.length}개)
                   </button>
                   {agentScenarioIds.length > 0 ? (
                     <>
                       <button
                         type="button"
                         className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
-                        onClick={() => setSelectedScenarioIds([...agentScenarioIds])}
-                        title="멀티턴 에이전트 시나리오만 실행 (완료율·처리량·도구 규율)"
+                        onClick={() => {
+                          if (allAgentSelected) {
+                            setSelectedScenarioIds(prev => prev.filter(id => !agentScenarioIds.includes(id)));
+                          } else {
+                            setSelectedScenarioIds(prev => [...new Set([...prev, ...agentScenarioIds])]);
+                          }
+                        }}
+                        title="에이전트 시나리오 토글"
                       >
                         <Bot className="size-3" aria-hidden />
-                        에이전트만 ({agentScenarioIds.length}개)
+                        에이전트 ({agentScenarioIds.length}개)
                       </button>
                       <button
                         type="button"
@@ -1588,6 +1600,9 @@ export function App() {
                     <Square className="size-3" aria-hidden />
                     모두 해제
                   </button>
+                      </>
+                    );
+                  })()}
                 </div>
                 <div>
                   <div className="mb-1 text-xs font-semibold text-[var(--foreground)]">텍스트 시나리오</div>
