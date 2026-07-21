@@ -75,7 +75,7 @@ export function buildImagePart(
   id: ScenarioId,
   origin: string,
   route: "openai",
-  opts?: { rawBase64?: boolean },
+  opts?: { forceInline?: boolean },
 ): OpenAiImagePart;
 export function buildImagePart(
   id: ScenarioId,
@@ -86,18 +86,18 @@ export function buildImagePart(
   id: ScenarioId,
   origin: string,
   route: "openai" | "anthropic",
-  opts?: { rawBase64?: boolean },
+  opts?: { forceInline?: boolean },
 ): OpenAiImagePart | AnthropicImagePart {
-  // rawBase64: true → 네트워크 구성과 무관하게 항상 base64 인라인 강제
-  const delivery = opts?.rawBase64 ? "base64" : chooseImageDelivery(origin);
+  // forceInline: true → 네트워크 구성과 무관하게 항상 base64 인라인 강제
+  const delivery = opts?.forceInline ? "base64" : chooseImageDelivery(origin);
   const asset = loadVisionImageBytes(id);
   if (delivery === "base64") {
     const data = asset.bytes.toString("base64");
     if (route === "openai") {
-      const url = opts?.rawBase64
-        ? data
-        : `data:${asset.mediaType};base64,${data}`;
-      return { type: "image_url", image_url: { url } };
+      return {
+        type: "image_url",
+        image_url: { url: `data:${asset.mediaType};base64,${data}` },
+      };
     }
     return {
       type: "image",
