@@ -116,6 +116,14 @@ test.describe("axe: 라이트 테마", () => {
 
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("llm-bench-theme", "light"));
+    // 백엔드 없이 실행되는 CI 환경에서 API 프록시 오류로 에러 토스트가 렌더링되면
+    // 라이트 테마에서 sonner data-title 요소의 color-contrast axe 위반이 발생한다.
+    // 빈 성공 응답을 반환해 에러 토스트 자체가 나타나지 않도록 한다.
+    // (mockStatsApi가 호출되는 테스트에서는 LIFO 순서로 덮어씌워진다.)
+    await page.route("**/api/stats/model-latest", (route) =>
+      route.fulfill({ json: { items: [], sqlite_available: true } }),
+    );
+    await page.route("**/api/scenarios**", (route) => route.fulfill({ json: { items: [] } }));
   });
 
   for (const route of ["/", "/stats"] as const) {
