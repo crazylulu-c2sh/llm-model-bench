@@ -51,6 +51,7 @@ import {
   anthropicMessagesForScenario,
   anthropicToolsForScenario,
   buildMessages,
+  calendarReferenceAt,
   isTranslateNistFips197PdfToolsScenario,
   scenarioSystemMessageContent,
   scenarioUserMessageContent,
@@ -723,7 +724,7 @@ export async function* runBench(
         let contentionRetries = 0;
         while (i < totalIterations) {
           const isWarmup = i < meta.warmup_runs;
-          const ref = new Date();
+          const ref = calendarReferenceAt(new Date());
           const visionThisRun = isVisionScenario(scenarioId);
 
           // D7: 비전 시나리오는 warmup 단계에서 호출하지 않는다 — 이미지
