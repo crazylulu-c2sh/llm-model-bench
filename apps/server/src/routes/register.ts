@@ -364,6 +364,7 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       skipModelLoad: bench.skipModelLoad,
       unloadOtherModels: bench.unloadOtherModels,
       autoUnloadAfterBench: bench.autoUnloadAfterBench,
+      loadTtlSeconds: bench.loadTtlSeconds,
       fitPolicy: bench.fitPolicy,
       publicAssetsOrigin: bench.publicAssetsOrigin,
       profileMaxTokens: bench.profileMaxTokens,
@@ -464,6 +465,7 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       skipModelLoad: stress.skipModelLoad,
       unloadOtherModels: stress.unloadOtherModels,
       autoUnloadAfterBench: stress.autoUnloadAfterBench,
+      loadTtlSeconds: stress.loadTtlSeconds,
       profile: {
         profileId: stress.profileId as LlmProfileFamily | "auto" | undefined,
         taskMode: stress.taskMode,

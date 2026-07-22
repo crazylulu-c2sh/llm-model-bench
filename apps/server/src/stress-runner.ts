@@ -19,6 +19,7 @@ import {
   getScenarioSystemPromptPreview,
   getScenarioUserPromptPreview,
   isStressWorkloadId,
+  providerSupportsLoadTtl,
   resolveBenchProfile,
   type LlmProfileFamily,
   type SamplingParams,
@@ -37,6 +38,7 @@ import {
   lmStudioLoad,
   lmStudioUnload,
 } from "./lmstudio.js";
+import { ollamaKeepAliveLoad } from "./ollama.js";
 
 export type StressRequest = {
   baseUrl: string;
@@ -52,6 +54,8 @@ export type StressRequest = {
   skipModelLoad?: boolean;
   unloadOtherModels?: boolean;
   autoUnloadAfterBench?: boolean;
+  /** 로드 시 TTL(초). lm_studio는 load `ttl`, ollama는 `keep_alive`. 그 외 프로바이더는 무시. */
+  loadTtlSeconds?: number;
   /** 모델 벤치와 동일 profile 옵션 — `resolveBenchProfile`로 풀이 */
   profile?: {
     profileId?: LlmProfileFamily | "auto";
@@ -148,6 +152,12 @@ export function makeStressRunMeta(
     unload_other_models: input.unloadOtherModels ?? false,
     auto_unload_after_bench: input.autoUnloadAfterBench ?? false,
     skip_model_load: input.skipModelLoad ?? false,
+    load_ttl_seconds:
+      providerSupportsLoadTtl(input.provider) &&
+      typeof input.loadTtlSeconds === "number" &&
+      input.loadTtlSeconds > 0
+        ? Math.floor(input.loadTtlSeconds)
+        : undefined,
     created_at: new Date().toISOString(),
   };
   if (resolved) {
@@ -321,7 +331,11 @@ export async function* runStress(
         lmStudioPrepare = "already_in_memory";
       } else {
         await lmStudioUnload(base, input.modelId, { fetchImpl, apiKey: input.apiKey });
-        const load = await lmStudioLoad(base, input.modelId, { fetchImpl, apiKey: input.apiKey });
+        const load = await lmStudioLoad(base, input.modelId, {
+          fetchImpl,
+          apiKey: input.apiKey,
+          ttlSeconds: meta.load_ttl_seconds,
+        });
         if (!load.ok) {
           yield {
             type: "error",
@@ -334,6 +348,13 @@ export async function* runStress(
         modelLoadedByThisRun = true;
       }
     }
+  } else if (input.provider === "ollama" && meta.load_ttl_seconds != null) {
+    // Ollama: 네이티브 /api/generate(빈 prompt) preload + keep_alive TTL 적용(skipModelLoad 무관).
+    await ollamaKeepAliveLoad(base, input.modelId, {
+      ttlSeconds: meta.load_ttl_seconds,
+      fetchImpl,
+      apiKey: input.apiKey,
+    });
   }
   yield { type: "model_loaded", model_id: input.modelId, ...(lmStudioPrepare ? { lm_studio_prepare: lmStudioPrepare } : {}) };
 
@@ -686,6 +707,14 @@ export async function* runStress(
     ) {
       const u = await lmStudioUnload(base, input.modelId, { fetchImpl, apiKey: input.apiKey });
       yield { type: "model_unloaded", model_id: input.modelId, phase: "after_bench", ok: u.ok, status: u.status };
+    }
+    // Ollama: /v1 추론이 keep_alive를 5분 기본으로 리셋하므로 종료 후 지정 TTL 재적용(베스트 에포트).
+    if (input.provider === "ollama" && meta.load_ttl_seconds != null) {
+      await ollamaKeepAliveLoad(base, input.modelId, {
+        ttlSeconds: meta.load_ttl_seconds,
+        fetchImpl,
+        apiKey: input.apiKey,
+      });
     }
   }
 }

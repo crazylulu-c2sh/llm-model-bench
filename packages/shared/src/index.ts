@@ -207,7 +207,7 @@ export const SamplingParamsSchema = z.object({
   repetition_penalty: z.number().optional(),
 });
 
-export { ProviderKindSchema, type ProviderKind } from "./provider-kind";
+export { ProviderKindSchema, providerSupportsLoadTtl, type ProviderKind } from "./provider-kind";
 
 export {
   inferModelVendor,
@@ -322,6 +322,8 @@ export const BenchRunMetaSchema = z.object({
   unload_other_models: z.boolean().optional(),
   /** LM Studio: 이번 런이 모델을 로드한 경우에만 끝날 때 unload 시도 여부 */
   auto_unload_after_bench: z.boolean().optional(),
+  /** 로드 시 적용한 TTL(초). LM Studio는 load `ttl`, Ollama는 `keep_alive`. 지원 백엔드에서만 채워짐. */
+  load_ttl_seconds: z.number().int().positive().optional(),
   /** Vite 등에서 서빙하는 public 자산 베이스 (예: http://127.0.0.1:21104) — nist.fips.197.pdf URL 허용용 */
   public_assets_origin: z.string().optional(),
   /** 오염 가드: 해석·클램프된 config (INSERT 시점 기록; `effective`는 사전 probe 후 결정되어 meta엔 없음 → contention_summary로). */
@@ -606,6 +608,8 @@ export const BenchStreamBodySchema = z.object({
     skipModelLoad: z.boolean().optional(),
     unloadOtherModels: z.boolean().optional(),
     autoUnloadAfterBench: z.boolean().optional(),
+    /** 로드 시 TTL(초). 지원 백엔드(lm_studio·ollama)에서만 적용, 그 외는 무시. */
+    loadTtlSeconds: z.number().int().positive().optional(),
     /** #81: 메모리-핏 프리플라이트 정책(`skip` | `unload_other_models`; 미지정이면 예측만 로그 후 진행). */
     fitPolicy: FitPolicySchema,
     publicAssetsOrigin: z.string().url().optional(),
@@ -649,6 +653,8 @@ export const StressStreamBodySchema = z.object({
     skipModelLoad: z.boolean().optional(),
     unloadOtherModels: z.boolean().optional(),
     autoUnloadAfterBench: z.boolean().optional(),
+    /** 로드 시 TTL(초). 지원 백엔드(lm_studio·ollama)에서만 적용, 그 외는 무시. */
+    loadTtlSeconds: z.number().int().positive().optional(),
     profileId: BenchProfileIdSchema,
     taskMode: BenchTaskModeSchema,
     thinkingIntent: ThinkingIntentSchema,

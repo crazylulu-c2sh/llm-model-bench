@@ -20,6 +20,7 @@ const PrefsSchema = z
     baseUrl: z.string().min(1).optional(),
     unloadOtherModels: z.boolean().optional(),
     autoUnloadAfterBench: z.boolean().optional(),
+    loadTtlSeconds: z.number().int().positive().optional(),
     fitPolicy: z.enum(["skip", "unload_other_models"]).optional(),
     hlPreview: z.boolean().optional(),
     hlLog: z.boolean().optional(),
@@ -120,6 +121,7 @@ export function readInitialUiState() {
       baseUrl: DEFAULT_BASE,
       unloadOtherModels: false,
       autoUnloadAfterBench: false,
+      loadTtlSeconds: "" as string,
       fitPolicy: "" as "" | "skip" | "unload_other_models",
       hlPreview: false,
       hlLog: false,
@@ -148,6 +150,8 @@ export function readInitialUiState() {
     baseUrl: typeof p.baseUrl === "string" && p.baseUrl.length ? p.baseUrl : DEFAULT_BASE,
     unloadOtherModels: p.unloadOtherModels ?? false,
     autoUnloadAfterBench: p.autoUnloadAfterBench ?? false,
+    loadTtlSeconds:
+      p.loadTtlSeconds != null && Number.isFinite(p.loadTtlSeconds) ? String(p.loadTtlSeconds) : "",
     fitPolicy: (p.fitPolicy ?? "") as "" | "skip" | "unload_other_models",
     hlPreview: p.hlPreview ?? false,
     hlLog: p.hlLog ?? false,
@@ -177,6 +181,7 @@ export type SaveUiSnapshot = {
   baseUrl: string;
   unloadOtherModels: boolean;
   autoUnloadAfterBench: boolean;
+  loadTtlSeconds: string;
   fitPolicy: "" | "skip" | "unload_other_models";
   hlPreview: boolean;
   hlLog: boolean;
@@ -207,6 +212,12 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
     baseUrl: s.baseUrl,
     unloadOtherModels: s.unloadOtherModels,
     autoUnloadAfterBench: s.autoUnloadAfterBench,
+    loadTtlSeconds: (() => {
+      const t = s.loadTtlSeconds.trim();
+      if (!t) return undefined;
+      const n = Number(t);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+    })(),
     fitPolicy: s.fitPolicy || undefined,
     hlPreview: s.hlPreview,
     hlLog: s.hlLog,

@@ -8,6 +8,7 @@ import {
   isAgentScenario,
   isVisionScenario,
   outputTokensFromRun,
+  providerSupportsLoadTtl,
   resolveBenchApiRoutes,
   resolveBenchProfile,
 } from "@llm-bench/shared";
@@ -177,7 +178,13 @@ export function App() {
   const [persistApiKeyToDisk, setPersistApiKeyToDisk] = useState(boot.persistApiKeyToDisk);
   const [unloadOtherModels, setUnloadOtherModels] = useState(boot.unloadOtherModels);
   const [autoUnloadAfterBench, setAutoUnloadAfterBench] = useState(boot.autoUnloadAfterBench);
+  const [loadTtlSeconds, setLoadTtlSeconds] = useState(boot.loadTtlSeconds);
   const [fitPolicy, setFitPolicy] = useState<"" | "skip" | "unload_other_models">(boot.fitPolicy);
+  // 로드 TTL 입력(문자열)을 양의 정수로 파싱 — 페이로드에 실을 값. 빈/비정상 값은 미적용.
+  const loadTtlSecondsNum = (() => {
+    const n = Number(loadTtlSeconds);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+  })();
   const [selectedScenarioIds, setSelectedScenarioIds] = useState<string[]>(boot.selectedScenarioIds);
   const [scenarioPickerOpen, setScenarioPickerOpen] = useState(boot.scenarioPickerOpen);
   // #79/#83: 서버에 등록된 동적 시나리오(멀티턴 agent_loop + 사용자 커스텀). 마운트 시 1회 페치.
@@ -354,6 +361,7 @@ export function App() {
         baseUrl,
         unloadOtherModels,
         autoUnloadAfterBench,
+        loadTtlSeconds,
         fitPolicy,
         hlPreview,
         hlLog,
@@ -385,6 +393,7 @@ export function App() {
     persistApiKeyToDisk,
     unloadOtherModels,
     autoUnloadAfterBench,
+    loadTtlSeconds,
     fitPolicy,
     profileId,
     profileMaxTokens,
@@ -407,6 +416,7 @@ export function App() {
     baseUrl,
     unloadOtherModels,
     autoUnloadAfterBench,
+    loadTtlSeconds,
     fitPolicy,
     hlPreview,
     hlLog,
@@ -431,6 +441,7 @@ export function App() {
     baseUrl,
     unloadOtherModels,
     autoUnloadAfterBench,
+    loadTtlSeconds,
     fitPolicy,
     hlPreview,
     hlLog,
@@ -943,6 +954,7 @@ export function App() {
         baseUrl: d.baseUrl,
         unloadOtherModels,
         autoUnloadAfterBench,
+        loadTtlSeconds,
         fitPolicy,
         hlPreview,
         hlLog,
@@ -978,6 +990,7 @@ export function App() {
     persistApiKeyToDisk,
     unloadOtherModels,
     autoUnloadAfterBench,
+    loadTtlSeconds,
     fitPolicy,
     profileId,
     profileMaxTokens,
@@ -1045,6 +1058,7 @@ export function App() {
               skipModelLoad: detect.provider !== "lm_studio",
               unloadOtherModels,
               autoUnloadAfterBench,
+              ...(loadTtlSecondsNum ? { loadTtlSeconds: loadTtlSecondsNum } : {}),
               ...(fitPolicy ? { fitPolicy } : {}),
               publicAssetsOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
               scenarioIds: visibleSelectedScenarioIds,
@@ -1268,7 +1282,7 @@ export function App() {
     } else {
       toast.success("벤치가 모두 완료되었습니다.");
     }
-  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, fitPolicy, unloadOtherModels, visibleSelectedScenarioIds]);
+  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, fitPolicy, loadTtlSecondsNum, unloadOtherModels, visibleSelectedScenarioIds]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
@@ -1399,6 +1413,12 @@ export function App() {
               ) : null}
               {autoUnloadAfterBench && detect.provider === "lm_studio" ? (
                 <li>이번 벤치에서 로드한 대상 모델만 끝날 때 자동 언로드합니다(이미 로드된 모델은 유지).</li>
+              ) : null}
+              {loadTtlSecondsNum && providerSupportsLoadTtl(detect.provider) ? (
+                <li>
+                  모델 로드 TTL {loadTtlSecondsNum}초를 적용합니다(
+                  {detect.provider === "lm_studio" ? "LM Studio load ttl" : "Ollama keep_alive"}).
+                </li>
               ) : null}
             </ul>
           </>
@@ -1761,6 +1781,31 @@ export function App() {
               <option value="unload_other_models">언로드-해서-맞추기</option>
               <option value="skip">안 맞으면 건너뛰기</option>
             </select>
+          </div>
+          <div
+            className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
+            title="로드 시 TTL(초)을 적용해 유휴 후 자동 언로드합니다. LM Studio는 load ttl, Ollama는 keep_alive로 적용됩니다."
+          >
+            <span className="mt-1 flex-1">
+              <span id="load-ttl-label" className="font-medium text-[var(--foreground)]">모델 로드 TTL(초) — LM Studio · Ollama</span>
+              <span className="mt-0.5 block text-xs leading-snug">
+                로드 시 지정 시간(초) 동안만 모델을 상주시키고 유휴 후 자동 언로드합니다. 비우면 미적용(기존 동작). LM Studio는
+                load <code>ttl</code>, Ollama는 네이티브 <code>keep_alive</code>로 적용됩니다. Ollama는 추론(<code>/v1</code>)이 keep_alive를
+                기본 5분으로 리셋하므로 벤치 종료 후 지정 TTL을 다시 적용합니다.
+                {detect && !providerSupportsLoadTtl(detect.provider) ? " 현재 프로바이더에서는 비활성입니다." : ""}
+              </span>
+            </span>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              placeholder="미적용"
+              className="mt-1 w-24 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
+              value={loadTtlSeconds}
+              disabled={!detect || !providerSupportsLoadTtl(detect.provider)}
+              aria-labelledby="load-ttl-label"
+              onChange={(e) => setLoadTtlSeconds(e.target.value)}
+            />
           </div>
           <label
             className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"

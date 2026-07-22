@@ -32,6 +32,7 @@ pnpm dev
 
 - 벤치 UI 설정(Base URL, 하이라이트 등)은 브라우저 `localStorage`에 저장됩니다. API 키는 기본적으로 `sessionStorage`만 쓰고, 디스크(`localStorage`) 저장은 체크박스로 명시 동의할 때만 합니다.
 - 「벤치 대상 외 모델 언로드」는 **LM Studio**에서만 동작하며, 감지 API로 알려진 모델 ID에 한해 unload를 시도합니다(목록 밖에 로드된 모델은 제어하지 못함).
+- 「모델 로드 TTL(초)」은 로드 시 유휴 후 자동 언로드되도록 TTL을 겁니다. **지원 백엔드에서만** 적용되고 그 외(openai_compatible·manual)는 무시됩니다. 비우면 미적용(기존 동작). **LM Studio**는 load 요청 `ttl`(초)로, **Ollama**는 네이티브 `/api/generate` `keep_alive`로 적용합니다. Ollama는 벤치 추론이 나가는 OpenAI 호환 `/v1/chat/completions`가 `keep_alive`를 무시하고 매 요청 기본 5분으로 리셋하므로([ollama#11458](https://github.com/ollama/ollama/issues/11458)), 시작 시 preload + **벤치 종료 후 지정 TTL 재적용**으로 유지 시간을 확정합니다.
 - `translate_nist_fips197_pdf_tools` 시나리오는 [`apps/web/public/nist.fips.197.pdf`](apps/web/public/nist.fips.197.pdf)를 브라우저 origin 기준 URL로 가져오도록 설계되어 있습니다. 벤치 실행 시 UI가 `publicAssetsOrigin`을 함께 보냅니다.
 
 ## 빌드·실행(프로덕션에 가깝게)
