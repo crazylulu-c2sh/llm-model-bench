@@ -282,12 +282,7 @@ export default function HarnessDocPage() {
         </p>
         <HighlightToggle on={hlPreview} onChange={setHlPreview} />
       </div>
-      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_15rem] xl:items-start xl:gap-8">
-        <article ref={articleRef} className="min-w-0 max-w-none">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSlug]} components={components}>
-            {harnessMd}
-          </ReactMarkdown>
-        </article>
+      <div className="xl:grid xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start xl:gap-8">
         {toc.length > 0 ? (
           <nav
             aria-label="이 페이지 목차"
@@ -320,6 +315,11 @@ export default function HarnessDocPage() {
             </ul>
           </nav>
         ) : null}
+        <article ref={articleRef} className="min-w-0 max-w-none">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSlug]} components={components}>
+            {harnessMd}
+          </ReactMarkdown>
+        </article>
       </div>
       {showTop ? (
         <button
