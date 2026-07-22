@@ -113,14 +113,11 @@ input[type="radio"] {
   accent-color: var(--accent-2);
 }
 
-/* sticky 헤더 아래로 해시 앵커가 묻히지 않도록. 모바일 헤더는 2행이라 더 큼 → 반응형. */
+/* sticky 헤더(로고+테마 행 / 밑줄 탭 행, 모든 너비에서 약 120px) 아래로 해시 앵커가 묻히지 않도록. */
 html {
-  scroll-padding-top: 9rem;
+  scroll-padding-top: 8.5rem;
 }
 @media (width >= 1280px) {
-  html {
-    scroll-padding-top: 5rem;
-  }
   /* 하네스 문서(/harness): xl+에서는 스크롤-스파이 사이드바가 목차를 대신하므로
      마크다운 인라인 목차(#목차--contents)를 숨긴다. (모바일·GitHub 원본에서는 그대로 노출) */
   #목차--contents,

@@ -113,4 +113,18 @@ test.describe("LLM Model Bench UI", () => {
     });
     expect(subtitleLines).toBeLessThan(1.5);
   });
+
+  test("헤더: 데스크톱 너비에서 탭바 가로 스크롤·잘림 없음", async ({ page }) => {
+    for (const width of [1280, 1440, 1920]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/");
+      const nav = page.getByRole("navigation", { name: "주요 메뉴" });
+      // 마지막 탭(하네스)까지 잘림 없이 뷰포트 안에 보여야 한다.
+      await expect(nav.getByRole("link").last()).toBeInViewport();
+      // 전폭 2행 레이아웃이므로 탭바에 가로 스크롤이 생기지 않아야 한다.
+      const bar = nav.locator("div").first();
+      const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
+    }
+  });
 });
