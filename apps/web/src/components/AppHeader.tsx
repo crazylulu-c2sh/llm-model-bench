@@ -10,7 +10,6 @@ import {
   Moon,
   Settings2,
   Sun,
-  SunMoon,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -94,7 +93,7 @@ export function AppHeader({
   return (
     <header
       className={[
-        "sticky top-0 z-20 grid grid-cols-1 items-center gap-y-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 shadow-sm xl:grid-cols-[auto_minmax(0,1fr)_auto] xl:gap-x-4 xl:gap-y-0 xl:px-6",
+        "sticky top-0 z-20 flex flex-col gap-y-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 shadow-sm xl:px-6",
         showBenchProgress ? "app-header--bench-progress relative overflow-hidden" : "",
       ]
         .filter(Boolean)
@@ -123,21 +122,41 @@ export function AppHeader({
           />
         </>
       ) : null}
-      <div className="relative z-10 flex min-w-0 shrink-0 items-start gap-3 justify-self-start xl:max-w-[min(100%,20rem)]">
-        <span className="mt-0.5 shrink-0 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-[var(--accent)]">
-          <Activity className="size-6" aria-hidden />
-        </span>
-        <div className="min-w-0">
-          <h1 className="whitespace-nowrap text-lg font-semibold tracking-tight">LLM Model Bench</h1>
-          <p className="truncate text-sm text-[var(--muted)]" title={subtitle}>
-            {subtitle}
-          </p>
+      {/* Row 1: 로고 + 테마 컨트롤 */}
+      <div className="relative z-10 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="mt-0.5 shrink-0 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-[var(--accent)]">
+            <Activity className="size-6" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <h1 className="whitespace-nowrap text-lg font-semibold tracking-tight">LLM Model Bench</h1>
+            <p className="truncate text-sm text-[var(--muted)]" title={subtitle}>
+              {subtitle}
+            </p>
+          </div>
         </div>
+        <label className="flex shrink-0 items-center gap-2 text-sm">
+          <span className="inline-flex items-center gap-1.5 text-[var(--muted)]">
+            <ThemeIcon choice={themeChoice} />
+            테마
+          </span>
+          <select
+            className="min-w-[10rem] rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
+            value={themeChoice}
+            onChange={(e) => setThemeChoice(e.target.value as ThemeChoice)}
+            aria-label="테마 선택"
+          >
+            <option value="dark">다크</option>
+            <option value="light">라이트</option>
+            <option value="system">시스템</option>
+          </select>
+        </label>
       </div>
-      <nav className="relative z-10 min-w-0 justify-self-center xl:px-2" aria-label="주요 메뉴">
-        <div className="flex max-w-full min-w-0 flex-nowrap justify-center gap-1 overflow-x-auto rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] p-1 shadow-sm">
+      {/* Row 2: 전폭 탭바 */}
+      <nav className="relative z-10 min-w-0" aria-label="주요 메뉴">
+        <div className="mx-auto flex w-fit max-w-full flex-nowrap gap-1 overflow-x-auto rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] p-1 shadow-sm">
           {NAV_TABS.map(({ to, end, label, icon: Icon }) => {
-            const isActive = end ? pathname === to : pathname === to;
+            const isActive = pathname === to;
             return (
             <NavLink
               key={to}
@@ -157,25 +176,6 @@ export function AppHeader({
           })}
         </div>
       </nav>
-      <label className="relative z-10 grid justify-self-end gap-1 text-sm">
-        <span className="inline-flex items-center gap-1 text-[var(--muted)]">
-          <SunMoon className="size-3.5" aria-hidden />
-          테마
-        </span>
-        <div className="flex items-center gap-2">
-          <ThemeIcon choice={themeChoice} />
-          <select
-            className="min-w-[10rem] rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
-            value={themeChoice}
-            onChange={(e) => setThemeChoice(e.target.value as ThemeChoice)}
-            aria-label="테마 선택"
-          >
-            <option value="dark">다크</option>
-            <option value="light">라이트</option>
-            <option value="system">시스템</option>
-          </select>
-        </div>
-      </label>
     </header>
   );
 }
