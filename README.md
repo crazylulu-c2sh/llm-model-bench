@@ -301,7 +301,7 @@ pnpm test
 
 ## 하네스 노하우
 
-벤치/스트레스 하네스의 설계·기법(멀티 프로바이더 추상화, 스트리밍 TTFT/TPS 측정, contention 가드, memory-fit preflight, agent loop, stress ramp, 회귀 비교 등)을 다른 프로젝트가 참고할 수 있게 한/영 병기로 정리한 문서가 [`docs/harness-knowhow.md`](docs/harness-knowhow.md)에 있습니다. 웹 UI에서는 헤더의 **하네스** 탭(`/harness`)으로도 볼 수 있습니다.
+벤치/스트레스 하네스의 설계·기법(멀티 프로바이더 추상화, 스트리밍 TTFT/TPS 측정, contention 가드, memory-fit preflight, agent loop, stress ramp, 회귀 비교 등)을 다른 프로젝트가 참고할 수 있게 정리한 문서가 [`docs/harness-knowhow.md`](docs/harness-knowhow.md)(로케일별 [`.ko`](docs/harness-knowhow.ko.md)·[`.en`](docs/harness-knowhow.en.md)·[`.ja`](docs/harness-knowhow.ja.md))에 있습니다. 웹 UI에서는 헤더의 **하네스** 탭(`/harness`)으로 현재 언어에 맞춰 볼 수 있습니다.
 
 ## 디자인
 

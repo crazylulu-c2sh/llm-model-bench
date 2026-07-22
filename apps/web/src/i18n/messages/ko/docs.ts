@@ -48,4 +48,14 @@ export const docs = {
     agentRoutes: "라우트",
     noMetadata: "등록된 메타데이터 없음.",
   },
+
+  // 하네스 문서 페이지 크롬(HarnessDocPage)
+  harness: {
+    canonicalLead: "다른 프로젝트 참고용 · 정본:",
+    newWindow: " (새 창에서 열림)",
+    tocAria: "이 페이지 목차",
+    tocTitle: "이 페이지",
+    backToTop: "맨 위로",
+    footnoteLabel: "각주",
+  },
 };
