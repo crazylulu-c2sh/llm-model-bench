@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useI18n } from "../i18n";
 import { useScrollLock } from "../useScrollLock";
 import { useFocusTrap } from "../useFocusTrap";
 
@@ -19,13 +20,14 @@ export function ConfirmDialog({
   open,
   title,
   children,
-  confirmLabel = "확인",
-  cancelLabel = "취소",
+  confirmLabel,
+  cancelLabel,
   variant = "default",
   pending = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const { m } = useI18n();
   const titleId = useId();
   const descId = useId();
   const confirmRef = useRef<HTMLButtonElement>(null);
@@ -59,7 +61,7 @@ export function ConfirmDialog({
       <button
         type="button"
         tabIndex={-1}
-        aria-label="닫기"
+        aria-label={m.common.close}
         className="absolute inset-0 bg-black/50"
         onClick={() => {
           if (!pending) onCancel();
@@ -86,7 +88,7 @@ export function ConfirmDialog({
             onClick={onCancel}
             disabled={pending}
           >
-            {cancelLabel}
+            {cancelLabel ?? m.common.cancel}
           </button>
           <button
             ref={confirmRef}
@@ -95,7 +97,7 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={pending}
           >
-            {pending ? "처리 중…" : confirmLabel}
+            {pending ? m.common.processing : (confirmLabel ?? m.common.confirm)}
           </button>
         </div>
       </div>

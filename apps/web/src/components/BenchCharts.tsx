@@ -1,5 +1,6 @@
 import { compareStringsPinned } from "@llm-bench/shared";
 import { useMemo } from "react";
+import { useI18n, type Messages } from "../i18n";
 import {
   Bar,
   BarChart,
@@ -55,18 +56,20 @@ function modelColor(i: number, kind: "ttft" | "tps"): string {
 /** 비교 레이더 시리즈: 색 외 구분 단서용 대시 패턴("0"=실선) */
 const RADAR_SERIES_DASH = ["0", "6 3", "2 2", "8 3 2 3", "4 4", "1 3"];
 
-function tooltipMetricFormatter(
-  value: TooltipValueType | undefined,
-  name: number | string | undefined,
-  item?: { payload?: { pass?: boolean } },
-): [string, string] {
-  // Recharts v3: value is ValueType|undefined (number|string|array), name is NameType|undefined.
-  const n = String(name);
-  const num = Number(value);
-  const pass = item?.payload?.pass;
-  const passText = pass === undefined ? "" : pass ? " · 통과" : " · 미통과";
-  if (n.includes("TPS")) return [Number.isFinite(num) ? `${Math.round(num * 10) / 10} tok/s${passText}` : "—", n];
-  return [`${Math.round(num)} ms${passText}`, n];
+function makeTooltipMetricFormatter(chart: Messages["results"]["chart"]) {
+  return (
+    value: TooltipValueType | undefined,
+    name: number | string | undefined,
+    item?: { payload?: { pass?: boolean } },
+  ): [string, string] => {
+    // Recharts v3: value is ValueType|undefined (number|string|array), name is NameType|undefined.
+    const n = String(name);
+    const num = Number(value);
+    const pass = item?.payload?.pass;
+    const passText = pass === undefined ? "" : pass ? chart.passTag : chart.notPassTag;
+    if (n.includes("TPS")) return [Number.isFinite(num) ? `${Math.round(num * 10) / 10} tok/s${passText}` : "—", n];
+    return [`${Math.round(num)} ms${passText}`, n];
+  };
 }
 
 function yTickHideSpacer(label: string | number): string {
@@ -273,14 +276,15 @@ function metricUnitLabel(metric: RadarMetric): string {
  * 작을수록 우수(지연)=주황(--dir-lower), 클수록 우수(TPS)=청록(--dir-higher)으로 색을 구별한다.
  */
 function RadarSubtitle({ metric, scope }: { metric: RadarMetric; scope: "single" | "compare" }) {
+  const { m } = useI18n();
   const unit = metricUnitLabel(metric);
   const higher = metric === "tps";
-  const dirText = higher ? "클수록(바깥)이 우수" : "작을수록(안쪽)이 우수";
+  const dirText = higher ? m.results.chart.radarHigher : m.results.chart.radarLower;
   const dirColor = higher ? "var(--dir-higher)" : "var(--dir-lower)";
   const lead =
     scope === "compare"
-      ? `축은 시나리오·API. 반경은 모델별 실제 ${unit}를 0 기준 공통 스케일로 그립니다. `
-      : `축은 시나리오·API. 반경은 실제 ${unit}를 0 기준 스케일로 그립니다. `;
+      ? m.results.chart.radarLeadCompare(unit)
+      : m.results.chart.radarLeadSingle(unit);
   return (
     <p className="mb-1 text-[10px] leading-snug text-[var(--muted)]">
       {lead}
@@ -374,6 +378,7 @@ function MetricRadarSingle({
   data: SingleRadarDatum[];
   height: number;
 }) {
+  const { m } = useI18n();
   const stroke = metric === "tps" ? "var(--chart-tps)" : "var(--chart-ttft)";
   const tickFmt = useMemo(() => new Map(data.map((d) => [d.axisKey, d.tickLabel])), [data]);
   const domain = useMemo(
@@ -381,13 +386,13 @@ function MetricRadarSingle({
     [data],
   );
   const legendName =
-    metric === "tps" ? "TPS (tok/s · 클수록 좋음)" : "TTFT (ms · 작을수록 좋음)";
+    metric === "tps" ? m.results.chart.radarLegendTps : m.results.chart.radarLegendTtft;
 
   return (
     <div className="min-w-0">
       <h3 className="mb-0.5 text-xs font-semibold text-[var(--foreground)]">{title}</h3>
       <RadarSubtitle metric={metric} scope="single" />
-      <div role="img" aria-label={`${title} 레이더 차트(축: 시나리오·API) — 정확한 값은 막대 차트와 표 참조`}>
+      <div role="img" aria-label={m.results.chart.radarSingleAria(title)}>
         <ResponsiveContainer width="100%" height={height}>
           <RadarChart
             data={data}
@@ -445,6 +450,7 @@ function MetricRadarCompare({
   height: number;
   compareSeries: CompareSeries[];
 }) {
+  const { m } = useI18n();
   const valueKeys = useMemo(() => compareSeries.map((_, i) => `raw_m${i}`), [compareSeries]);
   const domain = useMemo(
     () => radarRawDomain(data as Record<string, unknown>[], valueKeys),
@@ -456,10 +462,7 @@ function MetricRadarCompare({
     <div className="min-w-0">
       <h3 className="mb-0.5 text-xs font-semibold text-[var(--foreground)]">{title}</h3>
       <RadarSubtitle metric={metric} scope="compare" />
-      <div
-        role="img"
-        aria-label={`${title} 모델 비교 레이더 차트(모델 ${compareSeries.length}개, 축: 시나리오·API) — 정확한 값은 막대 차트와 표 참조`}
-      >
+      <div role="img" aria-label={m.results.chart.radarCompareAria(title, compareSeries.length)}>
         <ResponsiveContainer width="100%" height={height}>
           <RadarChart
             data={data}
@@ -521,6 +524,7 @@ function RadarPanelsColumn({
   pivoted: PivotCompareRow[];
   mode: "compare" | "single";
 }) {
+  const { m } = useI18n();
   const h = perRadarChartHeight(axisCount) + RADAR_LEGEND_HEIGHT_PX;
   const dense = axisCount >= RADAR_DENSE_THRESHOLD;
 
@@ -551,14 +555,11 @@ function RadarPanelsColumn({
   return (
     <div className="flex min-h-0 flex-col gap-5">
       {dense ? (
-        <p className="text-xs leading-snug text-[var(--muted)]">
-          항목이 많아 레이더는 요약용입니다. 정확한 값은 지표별 막대 차트를 사용하세요.
-        </p>
+        <p className="text-xs leading-snug text-[var(--muted)]">{m.results.chart.radarDenseNote}</p>
       ) : null}
       {compareKeyMismatch ? (
         <p className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-xs leading-snug text-[var(--muted)]">
-          모델마다 저장된 시나리오·API(chat/msg) 조합이 다릅니다. 한쪽만 값이 있는 축은 0으로 그려지며, 반원처럼
-          갈라져 보일 수 있습니다. 같은 벤치 스위트로 최근 런을 맞추거나, 막대 차트로 전체를 확인하세요.
+          {m.results.chart.radarKeyMismatch}
         </p>
       ) : null}
 
@@ -581,7 +582,7 @@ function RadarPanelsColumn({
             />
           ) : (
             <p className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-3 text-center text-xs text-[var(--muted)]">
-              TPS 레이더: 표시할 TPS 값이 없습니다.
+              {m.results.chart.radarTpsEmpty}
             </p>
           )}
         </>
@@ -592,7 +593,7 @@ function RadarPanelsColumn({
             <MetricRadarSingle title="TPS" metric="tps" data={tpsSingle} height={h} />
           ) : (
             <p className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-3 text-center text-xs text-[var(--muted)]">
-              TPS 레이더: 표시할 TPS 값이 없습니다.
+              {m.results.chart.radarTpsEmpty}
             </p>
           )}
         </>
@@ -644,11 +645,13 @@ function computeVerticalBarChartHeight(
 }
 
 export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareCell }: BenchChartsProps) {
+  const { m } = useI18n();
+  const tooltipFmt = useMemo(() => makeTooltipMetricFormatter(m.results.chart), [m]);
   const compareMode = compareSeries && compareSeries.length >= 2;
   const pivoted = compareMode ? pivotCompareSeries(compareSeries) : [];
 
   if (compareMode && compareSeries) {
-    const flatRows = comparePivotToFlatBarData(pivoted, compareSeries);
+    const flatRows = comparePivotToFlatBarData(pivoted, compareSeries, m.results.chart.modelFallback);
     const flatRowsSpaced = insertCompareGroupSpacers(flatRows, compareSeries.length);
     const compareLatencyHeight = computeVerticalBarChartHeight(
       flatRowsSpaced.length,
@@ -678,7 +681,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
     return (
       <div className="grid gap-8 lg:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-2 overflow-x-hidden">
-          <div role="img" aria-label={`TTFT 모델 비교 막대 차트(모델 ${compareSeries.length}개) — 자세한 값은 아래 결과 표 참조`}>
+          <div role="img" aria-label={m.results.chart.barCompareTtftAria(compareSeries.length)}>
             <ResponsiveContainer width="100%" height={compareLatencyHeight}>
               <BarChart
                 layout="vertical"
@@ -703,12 +706,12 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
                 />
                 <Tooltip
                   {...rechartsTooltipShell}
-                  formatter={tooltipMetricFormatter}
+                  formatter={tooltipFmt}
                   content={(props) => {
                     if (!props.active || !props.payload?.[0]) return null;
                     const row = props.payload[0].payload as FlatBarDatum;
                     if (row.categorySpacer) return null;
-                    return <DefaultTooltipContent {...props} formatter={tooltipMetricFormatter} />;
+                    return <DefaultTooltipContent {...props} formatter={tooltipFmt} />;
                   }}
                 />
                 {avgTtftCmp !== undefined ? (
@@ -743,7 +746,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <div role="img" aria-label={`TPS 모델 비교 막대 차트(모델 ${compareSeries.length}개) — 자세한 값은 아래 결과 표 참조`}>
+          <div role="img" aria-label={m.results.chart.barCompareTpsAria(compareSeries.length)}>
             <ResponsiveContainer width="100%" height={compareTpsHeight}>
               <BarChart
                 layout="vertical"
@@ -772,12 +775,12 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
                 />
                 <Tooltip
                   {...rechartsTooltipShell}
-                  formatter={tooltipMetricFormatter}
+                  formatter={tooltipFmt}
                   content={(props) => {
                     if (!props.active || !props.payload?.[0]) return null;
                     const row = props.payload[0].payload as FlatBarDatum;
                     if (row.categorySpacer) return null;
-                    return <DefaultTooltipContent {...props} formatter={tooltipMetricFormatter} />;
+                    return <DefaultTooltipContent {...props} formatter={tooltipFmt} />;
                   }}
                 />
                 {avgTpsCmp !== undefined ? (
@@ -829,7 +832,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
             />
           ) : (
             <p className="flex h-64 items-center justify-center text-sm text-[var(--muted)]">
-              비교 레이더는 시나리오가 3개 이상일 때 표시됩니다.
+              {m.results.chart.radarCompareTooFew}
             </p>
           )}
         </div>
@@ -839,7 +842,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
 
   if (!chartRows.length) {
     return (
-      <p className="flex h-64 items-center justify-center text-sm text-[var(--muted)]">벤치 실행 후 메트릭이 표시됩니다.</p>
+      <p className="flex h-64 items-center justify-center text-sm text-[var(--muted)]">{m.results.chart.noBenchData}</p>
     );
   }
 
@@ -847,7 +850,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
   const tpss = chartRows.map((r) => r.tps).filter((n) => n > 0);
   const avgTtft = avg(ttfts);
   const avgTps = avg(tpss);
-  const sessionSeries = sessionChartRowsToCompareSeries(chartRows);
+  const sessionSeries = sessionChartRowsToCompareSeries(chartRows, m.results.chart.unknownModel);
   const useSessionMultiRadar = sessionSeries.length >= 2;
   const pivotedSession = useSessionMultiRadar ? pivotCompareSeries(sessionSeries) : [];
   const radarAxisCount = scenarioApiKeyOrder(chartRows).length;
@@ -869,7 +872,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
   return (
     <div className="grid gap-8 lg:grid-cols-2">
       <div className="flex min-w-0 flex-col gap-2 overflow-x-hidden">
-        <div role="img" aria-label="TTFT 시나리오별 막대 차트 — 자세한 값은 아래 결과 표 참조">
+        <div role="img" aria-label={m.results.chart.barSessionTtftAria}>
           <ResponsiveContainer width="100%" height={sessionLatencyHeight}>
             <BarChart
               layout="vertical"
@@ -896,12 +899,12 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
               />
               <Tooltip
                 {...rechartsTooltipShell}
-                formatter={tooltipMetricFormatter}
+                formatter={tooltipFmt}
                 content={(props) => {
                   if (!props.active || !props.payload?.[0]) return null;
                   const row = props.payload[0].payload as ChartRow;
                   if (row.categorySpacer) return null;
-                  return <DefaultTooltipContent {...props} formatter={tooltipMetricFormatter} />;
+                  return <DefaultTooltipContent {...props} formatter={tooltipFmt} />;
                 }}
                 labelFormatter={(_, i) => {
                   const r = sessionBarData[Number(i)];
@@ -941,7 +944,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
             </BarChart>
           </ResponsiveContainer>
         </div>
-        <div role="img" aria-label="TPS 시나리오별 막대 차트 — 자세한 값은 아래 결과 표 참조">
+        <div role="img" aria-label={m.results.chart.barSessionTpsAria}>
           <ResponsiveContainer width="100%" height={sessionTpsHeight}>
             <BarChart
               layout="vertical"
@@ -972,12 +975,12 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
               />
               <Tooltip
                 {...rechartsTooltipShell}
-                formatter={tooltipMetricFormatter}
+                formatter={tooltipFmt}
                 content={(props) => {
                   if (!props.active || !props.payload?.[0]) return null;
                   const row = props.payload[0].payload as ChartRow;
                   if (row.categorySpacer) return null;
-                  return <DefaultTooltipContent {...props} formatter={tooltipMetricFormatter} />;
+                  return <DefaultTooltipContent {...props} formatter={tooltipFmt} />;
                 }}
                 labelFormatter={(_, i) => {
                   const r = sessionBarData[Number(i)];
@@ -1019,7 +1022,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
         </div>
         <MetricChartLegend variant="session" />
         {onBarPayload ? (
-          <p className="mt-1 text-center text-xs text-[var(--muted)]">막대를 클릭하면 해당 시나리오 상세를 엽니다.</p>
+          <p className="mt-1 text-center text-xs text-[var(--muted)]">{m.results.chart.barClickHint}</p>
         ) : null}
       </div>
       <div className="min-h-72 min-w-0">
@@ -1041,11 +1044,11 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
           />
         ) : useSessionMultiRadar ? (
           <p className="flex h-full min-h-64 items-center justify-center text-center text-sm text-[var(--muted)]">
-            모델 간 레이더 비교는 시나리오가 3개 이상일 때 표시됩니다.
+            {m.results.chart.radarSessionMultiTooFew}
           </p>
         ) : (
           <p className="flex h-full min-h-64 items-center justify-center text-center text-sm text-[var(--muted)]">
-            레이더 차트는 시나리오가 3개 이상일 때 표시됩니다.
+            {m.results.chart.radarSingleTooFew}
           </p>
         )}
       </div>

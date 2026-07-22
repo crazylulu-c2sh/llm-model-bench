@@ -65,7 +65,7 @@ import {
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
 import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
 import { AppHeader, pageTitleForPath } from "./components/AppHeader";
-import { useI18n } from "./i18n";
+import { useI18n, msg } from "./i18n";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
@@ -113,19 +113,8 @@ type MetricsAgg = {
 };
 
 function benchErrorHint(code: string): string | null {
-  if (code === "request_timeout") return "요청 시간 초과";
-  if (code === "upstream_exception") return "업스트림 처리 예외";
-  if (code === "provider_or_model_unavailable")
-    return "프로바이더/모델 준비 상태 불가";
-  if (code === "pre_bench_wait_timeout")
-    return "사전 대기 시간 초과 — 다른 추론이 계속 실행 중";
-  if (code === "between_iteration_wait_timeout")
-    return "이터레이션 간 대기 시간 초과 — 다른 추론이 계속 실행 중";
-  if (code === "total_wait_budget_exceeded")
-    return "누적 대기 예산 초과로 중단";
-  if (code === "contention_max_retries_exceeded")
-    return "오염 재시도 한도 초과로 런 중단";
-  return null;
+  // 스트림 error 코드 → 힌트. ko가 shape 정의(Record<string,string>), 알 수 없는 코드는 null.
+  return msg().bench.errors[code] ?? null;
 }
 
 function consumeSseJsonLines(
@@ -768,12 +757,12 @@ export function App() {
 
   const loadCompareFromServer = useCallback(async () => {
     if (!detect) {
-      toast.error("먼저 연결 / 감지를 실행하세요.");
+      toast.error(msg().bench.detectFirst);
       return;
     }
     const modelIds = orderedSelectedModels.map((m) => m.id);
     if (modelIds.length < 2) {
-      toast.error("비교하려면 모델을 2개 이상 선택하세요.");
+      toast.error(msg().bench.compareNeedTwoModels);
       return;
     }
     setCompareLoading(true);
@@ -783,14 +772,12 @@ export function App() {
       u.searchParams.set("modelIds", modelIds.join(","));
       const res = await fetch(u.toString());
       if (!res.ok) {
-        toast.error(`비교 API 오류 (${res.status})`);
+        toast.error(msg().bench.compareApiError(res.status));
         return;
       }
       const data = (await res.json()) as LatestByModelResponse;
       if (data.sqlite_available === false) {
-        toast.warning(
-          `SQLite를 사용할 수 없어 저장된 런을 불러올 수 없습니다. 서버의 DB 파일 경로·권한·잠금 상태를 확인하세요.`,
-        );
+        toast.warning(msg().bench.sqliteUnavailableCompare);
         setCompareSeries(null);
         setCompareRaw(null);
         setChartView("live");
@@ -825,7 +812,7 @@ export function App() {
         }
       }
       if (series.length < 2) {
-        toast.warning("저장된 최종 런이 있는 모델이 2개 미만입니다. 동일 Base URL에서 벤치를 먼저 실행하세요.");
+        toast.warning(msg().bench.compareFewerThanTwoStored);
         setCompareSeries(null);
         setCompareRaw(null);
         setChartView("live");
@@ -834,7 +821,7 @@ export function App() {
       setCompareRaw(data);
       setCompareSeries(series);
       setChartView("compare");
-      toast.success("저장된 마지막 런 기준 비교 차트를 불러왔습니다.");
+      toast.success(msg().bench.compareLoaded);
     } catch (e) {
       toast.error(String(e));
     } finally {
@@ -847,16 +834,16 @@ export function App() {
     try {
       const res = await fetch("/api/runs?limit=30");
       if (!res.ok) {
-        toast.error(`런 목록 오류 (${res.status})`);
+        toast.error(msg().bench.runsListError(res.status));
         return;
       }
       const j = (await res.json()) as RunsListResponse;
       setServerRuns(j.runs ?? []);
       setServerRunsPanelOpen(true);
       if (j.sqlite_available === false) {
-        toast.warning("SQLite 비활성화 — 서버 런 목록을 사용할 수 없습니다.");
+        toast.warning(msg().bench.sqliteDisabledRunsList);
       } else {
-        toast.success(`서버 런 ${j.runs?.length ?? 0}건`);
+        toast.success(msg().bench.serverRunsCount(j.runs?.length ?? 0));
       }
     } catch (e) {
       toast.error(String(e));
@@ -869,13 +856,13 @@ export function App() {
     try {
       const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`);
       if (!res.ok) {
-        toast.error(`런 조회 실패 (${res.status})`);
+        toast.error(msg().bench.runDetailError(res.status));
         return;
       }
       const detail = (await res.json()) as BenchRunDetailResponse;
       const sc = detail.scenarios[0];
       if (!sc) {
-        toast.error("시나리오 데이터가 없습니다.");
+        toast.error(msg().bench.noScenarioData);
         return;
       }
       const runs = sc.runs ?? [];
@@ -926,7 +913,7 @@ export function App() {
       const j = (await r.json()) as DetectResult | { error: unknown };
       if (!r.ok) {
         appendLog(`detect failed: ${JSON.stringify(j)}`);
-        toast.error("프로바이더 감지에 실패했습니다.");
+        toast.error(msg().bench.detectFailed);
         return;
       }
       const d = j as DetectResult;
@@ -938,21 +925,15 @@ export function App() {
       appendLog(`provider=${d.provider} models=${d.models.length} reachability=${d.reachability?.state ?? "n/a"}`);
       const rch = d.reachability;
       if (rch?.state === "unreachable") {
-        toast.error(
-          rch.reason ?? "Base URL에 연결할 수 없습니다. 서버가 켜져 있는지·주소·방화벽을 확인하세요.",
-        );
+        toast.error(rch.reason ?? msg().bench.unreachableDefault);
       } else if (rch?.state === "partial") {
-        toast.warning(
-          rch.reason ?? "모델 목록 경로 일부만 응답했습니다. 네트워크 또는 프록시 설정을 확인하세요.",
-        );
+        toast.warning(rch.reason ?? msg().bench.partialDefault);
       } else if (d.models.length === 0) {
         const hint =
-          d.provider === "lm_studio"
-            ? "LM Studio에서 모델을 로드한 뒤 다시 시도하세요."
-            : "모델 목록이 비어 있습니다. Base URL·API 키를 확인하세요.";
-        toast.warning(`감지됐지만 모델이 없습니다. ${hint}`);
+          d.provider === "lm_studio" ? msg().bench.noModelsHintLmStudio : msg().bench.noModelsHintGeneric;
+        toast.warning(msg().bench.detectedNoModels(hint));
       } else {
-        toast.success(`감지 완료 · ${d.provider} · 모델 ${d.models.length}개`);
+        toast.success(msg().bench.detectSuccess(d.provider, d.models.length));
       }
       saveUiSnapshot({
         baseUrl: d.baseUrl,
@@ -981,7 +962,7 @@ export function App() {
       });
     } catch (e) {
       appendLog(String(e));
-      toast.error("감지 요청 중 오류가 발생했습니다.");
+      toast.error(msg().bench.detectRequestError);
     } finally {
       setDetecting(false);
     }
@@ -1020,8 +1001,8 @@ export function App() {
     if (!detect) return;
     const models = modelsToRun;
     if (!models.length) {
-      appendLog("모델을 하나 이상 선택하세요.");
-      toast.error("벤치할 모델을 하나 이상 선택하세요.");
+      appendLog(msg().bench.selectModelToBench);
+      toast.error(msg().bench.selectModelToBench);
       return;
     }
     setRunning(true);
@@ -1092,38 +1073,42 @@ export function App() {
             iterInScenario = 0;
             pendingRetry = false;
             const ridShort = ev.run_id.length > 28 ? `${ev.run_id.slice(0, 28)}…` : ev.run_id;
-            pushBenchLine("info", `런 시작 · ${ridShort}`);
+            pushBenchLine("info", msg().bench.eventRunStart(ridShort));
             setBenchCurrent({ modelId: m.id });
           }
           if (ev.type === "preflight_memory_fit") {
             // #81: 후보 로드 전 메모리-핏 예측 결과. skip이면 조용히 사라지지 않게 명확히 표시.
             const gb = (b: number | null) => (b != null ? `${(b / 1024 ** 3).toFixed(1)}GB` : "?");
-            const detail = `필요 ~${gb(ev.required_bytes)}, 여유 ${gb(ev.free_bytes)}`;
+            const detail = msg().bench.eventMemFitDetail(gb(ev.required_bytes), gb(ev.free_bytes));
             if (ev.action === "skip") {
-              pushBenchLine("err", `메모리 부족으로 건너뜀 · ${ev.model_id} · ${detail}`);
+              pushBenchLine("err", msg().bench.eventMemSkip(ev.model_id, detail));
               appendLog(`preflight skip ${ev.model_id}: ${ev.reason}`);
               toast.warning(`${ev.model_id}: ${ev.reason}`);
             } else if (ev.action === "unload_other_models") {
-              pushBenchLine("info", `메모리 확보 위해 다른 모델 언로드 · ${ev.model_id} · ${detail}`);
+              pushBenchLine("info", msg().bench.eventMemUnloadOthers(ev.model_id, detail));
               appendLog(`preflight unload_other_models ${ev.model_id}: ${ev.reason}`);
             } else {
               appendLog(`preflight ${ev.model_id}: ${ev.reason} (${detail})`);
             }
           }
           if (ev.type === "model_loaded") {
-            pushBenchLine("info", `모델 로드 완료 · ${ev.model_id}`);
+            pushBenchLine("info", msg().bench.eventModelLoaded(ev.model_id));
             setBenchCurrent({ modelId: ev.model_id });
           }
           if (ev.type === "model_unloaded") {
             const st = ev.status != null ? String(ev.status) : "?";
             const phaseLabel =
-              ev.phase === "after_bench" ? "벤치 후 " : ev.phase === "preflight_fit" ? "메모리 확보 " : "";
+              ev.phase === "after_bench"
+                ? msg().bench.unloadPhaseAfterBench
+                : ev.phase === "preflight_fit"
+                  ? msg().bench.unloadPhasePreflightFit
+                  : "";
             if (ev.ok) {
-              appendLog(`${phaseLabel}모델 언로드 완료 · ${ev.model_id} · HTTP ${st}`);
-              pushBenchLine("ok", `${phaseLabel}언로드 완료 · ${ev.model_id} · ${st}`);
+              appendLog(msg().bench.logUnloadDone(phaseLabel, ev.model_id, st));
+              pushBenchLine("ok", msg().bench.eventUnloadDone(phaseLabel, ev.model_id, st));
             } else {
-              appendLog(`${phaseLabel}모델 언로드 실패 · ${ev.model_id} · HTTP ${st}`);
-              pushBenchLine("err", `${phaseLabel}언로드 실패 · ${ev.model_id} · ${st}`);
+              appendLog(msg().bench.logUnloadFail(phaseLabel, ev.model_id, st));
+              pushBenchLine("err", msg().bench.eventUnloadFail(phaseLabel, ev.model_id, st));
             }
           }
           if (ev.type === "scenario_start") {
@@ -1153,7 +1138,9 @@ export function App() {
             const mr = streamMeta?.measured_runs ?? 3;
             const phase: BenchCurrent["phase"] = iterInScenario <= wr ? "warmup" : "measured";
             const iterLabel =
-              phase === "warmup" ? `워밍업 ${iterInScenario}/${wr}` : `측정 ${Math.min(iterInScenario - wr, mr)}/${mr}`;
+              phase === "warmup"
+                ? msg().bench.iterWarmup(iterInScenario, wr)
+                : msg().bench.iterMeasured(Math.min(iterInScenario - wr, mr), mr);
             setBenchCurrent({
               modelId: m.id,
               scenario: p.sid,
@@ -1162,26 +1149,26 @@ export function App() {
               iterLabel,
             });
             setTouchedScenarioIds((prev) => (prev.includes(p.sid) ? prev : [...prev, p.sid]));
-            pushBenchLine("info", `시작 · ${p.sid} · ${p.api} (${iterLabel})`);
+            pushBenchLine("info", msg().bench.eventScenarioStart(p.sid, p.api, iterLabel));
           }
           if (ev.type === "run_finished") {
             sawRunFinished = true;
-            pushBenchLine("ok", `런 완료 · ${m.id}`);
+            pushBenchLine("ok", msg().bench.eventRunFinished(m.id));
             setBenchCurrent({ modelId: m.id });
           }
           if (ev.type === "token_delta") {
             setPreview((p) => (p + ev.text).slice(-8000));
           }
           if (ev.type === "contention_waiting") {
-            const where = ev.phase === "pre_bench" ? "사전" : "반복간";
+            const where = ev.phase === "pre_bench" ? msg().bench.waitPhasePre : msg().bench.waitPhaseBetween;
             const gpu = ev.gpu_util_pct != null ? ` · GPU ${ev.gpu_util_pct}%` : "";
             pushBenchLine(
               "warn",
-              `대기 · ${where} · ${ev.waiting_reason}${gpu} (${ev.elapsed_ms}ms)`,
+              msg().bench.eventContentionWaiting(where, ev.waiting_reason, gpu, ev.elapsed_ms),
             );
           }
           if (ev.type === "contention_resumed") {
-            pushBenchLine("ok", `재개 · ${ev.waited_ms}ms 대기 후`);
+            pushBenchLine("ok", msg().bench.eventContentionResumed(ev.waited_ms));
           }
           if (ev.type === "iteration_discarded") {
             // 폐기된 부분 출력 미리보기 초기화 + 다음 scenario_start를 재측정으로 표시.
@@ -1189,7 +1176,7 @@ export function App() {
             if (ev.will_retry) pendingRetry = true;
             pushBenchLine(
               "warn",
-              `오염 폐기 · 재측정 ${ev.retry_count + 1}/${ev.max_retries} · ${ev.scenario_id} · ${ev.reason}`,
+              msg().bench.eventIterationDiscarded(ev.retry_count + 1, ev.max_retries, ev.scenario_id, ev.reason),
             );
           }
           if (ev.type === "contention_summary") {
@@ -1200,10 +1187,10 @@ export function App() {
               ev.abort_reason
             ) {
               const maxWait = Math.max(ev.max_pre_bench_wait_ms, ev.max_between_iteration_wait_ms);
-              const eff = ev.guard_effective ? "" : " · 가드 비실효(신호 없음)";
+              const eff = ev.guard_effective ? "" : msg().bench.guardIneffective;
               pushBenchLine(
                 "info",
-                `오염 요약 · 폐기 ${ev.total_iterations_discarded}회 · 최대대기 ${maxWait}ms${eff}`,
+                msg().bench.eventContentionSummary(ev.total_iterations_discarded, maxWait, eff),
               );
             }
           }
@@ -1217,7 +1204,7 @@ export function App() {
               api: agg.api_route,
               phase: "aggregate",
             });
-            pushBenchLine("ok", `집계 완료 · ${agg.scenario_id} · ${apiLabel}`);
+            pushBenchLine("ok", msg().bench.eventAggregateDone(agg.scenario_id, apiLabel));
             const rowKey = scenarioRowKey(agg.scenario_id, agg.api_route, m.id);
             setDetailAggregate((prev) => ({ ...prev, [rowKey]: agg }));
             const runs = agg.runs;
@@ -1271,32 +1258,32 @@ export function App() {
         });
         if (!sawRunFinished) {
           streamIncomplete = true;
-          appendLog(`bench incomplete: run_finished 없음 model=${m.id}`);
+          appendLog(msg().bench.logBenchIncomplete(m.id));
         }
       } catch (e) {
         anyHttpFail = true;
         appendLog(String(e));
-        pushBenchLine("err", `요청 실패 · ${m.id}: ${String(e).slice(0, 200)}`);
+        pushBenchLine("err", msg().bench.eventRequestFailed(m.id, String(e).slice(0, 200)));
       }
     }
     setRunning(false);
     appendLog("bench finished");
     if (anyHttpFail || streamErrorCount > 0 || streamIncomplete) {
-      toast.warning("벤치 종료 — 오류·미완료 스트림이 있었습니다. 로그를 확인하세요.");
+      toast.warning(msg().bench.benchDoneWithIssues);
     } else {
-      toast.success("벤치가 모두 완료되었습니다.");
+      toast.success(msg().bench.benchAllDone);
     }
   }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, fitPolicy, loadTtlSecondsNum, unloadOtherModels, visibleSelectedScenarioIds]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
     if (visibleSelectedScenarioIds.length === 0) {
-      toast.error("실행할 시나리오를 1개 이상 선택하세요.");
+      toast.error(msg().bench.selectScenarioToRun);
       return;
     }
     const models = orderedSelectedModels;
     if (!models.length) {
-      toast.error("벤치할 모델을 하나 이상 선택하세요.");
+      toast.error(msg().bench.selectModelToBench);
       return;
     }
     setBenchQueueDraft([...models]);
@@ -1347,10 +1334,10 @@ export function App() {
       onClick={() => void runDetect()}
       disabled={detecting}
       aria-busy={detecting}
-      aria-label="연결 및 프로바이더 감지"
+      aria-label={msg().bench.detectAria}
     >
       {detecting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Link2 className="size-4" aria-hidden />}
-      연결 / 감지
+      {msg().bench.detectButton}
     </button>
   );
 
@@ -1359,18 +1346,20 @@ export function App() {
       <Toaster richColors theme={themeResolved} position="bottom-right" closeButton />
       <ConfirmDialog
         open={benchConfirmOpen}
-        title="선택 모델 벤치"
-        confirmLabel="벤치 실행"
+        title={msg().bench.runSelected}
+        confirmLabel={msg().bench.confirmRun}
         onCancel={() => setBenchConfirmOpen(false)}
         onConfirm={handleConfirmBench}
       >
         {detect ? (
           <>
             <p>
-              실행 순서 · 모델 <strong className="text-[var(--foreground)]">{benchQueueDraft.length}</strong>개
-              {detect.provider === "lm_studio" ? " · LM Studio에서 로드/언로드가 동작할 수 있습니다." : ""}
+              {msg().bench.confirmOrderLabel}
+              <strong className="text-[var(--foreground)]">{benchQueueDraft.length}</strong>
+              {msg().bench.confirmOrderUnit}
+              {detect.provider === "lm_studio" ? msg().bench.confirmLmStudioLoadNote : ""}
             </p>
-            <p className="mt-1 text-xs text-[var(--muted)]">위/아래로 직렬 실행 순서를 바꿀 수 있습니다.</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">{msg().bench.confirmReorderHint}</p>
             <ol className="mt-2 max-h-48 list-decimal space-y-1.5 overflow-y-auto overscroll-contain pl-5 text-[var(--foreground)]">
               {benchQueueDraft.map((m, i) => (
                 <li key={m.id} className="font-mono text-xs">
@@ -1385,7 +1374,7 @@ export function App() {
                       <button
                         type="button"
                         className="rounded border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40"
-                        aria-label={`${m.id} 위로 이동`}
+                        aria-label={msg().bench.moveUpAria(m.id)}
                         disabled={i === 0}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1397,7 +1386,7 @@ export function App() {
                       <button
                         type="button"
                         className="rounded border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40"
-                        aria-label={`${m.id} 아래로 이동`}
+                        aria-label={msg().bench.moveDownAria(m.id)}
                         disabled={i === benchQueueDraft.length - 1}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1413,15 +1402,17 @@ export function App() {
             </ol>
             <ul className="mt-2 space-y-1 text-xs">
               {unloadOtherModels && detect.provider === "lm_studio" ? (
-                <li>벤치 대상 외 모델 언로드가 켜져 있습니다(감지 목록 기준).</li>
+                <li>{msg().bench.confirmUnloadOthersOn}</li>
               ) : null}
               {autoUnloadAfterBench && detect.provider === "lm_studio" ? (
-                <li>이번 벤치에서 로드한 대상 모델만 끝날 때 자동 언로드합니다(이미 로드된 모델은 유지).</li>
+                <li>{msg().bench.confirmAutoUnloadOn}</li>
               ) : null}
               {loadTtlSecondsNum && providerSupportsLoadTtl(detect.provider) ? (
                 <li>
-                  모델 로드 TTL {loadTtlSecondsNum}초를 적용합니다(
-                  {detect.provider === "lm_studio" ? "LM Studio load ttl" : "Ollama keep_alive"}).
+                  {msg().bench.confirmLoadTtl(
+                    loadTtlSecondsNum,
+                    detect.provider === "lm_studio" ? "LM Studio load ttl" : "Ollama keep_alive",
+                  )}
                 </li>
               ) : null}
             </ul>
@@ -1432,7 +1423,7 @@ export function App() {
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-[var(--accent)] focus:px-4 focus:py-2 focus:text-white"
       >
-        본문 바로가기
+        {msg().common.skipToContent}
       </a>
       <AppHeader
         themeChoice={themeChoice}
@@ -1468,7 +1459,7 @@ export function App() {
             <label className="grid gap-1 text-sm">
               <span className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
                 <KeyRound className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-                API 키 (선택)
+                {msg().bench.apiKeyLabel}
               </span>
               <input
                 type="password"
@@ -1476,7 +1467,7 @@ export function App() {
                 className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-sm"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Bearer / 게이트웨이 키"
+                placeholder={msg().bench.apiKeyPlaceholder}
               />
             </label>
           </div>
@@ -1488,11 +1479,14 @@ export function App() {
               onChange={(e) => setPersistApiKeyToDisk(e.target.checked)}
             />
             <span>
-              <span className="font-medium text-[var(--foreground)]">이 브라우저에 API 키 저장 (로컬 디스크, 평문)</span>
+              <span className="font-medium text-[var(--foreground)]">{msg().bench.persistApiKeyLabel}</span>
               <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
-                끄면 같은 탭에서만 <code className="rounded bg-[var(--surface)] px-1">sessionStorage</code>에 보관되어 새로고침은 유지되나 브라우저를 닫으면 사라질 수 있습니다. 켜면{" "}
-                <code className="rounded bg-[var(--surface)] px-1">localStorage</code> 평문으로 남으며 XSS 등에 노출될 수 있습니다.
+                {msg().bench.persistApiKeyHintA}
+                <code className="rounded bg-[var(--surface)] px-1">sessionStorage</code>
+                {msg().bench.persistApiKeyHintB}
+                <code className="rounded bg-[var(--surface)] px-1">localStorage</code>
+                {msg().bench.persistApiKeyHintC}
               </span>
             </span>
           </label>
@@ -1504,14 +1498,14 @@ export function App() {
               aria-expanded={scenarioPickerOpen}
             >
               <span className="font-medium text-[var(--foreground)]">
-                실행 시나리오{" "}
+                {msg().bench.runScenariosLabel}{" "}
                 <span className={visibleSelectedScenarioIds.length === 0 ? "text-[var(--danger)]" : "text-[var(--muted)]"}>
                   ({visibleSelectedScenarioIds.length}/{PUBLIC_SCENARIO_IDS.length + dynamicScenarios.length})
                 </span>
               </span>
               <span className="flex items-center gap-2 text-xs">
                 <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[var(--muted)]">
-                  텍스트 {selectedTextCount}/{totalTextScenarios}
+                  {msg().bench.categoryText} {selectedTextCount}/{totalTextScenarios}
                 </span>
                 <span
                   className={[
@@ -1521,7 +1515,7 @@ export function App() {
                       : "bg-[var(--surface-2)] text-[var(--muted)]",
                   ].join(" ")}
                 >
-                  비전 {selectedVisionCount}/{VISION_SCENARIO_IDS.length}
+                  {msg().bench.categoryVision} {selectedVisionCount}/{VISION_SCENARIO_IDS.length}
                 </span>
                 {agentScenarioIds.length > 0 ? (
                   <span
@@ -1532,7 +1526,7 @@ export function App() {
                         : "bg-[var(--surface-2)] text-[var(--muted)]",
                     ].join(" ")}
                   >
-                    에이전트 {selectedAgentCount}/{agentScenarioIds.length}
+                    {msg().bench.categoryAgent} {selectedAgentCount}/{agentScenarioIds.length}
                   </span>
                 ) : null}
                 <span className="text-[var(--muted)]" aria-hidden>{scenarioPickerOpen ? "▴" : "▾"}</span>
@@ -1540,7 +1534,7 @@ export function App() {
             </button>
             {visibleSelectedScenarioIds.length === 0 && !scenarioPickerOpen ? (
               <p className="mt-2 text-xs text-[var(--danger)]">
-                실행할 시나리오를 1개 이상 선택해야 합니다.
+                {msg().bench.scenarioRequiredHint}
               </p>
             ) : null}
             {scenarioPickerOpen ? (
@@ -1562,10 +1556,10 @@ export function App() {
                         setSelectedScenarioIds(prev => [...new Set([...prev, ...DEFAULT_SCENARIO_IDS])]);
                       }
                     }}
-                    title="텍스트 시나리오 8개 토글"
+                    title={msg().bench.toggleTextTitle(DEFAULT_SCENARIO_IDS.length)}
                   >
                     <MessageSquare className="size-3" aria-hidden />
-                    텍스트 ({DEFAULT_SCENARIO_IDS.length}개)
+                    {msg().bench.textCountButton(DEFAULT_SCENARIO_IDS.length)}
                   </button>
                   <button
                     type="button"
@@ -1577,10 +1571,10 @@ export function App() {
                         setSelectedScenarioIds(prev => [...new Set([...prev, ...VISION_SCENARIO_IDS])]);
                       }
                     }}
-                    title="비전 시나리오 10개 토글"
+                    title={msg().bench.toggleVisionTitle(VISION_SCENARIO_IDS.length)}
                   >
                     <Eye className="size-3" aria-hidden />
-                    비전 ({VISION_SCENARIO_IDS.length}개)
+                    {msg().bench.visionCountButton(VISION_SCENARIO_IDS.length)}
                   </button>
                   {agentScenarioIds.length > 0 ? (
                     <>
@@ -1594,10 +1588,10 @@ export function App() {
                             setSelectedScenarioIds(prev => [...new Set([...prev, ...agentScenarioIds])]);
                           }
                         }}
-                        title="에이전트 시나리오 토글"
+                        title={msg().bench.toggleAgentTitle}
                       >
                         <Bot className="size-3" aria-hidden />
-                        에이전트 ({agentScenarioIds.length}개)
+                        {msg().bench.agentCountButton(agentScenarioIds.length)}
                       </button>
                       <button
                         type="button"
@@ -1609,10 +1603,12 @@ export function App() {
                             ...agentScenarioIds,
                           ])
                         }
-                        title="텍스트 + 비전 + 에이전트 전체 선택"
+                        title={msg().bench.selectAllCategoriesTitle}
                       >
                         <CheckSquare className="size-3" aria-hidden />
-                        전체 선택 ({DEFAULT_SCENARIO_IDS.length + VISION_SCENARIO_IDS.length + agentScenarioIds.length}개)
+                        {msg().bench.selectAllCountButton(
+                          DEFAULT_SCENARIO_IDS.length + VISION_SCENARIO_IDS.length + agentScenarioIds.length,
+                        )}
                       </button>
                     </>
                   ) : null}
@@ -1622,14 +1618,14 @@ export function App() {
                     onClick={() => setSelectedScenarioIds([])}
                   >
                     <Square className="size-3" aria-hidden />
-                    모두 해제
+                    {msg().bench.clearAll}
                   </button>
                       </>
                     );
                   })()}
                 </div>
                 <div>
-                  <div className="mb-1 text-xs font-semibold text-[var(--foreground)]">텍스트 시나리오</div>
+                  <div className="mb-1 text-xs font-semibold text-[var(--foreground)]">{msg().bench.textScenariosHeading}</div>
                   <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                     {(PUBLIC_SCENARIO_IDS as string[])
                       .filter((id) => !isVisionScenario(id))
@@ -1655,9 +1651,9 @@ export function App() {
                 </div>
                 <div>
                   <div className="mb-1 text-xs font-semibold text-[var(--foreground)]">
-                    비전 시나리오{" "}
+                    {msg().bench.visionScenariosHeading}{" "}
                     <span className="text-[var(--muted)]">
-                      (opt-in · 비전 미지원 모델은 400/거부 가능 · 호출 비용 ↑)
+                      {msg().bench.visionScenariosNote}
                     </span>
                   </div>
                   <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
@@ -1684,8 +1680,8 @@ export function App() {
                 {dynamicScenarios.length > 0 ? (
                   <div>
                     <div className="mb-1 text-xs font-semibold text-[var(--foreground)]">
-                      커스텀 · 에이전트 시나리오{" "}
-                      <span className="text-[var(--muted)]">(agent_loop · 사용자 등록 — 서버에 등록된 것)</span>
+                      {msg().bench.customAgentScenariosHeading}{" "}
+                      <span className="text-[var(--muted)]">{msg().bench.customAgentScenariosNote}</span>
                     </div>
                     <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                       {dynamicScenarios.map((s) => {
@@ -1717,11 +1713,7 @@ export function App() {
           </div>
           <label
             className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-            title={
-              detect?.provider === "lm_studio"
-                ? "감지된 모델 목록에 있는 다른 모델에 대해 unload를 시도합니다. 목록에 없는 로드는 건드리지 못합니다."
-                : "LM Studio에서만 적용됩니다."
-            }
+            title={detect?.provider === "lm_studio" ? msg().bench.unloadOthersTitleLmStudio : msg().bench.onlyLmStudio}
           >
             <input
               type="checkbox"
@@ -1731,21 +1723,17 @@ export function App() {
               onChange={(e) => setUnloadOtherModels(e.target.checked)}
             />
             <span>
-              <span className="font-medium text-[var(--foreground)]">벤치 대상 외 모델 언로드 (LM Studio)</span>
+              <span className="font-medium text-[var(--foreground)]">{msg().bench.unloadOthersLabel}</span>
               <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
-                켜면 각 벤치 시작 전 감지된 다른 모델 키에 대해 unload를 베스트 에포트로 호출합니다. 실패해도 벤치는 계속됩니다.
-                {detect && detect.provider !== "lm_studio" ? " 현재 프로바이더에서는 비활성입니다." : ""}
+                {msg().bench.unloadOthersHint}
+                {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
               </span>
             </span>
           </label>
           <label
             className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-            title={
-              detect?.provider === "lm_studio"
-                ? "시작 시점에 이미 VRAM에 있던 모델은 언로드하지 않고, 이번 실행이 load로 올린 경우에만 끝날 때 unload를 시도합니다."
-                : "LM Studio에서만 적용됩니다."
-            }
+            title={detect?.provider === "lm_studio" ? msg().bench.autoUnloadTitleLmStudio : msg().bench.onlyLmStudio}
           >
             <input
               type="checkbox"
@@ -1755,23 +1743,22 @@ export function App() {
               onChange={(e) => setAutoUnloadAfterBench(e.target.checked)}
             />
             <span>
-              <span className="font-medium text-[var(--foreground)]">벤치 후 대상 모델 자동 언로드 (LM Studio)</span>
+              <span className="font-medium text-[var(--foreground)]">{msg().bench.autoUnloadLabel}</span>
               <span className="mt-0.5 block text-xs leading-snug">
-                이미 로드되어 있던 모델은 그대로 두고, 이번 벤치에서 로드한 경우에만 런 종료 시 unload를 베스트 에포트로 호출합니다.
-                {detect && detect.provider !== "lm_studio" ? " 현재 프로바이더에서는 비활성입니다." : ""}
+                {msg().bench.autoUnloadHint}
+                {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
               </span>
             </span>
           </label>
           <div
             className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
-            title="후보 로드 전 필요 RAM vs 여유 RAM을 예측합니다. 안 맞을 때의 동작을 고릅니다 (LM Studio)."
+            title={msg().bench.memFitTitle}
           >
             <span className="mt-1 flex-1">
-              <span id="fit-policy-label" className="font-medium text-[var(--foreground)]">메모리-핏 프리플라이트 (LM Studio)</span>
+              <span id="fit-policy-label" className="font-medium text-[var(--foreground)]">{msg().bench.memFitLabel}</span>
               <span className="mt-0.5 block text-xs leading-snug">
-                후보 로드 전 필요 RAM을 예측해 로그합니다. 안 맞으면: <b>언로드-해서-맞추기</b>는 다른 로드된 모델을 비워 자리를
-                만들고, <b>건너뛰기</b>는 raw 400 대신 사유를 기록하고 스킵합니다. 기본(예측만)은 그대로 진행합니다.
-                {detect && detect.provider !== "lm_studio" ? " 현재 프로바이더에서는 비활성입니다." : ""}
+                {msg().bench.memFitHintA}<b>{msg().bench.memFitUnload}</b>{msg().bench.memFitHintB}<b>{msg().bench.memFitSkip}</b>{msg().bench.memFitHintC}
+                {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
               </span>
             </span>
             <select
@@ -1781,29 +1768,27 @@ export function App() {
               aria-labelledby="fit-policy-label"
               onChange={(e) => setFitPolicy(e.target.value as "" | "skip" | "unload_other_models")}
             >
-              <option value="">예측만(로그)</option>
-              <option value="unload_other_models">언로드-해서-맞추기</option>
-              <option value="skip">안 맞으면 건너뛰기</option>
+              <option value="">{msg().bench.memFitOptionLog}</option>
+              <option value="unload_other_models">{msg().bench.memFitUnload}</option>
+              <option value="skip">{msg().bench.memFitOptionSkip}</option>
             </select>
           </div>
           <div
             className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
-            title="로드 시 TTL(초)을 적용해 유휴 후 자동 언로드합니다. LM Studio는 load ttl, Ollama는 keep_alive로 적용됩니다."
+            title={msg().bench.loadTtlTitle}
           >
             <span className="mt-1 flex-1">
-              <span id="load-ttl-label" className="font-medium text-[var(--foreground)]">모델 로드 TTL(초) — LM Studio · Ollama</span>
+              <span id="load-ttl-label" className="font-medium text-[var(--foreground)]">{msg().bench.loadTtlLabel}</span>
               <span className="mt-0.5 block text-xs leading-snug">
-                로드 시 지정 시간(초) 동안만 모델을 상주시키고 유휴 후 자동 언로드합니다. 비우면 미적용(기존 동작). LM Studio는
-                load <code>ttl</code>, Ollama는 네이티브 <code>keep_alive</code>로 적용됩니다. Ollama는 추론(<code>/v1</code>)이 keep_alive를
-                기본 5분으로 리셋하므로 벤치 종료 후 지정 TTL을 다시 적용합니다.
-                {detect && !providerSupportsLoadTtl(detect.provider) ? " 현재 프로바이더에서는 비활성입니다." : ""}
+                {msg().bench.loadTtlHintA}<code>ttl</code>{msg().bench.loadTtlHintB}<code>keep_alive</code>{msg().bench.loadTtlHintC}<code>/v1</code>{msg().bench.loadTtlHintD}
+                {detect && !providerSupportsLoadTtl(detect.provider) ? msg().bench.inactiveOnCurrentProvider : ""}
               </span>
             </span>
             <input
               type="number"
               min={1}
               step={1}
-              placeholder="미적용"
+              placeholder={msg().bench.notApplied}
               className="mt-1 w-24 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
               value={loadTtlSeconds}
               disabled={!detect || !providerSupportsLoadTtl(detect.provider)}
@@ -1813,7 +1798,7 @@ export function App() {
           </div>
           <label
             className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-            title="다른 추론(같은/다른 모델)이 실행 중이면 시작 전 대기하고, 벤치 중 감지되면 오염된 측정 런만 폐기 후 재측정합니다."
+            title={msg().bench.contentionGuardTitle}
           >
             <input
               type="checkbox"
@@ -1822,16 +1807,16 @@ export function App() {
               onChange={(e) => setContentionGuardEnabled(e.target.checked)}
             />
             <span>
-              <span className="font-medium text-[var(--foreground)]">오염 가드 (다른 추론 감지 시 대기·재측정)</span>
+              <span className="font-medium text-[var(--foreground)]">{msg().bench.contentionGuardLabel}</span>
               <span className="mt-0.5 block text-xs leading-snug">
-                GPU util·/metrics·lms ps로 활성 추론을 감지합니다. 신호가 없는 환경에서는 자동으로 비실효 처리됩니다.
+                {msg().bench.contentionGuardHint}
               </span>
             </span>
           </label>
           {contentionGuardEnabled ? (
             <div className="mt-2 ml-6 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
               <label className="flex items-center gap-1.5">
-                사전 대기 한도(초)
+                {msg().bench.preBenchTimeoutLabel}
                 <input
                   type="number"
                   inputMode="numeric"
@@ -1842,7 +1827,7 @@ export function App() {
                 />
               </label>
               <label className="flex items-center gap-1.5">
-                런당 재시도 횟수
+                {msg().bench.retriesPerRunLabel}
                 <input
                   type="number"
                   inputMode="numeric"
@@ -1862,25 +1847,25 @@ export function App() {
           <h2 className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
             <span className="inline-flex items-center gap-2">
               <Monitor className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-              모델 선택
+              {msg().bench.modelSelectHeading}
             </span>
             <NavLink
               to="/profile"
               className="shrink-0 text-xs font-normal text-[var(--accent-2)] no-underline hover:underline"
             >
-              프로파일 수치·규칙 상세
+              {msg().bench.profileDetailLink}
             </NavLink>
           </h2>
           <div className="mb-3 grid grid-cols-1 gap-2 rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
             <label className="grid min-w-0 gap-1">
-              <span className="text-xs font-medium text-[var(--muted)]">프로파일</span>
+              <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.profile}</span>
               <select
                 className="min-w-0 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs text-[var(--foreground)]"
                 value={profileId}
                 onChange={(e) => setProfileId(e.target.value as "auto" | LlmProfileFamily)}
-                aria-label="벤치 프로파일"
+                aria-label={msg().bench.profileSelectAria}
               >
-                <option value="auto">자동(모델 id로 추론)</option>
+                <option value="auto">{msg().bench.profileAuto}</option>
                 <option value="gemma4">Gemma 4</option>
                 <option value="qwen35">Qwen 3.5</option>
                 <option value="qwen36">Qwen 3.6</option>
@@ -1889,20 +1874,20 @@ export function App() {
                 <option value="nemotron3">Nemotron 3</option>
                 <option value="qwen3_coder_next">Qwen3-Coder-Next</option>
                 <option value="glm47_flash">GLM-4.7-Flash</option>
-                <option value="unknown">unknown (기본 샘플링)</option>
+                <option value="unknown">{msg().bench.profileUnknown}</option>
               </select>
             </label>
             <label className="grid min-w-0 gap-1">
-              <span className="text-xs font-medium text-[var(--muted)]">사고(thinking) 의도</span>
+              <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.thinkingIntentLabel}</span>
               <select
                 className="min-w-0 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)] disabled:opacity-50"
                 value={benchmarkThroughputMode ? "off" : thinkingIntent}
                 disabled={benchmarkThroughputMode}
-                title={benchmarkThroughputMode ? "성능 측정 모드에서 off로 고정됩니다" : undefined}
+                title={benchmarkThroughputMode ? msg().bench.thinkingLockedTitle : undefined}
                 onChange={(e) => setThinkingIntent(e.target.value as ThinkingIntent)}
               >
-                <option value="on">켜기 (기본)</option>
-                <option value="off">끄기 (Qwen·Nemotron: enable_thinking=false)</option>
+                <option value="on">{msg().bench.thinkingOn}</option>
+                <option value="off">{msg().bench.thinkingOff}</option>
               </select>
             </label>
             <label className="flex min-w-0 cursor-pointer items-start gap-2 text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
@@ -1914,11 +1899,11 @@ export function App() {
                 onChange={(e) => setBenchmarkThroughputMode(e.target.checked)}
               />
               <span className="min-w-0">
-                <span className="font-medium text-[var(--foreground)]">성능 측정 모드(처리량)</span>
+                <span className="font-medium text-[var(--foreground)]">{msg().bench.throughputModeLabel}</span>
                 <span className="mt-0.5 block leading-snug">
-                  처리량 비교용 apples-to-apples 측정 — 사고 <strong>off</strong> · <code className="font-mono">chat_completions</code> 단일 라우트 · max_tokens <strong>{BENCH_THROUGHPUT_MAX_TOKENS}</strong> 고정. 켜면 위 사고·max_tokens·preset 설정은 무시됩니다.
+                  {msg().bench.throughputHintA}<strong>off</strong> · <code className="font-mono">chat_completions</code>{msg().bench.throughputHintB}<strong>{BENCH_THROUGHPUT_MAX_TOKENS}</strong>{msg().bench.throughputHintC}
                   {detect != null && !detect.capabilities.openaiChat ? (
-                    <span className="block text-[var(--danger)]">이 프로바이더는 chat_completions 라우트가 없어 사용할 수 없습니다.</span>
+                    <span className="block text-[var(--danger)]">{msg().bench.throughputNoChatRoute}</span>
                   ) : null}
                 </span>
               </span>
@@ -1940,13 +1925,13 @@ export function App() {
               </label>
             ) : null}
             <label className="grid min-w-0 gap-1 sm:col-span-2 lg:col-span-3">
-              <span className="text-xs font-medium text-[var(--muted)]">max_tokens (비워두면 모델 카드 권장값)</span>
+              <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.maxTokensLabel}</span>
               <input
                 className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs"
                 inputMode="numeric"
                 value={profileMaxTokens}
                 onChange={(e) => setProfileMaxTokens(e.target.value.replace(/[^\d]/g, ""))}
-                placeholder="예: 32768"
+                placeholder={msg().bench.maxTokensPlaceholder}
               />
             </label>
             {profileId === "auto" || profileId === "qwen36" ? (
@@ -1960,7 +1945,7 @@ export function App() {
                 />
                 <span className="min-w-0">
                   <span className="font-medium text-[var(--foreground)]">Qwen3.6: preserve_thinking</span>
-                  <span className="mt-0.5 block leading-snug">에이전트형 멀티턴에서만 켜는 것을 권장합니다.</span>
+                  <span className="mt-0.5 block leading-snug">{msg().bench.preserveThinkingHint}</span>
                 </span>
               </label>
             ) : null}
@@ -1970,16 +1955,16 @@ export function App() {
               open={profileAdvancedOpen}
               onToggle={(e) => setProfileAdvancedOpen((e.target as HTMLDetailsElement).open)}
             >
-              <summary className="cursor-pointer text-xs font-medium text-[var(--foreground)]">고급: 프리셋·샘플링 JSON 오버라이드</summary>
+              <summary className="cursor-pointer text-xs font-medium text-[var(--foreground)]">{msg().bench.advancedSummary}</summary>
               <div className="mt-2 grid gap-2">
                 <label className="grid gap-1">
-                  <span className="text-xs text-[var(--muted)]">preset 강제 (비우면 자동)</span>
+                  <span className="text-xs text-[var(--muted)]">{msg().bench.presetOverrideLabel}</span>
                   <select
                     className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs"
                     value={presetOverride}
                     onChange={(e) => setPresetOverride((e.target.value || "") as SamplingPresetName | "")}
                   >
-                    <option value="">자동</option>
+                    <option value="">{msg().bench.presetAuto}</option>
                     <option value="default">default</option>
                     <option value="thinking_general">thinking_general</option>
                     <option value="thinking_coding">thinking_coding</option>
@@ -1988,7 +1973,7 @@ export function App() {
                   </select>
                 </label>
                 <label className="grid gap-1">
-                  <span className="text-xs text-[var(--muted)]">samplingOverrides (JSON 객체)</span>
+                  <span className="text-xs text-[var(--muted)]">{msg().bench.samplingOverridesLabel}</span>
                   <textarea
                     className="min-h-[4.5rem] rounded border border-[var(--border)] bg-[var(--surface-2)] p-2 font-mono text-[11px] leading-snug text-[var(--foreground)]"
                     value={samplingOverridesText}
@@ -2000,7 +1985,7 @@ export function App() {
                   />
                   {samplingOverridesInvalid ? (
                     <span id="sampling-overrides-error" className="text-xs text-[var(--danger)]">
-                      유효한 JSON 객체가 아닙니다 — 오버라이드가 적용되지 않습니다
+                      {msg().bench.samplingOverridesInvalid}
                     </span>
                   ) : null}
                 </label>
@@ -2010,7 +1995,7 @@ export function App() {
           {detecting ? (
             <p className="flex items-center justify-center gap-2 py-10 text-sm text-[var(--muted)]">
               <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
-              프로바이더 감지 중…
+              {msg().bench.detecting}
             </p>
           ) : detect && detect.models.length > 0 ? (
             <>
@@ -2032,7 +2017,7 @@ export function App() {
           ) : detect && detect.models.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-8 text-center text-sm text-[var(--muted)]">
               <p>
-                감지된 모델이 없습니다. Base URL·API 키를 확인한 뒤 다시 <strong className="text-[var(--foreground)]">연결 / 감지</strong>를 실행하세요.
+                {msg().bench.noModelsPrefix}<strong className="text-[var(--foreground)]">{msg().bench.detectButton}</strong>{msg().bench.noModelsSuffix}
               </p>
               {detectButton}
             </div>
@@ -2042,7 +2027,7 @@ export function App() {
               aria-live="polite"
             >
               <p>
-                아직 모델 목록이 없습니다. <strong className="text-[var(--foreground)]">연결 / 감지</strong>를 실행하면 목록이 여기에 표시됩니다.
+                {msg().bench.emptyModelsPrefix}<strong className="text-[var(--foreground)]">{msg().bench.detectButton}</strong>{msg().bench.emptyModelsSuffix}
               </p>
               {detectButton}
             </div>
@@ -2059,7 +2044,7 @@ export function App() {
               }
               className="text-xs text-[var(--accent-2)] no-underline hover:underline"
             >
-              시나리오 상세 문서
+              {msg().bench.scenarioDetailDocLink}
             </NavLink>
           </div>
           <ScenarioGuideCards
@@ -2087,15 +2072,11 @@ export function App() {
               onClick={requestBench}
               disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
               aria-busy={running}
-              aria-label="선택 모델 벤치 실행"
-              title={
-                visibleSelectedScenarioIds.length === 0
-                  ? "실행할 시나리오를 1개 이상 선택하세요"
-                  : undefined
-              }
+              aria-label={msg().bench.runSelectedAria}
+              title={visibleSelectedScenarioIds.length === 0 ? msg().bench.selectScenarioTitle : undefined}
             >
               {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Play className="size-4" aria-hidden />}
-              선택 모델 벤치
+              {msg().bench.runSelected}
             </button>
           }
         />
@@ -2113,7 +2094,7 @@ export function App() {
         >
           <h2 className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
             <Activity className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-            메트릭 차트
+            {msg().bench.metricsChartHeading}
           </h2>
           <div className="mb-4 flex flex-wrap items-center gap-4 text-sm">
             <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
@@ -2123,7 +2104,7 @@ export function App() {
                 checked={chartView === "live"}
                 onChange={() => setChartView("live")}
               />
-              이번 세션
+              {msg().bench.thisSession}
             </label>
             <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
               <input
@@ -2132,7 +2113,7 @@ export function App() {
                 checked={chartView === "compare"}
                 onChange={() => setChartView("compare")}
               />
-              저장된 마지막 런 비교
+              {msg().bench.compareStoredLast}
             </label>
             <button
               type="button"
@@ -2141,15 +2122,15 @@ export function App() {
               onClick={() => void loadCompareFromServer()}
             >
               {compareLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-              비교 불러오기
+              {msg().bench.loadCompare}
             </button>
             {chartView === "compare" && (!compareSeries || compareSeries.length < 2) ? (
-              <span className="text-xs text-[var(--muted)]">선택 모델 2개 이상 · 비교 불러오기 실행</span>
+              <span className="text-xs text-[var(--muted)]">{msg().bench.compareHint}</span>
             ) : null}
           </div>
           {chartModelIds.length > 0 ? (
             <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
-              <span className="text-xs font-medium text-[var(--muted)]">차트 모델</span>
+              <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.chartModels}</span>
               {chartModelIds.map((id) => {
                 const label = detect?.models.find((m: DetectModel) => m.id === id)?.label ?? id;
                 return (
@@ -2184,11 +2165,11 @@ export function App() {
               />
             ) : (
               <p className="py-8 text-center text-sm text-[var(--muted)]">
-                비교 차트를 보려면 위에서 모델을 2개 이상 선택하세요.
+                {msg().bench.compareSelectTwo}
               </p>
             )
           ) : chartRows.length > 0 && filteredChartRows.length === 0 ? (
-            <p className="py-8 text-center text-sm text-[var(--muted)]">표시할 모델을 하나 이상 선택하세요.</p>
+            <p className="py-8 text-center text-sm text-[var(--muted)]">{msg().bench.selectModelToShow}</p>
           ) : (
             <BenchCharts chartRows={filteredChartRows} onBarPayload={(row) => openFromChartRow(row)} />
           )}
@@ -2197,7 +2178,7 @@ export function App() {
         <section
           className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchMetricsPanelsClass].filter(Boolean).join(" ")}
         >
-          <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">결과 테이블</h2>
+          <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">{msg().bench.resultsTableHeading}</h2>
           <ResultsTable
             rows={rows}
             benchModelOrder={benchQueueDraft.map((m) => m.id)}
@@ -2214,7 +2195,7 @@ export function App() {
             )}
           >
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
-              <h2 className="text-sm font-semibold text-[var(--foreground)]">토큰 프리뷰 (스트림)</h2>
+              <h2 className="text-sm font-semibold text-[var(--foreground)]">{msg().bench.tokenPreview}</h2>
               <HighlightToggle on={hlPreview} onChange={setHlPreview} />
             </div>
             <JsonCodeBlock
@@ -2227,7 +2208,7 @@ export function App() {
           </div>
           <div className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
-              <h2 className="text-sm font-semibold text-[var(--foreground)]">로그</h2>
+              <h2 className="text-sm font-semibold text-[var(--foreground)]">{msg().bench.logHeading}</h2>
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
@@ -2246,12 +2227,12 @@ export function App() {
                   }}
                   aria-label={
                     serverRunsPanelOpen && serverRuns.length > 0
-                      ? "서버 런 목록 접기"
-                      : "서버에 저장된 벤치 런 목록 불러오기"
+                      ? msg().bench.collapseServerRuns
+                      : msg().bench.loadServerRuns
                   }
                 >
                   {serverRunsLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <History className="size-3.5" aria-hidden />}
-                  {serverRunsPanelOpen && serverRuns.length > 0 ? "목록 접기" : "서버 런 목록"}
+                  {serverRunsPanelOpen && serverRuns.length > 0 ? msg().bench.collapseList : msg().bench.serverRunsList}
                 </button>
                 <HighlightToggle on={hlLog} onChange={setHlLog} />
                 <button
@@ -2270,10 +2251,10 @@ export function App() {
                     a.click();
                     URL.revokeObjectURL(a.href);
                   }}
-                  aria-label="마지막 결과 JSON 다운로드"
+                  aria-label={msg().bench.downloadLastJsonAria}
                 >
                   <Download className="size-3.5" aria-hidden />
-                  마지막 결과 JSON보내기
+                  {msg().bench.downloadLastJson}
                 </button>
               </div>
             </div>
@@ -2282,14 +2263,14 @@ export function App() {
               <div className="mt-4 border-t border-[var(--border)] pt-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                    SQLite 저장 런 (클릭 시 첫 시나리오 상세)
+                    {msg().bench.sqliteStoredRuns}
                   </h3>
                   <button
                     type="button"
                     className="shrink-0 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-2)]"
                     onClick={() => setServerRunsPanelOpen(false)}
                   >
-                    목록 닫기
+                    {msg().bench.closeList}
                   </button>
                 </div>
                 <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs break-all">
@@ -2326,7 +2307,7 @@ export function App() {
               <Suspense
                 fallback={
                   <p className="text-sm text-[var(--muted)]" aria-busy="true">
-                    문서 로딩 중…
+                    {msg().bench.docLoading}
                   </p>
                 }
               >

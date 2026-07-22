@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Cpu } from "lucide-react";
 import type { MonitorSnapshotResponse, ProviderKind } from "@llm-bench/shared";
 import { usePollingFetch } from "../lib/monitor-polling";
+import { useI18n } from "../i18n";
 
 const CARD_CLASS =
   "rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm";
@@ -24,6 +25,7 @@ export function ProviderMemoryWidget({
   provider: ProviderKind;
   apiKey?: string;
 }) {
+  const { m } = useI18n();
   const [open, setOpen] = useState(true);
   const eligible = provider === "lm_studio" || provider === "ollama";
 
@@ -49,9 +51,9 @@ export function ProviderMemoryWidget({
   const sys = snap.data?.system;
   const loaded = snap.data?.provider.loaded ?? [];
   const disabledReason = !snap.data?.remoteLoopback
-    ? "loopback이 아닌 환경 — 비활성"
+    ? m.monitor.widgetNotLoopback
     : !snap.data?.localhost
-      ? "baseUrl이 localhost가 아님 — 비활성"
+      ? m.monitor.widgetNotLocalhost
       : null;
 
   return (
@@ -64,7 +66,7 @@ export function ProviderMemoryWidget({
       >
         <span className="inline-flex items-center gap-2">
           <Cpu className="size-4" aria-hidden />
-          메모리 모니터
+          {m.monitor.memoryMonitor}
         </span>
         {open ? <ChevronUp className="size-4" aria-hidden /> : <ChevronDown className="size-4" aria-hidden />}
       </button>
@@ -73,7 +75,7 @@ export function ProviderMemoryWidget({
           <div>
             {sys ? (
               <>
-                <div className="text-[var(--muted)]">시스템 RAM</div>
+                <div className="text-[var(--muted)]">{m.monitor.systemRam}</div>
                 <div className="font-mono">
                   {fmtGiB(sys.totalMemBytes - sys.freeMemBytes)} / {fmtGiB(sys.totalMemBytes)}
                 </div>
@@ -81,11 +83,11 @@ export function ProviderMemoryWidget({
                 <div className="font-mono">{sys.loadavg.map((x) => x.toFixed(2)).join(" / ")}</div>
               </>
             ) : (
-              <div className="text-[var(--muted)]">{disabledReason ?? "데이터 없음"}</div>
+              <div className="text-[var(--muted)]">{disabledReason ?? m.monitor.noData}</div>
             )}
           </div>
           <div>
-            <div className="text-[var(--muted)]">로드된 모델 ({loaded.length})</div>
+            <div className="text-[var(--muted)]">{m.monitor.loadedModels(loaded.length)}</div>
             {loaded.length === 0 ? (
               <div className="font-mono text-[var(--muted)]">—</div>
             ) : (

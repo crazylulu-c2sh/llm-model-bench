@@ -14,6 +14,7 @@ import {
 } from "./lib/stress-export";
 import { workloadLabel } from "./lib/stress-labels";
 import { formatIsoLocal } from "./lib/time-format";
+import { useI18n, msg } from "./i18n";
 
 // suppress unused warning in some build configs
 void _CSV_BOM;
@@ -64,6 +65,7 @@ function buildQuery(filters: AppliedFilters, cursor?: { before: string; before_i
 }
 
 export function StressStatsPage() {
+  const { m } = useI18n();
   const [draftFilters, setDraftFilters] = useState<AppliedFilters>(EMPTY_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState<AppliedFilters>(EMPTY_FILTERS);
   const [items, setItems] = useState<StressRunsListResponse["items"]>([]);
@@ -93,7 +95,7 @@ export function StressStatsPage() {
         const j = (await res.json()) as StressRunsListResponse;
         if (ac.signal.aborted) return;
         if (j.sqlite_available === false) {
-          toast.warning(j.sqlite_error ?? "SQLite를 사용할 수 없습니다.");
+          toast.warning(j.sqlite_error ?? msg().stress.toast.sqliteUnavailable);
         }
         if (isLoadMore) {
           setItems((prev) => [...prev, ...(j.items ?? [])]);
@@ -136,14 +138,14 @@ export function StressStatsPage() {
         const res = await fetch(`/api/stress/runs/${encodeURIComponent(selectedRunId)}`, { signal: ac.signal });
         if (ac.signal.aborted) return;
         if (res.status === 404) {
-          toast.warning("런이 더 이상 존재하지 않습니다.");
+          toast.warning(msg().stress.toast.runGone);
           setItems((prev) => prev.filter((x) => x.run_id !== selectedRunId));
           setSelectedRunId(null);
           setDetail(null);
           return;
         }
         if (!res.ok) {
-          toast.error(`상세 로드 실패 (${res.status})`);
+          toast.error(msg().stress.toast.detailLoadFailed(res.status));
           return;
         }
         const j = (await res.json()) as StressRunDetailResponse;
@@ -178,7 +180,7 @@ export function StressStatsPage() {
     try {
       const res = await fetch(`/api/stress/runs/${encodeURIComponent(confirmId)}`, { method: "DELETE" });
       if (!res.ok) {
-        toast.error(`삭제 실패 (${res.status})`);
+        toast.error(msg().stress.toast.deleteFailed(res.status));
         return;
       }
       setItems((prev) => prev.filter((x) => x.run_id !== confirmId));
@@ -186,7 +188,7 @@ export function StressStatsPage() {
         setSelectedRunId(null);
         setDetail(null);
       }
-      toast.success("삭제됨");
+      toast.success(msg().stress.toast.deleted);
     } catch (e) {
       toast.error(String(e));
     } finally {
@@ -215,31 +217,31 @@ export function StressStatsPage() {
   return (
     <>
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--foreground)]">필터</h2>
+        <h2 className="mb-3 text-sm font-semibold text-[var(--foreground)]">{m.stress.stats.filterHeading}</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="grid gap-1 text-xs text-[var(--muted)]">
-            <span>워크로드</span>
+            <span>{m.stress.stats.field.workload}</span>
             <select
               className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
               value={draftFilters.workload_id}
               onChange={(e) => setDraftFilters((p) => ({ ...p, workload_id: e.target.value }))}
             >
-              <option value="">전체</option>
+              <option value="">{m.stress.stats.all}</option>
               {filterOptions.workload_ids.map((id) => (
                 <option key={id} value={id}>
-                  {workloadLabel(id)}
+                  {workloadLabel(m, id)}
                 </option>
               ))}
             </select>
           </label>
           <label className="grid gap-1 text-xs text-[var(--muted)]">
-            <span>상태</span>
+            <span>{m.stress.stats.field.status}</span>
             <select
               className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
               value={draftFilters.status}
               onChange={(e) => setDraftFilters((p) => ({ ...p, status: e.target.value }))}
             >
-              <option value="">전체</option>
+              <option value="">{m.stress.stats.all}</option>
               {filterOptions.statuses.map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -248,13 +250,13 @@ export function StressStatsPage() {
             </select>
           </label>
           <label className="grid gap-1 text-xs text-[var(--muted)]">
-            <span>모델</span>
+            <span>{m.stress.stats.field.model}</span>
             <select
               className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm font-mono"
               value={draftFilters.model_id}
               onChange={(e) => setDraftFilters((p) => ({ ...p, model_id: e.target.value }))}
             >
-              <option value="">전체</option>
+              <option value="">{m.stress.stats.all}</option>
               {filterOptions.model_ids.map((m) => (
                 <option key={m} value={m}>
                   {m}
@@ -269,7 +271,7 @@ export function StressStatsPage() {
               value={draftFilters.base_url}
               onChange={(e) => setDraftFilters((p) => ({ ...p, base_url: e.target.value }))}
             >
-              <option value="">전체</option>
+              <option value="">{m.stress.stats.all}</option>
               {filterOptions.base_urls.map((b) => (
                 <option key={b} value={b}>
                   {b}
@@ -287,10 +289,10 @@ export function StressStatsPage() {
           >
             {listLoading ? (
               <span className="inline-flex items-center gap-1">
-                <Loader2 className="size-3 animate-spin" aria-hidden /> 적용 중…
+                <Loader2 className="size-3 animate-spin" aria-hidden /> {m.stress.stats.applying}
               </span>
             ) : (
-              "적용"
+              m.stress.stats.apply
             )}
           </button>
           <button
@@ -299,31 +301,31 @@ export function StressStatsPage() {
             onClick={onReset}
             disabled={listLoading}
           >
-            초기화
+            {m.stress.stats.reset}
           </button>
         </div>
       </section>
 
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--foreground)]">프로바이더 런 ({items.length}건{hasMore ? "+" : ""})</h2>
+        <h2 className="mb-3 text-sm font-semibold text-[var(--foreground)]">{m.stress.stats.runsHeading(items.length, hasMore)}</h2>
         {listLoading && items.length === 0 ? (
           <div role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]">
-            <Loader2 className="size-4 animate-spin" aria-hidden /> 불러오는 중…
+            <Loader2 className="size-4 animate-spin" aria-hidden /> {m.stress.stats.loading}
           </div>
         ) : items.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">표시할 런이 없습니다. /stress에서 먼저 실행하세요.</p>
+          <p className="text-sm text-[var(--muted)]">{m.stress.stats.empty}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-xs">
               <thead className="border-b border-[var(--border)] text-[var(--muted)]">
                 <tr>
-                  <th className="px-2 py-1">모델</th>
-                  <th className="px-2 py-1">프로바이더</th>
-                  <th className="px-2 py-1">워크로드</th>
+                  <th className="px-2 py-1">{m.stress.stats.field.model}</th>
+                  <th className="px-2 py-1">{m.stress.stats.field.provider}</th>
+                  <th className="px-2 py-1">{m.stress.stats.field.workload}</th>
                   <th className="px-2 py-1">Base URL</th>
-                  <th className="px-2 py-1">상태</th>
-                  <th className="px-2 py-1">시작</th>
-                  <th className="px-2 py-1">종료</th>
+                  <th className="px-2 py-1">{m.stress.stats.field.status}</th>
+                  <th className="px-2 py-1">{m.stress.stats.field.started}</th>
+                  <th className="px-2 py-1">{m.stress.stats.field.finished}</th>
                   <th className="px-2 py-1"></th>
                 </tr>
               </thead>
@@ -353,7 +355,7 @@ export function StressStatsPage() {
                         </span>
                       </td>
                       <td className="px-2 py-1 font-mono">{it.provider}</td>
-                      <td className="px-2 py-1">{workloadLabel(it.workload_id)}</td>
+                      <td className="px-2 py-1">{workloadLabel(m, it.workload_id)}</td>
                       <td className="px-2 py-1 font-mono">
                         <span className="block max-w-[24ch] truncate" title={it.base_url}>
                           {it.base_url}
@@ -370,7 +372,7 @@ export function StressStatsPage() {
                         <button
                           type="button"
                           className="rounded p-1.5 text-[var(--muted)] hover:bg-[var(--danger)]/10 hover:text-[var(--danger)]"
-                          aria-label="런 삭제"
+                          aria-label={m.stress.stats.deleteRunAria}
                           onClick={(e) => {
                             e.stopPropagation();
                             setConfirmId(it.run_id);
@@ -396,10 +398,10 @@ export function StressStatsPage() {
             >
               {loadMoreLoading ? (
                 <span role="status" className="inline-flex items-center gap-1">
-                  <Loader2 className="size-3 animate-spin" aria-hidden /> 더 불러오는 중…
+                  <Loader2 className="size-3 animate-spin" aria-hidden /> {m.stress.stats.loadingMore}
                 </span>
               ) : (
-                "더 보기"
+                m.stress.stats.loadMore
               )}
             </button>
           </div>
@@ -407,12 +409,12 @@ export function StressStatsPage() {
       </section>
 
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--foreground)]">상세</h2>
+        <h2 className="mb-3 text-sm font-semibold text-[var(--foreground)]">{m.stress.stats.detailHeading}</h2>
         {!selectedRunId ? (
-          <p className="py-6 text-center text-sm text-[var(--muted)]">위 리스트에서 런을 선택하세요.</p>
+          <p className="py-6 text-center text-sm text-[var(--muted)]">{m.stress.stats.selectRun}</p>
         ) : detailLoading || !detail ? (
           <div role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]">
-            <Loader2 className="size-4 animate-spin" aria-hidden /> 불러오는 중…
+            <Loader2 className="size-4 animate-spin" aria-hidden /> {m.stress.stats.loading}
           </div>
         ) : (
           <div className="flex flex-col gap-4">
@@ -420,11 +422,11 @@ export function StressStatsPage() {
               <div><span className="text-[var(--muted)]">run_id</span> <span className="font-mono">{detail.meta.run_id}</span></div>
               <div><span className="text-[var(--muted)]">model</span> <span className="font-mono">{detail.meta.model_id}</span></div>
               <div><span className="text-[var(--muted)]">provider</span> <span className="font-mono">{detail.meta.provider}</span></div>
-              <div><span className="text-[var(--muted)]">workload</span> {workloadLabel(detail.meta.workload_id)}</div>
+              <div><span className="text-[var(--muted)]">workload</span> {workloadLabel(m, detail.meta.workload_id)}</div>
               <div><span className="text-[var(--muted)]">base_url</span> <span className="font-mono">{detail.meta.base_url}</span></div>
-              <div><span className="text-[var(--muted)]">상태</span> <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${statusBadgeClass(detail.meta.status)}`}>{detail.meta.status}</span></div>
-              <div><span className="text-[var(--muted)]">시작</span> <span className="font-mono">{formatIsoLocal(detail.meta.created_at)}</span></div>
-              <div><span className="text-[var(--muted)]">종료</span> <span className="font-mono">{formatIsoLocal(detail.meta.finished_at)}</span></div>
+              <div><span className="text-[var(--muted)]">{m.stress.stats.field.status}</span> <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${statusBadgeClass(detail.meta.status)}`}>{detail.meta.status}</span></div>
+              <div><span className="text-[var(--muted)]">{m.stress.stats.field.started}</span> <span className="font-mono">{formatIsoLocal(detail.meta.created_at)}</span></div>
+              <div><span className="text-[var(--muted)]">{m.stress.stats.field.finished}</span> <span className="font-mono">{formatIsoLocal(detail.meta.finished_at)}</span></div>
               {rampSummary ? (
                 <div className="sm:col-span-2"><span className="text-[var(--muted)]">ramp</span> <span className="font-mono">{rampSummary}</span></div>
               ) : null}
@@ -436,7 +438,7 @@ export function StressStatsPage() {
             </div>
             {detail.meta.status === "running" ? (
               <p className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--muted)]">
-                이 런은 진행 중입니다 — <Link to="/stress" className="text-[var(--accent-2)] underline">라이브 모니터링 보기</Link>. 현재까지 완료된 단계만 표시됩니다.
+                {m.stress.stats.runningBefore}<Link to="/stress" className="text-[var(--accent-2)] underline">{m.stress.stats.runningLink}</Link>{m.stress.stats.runningAfter}
               </p>
             ) : null}
             <div className="flex flex-wrap gap-2">
@@ -475,17 +477,17 @@ export function StressStatsPage() {
 
       <ConfirmDialog
         open={confirmId != null}
-        title="프로바이더 런 삭제"
+        title={m.stress.stats.confirmTitle}
         variant="danger"
-        confirmLabel="삭제"
+        confirmLabel={m.stress.stats.confirmDelete}
         pending={deletePending}
         onCancel={() => setConfirmId(null)}
         onConfirm={onDelete}
       >
-        <p>이 런과 모든 단계 결과가 영구 삭제됩니다 (되돌릴 수 없음).</p>
+        <p>{m.stress.stats.confirmBody}</p>
         {confirmRow?.status === "running" ? (
           <p className="mt-2 text-[var(--danger)]">
-            ⚠ 라이브 실행 중인 런입니다 — /stress에서 동시에 실행 중이면 데이터 손상 위험.
+            {m.stress.stats.confirmLiveWarn}
           </p>
         ) : null}
       </ConfirmDialog>

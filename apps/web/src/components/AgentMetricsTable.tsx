@@ -14,6 +14,7 @@ import {
   type SortDir,
 } from "../lib/agent-metrics";
 import { BAND_COLOR, qualityBand, type ScoreBand } from "../lib/score-bands";
+import { useI18n } from "../i18n";
 
 function routeLabel(api: string): string {
   if (api === "chat_completions") return "chat";
@@ -27,8 +28,6 @@ function formatValue(v: number | null, col: AgentMetricMeta): string {
   if (col.format === "ms") return v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${Math.round(v)}ms`;
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
-
-const BAND_LABEL: Record<ScoreBand, string> = { high: "우수", good: "양호", mid: "보통", low: "낮음" };
 
 /** 색: 비율 지표만 밴드 색칠(방향 반영). ms·턴 등 절대량은 중립(색 없음). */
 function bandFor(v: number | null, col: AgentMetricMeta): ScoreBand | undefined {
@@ -84,6 +83,7 @@ function AgentSortHeader({
 
 /** #105: 모델 × 라우트 에이전트 능력 지표 표(정렬 가능). raw TPS 역전을 드러낸다. */
 export function AgentMetricsTable({ metrics }: { metrics: readonly ModelRouteAgentMetrics[] }) {
+  const { m } = useI18n();
   const [sort, setSort] = useState<AgentSort>(DEFAULT_AGENT_SORT);
   const sorted = useMemo(() => sortAgentMetrics(metrics, sort), [metrics, sort]);
 
@@ -98,7 +98,7 @@ export function AgentMetricsTable({ metrics }: { metrics: readonly ModelRouteAge
   if (metrics.length === 0) {
     return (
       <p className="rounded border border-dashed border-[var(--border)] px-3 py-10 text-center text-xs text-[var(--muted)]">
-        에이전트 시나리오 측정 런이 없습니다 — 시나리오 선택에서 "에이전트만"을 켜고 벤치를 실행하세요.
+        {m.monitor.agentEmptyState}
       </p>
     );
   }
@@ -106,23 +106,23 @@ export function AgentMetricsTable({ metrics }: { metrics: readonly ModelRouteAge
   return (
     <div className="overflow-x-auto rounded border border-[var(--border)]">
       <table className="w-full min-w-[72rem] text-left text-sm">
-        <caption className="sr-only">모델 × 라우트별 에이전트 능력 지표</caption>
+        <caption className="sr-only">{m.monitor.agentTableCaption}</caption>
         <thead className="bg-[var(--surface)] text-[var(--muted)]">
           <tr>
-            <AgentSortHeader label="모델" thClassName="p-2 font-medium" sortKey={{ kind: "model" }} sort={sort} onSort={onSort} />
-            <AgentSortHeader label="라우트" thClassName="p-2 font-medium" sortKey={{ kind: "route" }} sort={sort} onSort={onSort} />
+            <AgentSortHeader label={m.monitor.colModel} thClassName="p-2 font-medium" sortKey={{ kind: "model" }} sort={sort} onSort={onSort} />
+            <AgentSortHeader label={m.monitor.colRoute} thClassName="p-2 font-medium" sortKey={{ kind: "route" }} sort={sort} onSort={onSort} />
             {AGENT_METRIC_COLUMNS.map((col) => (
               <AgentSortHeader
                 key={col.metric}
-                label={col.label}
-                title={col.title}
+                label={m.monitor.agentMetricLabel[col.metric]}
+                title={m.monitor.agentMetricTitle[col.metric]}
                 thClassName="p-2 text-right font-medium"
                 sortKey={{ kind: "metric", metric: col.metric }}
                 sort={sort}
                 onSort={onSort}
               />
             ))}
-            <th scope="col" className="p-2 text-right font-medium" title="이 (모델, 라우트) 슬라이스의 agent 런 수">
+            <th scope="col" className="p-2 text-right font-medium" title={m.monitor.nColTitleAgent}>
               n
             </th>
           </tr>
@@ -139,7 +139,7 @@ export function AgentMetricsTable({ metrics }: { metrics: readonly ModelRouteAge
                   <td
                     key={col.metric}
                     className="p-2 text-right font-mono text-xs"
-                    title={band ? BAND_LABEL[band] : undefined}
+                    title={band ? m.monitor.bandLabel[band] : undefined}
                     style={{ color: band ? BAND_COLOR[band] : undefined }}
                   >
                     {formatValue(v, col)}

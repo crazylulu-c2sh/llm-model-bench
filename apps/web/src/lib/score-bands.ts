@@ -1,12 +1,9 @@
 // 스코어보드 표·차트가 공유하는 점수 밴드 색·caveat 문구·그룹/지표 라벨.
 // (표 Scoreboard.tsx와 차트 ScoreboardChart.tsx가 동일 색·문구를 쓰도록 여기 한 곳에서 정의.)
-import type { ScoreGroup, ScoreMetric } from "./scoreboard";
 import type { LeakMetric } from "./leak-metrics";
 import { AGENT_SAFE_THRESHOLDS } from "./leak-metrics";
 
-export const CAP_TITLE =
-  "rubric 채점 시나리오(비전·에이전트)가 LLM_JUDGE_ENABLED=1 없이 캡됨 — 해당·총합 품질이 낮게 나올 수 있음";
-export const APPROX_TITLE = "provider가 usage 토큰을 안 줘 chars/4 추정(approx) — CJK·코드에서 오차 큼";
+// CAP_TITLE·APPROX_TITLE·GROUP_LABEL·METRIC_LABEL 문구는 i18n 카탈로그(m.scoreboard)로 이전됨.
 
 /** 절대 점수 밴드 → 색(기존 tps-tier 토큰 재사용; 비교 상대값 아님). */
 export type ScoreBand = "high" | "good" | "mid" | "low";
@@ -34,27 +31,8 @@ export function speedRelativeBand(value: number, max: number): ScoreBand {
   return "low";
 }
 
-export const GROUP_LABEL: Record<ScoreGroup, string> = {
-  text: "텍스트",
-  vision: "비전",
-  agent: "에이전트",
-  total: "총합",
-};
-export const METRIC_LABEL: Record<ScoreMetric, string> = { quality: "품질", speed: "속도", latency: "지연" };
-
 // ─── #80: 누수/정체 지표(모델 × 라우트) — 낮을수록 좋음(agent-safe) ───────────────
-export const LEAK_METRIC_LABEL: Record<LeakMetric, string> = {
-  thinking_leak: "사고 누수",
-  empty_turn: "빈 턴",
-  channel_tag: "채널 태그",
-};
-
-export const LEAK_METRIC_TITLE: Record<LeakMetric, string> = {
-  thinking_leak: "thinking_leak_ratio = reasoning 토큰 / 총 출력 토큰 — 낮을수록 사고가 최종 답에 안 샘",
-  empty_turn: "empty_turn_rate = content 비었고 tool_call 없는 런 비율 — 에이전트 정체 신호",
-  channel_tag: "channel_tag_leak = <think>/<|channel|> 태그가 content에 남은 런 비율",
-};
-
+// 표시 라벨/설명(사고 누수 등)은 i18n 카탈로그(m.monitor.leakMetricLabel/Title)로 이전.
 const LEAK_THRESHOLD: Record<LeakMetric, number> = {
   thinking_leak: AGENT_SAFE_THRESHOLDS.thinking_leak_ratio,
   empty_turn: AGENT_SAFE_THRESHOLDS.empty_turn_rate,

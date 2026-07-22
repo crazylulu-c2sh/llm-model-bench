@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
+import { useI18n } from "../i18n";
 
 export type StressCellStatus = "idle" | "requesting" | "streaming" | "done" | "error";
 
@@ -34,6 +35,7 @@ export function StressWorkerCell({
   /** 마지막으로 완료된 요청의 total_ms (`request_end`에서만 갱신). */
   lastTotalMs?: number | null;
 }) {
+  const { m } = useI18n();
   const badge =
     status === "streaming"
       ? "bg-[var(--accent)]/20 text-[var(--accent)]"
@@ -46,14 +48,14 @@ export function StressWorkerCell({
       : "bg-[var(--surface)] text-[var(--muted)]";
   const label =
     status === "streaming"
-      ? "스트리밍"
+      ? m.stress.worker.streaming
       : status === "done"
-      ? "완료"
+      ? m.stress.worker.done
       : status === "error"
-      ? "오류"
+      ? m.stress.worker.error
       : status === "requesting"
-      ? "요청 중"
-      : "대기";
+      ? m.stress.worker.requesting
+      : m.stress.worker.idle;
   const streamingRing = status === "streaming" ? "ring-1 ring-[var(--accent)]/40" : "";
   // 상태 배지 aria-live는 대표 셀(worker 0)만 polite, 나머지는 off — 스트림 본문이 아닌 상태 전환만 낭독해 스크린리더 폭주 방지.
   const ariaLive: "polite" | "off" = workerIndex === 0 ? "polite" : "off";
@@ -84,7 +86,7 @@ export function StressWorkerCell({
       className={`rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-xs shadow-sm transition-opacity ${streamingRing} ${dimClass}`}
     >
       <header className="mb-1 flex items-center justify-between">
-        <span className="font-mono font-semibold text-[var(--foreground)]">사용자 #{workerIndex + 1}</span>
+        <span className="font-mono font-semibold text-[var(--foreground)]">{m.stress.worker.userNumber(workerIndex + 1)}</span>
         <span aria-live={ariaLive} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ${badge}`}>
           {status === "streaming" || status === "requesting" ? (
             <Loader2 className="size-3 animate-spin" aria-hidden />
@@ -103,9 +105,9 @@ export function StressWorkerCell({
         {userPrompt}
       </pre>
       <div className="mb-1 flex items-center gap-1 text-[10px] text-[var(--muted)]">
-        <span>응답</span>
+        <span>{m.stress.worker.response}</span>
         {reasoningText && status !== "done" ? (
-          <span className="rounded bg-[var(--surface-2)] px-1 text-[10px]">🧠 사고 중</span>
+          <span className="rounded bg-[var(--surface-2)] px-1 text-[10px]">{m.stress.worker.thinking}</span>
         ) : null}
       </div>
       <pre
@@ -121,8 +123,8 @@ export function StressWorkerCell({
         <div className="mt-1 truncate text-[10px] text-red-500" title={errorMessage}>{errorMessage}</div>
       ) : null}
       <footer className="mt-1 flex items-center justify-between text-[10px] text-[var(--muted)]">
-        <span className="font-mono">req {requestCount}건</span>
-        <span className="font-mono">마지막 {lastTotalMs != null ? `${Math.round(lastTotalMs)}ms` : "—"}</span>
+        <span className="font-mono">{m.stress.worker.reqCount(requestCount)}</span>
+        <span className="font-mono">{m.stress.worker.last(lastTotalMs != null ? `${Math.round(lastTotalMs)}ms` : "—")}</span>
       </footer>
     </article>
   );

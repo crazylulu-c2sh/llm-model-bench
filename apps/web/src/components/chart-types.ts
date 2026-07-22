@@ -31,7 +31,10 @@ export type CompareSeries = {
 };
 
 /** 라이브 세션 `ChartRow`를 모델별 시리즈로 묶어 비교 레이더·피벗에 재사용합니다. */
-export function sessionChartRowsToCompareSeries(rows: ChartRow[]): CompareSeries[] {
+export function sessionChartRowsToCompareSeries(
+  rows: ChartRow[],
+  unknownLabel: string,
+): CompareSeries[] {
   const byModel = new Map<string, ChartRow[]>();
   for (const r of rows) {
     if (r.categorySpacer) continue;
@@ -42,7 +45,7 @@ export function sessionChartRowsToCompareSeries(rows: ChartRow[]): CompareSeries
   }
   return [...byModel.entries()].map(([key, rrows]) => ({
     modelId: key === "_default" ? "" : key,
-    label: key === "_default" ? "모델 미지정" : key,
+    label: key === "_default" ? unknownLabel : key,
     rows: rrows,
   }));
 }
@@ -226,12 +229,13 @@ export type FlatBarDatum = {
 export function comparePivotToFlatBarData(
   pivoted: PivotCompareRow[],
   compareSeries: CompareSeries[],
+  fallbackLabel: string,
 ): FlatBarDatum[] {
   const out: FlatBarDatum[] = [];
   for (const p of pivoted) {
     compareSeries.forEach((s, si) => {
       const v = p.bySeriesIndex[si];
-      const modelLabel = s.label || s.modelId || "모델";
+      const modelLabel = s.label || s.modelId || fallbackLabel;
       out.push({
         barLabel: `${p.scenario} (${apiShort(p.api)}) · ${modelLabel}`,
         scenario: p.scenario,

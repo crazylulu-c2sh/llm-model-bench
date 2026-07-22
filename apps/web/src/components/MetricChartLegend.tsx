@@ -1,35 +1,42 @@
+import { useI18n } from "../i18n";
+
 /** 차트 하단 범례 + 결과 테이블 상단 안내에서 공통으로 쓰는 지표 설명 */
 
 export function MetricChartLegend({ variant }: { variant: "session" | "compare" }) {
+  const { m } = useI18n();
+  const l = m.results.legend;
   return (
     <div className="mt-2 space-y-2 border-t border-[var(--border)] pt-2">
       <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-[var(--foreground)]">
         <span className="inline-flex items-center gap-2">
           <span className="size-3 shrink-0 rounded-sm bg-[var(--chart-ttft)]" aria-hidden />
           <span>
-            <strong>TTFT</strong> (ms) — 요청 발신부터 첫 출력 토큰까지
+            <strong>TTFT</strong> (ms) — {l.ttftDesc}
           </span>
         </span>
         <span className="inline-flex items-center gap-2">
           <span className="size-3 shrink-0 rounded-sm bg-[var(--chart-tps)]" aria-hidden />
           <span>
-            <strong>TPS</strong> (tok/s) — 출력 길이 기반 근사 토큰 ÷ 총 소요 시간
-            {variant === "session" ? " (TPS 전용 막대 차트)" : " (비교 시 TPS 전용 차트)"}
+            <strong>TPS</strong> (tok/s) — {l.tpsDesc}
+            {variant === "session" ? l.tpsDescSession : l.tpsDescCompare}
           </span>
         </span>
       </div>
       {variant === "compare" ? (
         <p className="text-center text-[11px] leading-snug text-[var(--muted)]">
-          비교 막대: 실행(시나리오·API·모델)마다 <strong className="text-[var(--foreground)]">TTFT</strong> 막대 차트는 ms
-          단위로 표시하고, TPS 전용 차트는 같은 순서로{" "}
-          <strong className="text-[var(--foreground)]">TPS</strong>만 표시합니다. TPS 막대 색은 모델별로 구분됩니다.{" "}
-          시나리오·API 묶음(모델 수만큼의 연속 행) 사이에는 빈 띠로 간격을 둡니다.
+          {l.compareLead}
+          <strong className="text-[var(--foreground)]">TTFT</strong>
+          {l.compareMid}{" "}
+          <strong className="text-[var(--foreground)]">TPS</strong>
+          {l.compareTail}
         </p>
       ) : (
         <p className="text-center text-[11px] leading-snug text-[var(--muted)]">
-          라이브 막대: <strong className="text-[var(--foreground)]">TTFT</strong> 막대 차트는 ms 단위, TPS 전용 차트는 동일
-          순서의 <strong className="text-[var(--foreground)]">TPS</strong>입니다. 모델이 2개 이상이면 시나리오·API 블록 사이에 빈
-          띠로 구분합니다.
+          {l.sessionLead}
+          <strong className="text-[var(--foreground)]">TTFT</strong>
+          {l.sessionMid}
+          <strong className="text-[var(--foreground)]">TPS</strong>
+          {l.sessionTail}
         </p>
       )}
     </div>
@@ -37,20 +44,28 @@ export function MetricChartLegend({ variant }: { variant: "session" | "compare" 
 }
 
 export function MetricTableIntro() {
+  const { m } = useI18n();
+  const l = m.results.legend;
   return (
     <div className="mb-3 space-y-2 border-b border-[var(--border)] pb-3 text-xs leading-relaxed text-[var(--muted)]">
       <p>
-        <strong className="text-[var(--foreground)]">시나리오</strong>는 벤치 과제 식별자,{" "}
-        <strong className="text-[var(--foreground)]">API</strong>는 호출 엔드포인트 종류,{" "}
-        <strong className="text-[var(--foreground)]">모델</strong>은 측정에 사용된 모델 ID입니다.
+        <strong className="text-[var(--foreground)]">{l.scenarioTerm}</strong>
+        {l.scenarioIs}{" "}
+        <strong className="text-[var(--foreground)]">API</strong>
+        {l.apiIs}{" "}
+        <strong className="text-[var(--foreground)]">{l.modelTerm}</strong>
+        {l.modelIs}
       </p>
       <p>
-        <strong className="text-[var(--foreground)]">TTFT</strong>(ms)는 HTTP 요청 발신부터 첫 출력 토큰(텍스트·추론·tool_call)까지
-        시간입니다(100ms 미만은 소수 1자리).{" "}
-        <strong className="text-[var(--foreground)]">출력 토큰</strong>·<strong className="text-[var(--foreground)]">TPS</strong>는
-        동일한 토큰 수(provider <code className="font-mono text-[11px]">usage.completion_tokens</code> 또는 글자수/4 근사,
-        근사 시 <code className="font-mono text-[11px]">*</code>)를 쓰며, TPS는 이를 요청 발신부터 스트림 완료까지 총 시간(초)으로 나눈
-        값입니다.
+        <strong className="text-[var(--foreground)]">TTFT</strong>
+        {l.ttftLead}{" "}
+        <strong className="text-[var(--foreground)]">{l.outputTokensTerm}</strong>·
+        <strong className="text-[var(--foreground)]">TPS</strong>
+        {l.tokenCountLead}
+        <code className="font-mono text-[11px]">usage.completion_tokens</code>
+        {l.approxMid}
+        <code className="font-mono text-[11px]">*</code>
+        {l.approxTail}
       </p>
     </div>
   );

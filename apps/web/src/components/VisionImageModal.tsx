@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useScrollLock } from "../useScrollLock";
 import { useFocusTrap } from "../useFocusTrap";
+import { useI18n } from "../i18n";
 
 export type VisionImageModalProps = {
   open: boolean;
@@ -25,6 +26,7 @@ export function VisionImageModal({
   categoryLabel,
   onClose,
 }: VisionImageModalProps) {
+  const { m } = useI18n();
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -55,7 +57,7 @@ export function VisionImageModal({
       <button
         type="button"
         tabIndex={-1}
-        aria-label="닫기"
+        aria-label={m.monitor.close}
         className="absolute inset-0 bg-black/70"
         onClick={onClose}
       />
@@ -80,10 +82,10 @@ export function VisionImageModal({
             type="button"
             className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)] shadow-sm"
             onClick={onClose}
-            aria-label="이미지 모달 닫기"
+            aria-label={m.monitor.imageModalCloseAria}
           >
             <X className="size-3.5" aria-hidden />
-            닫기
+            {m.monitor.close}
           </button>
         </header>
         <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto overscroll-contain p-2">
@@ -94,7 +96,7 @@ export function VisionImageModal({
           />
         </div>
         <footer className="border-t border-[var(--border)] px-3 py-1.5 text-[10px] text-[var(--muted)]">
-          {imageUrl} · Esc / 배경 클릭으로 닫기
+          {m.monitor.imageModalFooter(imageUrl)}
         </footer>
       </div>
     </div>,

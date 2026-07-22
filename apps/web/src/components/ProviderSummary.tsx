@@ -1,5 +1,6 @@
 import type { DetectResult } from "@llm-bench/shared";
 import { AlertTriangle, Bot, Check, Cloud, Cpu, MessageSquare, Server, Wrench, X } from "lucide-react";
+import { useI18n } from "../i18n";
 
 export function providerIcon(provider: DetectResult["provider"]) {
   switch (provider) {
@@ -60,6 +61,7 @@ function stepHint(detect: DetectResult): string | null {
 }
 
 export function ProviderSummary({ detect }: { detect: DetectResult }) {
+  const { m } = useI18n();
   const PIcon = providerIcon(detect.provider);
   const rch = detect.reachability;
   const hint = stepHint(detect);
@@ -70,19 +72,19 @@ export function ProviderSummary({ detect }: { detect: DetectResult }) {
         <p className="flex items-start gap-2 text-xs text-[var(--chart-fail)]">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
-            서버에 닿지 못했습니다.
+            {m.bench.serverUnreachable}
             {rch.reason ? ` ${rch.reason}` : ""}
           </span>
         </p>
       ) : rch?.state === "partial" ? (
         <p className="flex items-start gap-2 text-xs text-[var(--foreground)]">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--muted)]" aria-hidden />
-          <span>{rch.reason ?? "모델 목록 경로 일부만 응답했습니다."}</span>
+          <span>{rch.reason ?? m.bench.partialModelList}</span>
         </p>
       ) : null}
       {rch?.state === "ok" && hint ? (
         <p className="text-xs text-[var(--muted)]" title={hint}>
-          감지 단계: {hint}
+          {m.bench.detectStep(hint)}
         </p>
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
@@ -93,7 +95,7 @@ export function ProviderSummary({ detect }: { detect: DetectResult }) {
         <span className="text-[var(--muted)]">·</span>
         <Badge ok={detect.capabilities.openaiChat} label="OpenAI /v1/chat/completions" icon={MessageSquare} />
         <Badge ok={detect.capabilities.anthropicMessages} label="Anthropic /v1/messages" icon={Bot} />
-        <span className="ml-auto text-xs text-[var(--muted)]">모델 {detect.models.length}개</span>
+        <span className="ml-auto text-xs text-[var(--muted)]">{m.bench.modelCount(detect.models.length)}</span>
       </div>
     </div>
   );

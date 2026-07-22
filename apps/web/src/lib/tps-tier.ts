@@ -1,3 +1,5 @@
+import type { Messages } from "../i18n";
+
 export type TpsTier = "fast" | "good" | "okay" | "slow";
 
 /**
@@ -14,13 +16,7 @@ export const TPS_TIER_THRESHOLDS = {
   okay: 5,
 } as const;
 
-export const TPS_TIER_LABEL_KO: Record<TpsTier, string> = {
-  fast: "쾌적",
-  good: "쓸만",
-  okay: "채택가능",
-  slow: "너무 느림",
-};
-
+// TPS 체감 등급 표시 라벨은 i18n 카탈로그(m.stress.tpsTier)로 이전.
 export const TPS_TIER_CSS_VAR: Record<TpsTier, string> = {
   fast: "var(--tier-fast)",
   good: "var(--tier-good)",
@@ -48,9 +44,10 @@ export function tpsTierColor(tier: TpsTier | null): string {
 export function formatStressTpsTooltip(
   value: number | null | undefined,
   opts: { unreliable: boolean; tier: TpsTier | null },
+  s: Messages["stress"],
 ): string {
-  if (opts.unreliable) return "— (신뢰도 낮음)";
+  if (opts.unreliable) return s.tpsUnreliableTooltip;
   if (value == null || !Number.isFinite(value)) return "—";
   if (opts.tier == null) return `${value}`;
-  return `${value} (${TPS_TIER_LABEL_KO[opts.tier]})`;
+  return `${value} (${s.tpsTier[opts.tier]})`;
 }

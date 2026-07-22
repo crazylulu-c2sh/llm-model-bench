@@ -13,6 +13,7 @@ import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Search, Square, X } from 
 import { ModelLabel } from "./ModelLabel";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useI18n, msg, type Messages } from "../i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 export type ProfileHint = { family: LlmProfileFamily; preset: SamplingPresetName };
@@ -118,18 +119,12 @@ function sortDirIcon(column: Column<ModelRow, unknown>) {
   return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
 }
 
-function modelTableSortLine(sorting: SortingState): string {
+function modelTableSortLine(sorting: SortingState, b: Messages["bench"]): string {
   const first = sorting[0];
-  if (!first) return "정렬: 없음";
-  const labels: Record<string, string> = {
-    id: "모델 id",
-    label: "label",
-    params_string: "규모",
-    size_bytes: "디스크",
-  };
-  const name = labels[first.id] ?? first.id;
-  const dir = first.desc ? "내림차순" : "오름차순";
-  return `정렬: ${name} · ${dir}`;
+  if (!first) return b.sortNone;
+  const name = b.sortLabels[first.id] ?? first.id;
+  const dir = first.desc ? b.sortDesc : b.sortAsc;
+  return b.sortLine(name, dir);
 }
 
 export function ModelTable({
@@ -161,6 +156,7 @@ export function ModelTable({
   /** 벤치가 진행 중이면 프로파일 링크 이탈 확인 다이얼로그에 추가 안내가 표시됨. */
   benchRunning?: boolean;
 }) {
+  const { m: t } = useI18n();
   const data = useMemo<ModelRow[]>(() => models.map((m) => ({ ...m })), [models]);
   const allSelected = models.length > 0 && models.every((m) => selected[m.id]);
   const someSelected = models.some((m) => selected[m.id]);
@@ -196,8 +192,8 @@ export function ModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded p-1 text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-50"
-            aria-label={allVisibleSelected ? "표시된 항목 해제" : "표시된 항목 선택"}
-            title={allVisibleSelected ? "표시된 항목 해제" : "표시된 항목 선택"}
+            aria-label={allVisibleSelected ? msg().bench.deselectShown : msg().bench.selectShown}
+            title={allVisibleSelected ? msg().bench.deselectShown : msg().bench.selectShown}
             disabled={selectionDisabled || noVisible}
             onClick={handleSelectAllVisible}
           >
@@ -213,7 +209,7 @@ export function ModelTable({
               if (selectionDisabled) return;
               onToggle(ctx.row.original.id);
             }}
-            aria-label={`${ctx.row.original.id} 선택`}
+            aria-label={msg().bench.selectModelAria(ctx.row.original.id)}
           />
         ),
         enableSorting: false,
@@ -254,7 +250,7 @@ export function ModelTable({
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            규모
+            {msg().bench.colParams}
             {sortDirIcon(column)}
           </button>
         ),
@@ -271,7 +267,7 @@ export function ModelTable({
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            디스크
+            {msg().bench.colDisk}
             {sortDirIcon(column)}
           </button>
         ),
@@ -283,7 +279,7 @@ export function ModelTable({
       }),
       columnHelper.display({
         id: "profile_hint",
-        header: () => <span className="font-medium text-[var(--muted)]">프로파일</span>,
+        header: () => <span className="font-medium text-[var(--muted)]">{msg().bench.profile}</span>,
         cell: ({ row }) => (
           <ProfileHintCell
             hint={profileHintByModelId?.[row.original.id]}
@@ -323,16 +319,16 @@ export function ModelTable({
           type="text"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
-          placeholder="모델 id·label 검색 (예: mtp)"
-          aria-label="모델 필터"
+          placeholder={t.bench.modelFilterPlaceholder}
+          aria-label={t.bench.modelFilterAria}
           spellCheck={false}
           className="w-full rounded border border-[var(--border)] bg-[var(--surface-2)] py-1.5 pl-7 pr-7 font-mono text-xs text-[var(--foreground)]"
         />
         {filterText ? (
           <button
             type="button"
-            aria-label="필터 지우기"
-            title="필터 지우기"
+            aria-label={t.bench.clearFilter}
+            title={t.bench.clearFilter}
             onClick={() => setFilterText("")}
             className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--muted)] hover:text-[var(--foreground)]"
           >
@@ -342,7 +338,7 @@ export function ModelTable({
       </div>
       <div className="max-h-64 overflow-auto rounded border border-[var(--border)]">
         <table className="w-full text-left text-sm">
-          <caption className="sr-only">감지된 모델 목록</caption>
+          <caption className="sr-only">{t.bench.modelListCaption}</caption>
           <thead className="text-[var(--muted)]">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
@@ -377,7 +373,7 @@ export function ModelTable({
                   colSpan={table.getVisibleLeafColumns().length}
                   className="p-3 text-center text-xs text-[var(--muted)]"
                 >
-                  일치하는 모델이 없습니다
+                  {t.bench.noMatchingModels}
                 </td>
               </tr>
             ) : (
@@ -394,7 +390,7 @@ export function ModelTable({
                   .join(" ")}
                 tabIndex={selectionDisabled ? -1 : 0}
                 aria-disabled={selectionDisabled || undefined}
-                aria-label={`${row.original.id} 선택 토글`}
+                aria-label={t.bench.toggleSelectAria(row.original.id)}
                 onMouseDown={(e) => {
                   if (selectionDisabled) return;
                   const el = e.target as HTMLElement;
@@ -440,17 +436,17 @@ export function ModelTable({
           </tbody>
         </table>
         <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
-          {modelTableSortLine(sorting)}
+          {modelTableSortLine(sorting, t.bench)}
           {" · "}
-          선택 {models.filter((m) => selected[m.id]).length} / {models.length}
-          {q ? ` · 필터 "${q}": ${visibleModels.length}개 표시` : null}
-          {someSelected && !allSelected ? " · 일부 선택됨" : null}
-          {selectionDisabled ? " · 벤치 실행 중에는 선택을 바꿀 수 없습니다." : null}
+          {t.bench.selectedCount(models.filter((m) => selected[m.id]).length, models.length)}
+          {q ? t.bench.filterShown(q, visibleModels.length) : null}
+          {someSelected && !allSelected ? t.bench.someSelected : null}
+          {selectionDisabled ? t.bench.selectionLockedDuringBench : null}
         </p>
         <ConfirmDialog
           open={pendingHash !== null}
-          title="프로파일 문서 페이지로 이동"
-          confirmLabel="이동"
+          title={t.bench.profileDocNavTitle}
+          confirmLabel={t.bench.navigate}
           onConfirm={() => {
             const h = pendingHash;
             setPendingHash(null);
@@ -458,10 +454,10 @@ export function ModelTable({
           }}
           onCancel={() => setPendingHash(null)}
         >
-          <p>현재 화면을 떠나 프로파일 문서 페이지로 이동합니다.</p>
+          <p>{t.bench.leaveForProfileDoc}</p>
           {benchRunning ? (
             <p className="mt-2 text-[var(--muted)]">
-              벤치가 진행 중입니다 — 화면만 바뀌며 실행은 백그라운드에서 계속됩니다.
+              {t.bench.benchRunningNavNote}
             </p>
           ) : null}
         </ConfirmDialog>

@@ -1,6 +1,7 @@
 import { STRESS_MAX_LIVE_CELLS } from "@llm-bench/shared";
 import { StressStageProgressBar } from "./StressStageProgressBar";
 import { StressWorkerCell, type StressCellStatus } from "./StressWorkerCell";
+import { useI18n, type Messages } from "../i18n";
 
 export type StressCellState = {
   status: StressCellStatus;
@@ -28,29 +29,30 @@ export function emptyCellState(): StressCellState {
 
 export type StressGridRunStatus = "idle" | "running" | "finished" | "aborted" | "error";
 
-function regionLabel(status: StressGridRunStatus): string {
-  if (status === "finished" || status === "aborted") return "동시 사용자 모니터 (종료 스냅샷)";
-  if (status === "error") return "동시 사용자 모니터 (오류 스냅샷)";
-  return "동시 사용자 모니터";
+function regionLabel(m: Messages, status: StressGridRunStatus): string {
+  if (status === "finished" || status === "aborted") return m.stress.grid.regionFinished;
+  if (status === "error") return m.stress.grid.regionError;
+  return m.stress.grid.region;
 }
 
 function headerLine(
+  m: Messages,
   status: StressGridRunStatus,
   slots: number,
   concurrency: number,
   lastStageIndex: number | null,
 ): string {
   if (status === "running" && lastStageIndex == null) {
-    return `${slots}명 사전 확보 · 준비 중…`;
+    return m.stress.grid.preparing(slots);
   }
   if (status === "running") {
-    return `단계 ${(lastStageIndex ?? 0) + 1} · 동시 ${concurrency}/${slots}명 활성`;
+    return m.stress.grid.runningStage((lastStageIndex ?? 0) + 1, concurrency, slots);
   }
-  const stageLine = lastStageIndex != null ? `마지막 단계 ${lastStageIndex + 1} · 동시 ${concurrency}명` : "";
-  if (status === "finished") return `${stageLine} (종료)`.trim();
-  if (status === "aborted") return `${stageLine} (중단)`.trim();
-  if (status === "error") return stageLine ? `${stageLine} (오류)` : "(오류)";
-  return "동시 워커 라이브";
+  const stageLine = lastStageIndex != null ? m.stress.grid.lastStage(lastStageIndex + 1, concurrency) : "";
+  if (status === "finished") return `${stageLine} (${m.stress.grid.tagFinished})`.trim();
+  if (status === "aborted") return `${stageLine} (${m.stress.grid.tagAborted})`.trim();
+  if (status === "error") return stageLine ? `${stageLine} (${m.stress.grid.tagError})` : `(${m.stress.grid.tagError})`;
+  return m.stress.grid.liveWorkers;
 }
 
 export function StressMonitorGrid({
@@ -70,20 +72,21 @@ export function StressMonitorGrid({
   /** 현재 단계의 enqueue duration (ms). */
   stageDurationMs?: number | null;
 }) {
+  const { m } = useI18n();
   const slots = cells.length;
   const truncated = concurrency > STRESS_MAX_LIVE_CELLS;
   return (
     <section
-      aria-label={regionLabel(runStatus)}
+      aria-label={regionLabel(m, runStatus)}
       className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-3 shadow-sm"
     >
       <div className="mb-2 flex items-center justify-between gap-2 text-xs">
         <span className="font-semibold text-[var(--foreground)]">
-          {headerLine(runStatus, slots, concurrency, lastStageIndex)}
+          {headerLine(m, runStatus, slots, concurrency, lastStageIndex)}
         </span>
         {truncated ? (
           <span className="rounded bg-[var(--surface)] px-2 py-0.5 text-[10px] text-[var(--muted)]">
-            동시 사용자 {concurrency}명 중 16명만 라이브로 보여집니다 — 나머지 {concurrency - STRESS_MAX_LIVE_CELLS}명은 집계 차트·표에 그대로 반영
+            {m.stress.grid.truncated(concurrency, STRESS_MAX_LIVE_CELLS, concurrency - STRESS_MAX_LIVE_CELLS)}
           </span>
         ) : null}
       </div>

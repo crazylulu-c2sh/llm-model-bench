@@ -9,12 +9,9 @@ import {
   writeSessionApiKey,
   type MonitorProvider,
 } from "./persisted-settings";
+import { msg, useI18n } from "./i18n";
 
-const INTERVAL_OPTIONS: { ms: 2000 | 5000 | 10000; label: string }[] = [
-  { ms: 2000, label: "2초" },
-  { ms: 5000, label: "5초" },
-  { ms: 10000, label: "10초" },
-];
+const INTERVAL_MS_OPTIONS: (2000 | 5000 | 10000)[] = [2000, 5000, 10000];
 
 const CARD_CLASS =
   "rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm";
@@ -30,6 +27,7 @@ function fmtGiB(bytes: number | null | undefined): string {
 }
 
 export function ProviderMonitorPage() {
+  const { m } = useI18n();
   const [boot] = useState(() => readInitialMonitorState());
   const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
   const [provider, setProvider] = useState<MonitorProvider>(boot.provider);
@@ -122,13 +120,13 @@ export function ProviderMonitorPage() {
             </select>
           </label>
           <label className="flex flex-col gap-1 text-xs sm:min-w-[14rem] flex-1">
-            <span className="text-[var(--muted)]">API Key (선택, 세션 한정)</span>
+            <span className="text-[var(--muted)]">{m.monitor.apiKeyLabel}</span>
             <input
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 font-mono text-sm"
-              placeholder="필요한 경우 입력"
+              placeholder={m.monitor.apiKeyPlaceholder}
               spellCheck={false}
               autoComplete="off"
             />
@@ -139,18 +137,18 @@ export function ProviderMonitorPage() {
               checked={pollEnabled}
               onChange={(e) => setPollEnabled(e.target.checked)}
             />
-            <span>폴링</span>
+            <span>{m.monitor.polling}</span>
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-[var(--muted)]">주기</span>
+            <span className="text-[var(--muted)]">{m.monitor.interval}</span>
             <select
               value={intervalMs}
               onChange={(e) => setIntervalMs(Number(e.target.value) as 2000 | 5000 | 10000)}
               className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm"
             >
-              {INTERVAL_OPTIONS.map((o) => (
-                <option key={o.ms} value={o.ms}>
-                  {o.label}
+              {INTERVAL_MS_OPTIONS.map((ms) => (
+                <option key={ms} value={ms}>
+                  {m.monitor.intervalOption(ms / 1000)}
                 </option>
               ))}
             </select>
@@ -160,7 +158,7 @@ export function ProviderMonitorPage() {
             onClick={() => snap.reload()}
             className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-2)]"
           >
-            새로고침
+            {m.monitor.refresh}
           </button>
         </div>
 
@@ -180,30 +178,31 @@ export function ProviderMonitorPage() {
 
       {!remoteLoopback && snap.data ? (
         <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
-          이 환경에서는 클라이언트 IP가 loopback이 아니므로 <strong>system/gpu/CLI 카드가 비활성</strong>입니다 —
-          provider HTTP 정보만 표시됩니다. (Docker Compose의 nginx 경유, 원격 브라우저 등) — README 의
-          “Provider 모니터링 · lms CLI” 단락을 참고하세요.
+          {m.monitor.notLoopbackLead}
+          <strong>{m.monitor.notLoopbackStrong}</strong>
+          {m.monitor.notLoopbackTail}
         </div>
       ) : null}
 
       {!isLocal && snap.data ? (
         <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
-          baseUrl 이 localhost 가 아니므로 system/gpu 정보는 비활성입니다. baseUrl 을
-          <code className="font-mono"> http://127.0.0.1:1234</code> 등으로 두고 사용해 주세요.
+          {m.monitor.notLocalhostLead}
+          <code className="font-mono"> http://127.0.0.1:1234</code>
+          {m.monitor.notLocalhostTail}
         </div>
       ) : null}
 
       <section className={CARD_CLASS}>
-        <h2 className="mb-2 text-sm font-semibold">시스템 자원</h2>
+        <h2 className="mb-2 text-sm font-semibold">{m.monitor.systemResources}</h2>
         {snap.data?.system ? (
           <SystemCard data={snap.data.system} gpu={snap.data.gpu} />
         ) : (
-          <p className="text-xs text-[var(--muted)]">비활성 — {snap.data?.reason ?? "데이터 없음"}</p>
+          <p className="text-xs text-[var(--muted)]">{m.monitor.inactiveReason(snap.data?.reason ?? m.monitor.noData)}</p>
         )}
       </section>
 
       <section className={CARD_CLASS}>
-        <h2 className="mb-2 text-sm font-semibold">로드된 모델 ({snap.data?.provider.loaded.length ?? 0})</h2>
+        <h2 className="mb-2 text-sm font-semibold">{m.monitor.loadedModels(snap.data?.provider.loaded.length ?? 0)}</h2>
         <LoadedModelsTable data={snap.data} />
       </section>
 
@@ -241,12 +240,13 @@ function SystemCard({
   data: NonNullable<MonitorSnapshotResponse["system"]>;
   gpu: MonitorSnapshotResponse["gpu"];
 }) {
+  const { m } = useI18n();
   const used = data.totalMemBytes - data.freeMemBytes;
   const usedPct = data.totalMemBytes > 0 ? (used / data.totalMemBytes) * 100 : 0;
   return (
     <div className="grid grid-cols-1 gap-4 text-xs sm:grid-cols-2">
       <div>
-        <div className="text-[var(--muted)]">메모리</div>
+        <div className="text-[var(--muted)]">{m.monitor.memory}</div>
         <div className="font-mono">
           {fmtGiB(used)} / {fmtGiB(data.totalMemBytes)} ({usedPct.toFixed(1)}%)
         </div>
@@ -276,16 +276,20 @@ function SystemCard({
 }
 
 function LoadedModelsTable({ data }: { data: MonitorSnapshotResponse | null }) {
+  const { m } = useI18n();
   const loaded = data?.provider.loaded ?? [];
   if (data && data.provider.http && data.provider.http.ok === false) {
     return (
       <div className="text-xs text-[var(--muted)]">
-        provider HTTP 호출 실패 — {data.provider.http.status ?? "?"} {truncate(data.provider.http.error ?? "", 200)}
+        {m.monitor.providerHttpFailed(
+          data.provider.http.status ?? "?",
+          truncate(data.provider.http.error ?? "", 200),
+        )}
       </div>
     );
   }
   if (loaded.length === 0) {
-    return <p className="text-xs text-[var(--muted)]">로드된 모델 없음</p>;
+    return <p className="text-xs text-[var(--muted)]">{m.monitor.noLoadedModels}</p>;
   }
   return (
     <div className="overflow-x-auto">
@@ -326,6 +330,7 @@ function LmsControlCard({
   loaded: MonitorSnapshotResponse["provider"]["loaded"];
   onSuccess?: () => void;
 }) {
+  const { m } = useI18n();
   const [model, setModel] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -341,14 +346,14 @@ function LmsControlCard({
       });
       const j = (await r.json()) as { ok?: boolean; stdout?: string; error?: string };
       if (!r.ok || j.ok === false) {
-        setResult(`${action} 실패: ${j.error ?? r.statusText}`);
+        setResult(msg().monitor.actionFailed(action, j.error ?? r.statusText));
       } else {
         setResult(`${action} OK${j.stdout ? `: ${truncate(j.stdout, 200)}` : ""}`);
         // 다음 폴링 사이클(최대 10s)까지 기다리지 않고 즉시 snapshot 갱신.
         onSuccess?.();
       }
     } catch (e) {
-      setResult(`${action} 오류: ${(e as Error).message}`);
+      setResult(msg().monitor.actionError(action, (e as Error).message));
     } finally {
       setBusy(false);
     }
@@ -356,17 +361,17 @@ function LmsControlCard({
 
   return (
     <section className={CARD_CLASS}>
-      <h2 className="mb-2 text-sm font-semibold">모델 로드/언로드 (LM Studio CLI)</h2>
+      <h2 className="mb-2 text-sm font-semibold">{m.monitor.loadUnloadTitle}</h2>
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-1 flex-col gap-1 text-xs">
-          <span className="text-[var(--muted)]">모델 ID (예: publisher/model)</span>
+          <span className="text-[var(--muted)]">{m.monitor.modelIdLabel}</span>
           <input
             type="text"
             value={model}
             onChange={(e) => setModel(e.target.value)}
             className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 font-mono text-sm"
             spellCheck={false}
-            placeholder="LM Studio가 인식하는 모델 식별자"
+            placeholder={m.monitor.modelIdPlaceholder}
           />
         </label>
         <button
@@ -375,7 +380,7 @@ function LmsControlCard({
           onClick={() => call("load", model.trim())}
           className="rounded-md border border-[var(--border)] bg-[var(--accent)] px-3 py-1.5 text-sm text-white disabled:opacity-50"
         >
-          {busy ? "처리 중…" : "load"}
+          {busy ? m.monitor.processing : "load"}
         </button>
       </div>
       {result ? <p className="mt-2 text-xs">{result}</p> : null}
@@ -406,6 +411,7 @@ function LmsControlCard({
 const LOG_LINE_CAP = 500;
 
 function LmsLogStreamCard({ baseUrl }: { baseUrl: string }) {
+  const { m } = useI18n();
   const [active, setActive] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -445,7 +451,7 @@ function LmsLogStreamCard({ baseUrl }: { baseUrl: string }) {
     es.onerror = () => {
       // EventSource는 status code를 노출하지 않으므로 409·502 등을 정확히 구분할 수 없다.
       // 흔한 원인 2가지 안내.
-      setError("연결 종료 또는 오류 (다른 클라이언트가 사용 중이거나 lms 프로세스 종료)");
+      setError(msg().monitor.logStreamConnError);
       es.close();
       setActive(false);
     };
@@ -458,30 +464,30 @@ function LmsLogStreamCard({ baseUrl }: { baseUrl: string }) {
   return (
     <section className={CARD_CLASS}>
       <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold">lms server 로그 스트림</h2>
+        <h2 className="text-sm font-semibold">{m.monitor.logStreamTitle}</h2>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={() => setActive((v) => !v)}
             className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs hover:bg-[var(--surface-2)]"
           >
-            {active ? "중지" : "시작"}
+            {active ? m.monitor.stop : m.monitor.start}
           </button>
           <button
             type="button"
             onClick={() => setLines([])}
             className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs hover:bg-[var(--surface-2)]"
           >
-            지우기
+            {m.monitor.clear}
           </button>
         </div>
       </div>
       {error ? <p className="mb-2 text-xs text-red-500">{error}</p> : null}
       <pre className="max-h-96 overflow-auto rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-[10px] font-mono leading-tight">
-        {lines.length === 0 ? "라인 없음" : lines.join("\n")}
+        {lines.length === 0 ? m.monitor.noLines : lines.join("\n")}
       </pre>
       <p className="mt-1 text-[10px] text-[var(--muted)]">
-        최대 {LOG_LINE_CAP}라인. 서버는 1:1 lock — 다른 클라이언트가 이미 받고 있으면 409.
+        {m.monitor.logStreamHint(LOG_LINE_CAP)}
       </p>
     </section>
   );

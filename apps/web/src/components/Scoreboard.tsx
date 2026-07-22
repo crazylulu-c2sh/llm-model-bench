@@ -23,26 +23,18 @@ import {
   type ScoreboardSort,
   type ScoreboardSortKey,
   type ScoreGroup,
-  type ScoreMetric,
   type ScoreboardRow,
   type ScoringAggregate,
   type SortDir,
 } from "../lib/scoreboard";
 import type { QualityGroupScore } from "../lib/quality-score";
 import type { SpeedGroup } from "../lib/speed-score";
-import {
-  APPROX_TITLE,
-  BAND_COLOR,
-  CAP_TITLE,
-  GROUP_LABEL,
-  METRIC_LABEL,
-  qualityBand,
-  type ScoreBand,
-} from "../lib/score-bands";
+import { BAND_COLOR, qualityBand, type ScoreBand } from "../lib/score-bands";
 import { getTpsTier, tpsTierColor } from "../lib/tps-tier";
 import { ScoreboardChart, Segmented } from "./ScoreboardChart";
 import { ModelLabel } from "./ModelLabel";
-import { VENDOR_BRAND, VendorIcon } from "./VendorIcon";
+import { VendorIcon, vendorLabel } from "./VendorIcon";
+import { useI18n, type Messages } from "../i18n";
 
 /** max 기준 상대 길이 채움 막대(기본 max=100=절대). */
 function ScoreBar({ value, color, max = 100 }: { value: number; color: string; max?: number }) {
@@ -62,20 +54,22 @@ function Caveat({ title }: { title: string }) {
   );
 }
 
-const BAND_LABEL: Record<ScoreBand, string> = { high: "우수", good: "양호", mid: "보통", low: "낮음" };
-
-function qualityBandTitle(g: QualityGroupScore): string | undefined {
-  return g.value == null ? undefined : BAND_LABEL[qualityBand(g.value)];
+function qualityBandTitle(
+  g: QualityGroupScore,
+  bandLabel: Record<ScoreBand, string>,
+): string | undefined {
+  return g.value == null ? undefined : bandLabel[qualityBand(g.value)];
 }
 
 /** 품질 셀: 밴드색 숫자 + 막대 + (커버리지) + judge-cap `*`. */
 function QualityCell({ g, capped }: { g: QualityGroupScore; capped: boolean }) {
+  const { m } = useI18n();
   const coverage = g.expected > 0 ? `${g.covered}/${g.expected}` : null;
   if (g.value == null) {
     return (
       <span className="inline-flex flex-col items-center leading-tight">
         <span className="font-mono text-xs text-[var(--muted)]">
-          —{capped ? <Caveat title={CAP_TITLE} /> : null}
+          —{capped ? <Caveat title={m.scoreboard.capTitle} /> : null}
         </span>
         {coverage ? <span className="text-[10px] text-[var(--muted)]">({coverage})</span> : null}
       </span>
@@ -86,7 +80,7 @@ function QualityCell({ g, capped }: { g: QualityGroupScore; capped: boolean }) {
     <span className="inline-flex w-full flex-col items-center leading-tight">
       <span className="font-mono text-xs font-semibold" style={{ color }}>
         {Math.round(g.value)}
-        {capped ? <Caveat title={CAP_TITLE} /> : null}
+        {capped ? <Caveat title={m.scoreboard.capTitle} /> : null}
       </span>
       <ScoreBar value={g.value} color={color} />
       {coverage ? <span className="mt-0.5 text-[10px] text-[var(--muted)]">({coverage})</span> : null}
@@ -96,25 +90,26 @@ function QualityCell({ g, capped }: { g: QualityGroupScore; capped: boolean }) {
 
 /** 속도 셀: 디코드 tok/s 중앙값(주값·절대 tier 색) + 열 최고 대비 상대 막대 + 점수 보조 + approx `*`. */
 function SpeedCell({ g, max }: { g: SpeedGroup; max: number }) {
+  const { m } = useI18n();
   if (g.tpsMedian == null) return <span className="font-mono text-xs text-[var(--muted)]">—</span>;
   const color = tpsTierColor(getTpsTier(g.tpsMedian, false));
   const range =
     g.tpsMin != null && g.tpsMax != null
-      ? ` · 범위 ${formatTps(g.tpsMin)}~${formatTps(g.tpsMax)} tok/s`
+      ? m.scoreboard.speedCellRange(formatTps(g.tpsMin), formatTps(g.tpsMax))
       : "";
   return (
     <span
       className="inline-flex w-full flex-col items-center leading-tight"
-      title={`중앙값 ${formatTps(g.tpsMedian)} tok/s${range} · 점수 ${g.score}`}
+      title={m.scoreboard.speedCellTitle(formatTps(g.tpsMedian), range, g.score)}
     >
       <span className="font-mono text-xs font-semibold" style={{ color }}>
         {formatTps(g.tpsMedian)}
         <span className="text-[10px] font-normal text-[var(--muted)]"> tok/s</span>
-        {g.approxRows > 0 ? <Caveat title={APPROX_TITLE} /> : null}
+        {g.approxRows > 0 ? <Caveat title={m.scoreboard.approxTitle} /> : null}
       </span>
       <ScoreBar value={g.tpsMedian} color={color} max={max} />
       {g.score != null ? (
-        <span className="mt-0.5 text-[10px] text-[var(--muted)]">{g.score}점</span>
+        <span className="mt-0.5 text-[10px] text-[var(--muted)]">{m.scoreboard.scorePoints(g.score)}</span>
       ) : null}
     </span>
   );
@@ -131,11 +126,7 @@ function TtftCell({ g }: { g: SpeedGroup }) {
 
 const GROUP_BORDER = "border-l border-[var(--border)]";
 
-const METRIC_TITLE: Record<ScoreMetric, string> = {
-  quality: "정답률·루브릭(0~100)",
-  speed: "디코드 TPS 중앙값(실제 tok/s). 정렬·색 기준. 아래 작은 숫자는 기준 30 tok/s=1000 점수",
-  latency: "Time-To-First-Token, 첫 토큰까지 ms(낮을수록 좋음, 점수 비포함)",
-};
+// METRIC_TITLE 문구는 i18n 카탈로그(m.scoreboard.metricTitle)로 이전됨.
 
 /** 정렬 방향 아이콘(StatsModelTable 패턴): 활성 asc/desc + 비활성 흐림. */
 function sortDirIcon(active: boolean, dir: SortDir) {
@@ -148,12 +139,13 @@ function sortDirIcon(active: boolean, dir: SortDir) {
 }
 
 /** 현재 정렬 상태 한 줄 요약(표 하단 표시). */
-function scoreboardSortLine(sort: ScoreboardSort): string {
+function scoreboardSortLine(sort: ScoreboardSort, m: Messages): string {
+  const s = m.scoreboard;
   const name =
     sort.key.kind === "model"
-      ? "모델"
-      : `${GROUP_LABEL[sort.key.group]} ${METRIC_LABEL[sort.key.metric]}`;
-  return `정렬: ${name} · ${sort.dir === "asc" ? "오름차순" : "내림차순"}`;
+      ? s.model
+      : `${s.groupLabel[sort.key.group]} ${s.metricLabel[sort.key.metric]}`;
+  return s.sortLine(name, sort.dir === "asc" ? s.sortAsc : s.sortDesc);
 }
 
 /** 클릭 정렬 가능한 헤더 셀 — 기존 <th>(className·title) 보존 + 내부 버튼·아이콘·aria. */
@@ -176,19 +168,22 @@ function SortHeader({
   onSort: (key: ScoreboardSortKey) => void;
   rowSpan?: number;
 }) {
+  const { m } = useI18n();
   const active = sameSortKey(sort.key, sortKey);
   const ariaSort: "ascending" | "descending" | "none" = active
     ? sort.dir === "asc"
       ? "ascending"
       : "descending"
     : "none";
-  const dirText = active ? (sort.dir === "asc" ? " (오름차순)" : " (내림차순)") : "";
+  const dirText = active
+    ? m.scoreboard.sortDirSuffix(sort.dir === "asc" ? m.scoreboard.sortAsc : m.scoreboard.sortDesc)
+    : "";
   return (
     <th scope="col" className={thClassName} title={title} aria-sort={ariaSort} rowSpan={rowSpan}>
       <button
         type="button"
         onClick={() => onSort(sortKey)}
-        aria-label={`${label} 기준 정렬${dirText}`}
+        aria-label={m.scoreboard.sortHeaderAria(label, dirText)}
         className={`inline-flex items-center gap-1 text-[var(--muted)] hover:text-[var(--foreground)] ${buttonClassName}`}
       >
         {label}
@@ -208,28 +203,29 @@ function GroupSortHeaders({
   sort: ScoreboardSort;
   onSort: (key: ScoreboardSortKey) => void;
 }) {
+  const { m } = useI18n();
   const base = "px-2 pb-2 text-center text-[11px] font-normal";
   return (
     <>
       <SortHeader
-        label={METRIC_LABEL.quality}
-        title={METRIC_TITLE.quality}
+        label={m.scoreboard.metricLabel.quality}
+        title={m.scoreboard.metricTitle.quality}
         thClassName={`${base} ${GROUP_BORDER}`}
         sortKey={{ kind: "metric", group, metric: "quality" }}
         sort={sort}
         onSort={onSort}
       />
       <SortHeader
-        label={METRIC_LABEL.speed}
-        title={METRIC_TITLE.speed}
+        label={m.scoreboard.metricLabel.speed}
+        title={m.scoreboard.metricTitle.speed}
         thClassName={base}
         sortKey={{ kind: "metric", group, metric: "speed" }}
         sort={sort}
         onSort={onSort}
       />
       <SortHeader
-        label={METRIC_LABEL.latency}
-        title={METRIC_TITLE.latency}
+        label={m.scoreboard.metricLabel.latency}
+        title={m.scoreboard.metricTitle.latency}
         thClassName={base}
         sortKey={{ kind: "metric", group, metric: "latency" }}
         sort={sort}
@@ -290,6 +286,7 @@ function ScoreboardDataRow({
   maxSpeed: { text: number; vision: number; agent: number; total: number };
   provider?: ProviderKind;
 }) {
+  const { m } = useI18n();
   const cap = b.quality.caveats.includes("judge_capped");
   return (
     <tr className="border-t border-[var(--border)]">
@@ -306,14 +303,14 @@ function ScoreboardDataRow({
           {b.textOnly ? (
             <span
               className="rounded border border-[var(--border)] px-1 py-px text-[10px] text-[var(--muted)]"
-              title="비전·에이전트 시나리오 미실행 — 총합은 텍스트 점수와 동일"
+              title={m.scoreboard.textOnlyBadgeTitle}
             >
               text-only
             </span>
           ) : null}
         </span>
       </td>
-      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.text)}>
+      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.text, m.scoreboard.bandLabel)}>
         <QualityCell g={b.quality.text} capped={false} />
       </td>
       <td className="p-2 text-center">
@@ -322,7 +319,7 @@ function ScoreboardDataRow({
       <td className="p-2 text-center">
         <TtftCell g={b.speed.text} />
       </td>
-      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.vision)}>
+      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.vision, m.scoreboard.bandLabel)}>
         <QualityCell g={b.quality.vision} capped={cap} />
       </td>
       <td className="p-2 text-center">
@@ -331,7 +328,7 @@ function ScoreboardDataRow({
       <td className="p-2 text-center">
         <TtftCell g={b.speed.vision} />
       </td>
-      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.agent)}>
+      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.agent, m.scoreboard.bandLabel)}>
         <QualityCell g={b.quality.agent} capped={cap} />
       </td>
       <td className="p-2 text-center">
@@ -340,7 +337,7 @@ function ScoreboardDataRow({
       <td className="p-2 text-center">
         <TtftCell g={b.speed.agent} />
       </td>
-      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.total)}>
+      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.total, m.scoreboard.bandLabel)}>
         <QualityCell g={b.quality.total} capped={cap} />
       </td>
       <td className="p-2 text-center">
@@ -358,7 +355,7 @@ export function Scoreboard({
   detailAggregate,
   loading = false,
   benchModelOrder = [],
-  title = "스코어보드",
+  title,
   providerByModel,
 }: {
   rows: ResultRow[];
@@ -370,6 +367,7 @@ export function Scoreboard({
   /** model_id → 백엔드(옵션). 벤더 아이콘 옆 백엔드 배지·툴팁용. 없어도 안 깨짐. */
   providerByModel?: Map<string, ProviderKind>;
 }) {
+  const { m } = useI18n();
   const board = useMemo(() => scoreboardFromRows(rows, detailAggregate), [rows, detailAggregate]);
   // #80: 모델 × 라우트 누수/정체 지표(스코어보드와 동일 rows+aggregate에서 클라이언트 계산 — 서버와 동일 산식).
   const leaks = useMemo(() => leakMetricsFromRows(rows, detailAggregate), [rows, detailAggregate]);
@@ -461,50 +459,40 @@ export function Scoreboard({
   return (
     <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
       <div className="mb-1 flex items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
-        <h2 className="text-sm font-semibold text-[var(--foreground)]">{title}</h2>
+        <h2 className="text-sm font-semibold text-[var(--foreground)]">{title ?? m.scoreboard.title}</h2>
         {!loadingLayout ? (
           <Segmented
-            ariaLabel="보기"
+            ariaLabel={m.scoreboard.viewAria}
             value={view}
             onChange={setView}
             options={[
-              { value: "chart", label: "차트" },
-              { value: "table", label: "표" },
-              { value: "leaks", label: "누수" },
-              { value: "agent", label: "에이전트" },
+              { value: "chart", label: m.scoreboard.viewChart },
+              { value: "table", label: m.scoreboard.viewTable },
+              { value: "leaks", label: m.scoreboard.viewLeaks },
+              { value: "agent", label: m.scoreboard.viewAgent },
             ]}
           />
         ) : null}
       </div>
       <p className="mb-2 text-xs text-[var(--muted)]">
-        품질은 절대 점수(0~100), 속도는 디코드 TPS 중앙값(실제 tok/s)이고 색은 절대 tier(쾌적≥30·쓸만≥15·채택가능≥5),
-        작은 숫자는 기준 30 tok/s=1000 점수. 지연(TTFT)은 첫 토큰까지 ms로 낮을수록 좋음(점수 미포함). 측정 런 평균 ·
-        텍스트/비전은 시나리오 동일 가중, 총합은 전체 풀링.{showChart ? " 막대에 커서를 올리면 상세." : " 헤더를 눌러 정렬."}
+        {m.scoreboard.intro}
+        {showChart ? m.scoreboard.introChartHint : m.scoreboard.introTableHint}
       </p>
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--muted)]">
-        <span>품질 색상 = 절대 점수 밴드:</span>
-        {(
-          [
-            ["var(--tier-fast)", "우수"],
-            ["var(--tier-good)", "양호"],
-            ["var(--tier-okay)", "보통"],
-            ["var(--tier-slow)", "낮음"],
-          ] as const
-        ).map(([c, label]) => (
-          <span key={label} className="inline-flex items-center gap-1">
-            <span className="size-2 shrink-0 rounded-full" style={{ background: c }} aria-hidden />
-            {label}
+        <span>{m.scoreboard.legendQualityBand}</span>
+        {(["high", "good", "mid", "low"] as const).map((band) => (
+          <span key={band} className="inline-flex items-center gap-1">
+            <span className="size-2 shrink-0 rounded-full" style={{ background: BAND_COLOR[band] }} aria-hidden />
+            {m.scoreboard.bandLabel[band]}
           </span>
         ))}
-        <span className="w-full text-[var(--muted)]">
-          속도 = 디코드 TPS 중앙값(tok/s) · 색=절대 tier·막대=열 최고 대비 상대 · 지연 = TTFT ms(낮을수록 좋음)
-        </span>
+        <span className="w-full text-[var(--muted)]">{m.scoreboard.legendSpeedLatency}</span>
       </div>
       {showVendorFilter ? (
         <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px]">
-          <span className="text-[var(--muted)]">벤더:</span>
+          <span className="text-[var(--muted)]">{m.scoreboard.vendorFilterLabel}</span>
           {[...vendorCounts.entries()]
-            .sort((a, b) => b[1] - a[1] || (VENDOR_BRAND[a[0]].label < VENDOR_BRAND[b[0]].label ? -1 : 1))
+            .sort((a, b) => b[1] - a[1] || (vendorLabel(a[0], m) < vendorLabel(b[0], m) ? -1 : 1))
             .map(([v, count]) => {
               const hidden = hiddenVendors.has(v);
               return (
@@ -513,7 +501,10 @@ export function Scoreboard({
                   type="button"
                   onClick={() => toggleVendor(v)}
                   aria-pressed={!hidden}
-                  title={`${VENDOR_BRAND[v].label} ${hidden ? "보이기" : "숨기기"}`}
+                  title={m.scoreboard.vendorToggleTitle(
+                    vendorLabel(v, m),
+                    hidden ? m.scoreboard.vendorShow : m.scoreboard.vendorHide,
+                  )}
                   className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors ${
                     hidden
                       ? "border border-dashed border-[var(--border)] text-[var(--muted)] opacity-60"
@@ -521,7 +512,7 @@ export function Scoreboard({
                   }`}
                 >
                   <VendorIcon vendor={v} size={12} />
-                  {VENDOR_BRAND[v].label}
+                  {vendorLabel(v, m)}
                   <span className="text-[var(--muted)]">{count}</span>
                 </button>
               );
@@ -532,14 +523,14 @@ export function Scoreboard({
               onClick={() => setHiddenVendors(new Set())}
               className="ml-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--muted)] hover:text-[var(--foreground)]"
             >
-              전체
+              {m.scoreboard.all}
             </button>
           ) : null}
         </div>
       ) : null}
       {allVendorsHidden ? (
         <p className="rounded border border-dashed border-[var(--border)] px-3 py-10 text-center text-xs text-[var(--muted)]">
-          모든 벤더가 숨겨졌습니다. 위 필터에서 벤더를 선택해 다시 표시하세요.
+          {m.scoreboard.allVendorsHidden}
         </p>
       ) : showChart ? (
         <ScoreboardChart board={filteredBoard} providerByModel={providerByModel} />
@@ -550,11 +541,11 @@ export function Scoreboard({
       ) : (
       <div className="overflow-x-auto rounded border border-[var(--border)]">
         <table className="w-full min-w-[58rem] text-left text-sm">
-          <caption className="sr-only">모델별 텍스트·비전·에이전트·총합 품질·속도·지연 스코어보드</caption>
+          <caption className="sr-only">{m.scoreboard.tableCaption}</caption>
           <thead className="bg-[var(--surface)] text-[var(--muted)]">
             <tr>
               <SortHeader
-                label="모델"
+                label={m.scoreboard.model}
                 thClassName="p-2 align-bottom font-medium"
                 buttonClassName="font-medium"
                 sortKey={{ kind: "model" }}
@@ -563,16 +554,16 @@ export function Scoreboard({
                 rowSpan={2}
               />
               <th colSpan={3} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
-                텍스트
+                {m.scoreboard.groupLabel.text}
               </th>
               <th colSpan={3} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
-                비전
+                {m.scoreboard.groupLabel.vision}
               </th>
               <th colSpan={3} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
-                에이전트
+                {m.scoreboard.groupLabel.agent}
               </th>
               <th colSpan={3} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
-                총합
+                {m.scoreboard.groupLabel.total}
               </th>
             </tr>
             <tr>
@@ -625,7 +616,7 @@ export function Scoreboard({
         </table>
         {!loadingLayout ? (
           <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
-            {scoreboardSortLine(sort)}
+            {scoreboardSortLine(sort, m)}
           </p>
         ) : null}
       </div>
@@ -634,17 +625,17 @@ export function Scoreboard({
         <div className="mt-2 space-y-1 text-xs leading-relaxed text-[var(--muted)]">
           {anyJudgeCap ? (
             <p>
-              <code className="font-mono">*</code> (품질) {CAP_TITLE}.
+              <code className="font-mono">*</code> {m.scoreboard.qualityTag} {m.scoreboard.capTitle}.
             </p>
           ) : null}
           {anyApprox ? (
             <p>
-              <code className="font-mono">*</code> (속도) {APPROX_TITLE}.
+              <code className="font-mono">*</code> {m.scoreboard.speedTag} {m.scoreboard.approxTitle}.
             </p>
           ) : null}
           {anyTextOnly ? (
             <p>
-              <code className="font-mono">text-only</code> 비전 시나리오를 실행하지 않아 총합이 텍스트 점수로만 계산됐습니다.
+              <code className="font-mono">text-only</code> {m.scoreboard.textOnlyFootnote}
             </p>
           ) : null}
         </div>

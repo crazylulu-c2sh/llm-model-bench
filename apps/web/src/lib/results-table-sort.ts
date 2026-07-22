@@ -1,4 +1,5 @@
 import type { SortingState } from "@tanstack/react-table";
+import type { Messages } from "../i18n";
 
 /** 벤치 실행 순서: 모델 큐 → 시나리오 실행 인덱스 → API */
 export const BENCH_EXECUTION_SORT: SortingState = [
@@ -28,26 +29,18 @@ export function cycleColumnSort(columnId: string, sorting: SortingState): Sortin
   return [{ id: columnId, desc: false }];
 }
 
-const RESULT_SORT_LABELS: Record<string, string> = {
-  model_id: "모델",
-  scenario: "시나리오",
-  api: "API",
-  ttft_ms: "TTFT (ms)",
-  output_tokens: "출력 토큰",
-  tps: "TPS (tok/s)",
-};
-
-export function resultsSortLine(sorting: SortingState): string {
-  if (isBenchExecutionSort(sorting)) return "현재 정렬: 벤치 실행 순서";
-  if (sorting.length === 0) return "현재 정렬: 없음";
-  const dirOf = (desc: boolean) => (desc ? "내림차순" : "오름차순");
+// 정렬 라벨·문구는 i18n 카탈로그(m.results.sort)로 이전. 순수 헬퍼라 서브레코드를 파라미터로 받는다.
+export function resultsSortLine(sorting: SortingState, sort: Messages["results"]["sort"]): string {
+  if (isBenchExecutionSort(sorting)) return sort.current + sort.benchOrder;
+  if (sorting.length === 0) return sort.current + sort.none;
+  const dirOf = (desc: boolean) => (desc ? sort.desc : sort.asc);
+  const columns = sort.columns as Record<string, string>;
+  const label = (id: string) => columns[id] ?? id;
   const allSameDir = sorting.every((s) => s.desc === sorting[0]!.desc);
   if (allSameDir) {
-    const chain = sorting.map((s) => RESULT_SORT_LABELS[s.id] ?? s.id).join(" → ");
-    return `현재 정렬: ${chain} · ${dirOf(sorting[0]!.desc)}`;
+    const chain = sorting.map((s) => label(s.id)).join(" → ");
+    return `${sort.current}${chain} · ${dirOf(sorting[0]!.desc)}`;
   }
-  const chain = sorting
-    .map((s) => `${RESULT_SORT_LABELS[s.id] ?? s.id}(${dirOf(s.desc)})`)
-    .join(" → ");
-  return `현재 정렬: ${chain}`;
+  const chain = sorting.map((s) => `${label(s.id)}(${dirOf(s.desc)})`).join(" → ");
+  return `${sort.current}${chain}`;
 }

@@ -13,16 +13,12 @@ import {
 import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Search, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ModelLabel } from "./ModelLabel";
+import { useI18n, type Messages } from "../i18n";
 
 export const DEFAULT_STATS_MODEL_SORTING: SortingState = [{ id: "model_id", desc: false }];
 
-// 시나리오 카테고리 칩 필터 — 고정 순서와 라벨. (백엔드 scenarioCategory와 동일한 3분류)
+// 시나리오 카테고리 칩 필터 — 고정 순서. 라벨은 i18n 카탈로그(m.stats.categoryLabel).
 const CATEGORY_ORDER: ScenarioCategory[] = ["text", "vision", "agent"];
-const CATEGORY_LABELS: Record<ScenarioCategory, string> = {
-  text: "텍스트",
-  vision: "비전",
-  agent: "에이전트",
-};
 
 const POINTER_MOVE_TOGGLE_THRESHOLD_PX = 5;
 
@@ -44,21 +40,14 @@ function sortDirIcon(column: Column<StatsModelLatestItem, unknown>) {
   return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
 }
 
-const SORT_LABELS: Record<string, string> = {
-  model_id: "모델 id",
-  base_url: "Base URL",
-  provider: "provider",
-  finished_at: "완료 시각",
-  scenario_count: "시나리오 수",
-  status: "상태",
-};
-
-function statsModelSortLine(sorting: SortingState): string {
+// 정렬 라벨·문구는 i18n 카탈로그(m.stats)로 이전.
+function statsModelSortLine(sorting: SortingState, m: Messages): string {
   const first = sorting[0];
-  if (!first) return "정렬: 없음";
-  const name = SORT_LABELS[first.id] ?? first.id;
-  const dir = first.desc ? "내림차순" : "오름차순";
-  return `정렬: ${name} · ${dir}`;
+  if (!first) return m.stats.sortNone;
+  const labels = m.stats.sortLabels as Record<string, string>;
+  const name = labels[first.id] ?? first.id;
+  const dir = first.desc ? m.stats.sortDesc : m.stats.sortAsc;
+  return m.stats.sortLine(name, dir);
 }
 
 const columnHelper = createColumnHelper<StatsModelLatestItem>();
@@ -84,7 +73,8 @@ export function StatsModelTable({
   onSortedRunIdsChange?: (runIds: string[]) => void;
   canSelectRow: (row: StatsModelLatestItem) => boolean;
 }) {
-  const data = useMemo(() => models.map((m) => ({ ...m })), [models]);
+  const { m: msgs } = useI18n();
+  const data = useMemo(() => models.map((mm) => ({ ...mm })), [models]);
 
   // 텍스트 필터 — TanStack `data`는 전체 유지하고 렌더 단계에서만 거른다.
   // (`onSortedRunIdsChange`가 보고하는 run_id 순서를 줄이면 차트 정렬이 어긋나므로 globalFilter는 쓰지 않음.)
@@ -167,8 +157,8 @@ export function StatsModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded p-1 text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-50"
-            aria-label={allVisibleSelectableSelected ? "표시된 선택 가능 항목 전체 해제" : "표시된 선택 가능 항목 전체 선택"}
-            title={allVisibleSelectableSelected ? "표시된 선택 가능 항목 전체 해제" : "표시된 선택 가능 항목 전체 선택"}
+            aria-label={allVisibleSelectableSelected ? msgs.stats.deselectVisible : msgs.stats.selectVisible}
+            title={allVisibleSelectableSelected ? msgs.stats.deselectVisible : msgs.stats.selectVisible}
             disabled={noVisibleSelectable}
             onClick={handleSelectAllVisible}
           >
@@ -187,7 +177,7 @@ export function StatsModelTable({
                 if (!ok) return;
                 onToggle(row.run_id);
               }}
-              aria-label={`${row.model_id} 선택`}
+              aria-label={msgs.stats.selectRow(row.model_id)}
             />
           );
         },
@@ -244,7 +234,7 @@ export function StatsModelTable({
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            상태
+            {msgs.stats.colStatus}
             {sortDirIcon(column)}
           </button>
         ),
@@ -258,7 +248,7 @@ export function StatsModelTable({
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            완료
+            {msgs.stats.colFinished}
             {sortDirIcon(column)}
           </button>
         ),
@@ -275,7 +265,7 @@ export function StatsModelTable({
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            시나리오
+            {msgs.stats.colScenario}
             {sortDirIcon(column)}
           </button>
         ),
@@ -283,7 +273,7 @@ export function StatsModelTable({
         sortingFn: "basic",
       }),
     ],
-    [allVisibleSelectableSelected, canSelectRow, handleSelectAllVisible, noVisibleSelectable, onToggle, selected],
+    [allVisibleSelectableSelected, canSelectRow, handleSelectAllVisible, noVisibleSelectable, onToggle, selected, msgs],
   );
 
   const table = useReactTable({
@@ -306,7 +296,7 @@ export function StatsModelTable({
   return (
     <div className="grid gap-2">
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="text-[var(--muted)]">카테고리:</span>
+        <span className="text-[var(--muted)]">{msgs.stats.categoryFilterLabel}</span>
         {/* 3분류는 항상 노출한다 — 측정 0건이어도 그 축이 존재함을 알려야 하므로 숨기지 않음. */}
         {CATEGORY_ORDER.map((c) => {
           const count = categoryCounts.get(c) ?? 0;
@@ -322,8 +312,11 @@ export function StatsModelTable({
               aria-pressed={active}
               title={
                 empty
-                  ? `${CATEGORY_LABELS[c]} 측정이 있는 모델이 없습니다`
-                  : `${CATEGORY_LABELS[c]} ${active ? "필터 해제" : "필터 적용"}`
+                  ? msgs.stats.categoryEmptyTitle(msgs.stats.categoryLabel[c])
+                  : msgs.stats.categoryToggleTitle(
+                      msgs.stats.categoryLabel[c],
+                      active ? msgs.stats.filterClear : msgs.stats.filterApply,
+                    )
               }
               style={
                 active ? { background: "color-mix(in srgb, var(--accent) 14%, transparent)" } : undefined
@@ -336,7 +329,7 @@ export function StatsModelTable({
                     : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-sm hover:border-[var(--accent)]"
               }`}
             >
-              {CATEGORY_LABELS[c]}
+              {msgs.stats.categoryLabel[c]}
               <span className="text-[var(--muted)]">{count}</span>
             </button>
           );
@@ -347,7 +340,7 @@ export function StatsModelTable({
             onClick={() => setSelectedCategories(new Set())}
             className="ml-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[var(--muted)] shadow-sm hover:text-[var(--foreground)]"
           >
-            전체
+            {msgs.stats.all}
           </button>
         ) : null}
       </div>
@@ -360,16 +353,16 @@ export function StatsModelTable({
           type="text"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
-          placeholder="모델 id·Base URL·provider 검색 (예: gemma)"
-          aria-label="저장된 모델 필터"
+          placeholder={msgs.stats.searchPlaceholder}
+          aria-label={msgs.stats.searchAria}
           spellCheck={false}
           className="w-full rounded border border-[var(--border)] bg-[var(--surface-2)] py-1.5 pl-7 pr-7 font-mono text-xs text-[var(--foreground)]"
         />
         {filterText ? (
           <button
             type="button"
-            aria-label="필터 지우기"
-            title="필터 지우기"
+            aria-label={msgs.stats.clearFilter}
+            title={msgs.stats.clearFilter}
             onClick={() => setFilterText("")}
             className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--muted)] hover:text-[var(--foreground)]"
           >
@@ -379,7 +372,7 @@ export function StatsModelTable({
       </div>
       <div className="max-h-64 overflow-auto rounded border border-[var(--border)]">
         <table className="w-full text-left text-sm">
-        <caption className="sr-only">저장된 모델 통계</caption>
+        <caption className="sr-only">{msgs.stats.tableCaption}</caption>
         <thead className="text-[var(--muted)]">
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id}>
@@ -414,7 +407,7 @@ export function StatsModelTable({
                 colSpan={table.getVisibleLeafColumns().length}
                 className="p-3 text-center text-xs text-[var(--muted)]"
               >
-                일치하는 모델이 없습니다
+                {msgs.stats.noMatch}
               </td>
             </tr>
           ) : (
@@ -428,8 +421,8 @@ export function StatsModelTable({
                 ].join(" ")}
                 tabIndex={ok ? 0 : -1}
                 aria-disabled={!ok || undefined}
-                aria-label={ok ? `${row.original.model_id} 선택 토글` : undefined}
-                title={!ok ? "시나리오 측정 집계가 없어 선택할 수 없습니다." : undefined}
+                aria-label={ok ? msgs.stats.rowToggleAria(row.original.model_id) : undefined}
+                title={!ok ? msgs.stats.rowDisabledTitle : undefined}
                 onMouseDown={(e) => {
                   if (!ok) return;
                   const el = e.target as HTMLElement;
@@ -476,17 +469,22 @@ export function StatsModelTable({
         </tbody>
       </table>
         <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
-          {statsModelSortLine(sorting)}
+          {statsModelSortLine(sorting, msgs)}
           {" · "}
-          선택 {selectableRows.filter((m) => selected[m.run_id]).length} / {selectableRows.length}
-          {q ? ` · 필터 "${q}"` : null}
+          {msgs.stats.selectionCount(
+            selectableRows.filter((row) => selected[row.run_id]).length,
+            selectableRows.length,
+          )}
+          {q ? msgs.stats.filterInfo(q) : null}
           {selectedCategories.size > 0
-            ? ` · 카테고리: ${CATEGORY_ORDER.filter((c) => selectedCategories.has(c))
-                .map((c) => CATEGORY_LABELS[c])
-                .join("·")}`
+            ? msgs.stats.categoryInfo(
+                CATEGORY_ORDER.filter((c) => selectedCategories.has(c))
+                  .map((c) => msgs.stats.categoryLabel[c])
+                  .join("·"),
+              )
             : null}
-          {q || selectedCategories.size > 0 ? ` · ${visibleModels.length}개 표시` : null}
-          {someSelectableSelected && !allSelectableSelected ? " · 일부 선택됨" : null}
+          {q || selectedCategories.size > 0 ? msgs.stats.shownCount(visibleModels.length) : null}
+          {someSelectableSelected && !allSelectableSelected ? msgs.stats.somePartial : null}
         </p>
       </div>
     </div>
