@@ -70,7 +70,7 @@ export {
   type VisionScoringGroundTruthId,
 } from "./scenario-scoring-constants";
 
-export { visionSubcategoryLabel } from "./vision-category";
+export { visionSubcategory, type VisionSubcategory } from "./vision-category";
 
 export {
   anthropicToolsForScenario,

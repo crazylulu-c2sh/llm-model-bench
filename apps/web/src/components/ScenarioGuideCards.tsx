@@ -3,7 +3,7 @@ import {
   getScenarioBenchMeta,
   getScenarioImageAssets,
   isVisionScenario,
-  visionSubcategoryLabel,
+  visionSubcategory,
 } from "@llm-bench/shared";
 import { Layers, ZoomIn } from "lucide-react";
 import { useState } from "react";
@@ -45,7 +45,13 @@ export function ScenarioGuideCards({
                 ? "scenario-guide-card--bench-touched border-[var(--border)]"
                 : "border-[var(--border)]";
           const isVision = isVisionScenario(id);
-          const images = isVision ? getScenarioImageAssets(id, baseUrl) : [];
+          const visionSub = visionSubcategory(id);
+          const visionLabel = visionSub ? m.docs.visionSubcategory[visionSub] : undefined;
+          const images = isVision
+            ? getScenarioImageAssets(id, baseUrl, (sub, sid) =>
+                sub ? m.docs.imageAlt(m.docs.visionSubcategory[sub], sid) : sid,
+              )
+            : [];
           return (
             <article
               key={id}
@@ -70,7 +76,7 @@ export function ScenarioGuideCards({
                     setModal({
                       url: images[0].url,
                       scenarioId: id,
-                      category: visionSubcategoryLabel(id),
+                      category: visionLabel,
                     })
                   }
                   aria-label={m.bench.enlargeImageAria(id)}

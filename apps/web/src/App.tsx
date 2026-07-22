@@ -69,11 +69,11 @@ import { useI18n, msg } from "./i18n";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
-import { ProfileDocPage } from "./ProfileDocPage";
+const ProfileDocPage = lazy(() => import("./ProfileDocPage").then((m) => ({ default: m.ProfileDocPage })));
 import { ProviderMonitorPage } from "./ProviderMonitorPage";
 // react-markdown 등을 메인 번들에서 분리 — /harness 첫 방문 시에만 로드
 const HarnessDocPage = lazy(() => import("./HarnessDocPage"));
-import { ScenariosDocPage } from "./ScenariosDocPage";
+const ScenariosDocPage = lazy(() => import("./ScenariosDocPage").then((m) => ({ default: m.ScenariosDocPage })));
 import { StatsPage } from "./StatsPage";
 import { StressPage } from "./StressPage";
 import { StressStatsPage } from "./StressStatsPage";
@@ -2298,9 +2298,35 @@ export function App() {
           <Route path="/stress" element={<StressPage />} />
           <Route path="/stats" element={<StatsPage />} />
           <Route path="/provider-stats" element={<StressStatsPage />} />
-          <Route path="/profile" element={<ProfileDocPage />} />
+          <Route
+            path="/profile"
+            element={
+              <Suspense
+                fallback={
+                  <p className="text-sm text-[var(--muted)]" aria-busy="true">
+                    {msg().bench.docLoading}
+                  </p>
+                }
+              >
+                <ProfileDocPage />
+              </Suspense>
+            }
+          />
           <Route path="/provider-monitor" element={<ProviderMonitorPage />} />
-          <Route path="/scenarios" element={<ScenariosDocPage />} />
+          <Route
+            path="/scenarios"
+            element={
+              <Suspense
+                fallback={
+                  <p className="text-sm text-[var(--muted)]" aria-busy="true">
+                    {msg().bench.docLoading}
+                  </p>
+                }
+              >
+                <ScenariosDocPage />
+              </Suspense>
+            }
+          />
           <Route
             path="/harness"
             element={
