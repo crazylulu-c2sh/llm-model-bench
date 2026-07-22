@@ -129,3 +129,43 @@ test.describe("LLM Model Bench UI", () => {
     }
   });
 });
+
+// EN/JA 라벨 폭 회귀 가드 — 로케일별로 데스크톱 탭 오버플로·부제 줄바꿈을 검사한다.
+// (기본 ko는 위 블록이 이미 커버; 여기선 로케일을 localStorage로 핀해 en/ja를 추가로 확인.)
+const NAV_LABEL_BY_LOCALE = {
+  en: { menu: "Main menu" },
+  ja: { menu: "メインメニュー" },
+} as const;
+
+for (const locale of ["en", "ja"] as const) {
+  test.describe(`레이아웃(${locale})`, () => {
+    test.beforeEach(async ({ page }) => {
+      await page.addInitScript((l) => localStorage.setItem("llm-bench-locale", l), locale);
+    });
+
+    test(`헤더: 데스크톱 너비에서 탭바 가로 스크롤·잘림 없음 (${locale})`, async ({ page }) => {
+      const nav = page.getByRole("navigation", { name: NAV_LABEL_BY_LOCALE[locale].menu });
+      for (const width of [1280, 1440, 1920]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/");
+        await expect(nav.getByRole("link").last()).toBeInViewport();
+        const bar = nav.locator("div").first();
+        const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
+        expect(overflow, `${locale} @${width}px 탭바 가로 오버플로`).toBeLessThanOrEqual(1);
+      }
+    });
+
+    test(`헤더: 1100px에서 부제 세로 깨짐 없음 (${locale})`, async ({ page }) => {
+      await page.setViewportSize({ width: 1100, height: 800 });
+      await page.goto("/");
+      const heading = page.getByRole("heading", { name: "LLM Model Bench" });
+      await expect(heading).toBeVisible();
+      const subtitle = page.locator("header p").first();
+      const lines = await subtitle.evaluate((el) => {
+        const lh = parseFloat(getComputedStyle(el).lineHeight);
+        return el.offsetHeight / (lh || 20);
+      });
+      expect(lines, `${locale} 부제 줄 수`).toBeLessThan(1.5);
+    });
+  });
+}
