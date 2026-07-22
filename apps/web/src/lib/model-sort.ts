@@ -2,6 +2,7 @@
 export {
   normalizeBaseUrl,
   compareModelIdAlphanumeric,
+  compareStringsPinned,
   compareModelBenchQueueOrder,
   compareModelKey,
 } from "@llm-bench/shared";

@@ -1,4 +1,4 @@
-import { scenarioExecutionOrderIndex, tokensPerSecondFromRun } from "@llm-bench/shared";
+import { compareStringsPinned, scenarioExecutionOrderIndex, tokensPerSecondFromRun } from "@llm-bench/shared";
 
 // TPS 산식은 @llm-bench/shared `tps.ts` 단일 소스에서 재-export(복제본 제거, 산식 drift 방지).
 // App.tsx·hydrateBenchUi.ts 등 chart-types 경유 import는 자동으로 shared 산식을 쓴다.
@@ -66,7 +66,7 @@ export function apiRouteRank(api: string): number {
  * 테이블·레이더·막대 차트의 시나리오 순서가 일치한다.
  */
 export function compareScenarioExecutionOrder(a: string, b: string): number {
-  return scenarioExecutionOrderIndex(a) - scenarioExecutionOrderIndex(b) || a.localeCompare(b);
+  return scenarioExecutionOrderIndex(a) - scenarioExecutionOrderIndex(b) || compareStringsPinned(a, b);
 }
 
 /** 비교 시리즈마다 (시나리오·API) 키 집합이 동일한지 — 다르면 레이더에서 모델별로 축이 비는 현상이 난다. */
@@ -104,11 +104,11 @@ export function sortChartRowsForBarOrder(rows: ChartRow[]): ChartRow[] {
     if (s !== 0) return s;
     const d = apiRouteRank(a.api) - apiRouteRank(b.api);
     if (d !== 0) return d;
-    if (a.api !== b.api) return a.api.localeCompare(b.api);
+    if (a.api !== b.api) return compareStringsPinned(a.api, b.api);
     const ma = a.modelId ?? "";
     const mb = b.modelId ?? "";
-    if (ma !== mb) return ma.localeCompare(mb);
-    return a.id.localeCompare(b.id);
+    if (ma !== mb) return compareStringsPinned(ma, mb);
+    return compareStringsPinned(a.id, b.id);
   });
 }
 
@@ -192,7 +192,7 @@ export function pivotCompareSeries(series: CompareSeries[]): PivotCompareRow[] {
     if (s !== 0) return s;
     const d = apiRouteRank(a.api) - apiRouteRank(b.api);
     if (d !== 0) return d;
-    return a.api.localeCompare(b.api);
+    return compareStringsPinned(a.api, b.api);
   });
   return keyOrder.map((k) => {
     const meta = keyMeta.get(k)!;
@@ -249,11 +249,11 @@ export function comparePivotToFlatBarData(
     if (s !== 0) return s;
     const d = apiRouteRank(a.api) - apiRouteRank(b.api);
     if (d !== 0) return d;
-    if (a.api !== b.api) return a.api.localeCompare(b.api);
+    if (a.api !== b.api) return compareStringsPinned(a.api, b.api);
     const ma = a.modelId ?? "";
     const mb = b.modelId ?? "";
-    if (ma !== mb) return ma.localeCompare(mb);
-    return a.barLabel.localeCompare(b.barLabel);
+    if (ma !== mb) return compareStringsPinned(ma, mb);
+    return compareStringsPinned(a.barLabel, b.barLabel);
   });
   return out;
 }

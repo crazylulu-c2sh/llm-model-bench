@@ -1,6 +1,6 @@
 import { formatTtftMs, isVisionScenario, scenarioExecutionOrderIndex, scoreToRubric } from "@llm-bench/shared";
 import { apiRouteRank } from "./chart-types";
-import { compareModelBenchQueueOrder } from "../lib/model-sort";
+import { compareModelBenchQueueOrder, compareStringsPinned } from "../lib/model-sort";
 import { buildModelColorMap } from "../lib/model-color";
 import { ModelLabel } from "./ModelLabel";
 import { computeGroupWinners } from "../lib/result-winners";
@@ -109,7 +109,7 @@ export function ResultsTable({
           compareModelBenchQueueOrder(a.model_id, b.model_id, modelQueue) ||
           scenarioExecutionOrderIndex(a.scenario) - scenarioExecutionOrderIndex(b.scenario) ||
           apiRouteRank(a.api) - apiRouteRank(b.api) ||
-          a.api.localeCompare(b.api),
+          compareStringsPinned(a.api, b.api),
       ),
     // modelQueue 대신 내용 키를 dep으로 사용(참조 불안정성 차단).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -229,7 +229,7 @@ export function ResultsTable({
         sortingFn: (a, b) => {
           const d = scenarioExecutionOrderIndex(a.original.scenario) - scenarioExecutionOrderIndex(b.original.scenario);
           if (d !== 0) return d;
-          return a.original.scenario.localeCompare(b.original.scenario);
+          return compareStringsPinned(a.original.scenario, b.original.scenario);
         },
       }),
       columnHelper.accessor("api", {
@@ -255,7 +255,7 @@ export function ResultsTable({
         sortingFn: (a, b) => {
           const d = apiRouteRank(a.original.api) - apiRouteRank(b.original.api);
           if (d !== 0) return d;
-          return a.original.api.localeCompare(b.original.api);
+          return compareStringsPinned(a.original.api, b.original.api);
         },
       }),
       columnHelper.accessor("ttft_ms", {

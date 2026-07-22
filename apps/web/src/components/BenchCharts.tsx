@@ -1,3 +1,4 @@
+import { compareStringsPinned } from "@llm-bench/shared";
 import { useMemo } from "react";
 import {
   Bar,
@@ -158,7 +159,7 @@ function scenarioApiKeyOrder(rows: ChartRow[]): string[] {
     if (s !== 0) return s;
     const d = apiRouteRank(a.api) - apiRouteRank(b.api);
     if (d !== 0) return d;
-    return a.api.localeCompare(b.api);
+    return compareStringsPinned(a.api, b.api);
   });
 }
 

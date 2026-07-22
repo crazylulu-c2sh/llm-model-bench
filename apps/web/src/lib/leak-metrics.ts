@@ -1,5 +1,5 @@
 // #80: 누수/정체 지표 계산 코어는 @llm-bench/shared(leakMetricsFromRows 등). 여기엔 표 정렬 헬퍼만.
-import { compareModelIdAlphanumeric, type ModelRouteLeakMetrics } from "@llm-bench/shared";
+import { compareModelIdAlphanumeric, compareStringsPinned, type ModelRouteLeakMetrics } from "@llm-bench/shared";
 
 export {
   AGENT_SAFE_THRESHOLDS,
@@ -56,7 +56,7 @@ export function compareLeakRows(a: ModelRouteLeakMetrics, b: ModelRouteLeakMetri
     return sort.dir === "asc" ? c : -c;
   }
   if (sort.key.kind === "route") {
-    const c = a.api_route.localeCompare(b.api_route);
+    const c = compareStringsPinned(a.api_route, b.api_route);
     return (sort.dir === "asc" ? c : -c) || compareModelIdAlphanumeric(a.model_id, b.model_id);
   }
   const primary = cmpNullableDir(
@@ -64,7 +64,7 @@ export function compareLeakRows(a: ModelRouteLeakMetrics, b: ModelRouteLeakMetri
     leakMetricValue(b, sort.key.metric),
     sort.dir,
   );
-  return primary || compareModelIdAlphanumeric(a.model_id, b.model_id) || a.api_route.localeCompare(b.api_route);
+  return primary || compareModelIdAlphanumeric(a.model_id, b.model_id) || compareStringsPinned(a.api_route, b.api_route);
 }
 
 /** rows를 sort 기준으로 정렬한 새 배열(입력 비파괴). */

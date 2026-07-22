@@ -670,6 +670,7 @@ export type StressStreamBody = z.infer<typeof StressStreamBodySchema>;
 export {
   normalizeBaseUrl,
   compareModelIdAlphanumeric,
+  compareStringsPinned,
   compareModelBenchQueueOrder,
   compareModelKey,
 } from "./model-sort";

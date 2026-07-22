@@ -1,5 +1,5 @@
 // #105: 에이전트 능력 지표 계산 코어는 @llm-bench/shared(agentMetricsFromRows 등). 여기엔 표 정렬 헬퍼 + 표시 메타.
-import { compareModelIdAlphanumeric, type ModelRouteAgentMetrics } from "@llm-bench/shared";
+import { compareModelIdAlphanumeric, compareStringsPinned, type ModelRouteAgentMetrics } from "@llm-bench/shared";
 
 export {
   agentMetricsFromRows,
@@ -95,7 +95,7 @@ export function compareAgentRows(a: ModelRouteAgentMetrics, b: ModelRouteAgentMe
     return sort.dir === "asc" ? c : -c;
   }
   if (sort.key.kind === "route") {
-    const c = a.api_route.localeCompare(b.api_route);
+    const c = compareStringsPinned(a.api_route, b.api_route);
     return (sort.dir === "asc" ? c : -c) || compareModelIdAlphanumeric(a.model_id, b.model_id);
   }
   const primary = cmpNullableDir(
@@ -103,7 +103,7 @@ export function compareAgentRows(a: ModelRouteAgentMetrics, b: ModelRouteAgentMe
     agentMetricValue(b, sort.key.metric),
     sort.dir,
   );
-  return primary || compareModelIdAlphanumeric(a.model_id, b.model_id) || a.api_route.localeCompare(b.api_route);
+  return primary || compareModelIdAlphanumeric(a.model_id, b.model_id) || compareStringsPinned(a.api_route, b.api_route);
 }
 
 /** rows를 sort 기준으로 정렬한 새 배열(입력 비파괴). */
