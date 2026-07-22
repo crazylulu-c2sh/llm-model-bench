@@ -1,0 +1,200 @@
+// results 네임스페이스 — 결과 표·메트릭 차트·시나리오 상세·클립보드. ko가 진실의 원천.
+export const results = {
+  // 공용(표·상세·클립보드 공유)
+  pass: "통과",
+  notPass: "미통과",
+  fail: "실패",
+  passBadge: "합격",
+  failBadge: "불합격",
+  toolArgsCorrupted: "도구 인자 손상",
+  reasoningLeak: "추론 누수",
+  actionGuide: "조치 안내",
+  newWindowTitle: "새 창에서 열림",
+  newWindowSuffix: "(새 창)",
+  qualityVisionLine: (rubric: string | number, score: string, label: string) =>
+    `rubric ${rubric}/3 · score ${score} (${label})`,
+  measuredSuffix: (idx: number, total: number) => ` (측정 ${idx}/${total})`,
+  lastMeasuredSuffix: " (마지막 측정 런)",
+
+  // results-table-sort.ts
+  sort: {
+    current: "현재 정렬: ",
+    benchOrder: "벤치 실행 순서",
+    none: "없음",
+    asc: "오름차순",
+    desc: "내림차순",
+    columns: {
+      model_id: "모델",
+      scenario: "시나리오",
+      api: "API",
+      ttft_ms: "TTFT (ms)",
+      output_tokens: "출력 토큰",
+      tps: "TPS (tok/s)",
+    },
+  },
+
+  // chart-types.ts · BenchCharts.tsx
+  chart: {
+    unknownModel: "모델 미지정",
+    modelFallback: "모델",
+    passTag: " · 통과",
+    notPassTag: " · 미통과",
+    radarHigher: "클수록(바깥)이 우수",
+    radarLower: "작을수록(안쪽)이 우수",
+    radarLeadCompare: (unit: string) =>
+      `축은 시나리오·API. 반경은 모델별 실제 ${unit}를 0 기준 공통 스케일로 그립니다. `,
+    radarLeadSingle: (unit: string) =>
+      `축은 시나리오·API. 반경은 실제 ${unit}를 0 기준 스케일로 그립니다. `,
+    radarLegendTps: "TPS (tok/s · 클수록 좋음)",
+    radarLegendTtft: "TTFT (ms · 작을수록 좋음)",
+    radarSingleAria: (title: string) =>
+      `${title} 레이더 차트(축: 시나리오·API) — 정확한 값은 막대 차트와 표 참조`,
+    radarCompareAria: (title: string, count: number) =>
+      `${title} 모델 비교 레이더 차트(모델 ${count}개, 축: 시나리오·API) — 정확한 값은 막대 차트와 표 참조`,
+    radarDenseNote: "항목이 많아 레이더는 요약용입니다. 정확한 값은 지표별 막대 차트를 사용하세요.",
+    radarKeyMismatch:
+      "모델마다 저장된 시나리오·API(chat/msg) 조합이 다릅니다. 한쪽만 값이 있는 축은 0으로 그려지며, 반원처럼 갈라져 보일 수 있습니다. 같은 벤치 스위트로 최근 런을 맞추거나, 막대 차트로 전체를 확인하세요.",
+    radarTpsEmpty: "TPS 레이더: 표시할 TPS 값이 없습니다.",
+    barCompareTtftAria: (count: number) =>
+      `TTFT 모델 비교 막대 차트(모델 ${count}개) — 자세한 값은 아래 결과 표 참조`,
+    barCompareTpsAria: (count: number) =>
+      `TPS 모델 비교 막대 차트(모델 ${count}개) — 자세한 값은 아래 결과 표 참조`,
+    radarCompareTooFew: "비교 레이더는 시나리오가 3개 이상일 때 표시됩니다.",
+    noBenchData: "벤치 실행 후 메트릭이 표시됩니다.",
+    barSessionTtftAria: "TTFT 시나리오별 막대 차트 — 자세한 값은 아래 결과 표 참조",
+    barSessionTpsAria: "TPS 시나리오별 막대 차트 — 자세한 값은 아래 결과 표 참조",
+    barClickHint: "막대를 클릭하면 해당 시나리오 상세를 엽니다.",
+    radarSessionMultiTooFew: "모델 간 레이더 비교는 시나리오가 3개 이상일 때 표시됩니다.",
+    radarSingleTooFew: "레이더 차트는 시나리오가 3개 이상일 때 표시됩니다.",
+  },
+
+  // MetricChartLegend.tsx
+  legend: {
+    ttftDesc: "요청 발신부터 첫 출력 토큰까지",
+    tpsDesc: "출력 길이 기반 근사 토큰 ÷ 총 소요 시간",
+    tpsDescSession: " (TPS 전용 막대 차트)",
+    tpsDescCompare: " (비교 시 TPS 전용 차트)",
+    compareLead: "비교 막대: 실행(시나리오·API·모델)마다 ",
+    compareMid: " 막대 차트는 ms 단위로 표시하고, TPS 전용 차트는 같은 순서로",
+    compareTail:
+      "만 표시합니다. TPS 막대 색은 모델별로 구분됩니다. 시나리오·API 묶음(모델 수만큼의 연속 행) 사이에는 빈 띠로 간격을 둡니다.",
+    sessionLead: "라이브 막대: ",
+    sessionMid: " 막대 차트는 ms 단위, TPS 전용 차트는 동일 순서의 ",
+    sessionTail: "입니다. 모델이 2개 이상이면 시나리오·API 블록 사이에 빈 띠로 구분합니다.",
+    scenarioTerm: "시나리오",
+    scenarioIs: "는 벤치 과제 식별자,",
+    apiIs: "는 호출 엔드포인트 종류,",
+    modelTerm: "모델",
+    modelIs: "은 측정에 사용된 모델 ID입니다.",
+    ttftLead: "(ms)는 HTTP 요청 발신부터 첫 출력 토큰(텍스트·추론·tool_call)까지 시간입니다(100ms 미만은 소수 1자리).",
+    outputTokensTerm: "출력 토큰",
+    tokenCountLead: "는 동일한 토큰 수(provider ",
+    approxMid: " 또는 글자수/4 근사, 근사 시 ",
+    approxTail: ")를 쓰며, TPS는 이를 요청 발신부터 스트림 완료까지 총 시간(초)으로 나눈 값입니다.",
+  },
+
+  // ResultsTable.tsx
+  table: {
+    apiTitleChat: "OpenAI 호환 chat completions 스타일 엔드포인트",
+    apiTitleMessages: "Anthropic 스타일 messages 엔드포인트",
+    colModel: "모델",
+    colModelTitle: "이 행 벤치에 사용된 모델 ID",
+    colScenario: "시나리오",
+    colScenarioTitle: "벤치 시나리오 식별자",
+    colApiTitle: "호출한 API 종류",
+    colTtftTitle: "Time To First Token — HTTP 요청 발신부터 첫 출력 토큰(텍스트·추론·tool_call)까지(밀리초)",
+    colOutputTokens: "출력 토큰",
+    colOutputTokensTitle: "출력 토큰 수 — provider usage.completion_tokens 또는 글자수/4 근사(TPS와 동일 기준)",
+    colTpsTitle: "Tokens Per Second (근사) — 출력 텍스트 길이 기반 토큰 추정 ÷ 총 소요 시간(초)",
+    colQuality: "품질",
+    colQualityTitle:
+      "텍스트 시나리오는 합격/불합격 이진. 비전 시나리오는 rubric 0~3(score 0/0.33/0.67/1), rubric ≥ 2 가 통과.",
+    colAgent: "에이전트",
+    colAgentTitle:
+      "멀티턴 에이전트 시나리오의 종료 상태 — 완료(턴수)/정체/예산소진. 상세 지표는 스코어보드 '에이전트' 뷰.",
+    contaminatedTitle: (detail: string) =>
+      `LM Studio 엔진 프로토콜 회귀 의심 — ${detail}. 행을 열어 조치 안내를 확인하세요.`,
+    contaminatedAria: (detail: string) => `LM Studio 엔진 프로토콜 회귀 의심 — ${detail}`,
+    ttftWinTitle: "이 시나리오·API 그룹에서 가장 빠른 TTFT",
+    reasoningHiddenTitle: "추론 숨김 — TTFT는 첫 가시 토큰까지(숨은 추론 포함)라 다른 라우트와 비교 주의",
+    reasoningHiddenAria: "추론 숨김 — TTFT 비교 주의",
+    outputTokensApproxTitle: "provider가 usage를 보고하지 않아 글자수/4 추정치(approx)",
+    outputTokensUsageTitle: "provider 보고 completion_tokens(usage)",
+    tpsWinTitle: "이 시나리오·API 그룹에서 가장 높은 TPS",
+    tpsApproxTitle: "provider가 usage 토큰 수를 안 줘서 글자수/4 추정치로 계산(approx). CJK·코드에서 오차 큼.",
+    tpsUsageTitle: "provider 보고 실토큰 기반(usage)",
+    qualityVisionAria: (rubric: string | number, score: string, passLabel: string) =>
+      `루브릭 ${rubric}/3, score ${score}, ${passLabel}`,
+    qualityVisionTitle: (rubric: string | number, score: string, passLabel: string) =>
+      `rubric ${rubric}/3 · score ${score} · ${passLabel}`,
+    agentCompleted: "완료",
+    agentTurns: (n: number | string) => `${n}턴`,
+    agentCompletedTitle: (turns: number | string) => `완료 · ${turns}턴`,
+    agentBudget: "예산소진",
+    agentStall: "정체",
+    agentBudgetTitle: "maxTurns 까지 도구 호출만 반복",
+    agentStallTitle: "빈 턴으로 정체",
+    agentThinkingExhausted: " · 사고가 per-turn 예산 소진",
+    agentEmptyTurns: (n: number) => ` · 빈 턴 ${n}`,
+    noRows: "결과 행이 없습니다.",
+    caption: "시나리오별 벤치 결과",
+    rowOpenAria: (modelId: string, scenario: string) => `${modelId} ${scenario} 상세 열기`,
+    rowClickHint: "행을 클릭하거나 Enter 키로 프롬프트·출력 상세를 볼 수 있습니다.",
+    reasoningHiddenNoteLead: "표시 행은 ",
+    reasoningHiddenNoteTail:
+      " 라우트에서 추론이 숨겨진 채 측정됐습니다 — TTFT가 \"첫 가시 토큰까지(숨은 추론 포함)\"라 chat_completions·사고 OFF와 직접 비교하면 부풀려 보입니다. TPS는 provider 실토큰으로 보정됩니다.",
+    approxNoteMid: " TPS는 provider가 usage 토큰 수를 보고하지 않아 ",
+    approxNoteTail: " 추정치(approx)로 계산됐습니다 — CJK·코드 응답에서 오차가 큽니다.",
+    engineWarnLead: "시나리오 옆 표시 행은 ",
+    engineWarnOr: " 또는 ",
+    engineWarnMid:
+      "가 감지됐습니다 — LM Studio 엔진 프로토콜 회귀(bug-tracker #1922 등)일 수 있어 점수가 오염됐을 수 있습니다. LM Studio를 0.4.19+로 올리거나 \"Use LM Studio Engine Protocol\"을 끄고 재측정하세요(",
+    engineWarnTail: ").",
+  },
+
+  // ScenarioDetailDrawer.tsx
+  detail: {
+    close: "닫기",
+    title: "시나리오 상세",
+    copyAll: "전체 복사",
+    copied: "복사됨",
+    copyAllTitle: "모달 전체 내용을 정규화해 복사(스크린샷 대체용)",
+    closePanel: "패널 닫기",
+    toolArgsCorruptedLead: " — 스트리밍 tool_calls 인자가 연결·손상돼(",
+    toolArgsCorruptedTail: ") 도구 실행이 실패했을 수 있습니다.",
+    reasoningLeakDesc: " — 사고(reasoning) 블록이 응답 content로 섞여 들어와 채점이 흐려질 수 있습니다.",
+    engineNoteLead: "LM Studio 엔진 프로토콜 회귀일 수 있습니다. ",
+    engineNoteStrong: "LM Studio를 0.4.19+로 올리거나",
+    engineNoteMid: " Developer의 \"Use LM Studio Engine Protocol\"을 끄고 재측정하세요. ",
+    fieldScenario: "시나리오",
+    fieldModel: "모델",
+    fieldQuality: "품질",
+    reasoningHiddenNote: "추론 숨김 — TTFT는 첫 가시 토큰까지(숨은 추론 포함). chat·사고 OFF와 직접 비교 주의.",
+    purposeTitle: "시나리오 목적",
+    criteriaTitle: "합격 / 불합격 기준",
+    noMeta: "등록되지 않은 시나리오라 목적·기준 설명을 불러올 수 없습니다.",
+    measuredRunNote: (idx: number, total: number) => `표시 중: 측정 런 ${idx}/${total} (집계의 마지막 런)`,
+    thinkingBlock: "사고 블록",
+    finalResponse: "최종 응답",
+    copyFinalTitle: "사고 블록 제거된 최종 응답 복사",
+    modelOutput: "모델 출력",
+    copyOutputTitle: "정규화된 모델 출력 복사",
+  },
+
+  // scenario-detail-clipboard.ts
+  clipboard: {
+    header: (title: string) => `# 시나리오 상세 — ${title}`,
+    scenario: (scenario: string) => `- 시나리오: ${scenario}`,
+    model: (modelId: string) => `- 모델: ${modelId}`,
+    quality: (q: string) => `- 품질: ${q}`,
+    reason: (r: string) => `- 판정 사유: ${r}`,
+    warnToolArgs: "도구 인자 손상(스트리밍 tool_calls 인자 연결·손상)",
+    warnReasoningLeak: "추론 누수(사고 블록이 응답 content로 섞임)",
+    warnReasoningHidden: "추론 숨김 — TTFT는 첫 가시 토큰까지(숨은 추론 포함), chat·사고 OFF와 직접 비교 주의",
+    purposeHeading: "## 시나리오 목적",
+    criteriaHeading: "## 합격 / 불합격 기준",
+    thinkingHeading: "## 사고 블록",
+    finalHeading: "## 최종 응답 (정규화)",
+    outputHeading: (suffix: string) => `## 모델 출력 (정규화)${suffix}`,
+  },
+};

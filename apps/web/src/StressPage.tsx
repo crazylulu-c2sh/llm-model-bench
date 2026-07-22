@@ -28,7 +28,7 @@ import {
   type StressSaveSnapshot,
 } from "./persisted-settings";
 
-import { WORKLOAD_LABEL } from "./lib/stress-labels";
+import { useI18n, msg } from "./i18n";
 
 type DetectModel = DetectResult["models"][number];
 
@@ -63,6 +63,7 @@ function consumeSseJsonLines(
 }
 
 export function StressPage() {
+  const { m } = useI18n();
   // 공유 키(baseUrl/apiKey/persistApiKeyToDisk)는 모델 벤치와 같은 namespace 사용.
   // boot은 마운트 시 한 번 잡힌 고정 스냅샷 — save effect에서 spread base로 사용해 모델 벤치 필드 보호.
   const [boot] = useState(() => readInitialUiState());
@@ -204,7 +205,7 @@ export function StressPage() {
       });
       if (!resp.ok) {
         const text = await resp.text().catch(() => "");
-        setErrorLine(`감지 실패: ${resp.status} ${text.slice(0, 200)}`);
+        setErrorLine(msg().stress.toast.detectFailed(resp.status, text.slice(0, 200)));
         return;
       }
       const j = (await resp.json()) as DetectResult;
@@ -225,7 +226,7 @@ export function StressPage() {
       // 첫 detect 이후 자동 복원 시도는 무효화 — 사용자가 수동으로 바꾼 선택이 덮이지 않게.
       lastSelectedModelIdRef.current = null;
     } catch (e) {
-      setErrorLine(`감지 예외: ${String(e)}`);
+      setErrorLine(msg().stress.toast.detectException(String(e)));
     } finally {
       setDetecting(false);
     }
@@ -262,7 +263,7 @@ export function StressPage() {
   const startRun = useCallback(async () => {
     // (1) 검증 먼저 — 통과 못하면 state는 그대로.
     if (!detect || !selectedModelId) {
-      toast.error("프로바이더를 감지하고 모델 1개를 선택하세요.");
+      toast.error(msg().stress.toast.selectModel);
       return;
     }
     // (2) 검증 통과 후 일괄 초기화. 사전 슬롯 = min(ramp.max, STRESS_MAX_LIVE_CELLS).
@@ -304,7 +305,7 @@ export function StressPage() {
       });
       if (!resp.ok || !resp.body) {
         const text = await resp.text().catch(() => "");
-        setErrorLine(`서버 오류: ${resp.status} ${text.slice(0, 200)}`);
+        setErrorLine(msg().stress.toast.serverError(resp.status, text.slice(0, 200)));
         // HTTP 응답 실패는 사전 할당된 빈 N칸이 남지 않도록 cells 롤백.
         setCells([]);
         setRunStatus("error");
@@ -388,7 +389,7 @@ export function StressPage() {
           case "error": {
             setErrorLine(`${ev.code}: ${ev.message}`);
             setRunStatus("error");
-            toast.error(`프로바이더 벤치 오류: ${ev.code}`);
+            toast.error(msg().stress.toast.benchError(ev.code));
             break;
           }
           default:
@@ -399,10 +400,10 @@ export function StressPage() {
       const err = e as { name?: string };
       if (err?.name === "AbortError") {
         setRunStatus("aborted");
-        toast("중단됨 — 부분 결과가 유지됩니다.");
+        toast(msg().stress.toast.aborted);
       } else {
         setRunStatus("error");
-        setErrorLine(`스트림 예외: ${String(e)}`);
+        setErrorLine(msg().stress.toast.streamException(String(e)));
       }
       // 스트림 중 비-AbortError 예외는 그동안 보인 진행을 보존(cells 유지).
     } finally {
@@ -435,14 +436,14 @@ export function StressPage() {
   return (
     <div className="space-y-6">
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
-        <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">프로바이더 벤치 — v1</h2>
+        <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">{m.stress.intro.heading}</h2>
         <p className="text-xs leading-relaxed text-[var(--muted)]">
-          같은 모델을 여러 사용자가 동시에 사용할 때 처리량(TPS)이 어떻게 변하는지 측정합니다. 1순위 지표는 <strong>동시 사용자 수 대비 집계 TPS</strong>입니다. 메모리·CPU 사용량 등 OS 지표는 v1에서 제공하지 않습니다.
+          {m.stress.intro.before}<strong>{m.stress.intro.emphasis}</strong>{m.stress.intro.after}
         </p>
       </section>
 
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
-        <h3 className="mb-2 text-sm font-semibold text-[var(--foreground)]">1) 프로바이더 감지</h3>
+        <h3 className="mb-2 text-sm font-semibold text-[var(--foreground)]">{m.stress.detect.heading}</h3>
         <div className="flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1 text-xs">
             <span className="text-[var(--muted)]">base URL</span>
@@ -455,7 +456,7 @@ export function StressPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-[var(--muted)]">API key (선택)</span>
+            <span className="text-[var(--muted)]">{m.stress.detect.apiKeyLabel}</span>
             <input
               type="password"
               className="min-w-[12rem] rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm"
@@ -471,7 +472,7 @@ export function StressPage() {
             disabled={detecting || running}
           >
             {detecting ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-            감지
+            {m.stress.detect.detectBtn}
           </button>
         </div>
         <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]">
@@ -483,18 +484,18 @@ export function StressPage() {
             disabled={running}
           />
           <span>
-            <span className="font-medium text-[var(--foreground)]">이 브라우저에 API 키 저장 (로컬 디스크, 평문)</span>
+            <span className="font-medium text-[var(--foreground)]">{m.stress.detect.persistLabel}</span>
             <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
-              끄면 같은 탭에서만 <code className="rounded bg-[var(--surface)] px-1">sessionStorage</code>에 보관되어 새로고침은 유지되나 브라우저를 닫으면 사라질 수 있습니다. 켜면{" "}
-              <code className="rounded bg-[var(--surface)] px-1">localStorage</code> 평문으로 남으며 XSS 등에 노출될 수 있습니다.
+              {m.stress.detect.persistWarnBefore}<code className="rounded bg-[var(--surface)] px-1">sessionStorage</code>{m.stress.detect.persistWarnMid}
+              <code className="rounded bg-[var(--surface)] px-1">localStorage</code>{m.stress.detect.persistWarnAfter}
             </span>
           </span>
         </label>
         {detect ? (
           <p className="mt-2 text-xs text-[var(--muted)]">
-            provider=<span className="font-mono">{detect.provider}</span> · 모델 {detect.models.length}개 ·
-            라우트 {[detect.capabilities.openaiChat ? "chat_completions" : null, detect.capabilities.anthropicMessages ? "messages" : null].filter(Boolean).join(", ") || "없음"}
+            provider=<span className="font-mono">{detect.provider}</span> · {m.stress.detect.models(detect.models.length)} ·{" "}
+            {m.stress.detect.routes([detect.capabilities.openaiChat ? "chat_completions" : null, detect.capabilities.anthropicMessages ? "messages" : null].filter(Boolean).join(", ") || m.stress.detect.routesNone)}
           </p>
         ) : null}
       </section>
@@ -505,7 +506,7 @@ export function StressPage() {
 
       {detect && detect.models.length > 0 ? (
         <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
-          <h3 className="mb-2 text-sm font-semibold text-[var(--foreground)]">2) 모델 선택 (단일)</h3>
+          <h3 className="mb-2 text-sm font-semibold text-[var(--foreground)]">{m.stress.model.heading}</h3>
           <ModelTable
             models={detect.models as DetectModel[]}
             selected={selectedRecord}
@@ -517,18 +518,18 @@ export function StressPage() {
             benchActiveModelId={selectedModelId}
           />
           {selectedModelId ? (
-            <p className="mt-2 text-xs text-[var(--muted)]">선택됨: <span className="font-mono">{selectedModelId}</span></p>
+            <p className="mt-2 text-xs text-[var(--muted)]">{m.stress.model.selectedLabel} <span className="font-mono">{selectedModelId}</span></p>
           ) : (
-            <p className="mt-2 text-xs text-[var(--muted)]">v1은 *한 모델*만 측정합니다. 행을 한 번 더 클릭해 해제 가능.</p>
+            <p className="mt-2 text-xs text-[var(--muted)]">{m.stress.model.hint}</p>
           )}
         </section>
       ) : null}
 
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
-        <h3 className="mb-2 text-sm font-semibold text-[var(--foreground)]">3) 워크로드 & ramp</h3>
+        <h3 className="mb-2 text-sm font-semibold text-[var(--foreground)]">{m.stress.ramp.heading}</h3>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-[var(--muted)]">워크로드</span>
+            <span className="text-[var(--muted)]">{m.stress.ramp.workload}</span>
             <select
               className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm"
               value={workloadId}
@@ -536,12 +537,12 @@ export function StressPage() {
               disabled={running}
             >
               {STRESS_WORKLOAD_IDS.map((id) => (
-                <option key={id} value={id}>{WORKLOAD_LABEL[id]}</option>
+                <option key={id} value={id}>{m.stress.workload[id]}</option>
               ))}
             </select>
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-[var(--muted)]">시작 동시성</span>
+            <span className="text-[var(--muted)]">{m.stress.ramp.startCC}</span>
             <input
               type="number"
               inputMode="numeric"
@@ -554,7 +555,7 @@ export function StressPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-[var(--muted)]">최대 동시성</span>
+            <span className="text-[var(--muted)]">{m.stress.ramp.maxCC}</span>
             <input
               type="number"
               inputMode="numeric"
@@ -567,7 +568,7 @@ export function StressPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-[var(--muted)]">스텝</span>
+            <span className="text-[var(--muted)]">{m.stress.ramp.step}</span>
             <input
               type="number"
               inputMode="numeric"
@@ -580,7 +581,7 @@ export function StressPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-[var(--muted)]">단계 duration (ms)</span>
+            <span className="text-[var(--muted)]">{m.stress.ramp.stageDuration}</span>
             <input
               type="number"
               inputMode="numeric"
@@ -594,7 +595,7 @@ export function StressPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-[var(--muted)]">요청 timeout (ms)</span>
+            <span className="text-[var(--muted)]">{m.stress.ramp.requestTimeout}</span>
             <input
               type="number"
               inputMode="numeric"
@@ -628,22 +629,22 @@ export function StressPage() {
               onChange={(e) => setWorkerPromptSuffix(e.target.checked)}
               disabled={running}
             />
-            <span>워커별 client 접미사</span>
+            <span>{m.stress.ramp.perWorkerSuffix}</span>
           </label>
         </div>
         <p className="mt-2 text-xs text-[var(--muted)]">
-          예상 단계 수: <span className="font-mono">{totalStagesExpected}</span> · 예상 응답 언어:
+          {m.stress.ramp.expectedStages} <span className="font-mono">{totalStagesExpected}</span> · {m.stress.ramp.expectedLanguage}
           <span className="font-mono"> {expectedScript}</span>
         </p>
         {workloadId.startsWith("stress_long_context") ? (
           <p className="mt-1 text-xs text-[var(--muted)]">
-            긴 컨텍스트 권장: temperature 0 · timeout ≥ 120s · max_tokens 비우기(32) · 워커별 client 접미사 끄기(prefix caching 엔진)
+            {m.stress.ramp.longContextTips}
           </p>
         ) : null}
       </section>
 
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
-        <h3 className="mb-2 text-sm font-semibold text-[var(--foreground)]">4) 프롬프트 미리보기 (실제 요청과 동일)</h3>
+        <h3 className="mb-2 text-sm font-semibold text-[var(--foreground)]">{m.stress.preview.heading}</h3>
         <div className="grid gap-2 text-xs">
           <div>
             <div className="text-[var(--muted)]">system</div>
@@ -668,7 +669,7 @@ export function StressPage() {
               onClick={startRun}
               disabled={!detect || !selectedModelId}
             >
-              <Play className="size-3.5" aria-hidden /> 실행
+              <Play className="size-3.5" aria-hidden /> {m.stress.run.runBtn}
             </button>
           ) : (
             <button
@@ -676,14 +677,14 @@ export function StressPage() {
               className="inline-flex items-center gap-1 rounded bg-red-500 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:opacity-90"
               onClick={onStop}
             >
-              <Square className="size-3.5" aria-hidden /> 중지
+              <Square className="size-3.5" aria-hidden /> {m.stress.run.stopBtn}
             </button>
           )}
           {running ? (
             <span className="inline-flex items-center gap-1 text-xs text-[var(--muted)]">
               <Loader2 className="size-3 animate-spin" aria-hidden />
               {/* 단계·동시성은 그리드 헤더에서 보여주므로, 상단 라인은 라이브 TPS만. */}
-              {liveTps != null ? `실행 중 · 라이브 TPS ${liveTps.toFixed(1)}` : "실행 중…"}
+              {liveTps != null ? m.stress.run.running(liveTps.toFixed(1)) : m.stress.run.runningIdle}
             </span>
           ) : null}
           {errorLine ? <span className="text-xs text-red-500">{errorLine}</span> : null}
@@ -706,7 +707,7 @@ export function StressPage() {
       <StressResultTable stages={stages} expectedScript={expectedScript} />
 
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-3 text-xs text-[var(--muted)] shadow-sm">
-        <strong className="text-[var(--foreground)]">메모리 지표</strong>: v1에서는 N/A — LM Studio REST API에 런타임 메모리 엔드포인트가 없어 스코프 아웃했습니다.
+        <strong className="text-[var(--foreground)]">{m.stress.memNote.label}</strong>{m.stress.memNote.body}
       </section>
     </div>
   );

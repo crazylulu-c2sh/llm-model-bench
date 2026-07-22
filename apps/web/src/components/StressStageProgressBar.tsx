@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useI18n, msg } from "../i18n";
 
 /**
  * 단계 진행 프로그레스 바.
@@ -14,6 +15,7 @@ export function StressStageProgressBar({
   stageStartedAt: number;
   stageDurationMs: number;
 }) {
+  const { m } = useI18n();
   const barRef = useRef<HTMLDivElement | null>(null);
   const fillRef = useRef<HTMLDivElement | null>(null);
   const labelRef = useRef<HTMLSpanElement | null>(null);
@@ -31,13 +33,14 @@ export function StressStageProgressBar({
       const label = labelRef.current;
       if (fill) fill.style.width = `${pct}%`;
       if (bar) {
+        const t = msg().stress.progress;
         bar.setAttribute("aria-valuenow", String(pct));
         bar.setAttribute(
           "aria-valuetext",
-          elapsed > stageDurationMs ? `단계 진행 ${pct}% · drain 중` : `단계 진행 ${pct}%`,
+          elapsed > stageDurationMs ? t.valueTextDraining(pct) : t.valueText(pct),
         );
       }
-      if (label) label.textContent = elapsed > stageDurationMs ? "drain 중…" : `${pct}%`;
+      if (label) label.textContent = elapsed > stageDurationMs ? msg().stress.progress.draining : `${pct}%`;
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
@@ -56,8 +59,8 @@ export function StressStageProgressBar({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={0}
-        aria-valuetext="단계 진행 0%"
-        aria-label="단계 진행"
+        aria-valuetext={m.stress.progress.valueText(0)}
+        aria-label={m.stress.progress.label}
         className="h-1 flex-1 overflow-hidden rounded bg-[var(--surface)]"
       >
         <div ref={fillRef} className="h-full bg-[var(--accent)]" style={{ width: "0%" }} />

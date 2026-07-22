@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { formatStressTpsTooltip, getTpsTier, tpsTierColor } from "./tps-tier";
+import { ko } from "../i18n/messages/ko";
+
+const s = ko.stress; // 등급 라벨·신뢰도 문구는 ko 카탈로그 기준으로 검증
 
 describe("getTpsTier", () => {
   it("returns null for null / NaN / undefined", () => {
@@ -41,18 +44,18 @@ describe("tpsTierColor", () => {
 
 describe("formatStressTpsTooltip", () => {
   it("returns '— (신뢰도 낮음)' when unreliable regardless of value", () => {
-    expect(formatStressTpsTooltip(null, { unreliable: true, tier: null })).toBe("— (신뢰도 낮음)");
-    expect(formatStressTpsTooltip(28.1, { unreliable: true, tier: "good" })).toBe("— (신뢰도 낮음)");
+    expect(formatStressTpsTooltip(null, { unreliable: true, tier: null }, s)).toBe("— (신뢰도 낮음)");
+    expect(formatStressTpsTooltip(28.1, { unreliable: true, tier: "good" }, s)).toBe("— (신뢰도 낮음)");
   });
   it("returns '—' for null / NaN when reliable", () => {
-    expect(formatStressTpsTooltip(null, { unreliable: false, tier: null })).toBe("—");
-    expect(formatStressTpsTooltip(Number.NaN, { unreliable: false, tier: null })).toBe("—");
+    expect(formatStressTpsTooltip(null, { unreliable: false, tier: null }, s)).toBe("—");
+    expect(formatStressTpsTooltip(Number.NaN, { unreliable: false, tier: null }, s)).toBe("—");
   });
   it("returns plain value when tier is null (aggregate)", () => {
-    expect(formatStressTpsTooltip(28.1, { unreliable: false, tier: null })).toBe("28.1");
+    expect(formatStressTpsTooltip(28.1, { unreliable: false, tier: null }, s)).toBe("28.1");
   });
   it("appends tier label when tier provided (per-user)", () => {
-    expect(formatStressTpsTooltip(28.1, { unreliable: false, tier: "good" })).toBe("28.1 (쓸만)");
-    expect(formatStressTpsTooltip(3, { unreliable: false, tier: "slow" })).toBe("3 (너무 느림)");
+    expect(formatStressTpsTooltip(28.1, { unreliable: false, tier: "good" }, s)).toBe("28.1 (쓸만)");
+    expect(formatStressTpsTooltip(3, { unreliable: false, tier: "slow" }, s)).toBe("3 (너무 느림)");
   });
 });

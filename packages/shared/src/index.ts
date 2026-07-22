@@ -34,7 +34,13 @@ export {
   type StressWorkloadId,
 } from "./scenarios-preview";
 
-export { getScenarioBenchMeta, type ScenarioBenchMeta } from "./scenario-meta";
+export {
+  getScenarioBenchMeta,
+  getScenarioBenchMetaKoWire,
+  type ScenarioBenchMeta,
+  type ScenarioBenchMetaText,
+  type BenchLocale,
+} from "./scenario-meta";
 
 export {
   AGENT_AES_GROUND_TRUTH,
@@ -64,7 +70,7 @@ export {
   type VisionScoringGroundTruthId,
 } from "./scenario-scoring-constants";
 
-export { visionSubcategoryLabel } from "./vision-category";
+export { visionSubcategory, type VisionSubcategory } from "./vision-category";
 
 export {
   anthropicToolsForScenario,
@@ -670,6 +676,7 @@ export type StressStreamBody = z.infer<typeof StressStreamBodySchema>;
 export {
   normalizeBaseUrl,
   compareModelIdAlphanumeric,
+  compareStringsPinned,
   compareModelBenchQueueOrder,
   compareModelKey,
 } from "./model-sort";

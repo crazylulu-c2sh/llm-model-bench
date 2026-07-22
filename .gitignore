@@ -38,3 +38,6 @@ apps/server/data/*.sqlite-shm
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Claude Code local session data (worktrees, settings)
+.claude/

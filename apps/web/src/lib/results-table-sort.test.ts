@@ -5,6 +5,7 @@ import {
   isBenchExecutionSort,
   resultsSortLine,
 } from "./results-table-sort";
+import { ko } from "../i18n/messages/ko";
 
 describe("isBenchExecutionSort", () => {
   it("기본 3열 asc와 일치하면 true", () => {
@@ -46,11 +47,11 @@ describe("cycleColumnSort", () => {
 
 describe("resultsSortLine", () => {
   it("기본 정렬이면 벤치 실행 순서 문구", () => {
-    expect(resultsSortLine(BENCH_EXECUTION_SORT)).toBe("현재 정렬: 벤치 실행 순서");
+    expect(resultsSortLine(BENCH_EXECUTION_SORT, ko.results.sort)).toBe("현재 정렬: 벤치 실행 순서");
   });
 
   it("단일 열 정렬이면 컬럼명·방향 표시", () => {
-    expect(resultsSortLine([{ id: "ttft_ms", desc: true }])).toBe(
+    expect(resultsSortLine([{ id: "ttft_ms", desc: true }], ko.results.sort)).toBe(
       "현재 정렬: TTFT (ms) · 내림차순",
     );
   });

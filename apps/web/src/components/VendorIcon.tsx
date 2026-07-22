@@ -1,4 +1,5 @@
 import type { ProviderKind, VendorKey } from "@llm-bench/shared";
+import { useI18n, type Messages } from "../i18n";
 import { providerIcon } from "./ProviderSummary";
 
 // 벤더 브랜드 로고 path(simple-icons 공개 SVG, viewBox 0 0 24 24, 단색 1-path).
@@ -41,8 +42,14 @@ export const VENDOR_BRAND: Record<VendorKey, Brand> = {
   zhipu: { label: "GLM", color: "#3859FF", path: null },
   minimax: { label: "MiniMax", color: "#E1341E", path: null },
   unsloth: { label: "Unsloth", color: "#F97316", path: null },
-  unknown: { label: "기타", color: "var(--muted)", path: null },
+  // unknown 표시 라벨은 i18n 카탈로그(m.scoreboard.vendorOther)에서 온다 — 여기 "Other"는 내부 폴백(미표시).
+  unknown: { label: "Other", color: "var(--muted)", path: null },
 };
+
+/** 벤더 표시명 — unknown만 로케일 카탈로그에서, 그 외 브랜드명은 리터럴 유지. */
+export function vendorLabel(vendor: VendorKey, m: Messages): string {
+  return vendor === "unknown" ? m.scoreboard.vendorOther : VENDOR_BRAND[vendor].label;
+}
 
 function monogram(label: string): string {
   const alpha = label.replace(/[^A-Za-z0-9]/g, "");
@@ -70,16 +77,18 @@ export function VendorIcon({
   tint?: "brand" | "mono";
   className?: string;
 }) {
+  const { m } = useI18n();
   const brand = VENDOR_BRAND[vendor];
+  const label = vendorLabel(vendor, m);
   if (brand.path) {
     const color = tint === "mono" ? "var(--foreground)" : brand.color;
     return (
       <span
         className={className}
-        title={brand.label}
+        title={label}
         style={{ display: "inline-flex", color, verticalAlign: "middle" }}
       >
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" role="img" aria-label={brand.label}>
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" role="img" aria-label={label}>
           <path d={brand.path} />
         </svg>
       </span>
@@ -88,9 +97,9 @@ export function VendorIcon({
   return (
     <span
       className={className}
-      title={brand.label}
+      title={label}
       role="img"
-      aria-label={brand.label}
+      aria-label={label}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -106,13 +115,13 @@ export function VendorIcon({
         verticalAlign: "middle",
       }}
     >
-      {monogram(brand.label)}
+      {vendor === "unknown" ? "?" : monogram(brand.label)}
     </span>
   );
 }
 
-/** recharts SVG 틱용 벤더 글리프(같은 path 재사용). (cx, top) 기준 미회전. */
-export function vendorGlyphSvg(vendor: VendorKey, cx: number, top: number, size: number) {
+/** recharts SVG 틱용 벤더 글리프(같은 path 재사용). (cx, top) 기준 미회전. label은 호출부가 로케일로 해석해 넘긴다. */
+export function vendorGlyphSvg(vendor: VendorKey, cx: number, top: number, size: number, label: string) {
   const brand = VENDOR_BRAND[vendor];
   if (brand.path) {
     const s = size / 24;
@@ -120,7 +129,7 @@ export function vendorGlyphSvg(vendor: VendorKey, cx: number, top: number, size:
     return (
       <g transform={`translate(${cx - size / 2}, ${top}) scale(${s})`}>
         <path d={brand.path} fill={fill} />
-        <title>{brand.label}</title>
+        <title>{label}</title>
       </g>
     );
   }
@@ -136,23 +145,24 @@ export function vendorGlyphSvg(vendor: VendorKey, cx: number, top: number, size:
         fontWeight={700}
         fill={chipInk(vendor === "unknown" ? "var(--muted)" : brand.color)}
       >
-        {monogram(brand.label)}
+        {vendor === "unknown" ? "?" : monogram(brand.label)}
       </text>
-      <title>{brand.label}</title>
+      <title>{label}</title>
     </g>
   );
 }
 
-export function backendLabel(provider: ProviderKind): string {
+/** 백엔드 표시명 — LM Studio/Ollama는 고유명사, openai_compatible/manual만 로케일 카탈로그. */
+export function backendLabel(provider: ProviderKind, m: Messages): string {
   switch (provider) {
     case "lm_studio":
       return "LM Studio";
     case "ollama":
       return "Ollama";
     case "openai_compatible":
-      return "OpenAI 호환";
+      return m.common.backendOpenaiCompatible;
     case "manual":
-      return "수동";
+      return m.common.backendManual;
     default:
       return String(provider);
   }
@@ -168,6 +178,7 @@ export function BackendIcon({
   size?: number;
   className?: string;
 }) {
+  const { m } = useI18n();
   if (provider === "ollama") {
     return (
       <span
@@ -182,5 +193,5 @@ export function BackendIcon({
     );
   }
   const Icon = providerIcon(provider);
-  return <Icon className={className} style={{ width: size, height: size }} aria-label={backendLabel(provider)} />;
+  return <Icon className={className} style={{ width: size, height: size }} aria-label={backendLabel(provider, m)} />;
 }

@@ -12,7 +12,7 @@ import {
   type ScenarioId,
   type ScenarioPromptPreviewOpts,
 } from "./scenarios-preview";
-import { getScenarioBenchMeta } from "./scenario-meta";
+import { getScenarioBenchMetaKoWire } from "./scenario-meta";
 import { openAiToolsForScenario } from "./scenario-tools";
 import { getScenarioDef } from "./scenario-registry";
 import { BUILTIN_AGENT_LOOP_IDS } from "./agent-loop-builtin";
@@ -86,7 +86,7 @@ export function buildScenarioCatalog(
     const toolNames = toolNamesFor(id);
     let meta: ScenarioDescriptor["meta"] = null;
     try {
-      meta = getScenarioBenchMeta(id as ScenarioId) ?? null;
+      meta = getScenarioBenchMetaKoWire(id) ?? null;
     } catch {
       meta = null;
     }

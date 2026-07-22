@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { useI18n } from "../i18n";
 
 /** 클립보드에 쓰기. 비보안 컨텍스트(http://LAN-IP 등 clipboard API 미제공)에서는 execCommand로 폴백. */
 async function writeClipboard(text: string): Promise<boolean> {
@@ -31,8 +32,8 @@ async function writeClipboard(text: string): Promise<boolean> {
 
 export function CopyButton({
   text,
-  label = "복사",
-  copiedLabel = "복사됨",
+  label,
+  copiedLabel,
   title,
   disabled,
 }: {
@@ -42,6 +43,9 @@ export function CopyButton({
   title?: string;
   disabled?: boolean;
 }) {
+  const { m } = useI18n();
+  const resolvedLabel = label ?? m.common.copy;
+  const resolvedCopiedLabel = copiedLabel ?? m.common.copied;
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -67,8 +71,8 @@ export function CopyButton({
       type="button"
       onClick={onCopy}
       disabled={isDisabled}
-      title={title ?? label}
-      aria-label={copied ? copiedLabel : (title ?? label)}
+      title={title ?? resolvedLabel}
+      aria-label={copied ? resolvedCopiedLabel : (title ?? resolvedLabel)}
       className="inline-flex min-h-6 shrink-0 items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
     >
       {copied ? (
@@ -76,7 +80,7 @@ export function CopyButton({
       ) : (
         <Copy className="size-3" aria-hidden />
       )}
-      {copied ? copiedLabel : label}
+      {copied ? resolvedCopiedLabel : resolvedLabel}
     </button>
   );
 }

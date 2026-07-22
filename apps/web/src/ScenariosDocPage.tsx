@@ -6,8 +6,9 @@ import {
   getScenarioImageAssets,
   isVisionScenario,
   scenarioCategory,
-  visionSubcategoryLabel,
+  visionSubcategory,
   type ScenarioId,
+  type VisionSubcategory,
 } from "@llm-bench/shared";
 import { Layers, ZoomIn } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -15,6 +16,7 @@ import { useLocation } from "react-router-dom";
 import { HighlightToggle, JsonCodeBlock } from "./components/JsonCodeBlock";
 import { VisionImageModal } from "./components/VisionImageModal";
 import { defaultScenarioBenchRequestPreview } from "./lib/scenario-prompt-preview";
+import { useI18n } from "./i18n";
 
 function formatRequestJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -24,10 +26,10 @@ const TEXT_SCENARIO_IDS = PUBLIC_SCENARIO_IDS.filter((id) => scenarioCategory(id
 const VISION_SCENARIO_IDS_PUBLIC = PUBLIC_SCENARIO_IDS.filter((id) => scenarioCategory(id) === "vision");
 const AGENT_SCENARIO_IDS: readonly string[] = BUILTIN_AGENT_LOOP_IDS;
 
-const VISION_SUBCATEGORIES = ["OCR", "카운트", "차트", "밈", "와이어프레임"] as const;
+const VISION_SUBCATEGORIES = ["ocr", "count", "chart", "meme", "wireframe"] as const satisfies readonly VisionSubcategory[];
 
-function scenariosInVisionSubcategory(sub: (typeof VISION_SUBCATEGORIES)[number]): ScenarioId[] {
-  return VISION_SCENARIO_IDS_PUBLIC.filter((id) => visionSubcategoryLabel(id) === sub);
+function scenariosInVisionSubcategory(sub: VisionSubcategory): ScenarioId[] {
+  return VISION_SCENARIO_IDS_PUBLIC.filter((id) => visionSubcategory(id) === sub);
 }
 
 function ScenarioArticle({
@@ -43,7 +45,13 @@ function ScenarioArticle({
   baseUrl: string | undefined;
   onImageClick: (url: string, scenarioId: string, category?: string) => void;
 }) {
-  const meta = getScenarioBenchMeta(id);
+  const { locale, m } = useI18n();
+  const s = m.docs.scenarios;
+  const meta = getScenarioBenchMeta(id, locale);
+  const subLabel = (sid: string): string | undefined => {
+    const sub = visionSubcategory(sid);
+    return sub ? m.docs.visionSubcategory[sub] : undefined;
+  };
   const previewOpts = useMemo(
     () => ({
       referenceIso: calendarReferenceIso,
@@ -57,7 +65,11 @@ function ScenarioArticle({
     [id, previewOpts],
   );
   const isVision = isVisionScenario(id);
-  const images = isVision ? getScenarioImageAssets(id, baseUrl) : [];
+  const images = isVision
+    ? getScenarioImageAssets(id, baseUrl, (sub, sid) =>
+        sub ? m.docs.imageAlt(m.docs.visionSubcategory[sub], sid) : sid,
+      )
+    : [];
 
   return (
     <article
@@ -76,10 +88,8 @@ function ScenarioArticle({
         <button
           type="button"
           className="group relative mt-3 block w-full max-w-2xl cursor-zoom-in overflow-hidden rounded border border-[var(--border)] bg-[var(--surface)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
-          onClick={() =>
-            onImageClick(images[0].url, id, visionSubcategoryLabel(id))
-          }
-          aria-label={`${id} 이미지 확대`}
+          onClick={() => onImageClick(images[0].url, id, subLabel(id))}
+          aria-label={s.enlargeImageAria(id)}
         >
           <img
             src={images[0].url}
@@ -92,57 +102,54 @@ function ScenarioArticle({
             className="absolute right-1 top-1 inline-flex items-center gap-0.5 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100"
           >
             <ZoomIn className="size-3" />
-            확대
+            {s.zoom}
           </span>
         </button>
       ) : null}
       {meta ? (
         <div className="mt-3 space-y-3 text-sm">
           <div>
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">목적</h4>
-            <p className="mt-1 leading-relaxed text-[var(--muted)]">{meta.purposeKo}</p>
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{s.purpose}</h4>
+            <p className="mt-1 leading-relaxed text-[var(--muted)]">{meta.purpose}</p>
           </div>
           <div>
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">합격 / 불합격 기준</h4>
-            <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.criteriaKo}</p>
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{s.criteria}</h4>
+            <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.criteria}</p>
           </div>
-          {meta.promptNotesKo ? (
+          {meta.promptNotes ? (
             <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">프롬프트·주입</h4>
-              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.promptNotesKo}</p>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{s.promptNotes}</h4>
+              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.promptNotes}</p>
             </div>
           ) : null}
-          {meta.toolsSummaryKo ? (
+          {meta.toolsSummary ? (
             <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">도구</h4>
-              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.toolsSummaryKo}</p>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{s.tools}</h4>
+              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.toolsSummary}</p>
             </div>
           ) : null}
-          {meta.routesKo ? (
+          {meta.routes ? (
             <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">API 라우트</h4>
-              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.routesKo}</p>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{s.routes}</h4>
+              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.routes}</p>
             </div>
           ) : null}
-          {meta.implementationKo ? (
+          {meta.implementation ? (
             <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">채점·실행</h4>
-              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.implementationKo}</p>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{s.implementation}</h4>
+              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.implementation}</p>
             </div>
           ) : null}
           <div>
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">프롬프트·요청 미리보기</h4>
-            <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">
-              서버가 조립하는 upstream 본문과 동일한 구조입니다. `model`·최종 `max_tokens`·프로파일 샘플링은 UI/프로파일에서
-              추가되며, 여기서는 메시지·도구·멀티모달 파트만 표시합니다.
-            </p>
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{s.requestPreview}</h4>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">{s.previewIntro}</p>
             {(requestPreview.defaultMaxTokensFloor != null ||
               requestPreview.imageDelivery != null ||
               requestPreview.imageRefs.length > 0) && (
               <dl className="mt-2 grid gap-1 text-xs sm:grid-cols-2">
                 {requestPreview.defaultMaxTokensFloor != null ? (
                   <>
-                    <dt className="font-medium text-[var(--foreground)]">비전 max_tokens floor</dt>
+                    <dt className="font-medium text-[var(--foreground)]">{s.visionMaxTokensFloor}</dt>
                     <dd className="font-mono text-[var(--muted)]">{requestPreview.defaultMaxTokensFloor}</dd>
                   </>
                 ) : null}
@@ -189,7 +196,7 @@ function ScenarioArticle({
           </div>
         </div>
       ) : (
-        <p className="mt-2 text-sm text-[var(--muted)]">등록된 설명이 없습니다.</p>
+        <p className="mt-2 text-sm text-[var(--muted)]">{s.noDescription}</p>
       )}
     </article>
   );
@@ -200,7 +207,9 @@ function ScenarioArticle({
  * 요청 미리보기에 묶여 있어 agent_* 빌트인에 못 쓴다 — 여기선 레지스트리 메타(목적·기준·도구·라우트)만 표시한다.
  */
 function AgentScenarioArticle({ id }: { id: string }) {
-  const meta = getScenarioBenchMeta(id);
+  const { locale, m } = useI18n();
+  const s = m.docs.scenarios;
+  const meta = getScenarioBenchMeta(id, locale);
   return (
     <article id={id} className="scroll-mt-20 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
       <h4 className="inline-flex items-center gap-2 font-mono text-sm font-semibold text-[var(--foreground)]">
@@ -212,34 +221,36 @@ function AgentScenarioArticle({ id }: { id: string }) {
       {meta ? (
         <dl className="mt-2 space-y-2 text-xs leading-relaxed text-[var(--muted)]">
           <div>
-            <dt className="font-semibold text-[var(--foreground)]">목적</dt>
-            <dd>{meta.purposeKo}</dd>
+            <dt className="font-semibold text-[var(--foreground)]">{s.purpose}</dt>
+            <dd>{meta.purpose}</dd>
           </div>
           <div>
-            <dt className="font-semibold text-[var(--foreground)]">합격 기준</dt>
-            <dd>{meta.criteriaKo}</dd>
+            <dt className="font-semibold text-[var(--foreground)]">{s.agentCriteria}</dt>
+            <dd>{meta.criteria}</dd>
           </div>
-          {meta.toolsSummaryKo ? (
+          {meta.toolsSummary ? (
             <div>
-              <dt className="font-semibold text-[var(--foreground)]">도구</dt>
-              <dd>{meta.toolsSummaryKo}</dd>
+              <dt className="font-semibold text-[var(--foreground)]">{s.tools}</dt>
+              <dd>{meta.toolsSummary}</dd>
             </div>
           ) : null}
-          {meta.routesKo ? (
+          {meta.routes ? (
             <div>
-              <dt className="font-semibold text-[var(--foreground)]">라우트</dt>
-              <dd>{meta.routesKo}</dd>
+              <dt className="font-semibold text-[var(--foreground)]">{s.agentRoutes}</dt>
+              <dd>{meta.routes}</dd>
             </div>
           ) : null}
         </dl>
       ) : (
-        <p className="mt-2 text-xs text-[var(--muted)]">등록된 메타데이터 없음.</p>
+        <p className="mt-2 text-xs text-[var(--muted)]">{s.noMetadata}</p>
       )}
     </article>
   );
 }
 
 export function ScenariosDocPage() {
+  const { m } = useI18n();
+  const s = m.docs.scenarios;
   const [hlPreview, setHlPreview] = useState(false);
   const [modal, setModal] = useState<{ url: string; scenarioId: string; category?: string } | null>(null);
   const location = useLocation();
@@ -262,11 +273,12 @@ export function ScenariosDocPage() {
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
         <h2 className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
           <Layers className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-          벤치 시나리오 문서
+          {s.heading}
         </h2>
         <p className="text-sm leading-relaxed text-[var(--muted)]">
-          벤치 화면의 시나리오 카드는 목적·합격 기준만 요약합니다. 여기서는 동일 메타데이터를 확장 필드로 풀고, 실제 벤치와 같은 규칙으로 생성되는{" "}
-          <strong className="text-[var(--foreground)]">요청 미리보기</strong>(OpenAI/Anthropic 라우트별 JSON — 메시지·도구·멀티모달 포함)를 둡니다. 비전 시나리오는 입력 이미지 썸네일을 클릭하면 확대해 볼 수 있습니다.
+          {s.intro}{" "}
+          <strong className="text-[var(--foreground)]">{s.introPreviewTerm}</strong>
+          {s.introTail}
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <HighlightToggle on={hlPreview} onChange={setHlPreview} />
@@ -274,13 +286,13 @@ export function ScenariosDocPage() {
       </section>
 
       <nav
-        aria-label="시나리오 목차"
+        aria-label={s.tocAria}
         className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm"
       >
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">목차</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{s.toc}</h3>
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
           <div>
-            <p className="text-xs font-semibold text-[var(--foreground)]">텍스트 ({TEXT_SCENARIO_IDS.length})</p>
+            <p className="text-xs font-semibold text-[var(--foreground)]">{s.textGroup(TEXT_SCENARIO_IDS.length)}</p>
             <ul className="mt-1 space-y-0.5 text-xs">
               {TEXT_SCENARIO_IDS.map((id) => (
                 <li key={id}>
@@ -292,13 +304,15 @@ export function ScenariosDocPage() {
             </ul>
           </div>
           <div>
-            <p className="text-xs font-semibold text-[var(--foreground)]">비전 ({VISION_SCENARIO_IDS_PUBLIC.length})</p>
+            <p className="text-xs font-semibold text-[var(--foreground)]">{s.visionGroup(VISION_SCENARIO_IDS_PUBLIC.length)}</p>
             {VISION_SUBCATEGORIES.map((sub) => {
               const ids = scenariosInVisionSubcategory(sub);
               if (ids.length === 0) return null;
               return (
                 <div key={sub} className="mt-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">{sub}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                    {m.docs.visionSubcategory[sub]}
+                  </p>
                   <ul className="mt-0.5 space-y-0.5 text-xs">
                     {ids.map((id) => (
                       <li key={id}>
@@ -314,7 +328,7 @@ export function ScenariosDocPage() {
           </div>
           {AGENT_SCENARIO_IDS.length > 0 ? (
             <div>
-              <p className="text-xs font-semibold text-[var(--foreground)]">에이전트 ({AGENT_SCENARIO_IDS.length})</p>
+              <p className="text-xs font-semibold text-[var(--foreground)]">{s.agentGroup(AGENT_SCENARIO_IDS.length)}</p>
               <ul className="mt-1 space-y-0.5 text-xs">
                 {AGENT_SCENARIO_IDS.map((id) => (
                   <li key={id}>
@@ -330,7 +344,7 @@ export function ScenariosDocPage() {
       </nav>
 
       <section className="space-y-4">
-        <h3 className="text-sm font-semibold text-[var(--foreground)]">텍스트 시나리오</h3>
+        <h3 className="text-sm font-semibold text-[var(--foreground)]">{s.textSection}</h3>
         <div className="space-y-6">
           {TEXT_SCENARIO_IDS.map((id) => (
             <ScenarioArticle
@@ -346,13 +360,15 @@ export function ScenariosDocPage() {
       </section>
 
       <section className="space-y-4">
-        <h3 className="text-sm font-semibold text-[var(--foreground)]">비전 시나리오</h3>
+        <h3 className="text-sm font-semibold text-[var(--foreground)]">{s.visionSection}</h3>
         {VISION_SUBCATEGORIES.map((sub) => {
           const ids = scenariosInVisionSubcategory(sub);
           if (ids.length === 0) return null;
           return (
             <div key={sub} className="space-y-4">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{sub}</h4>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                {m.docs.visionSubcategory[sub]}
+              </h4>
               <div className="space-y-6">
                 {ids.map((id) => (
                   <ScenarioArticle
@@ -372,11 +388,8 @@ export function ScenariosDocPage() {
 
       {AGENT_SCENARIO_IDS.length > 0 ? (
         <section className="space-y-4">
-          <h3 className="text-sm font-semibold text-[var(--foreground)]">에이전트 시나리오</h3>
-          <p className="text-xs leading-relaxed text-[var(--muted)]">
-            멀티턴 도구 사용 루프. 단일-샷과 달리 여러 턴에 걸쳐 도구를 호출하고 최종 답을 낸다 — 빈-턴 정체·사고
-            예산 소진·도구 인자 충실도처럼 턴을 가로질러야 드러나는 결함을 측정한다. 모든 도구 응답은 mock이다.
-          </p>
+          <h3 className="text-sm font-semibold text-[var(--foreground)]">{s.agentSection}</h3>
+          <p className="text-xs leading-relaxed text-[var(--muted)]">{s.agentIntro}</p>
           <div className="space-y-6">
             {AGENT_SCENARIO_IDS.map((id) => (
               <AgentScenarioArticle key={id} id={id} />

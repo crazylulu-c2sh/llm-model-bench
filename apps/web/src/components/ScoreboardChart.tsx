@@ -13,7 +13,6 @@ import {
 } from "recharts";
 import type { ProviderKind, VendorKey } from "@llm-bench/shared";
 import { cleanModelDisplayName, formatTps, inferModelVendor, parseModelQuant } from "@llm-bench/shared";
-import { APPROX_TITLE, CAP_TITLE, GROUP_LABEL, METRIC_LABEL } from "../lib/score-bands";
 import {
   buildScoreboardChartData,
   reorderChartDataByVendor,
@@ -22,7 +21,8 @@ import {
   type ScoreboardChartDatum,
 } from "../lib/scoreboard-chart";
 import type { ScoreboardRow } from "../lib/scoreboard";
-import { BackendIcon, VENDOR_BRAND, VendorIcon, backendLabel, vendorGlyphSvg } from "./VendorIcon";
+import { BackendIcon, VENDOR_BRAND, VendorIcon, backendLabel, vendorGlyphSvg, vendorLabel } from "./VendorIcon";
+import { useI18n, type Messages } from "../i18n";
 
 /** 카드 내 세그먼트 토글(AppHeader 탭 시각 스타일 재사용). 뷰 토글에서도 import해 쓴다. */
 export function Segmented<T extends string>({
@@ -100,12 +100,14 @@ function ModelTick({
   payload,
   data,
   meta,
+  msgs,
 }: {
   x?: number;
   y?: number;
   payload?: { value?: string | number };
   data: ScoreboardChartDatum[];
   meta: Map<string, ModelMeta>;
+  msgs: Messages;
 }) {
   const id = String(payload?.value ?? "");
   const d = data.find((r) => r.model_id === id);
@@ -116,7 +118,7 @@ function ModelTick({
   const label = rank > 0 ? `${rank}. ${truncName(display)}` : truncName(display);
   return (
     <g transform={`translate(${x},${y})`}>
-      {m ? vendorGlyphSvg(m.vendor, 0, 2, 18) : null}
+      {m ? vendorGlyphSvg(m.vendor, 0, 2, 18, vendorLabel(m.vendor, msgs)) : null}
       <text
         transform="translate(0,26) rotate(-45)"
         textAnchor="end"
@@ -183,6 +185,7 @@ function ChartTooltip({
   group,
   meta,
   providerByModel,
+  msgs,
 }: {
   active?: boolean;
   payload?: Array<{ payload: ScoreboardChartDatum }>;
@@ -190,6 +193,7 @@ function ChartTooltip({
   group: ChartGroup;
   meta: Map<string, ModelMeta>;
   providerByModel?: Map<string, ProviderKind>;
+  msgs: Messages;
 }) {
   if (!active || !payload || payload.length === 0) return null;
   const d = payload[0]!.payload;
@@ -204,12 +208,12 @@ function ChartTooltip({
     <div className="rounded border border-[var(--chart-tooltip-border)] bg-[var(--chart-tooltip-bg)] px-2.5 py-1.5 text-xs text-[var(--chart-tooltip-fg)] shadow">
       <div className="mb-1 flex items-center gap-1.5 font-medium">
         {m ? <VendorIcon vendor={m.vendor} size={14} className="shrink-0" /> : null}
-        <span>{m ? VENDOR_BRAND[m.vendor].label : "모델"}</span>
+        <span>{m ? vendorLabel(m.vendor, msgs) : msgs.scoreboard.modelFallback}</span>
         {provider ? (
           <>
             <span className="text-[var(--chart-tooltip-label)]">·</span>
             <BackendIcon provider={provider} size={12} className="shrink-0" />
-            <span className="text-[var(--chart-tooltip-label)]">{backendLabel(provider)}</span>
+            <span className="text-[var(--chart-tooltip-label)]">{backendLabel(provider, msgs)}</span>
           </>
         ) : null}
         {m?.quant ? (
@@ -220,16 +224,16 @@ function ChartTooltip({
       </div>
       <div className="font-mono text-[11px] text-[var(--chart-tooltip-label)]">{d.model_id}</div>
       <div className="mt-0.5 font-mono">
-        {GROUP_LABEL[group]} {METRIC_LABEL[metric]}: {val}
+        {msgs.scoreboard.groupLabel[group]} {msgs.scoreboard.metricLabel[metric]}: {val}
       </div>
       {metric === "quality" && d.capped ? (
-        <div className="mt-1 text-[var(--chart-tooltip-label)]">* {CAP_TITLE}</div>
+        <div className="mt-1 text-[var(--chart-tooltip-label)]">* {msgs.scoreboard.capTitle}</div>
       ) : null}
       {metric === "speed" && d.approx ? (
-        <div className="mt-1 text-[var(--chart-tooltip-label)]">* {APPROX_TITLE}</div>
+        <div className="mt-1 text-[var(--chart-tooltip-label)]">* {msgs.scoreboard.approxTitle}</div>
       ) : null}
       {d.textOnly ? (
-        <div className="mt-1 text-[var(--chart-tooltip-label)]">text-only — 총합이 텍스트 점수와 동일</div>
+        <div className="mt-1 text-[var(--chart-tooltip-label)]">{msgs.scoreboard.chartTextOnlyNote}</div>
       ) : null}
     </div>
   );
@@ -249,6 +253,7 @@ export function ScoreboardChart({
   board: ScoreboardRow[];
   providerByModel?: Map<string, ProviderKind>;
 }) {
+  const { m } = useI18n();
   const [group, setGroup] = useState<ChartGroup>("total");
   const [metric, setMetric] = useState<ChartMetric>("quality");
   const [colorMode, setColorMode] = useState<ColorMode>("score");
@@ -311,52 +316,56 @@ export function ScoreboardChart({
     const scored = data.filter((d) => !d.isNull);
     const head = scored
       .slice(0, 3)
-      .map((d) => `${d.rank}위 ${d.model_id} ${Math.round(d.value ?? 0)}`)
+      .map((d) => m.scoreboard.summaryRankItem(d.rank, d.model_id, Math.round(d.value ?? 0)))
       .join(", ");
-    const rest = scored.length > 3 ? ` 외 ${scored.length - 3}개` : "";
-    const avg = average !== undefined ? `, 평균 ${Math.round(average)}` : "";
-    return `${GROUP_LABEL[group]} ${METRIC_LABEL[metric]} 랭킹 — ${head}${rest}${avg}`;
-  }, [data, average, group, metric]);
+    const rest = scored.length > 3 ? m.scoreboard.summaryRest(scored.length - 3) : "";
+    const avg = average !== undefined ? m.scoreboard.summaryAvg(Math.round(average)) : "";
+    return m.scoreboard.summary(
+      m.scoreboard.groupLabel[group],
+      m.scoreboard.metricLabel[metric],
+      `${head}${rest}${avg}`,
+    );
+  }, [data, average, group, metric, m]);
 
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Segmented
-          ariaLabel="지표"
+          ariaLabel={m.scoreboard.metricAria}
           value={metric}
           onChange={setMetric}
           options={[
-            { value: "quality", label: METRIC_LABEL.quality },
-            { value: "speed", label: METRIC_LABEL.speed },
+            { value: "quality", label: m.scoreboard.metricLabel.quality },
+            { value: "speed", label: m.scoreboard.metricLabel.speed },
           ]}
         />
         <Segmented
-          ariaLabel="그룹"
+          ariaLabel={m.scoreboard.groupAria}
           value={group}
           onChange={setGroup}
           options={[
-            { value: "total", label: GROUP_LABEL.total },
-            { value: "text", label: GROUP_LABEL.text },
-            { value: "vision", label: GROUP_LABEL.vision },
-            { value: "agent", label: GROUP_LABEL.agent },
+            { value: "total", label: m.scoreboard.groupLabel.total },
+            { value: "text", label: m.scoreboard.groupLabel.text },
+            { value: "vision", label: m.scoreboard.groupLabel.vision },
+            { value: "agent", label: m.scoreboard.groupLabel.agent },
           ]}
         />
         <Segmented
-          ariaLabel="색"
+          ariaLabel={m.scoreboard.colorAria}
           value={colorMode}
           onChange={setColorMode}
           options={[
-            { value: "score", label: "점수색" },
-            { value: "vendor", label: "벤더색" },
+            { value: "score", label: m.scoreboard.colorScore },
+            { value: "vendor", label: m.scoreboard.colorVendor },
           ]}
         />
         <Segmented
-          ariaLabel="정렬"
+          ariaLabel={m.scoreboard.orderAria}
           value={orderMode}
           onChange={setOrderMode}
           options={[
-            { value: "score", label: "점수순" },
-            { value: "vendor", label: "벤더별" },
+            { value: "score", label: m.scoreboard.orderScore },
+            { value: "vendor", label: m.scoreboard.orderVendor },
           ]}
         />
         {average !== undefined ? (
@@ -365,14 +374,14 @@ export function ScoreboardChart({
               className="inline-block h-0 w-4 border-t border-dashed border-[var(--chart-ref-line)]"
               aria-hidden
             />
-            평균 {Math.round(average)}
+            {m.scoreboard.averageLabel} {Math.round(average)}
           </span>
         ) : null}
       </div>
 
       {allNull ? (
         <p className="rounded border border-dashed border-[var(--border)] px-3 py-10 text-center text-xs text-[var(--muted)]">
-          표시할 {GROUP_LABEL[group]} {METRIC_LABEL[metric]} 값이 없습니다. 다른 지표/그룹을 선택해 보세요.
+          {m.scoreboard.emptyValues(m.scoreboard.groupLabel[group], m.scoreboard.metricLabel[metric])}
         </p>
       ) : (
         <div className="overflow-x-auto" role="img" aria-label={summary}>
@@ -390,7 +399,7 @@ export function ScoreboardChart({
                   interval={0}
                   tickLine={false}
                   axisLine={{ stroke: "var(--chart-grid)" }}
-                  tick={<ModelTick data={displayData} meta={meta} />}
+                  tick={<ModelTick data={displayData} meta={meta} msgs={m} />}
                   height={128}
                 />
                 <YAxis
@@ -409,6 +418,7 @@ export function ScoreboardChart({
                       group={group}
                       meta={meta}
                       providerByModel={providerByModel}
+                      msgs={m}
                     />
                   }
                 />
@@ -445,7 +455,7 @@ export function ScoreboardChart({
           {legendVendors.map((v) => (
             <span key={v} className="inline-flex items-center gap-1">
               <VendorIcon vendor={v} size={12} />
-              {VENDOR_BRAND[v].label}
+              {vendorLabel(v, m)}
             </span>
           ))}
         </div>
@@ -455,17 +465,17 @@ export function ScoreboardChart({
         <div className="mt-2 space-y-1 text-xs leading-relaxed text-[var(--muted)]">
           {anyCapped ? (
             <p>
-              <code className="font-mono">*</code> (품질) {CAP_TITLE}.
+              <code className="font-mono">*</code> {m.scoreboard.qualityTag} {m.scoreboard.capTitle}.
             </p>
           ) : null}
           {anyApprox ? (
             <p>
-              <code className="font-mono">*</code> (속도) {APPROX_TITLE}.
+              <code className="font-mono">*</code> {m.scoreboard.speedTag} {m.scoreboard.approxTitle}.
             </p>
           ) : null}
           {anyTextOnly ? (
             <p>
-              <code className="font-mono">text-only</code> 비전 시나리오를 실행하지 않아 총합이 텍스트 점수로만 계산됐습니다.
+              <code className="font-mono">text-only</code> {m.scoreboard.textOnlyFootnote}
             </p>
           ) : null}
         </div>

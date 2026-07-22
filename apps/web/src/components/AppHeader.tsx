@@ -6,6 +6,7 @@ import {
   FlaskConical,
   Gauge,
   History,
+  Languages,
   Monitor,
   Moon,
   Settings2,
@@ -15,22 +16,36 @@ import {
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import type { ThemeChoice } from "../useTheme";
+import { LOCALES, LOCALE_ENDONYMS, useI18n, type Locale, type Messages } from "../i18n";
+
+type NavKey = keyof Messages["header"]["nav"];
 
 const NAV_TABS: Array<{
   to: string;
   end?: boolean;
-  label: string;
+  labelKey: NavKey;
   icon: LucideIcon;
 }> = [
-  { to: "/", end: true, label: "모델 벤치", icon: FlaskConical },
-  { to: "/stats", label: "모델 통계", icon: BarChart3 },
-  { to: "/stress", label: "프로바이더 벤치", icon: Gauge },
-  { to: "/provider-stats", label: "프로바이더 통계", icon: History },
-  { to: "/profile", label: "프로파일", icon: Settings2 },
-  { to: "/provider-monitor", label: "프로바이더 모니터", icon: Cpu },
-  { to: "/scenarios", label: "시나리오", icon: BookOpen },
-  { to: "/harness", label: "하네스", icon: Wrench },
+  { to: "/", end: true, labelKey: "bench", icon: FlaskConical },
+  { to: "/stats", labelKey: "stats", icon: BarChart3 },
+  { to: "/stress", labelKey: "stress", icon: Gauge },
+  { to: "/provider-stats", labelKey: "providerStats", icon: History },
+  { to: "/profile", labelKey: "profile", icon: Settings2 },
+  { to: "/provider-monitor", labelKey: "monitor", icon: Cpu },
+  { to: "/scenarios", labelKey: "scenarios", icon: BookOpen },
+  { to: "/harness", labelKey: "harness", icon: Wrench },
 ];
+
+/** 라우트 → 부제목 키. 미매칭(홈 포함)은 bench 부제목. */
+const SUBTITLE_KEY_BY_PATH: Record<string, keyof Messages["header"]["subtitle"]> = {
+  "/stats": "stats",
+  "/stress": "stress",
+  "/provider-stats": "providerStats",
+  "/profile": "profile",
+  "/provider-monitor": "monitor",
+  "/scenarios": "scenarios",
+  "/harness": "harness",
+};
 
 function ThemeIcon({ choice }: { choice: ThemeChoice }) {
   if (choice === "dark") return <Moon className="size-4 text-[var(--muted)]" aria-hidden />;
@@ -39,20 +54,14 @@ function ThemeIcon({ choice }: { choice: ThemeChoice }) {
 }
 
 /** KWCAG 6.4.2 제목 제공: 라우트별 document.title — NAV_TABS 라벨 재사용 (App.tsx에서 소비) */
-export function pageTitleForPath(pathname: string): string {
+export function pageTitleForPath(pathname: string, m: Messages): string {
   const tab = NAV_TABS.find((t) => t.to === pathname);
-  return tab ? `${tab.label} · LLM Model Bench` : "LLM Model Bench";
+  return tab ? `${m.header.nav[tab.labelKey]} · LLM Model Bench` : "LLM Model Bench";
 }
 
-function subtitleForPath(pathname: string): string {
-  if (pathname === "/stats") return "SQLite에 저장된 최신 런 기준 메트릭·결과";
-  if (pathname === "/provider-stats") return "SQLite에 저장된 프로바이더 벤치 런 — 필터·익스포트·삭제";
-  if (pathname === "/provider-monitor") return "로드된 모델 · 메모리·GPU 모니터 · lms CLI 조작";
-  if (pathname === "/profile") return "모델 패밀리별 샘플링·컨텍스트·런타임 적용 규칙";
-  if (pathname === "/scenarios") return "시나리오 목적·도구·채점·프롬프트 미리보기";
-  if (pathname === "/harness") return "벤치/스트레스 하네스 설계·기법 — 다른 프로젝트 참고용";
-  if (pathname === "/stress") return "동시 사용자 부하 · 단계별 TPS · 라이브 워커 모니터";
-  return "로컬 프로바이더 감지 · 단일 모델 시나리오 벤치";
+function subtitleForPath(pathname: string, m: Messages): string {
+  const key = SUBTITLE_KEY_BY_PATH[pathname] ?? "bench";
+  return m.header.subtitle[key];
 }
 
 const tabLinkClass = (isActive: boolean) =>
@@ -84,13 +93,14 @@ export function AppHeader({
   benchProgress?: BenchHeaderProgress;
 }) {
   const { pathname } = useLocation();
+  const { locale, setLocale, m } = useI18n();
   const onBenchPage = pathname === "/";
-  const subtitle = subtitleForPath(pathname);
+  const subtitle = subtitleForPath(pathname, m);
   const showBenchProgress = running && onBenchPage && benchProgress != null;
   const progressPct = benchProgress?.pct ?? 0;
   const progressText = benchProgress
-    ? `벤치 실행 중 · ${benchProgress.completed}/${benchProgress.total} (${benchProgress.pct}%)`
-    : "벤치 실행 중";
+    ? m.header.benchProgress(benchProgress.completed, benchProgress.total, benchProgress.pct)
+    : m.header.benchProgressShort;
 
   return (
     <header
@@ -124,7 +134,7 @@ export function AppHeader({
           />
         </>
       ) : null}
-      {/* Row 1: 로고 + 테마 컨트롤 */}
+      {/* Row 1: 로고 + 언어·테마 컨트롤 */}
       <div className="relative z-10 flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <span className="mt-0.5 shrink-0 rounded-md border border-[var(--border)] bg-[var(--surface)] p-2 text-[var(--accent)]">
@@ -137,40 +147,58 @@ export function AppHeader({
             </p>
           </div>
         </div>
-        <label className="flex shrink-0 items-center gap-2 text-sm text-[var(--muted)]">
-          <ThemeIcon choice={themeChoice} />
-          <select
-            className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
-            value={themeChoice}
-            onChange={(e) => setThemeChoice(e.target.value as ThemeChoice)}
-            aria-label="테마 선택"
-          >
-            <option value="dark">다크</option>
-            <option value="light">라이트</option>
-            <option value="system">시스템</option>
-          </select>
-        </label>
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
+          <label className="flex shrink-0 items-center gap-2 text-sm text-[var(--muted)]">
+            <Languages className="size-4 text-[var(--muted)]" aria-hidden />
+            <select
+              className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
+              value={locale}
+              onChange={(e) => setLocale(e.target.value as Locale)}
+              aria-label={m.header.languageSelectAria}
+            >
+              {LOCALES.map((l) => (
+                <option key={l} value={l} lang={l}>
+                  {LOCALE_ENDONYMS[l]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex shrink-0 items-center gap-2 text-sm text-[var(--muted)]">
+            <ThemeIcon choice={themeChoice} />
+            <select
+              className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
+              value={themeChoice}
+              onChange={(e) => setThemeChoice(e.target.value as ThemeChoice)}
+              aria-label={m.header.themeSelectAria}
+            >
+              <option value="dark">{m.header.themeDark}</option>
+              <option value="light">{m.header.themeLight}</option>
+              <option value="system">{m.header.themeSystem}</option>
+            </select>
+          </label>
+        </div>
       </div>
       {/* Row 2: 전폭 탭바 */}
-      <nav className="relative z-10 min-w-0" aria-label="주요 메뉴">
+      <nav className="relative z-10 min-w-0" aria-label={m.header.navAria}>
         <div className="flex w-full flex-nowrap gap-1 overflow-x-auto">
-          {NAV_TABS.map(({ to, end, label, icon: Icon }) => {
+          {NAV_TABS.map(({ to, end, labelKey, icon: Icon }) => {
             const isActive = pathname === to;
+            const label = m.header.nav[labelKey];
             return (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              aria-label={label}
-              aria-current={isActive ? "page" : undefined}
-              title={label}
-              className={tabLinkClass(isActive)}
-            >
-              <span className="inline-flex items-center justify-center xl:gap-1.5">
-                <Icon className="size-4 shrink-0" aria-hidden />
-                <span className={tabLabelClass(isActive)}>{label}</span>
-              </span>
-            </NavLink>
+              <NavLink
+                key={to}
+                to={to}
+                end={end}
+                aria-label={label}
+                aria-current={isActive ? "page" : undefined}
+                title={label}
+                className={tabLinkClass(isActive)}
+              >
+                <span className="inline-flex items-center justify-center xl:gap-1.5">
+                  <Icon className="size-4 shrink-0" aria-hidden />
+                  <span className={tabLabelClass(isActive)}>{label}</span>
+                </span>
+              </NavLink>
             );
           })}
         </div>

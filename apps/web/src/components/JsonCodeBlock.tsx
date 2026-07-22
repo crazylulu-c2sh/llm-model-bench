@@ -1,5 +1,6 @@
 import { lazy, Suspense, forwardRef, useLayoutEffect, useMemo, useRef } from "react";
 import { Sparkles } from "lucide-react";
+import { useI18n } from "../i18n";
 
 const LazyHighlight = lazy(async () => {
   const m = await import("./json-highlight-loaded");
@@ -10,11 +11,12 @@ const FallbackPre = forwardRef<HTMLPreElement, { code: string; maxHeight: number
   { code, maxHeight },
   ref,
 ) {
+  const { m } = useI18n();
   return (
     <pre
       ref={ref}
       tabIndex={0}
-      aria-label="코드 내용 (스크롤 가능)"
+      aria-label={m.common.codeScrollable}
       className="overflow-auto whitespace-pre-wrap rounded border border-[var(--border)] bg-[var(--surface)] p-3 font-mono text-xs leading-relaxed text-[var(--muted)]"
       style={{ maxHeight }}
     >
@@ -68,11 +70,12 @@ export function HighlightToggle({
   on: boolean;
   onChange: (v: boolean) => void;
 }) {
+  const { m } = useI18n();
   return (
     <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[var(--muted)]">
       <input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} />
       <Sparkles className="size-3.5 shrink-0 text-[var(--accent)]" aria-hidden />
-      구문 강조 (lazy)
+      {m.common.syntaxHighlightLazy}
     </label>
   );
 }

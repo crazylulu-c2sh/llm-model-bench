@@ -57,13 +57,14 @@ test.describe("LLM Model Bench UI", () => {
   test("탭: 하네스 문서", async ({ page }) => {
     await page.goto("/harness");
     await expect(page.getByText("벤치/스트레스 하네스 설계·기법 — 다른 프로젝트 참고용")).toBeVisible();
-    await expect(page.getByRole("link", { name: /docs\/harness-knowhow\.md/ })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Harness Know-How/ })).toBeVisible();
+    // ko 로케일: 정본은 harness-knowhow.ko.md, 헤딩은 한국어 단일어(로케일 분리 후)
+    await expect(page.getByRole("link", { name: /docs\/harness-knowhow\.ko\.md/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "하네스 노하우", exact: true })).toBeVisible();
     await expect(navLink(page, "하네스")).toHaveAttribute("aria-current", "page");
     // 스크롤-스파이 사이드바(xl+): 기본 Desktop Chrome 뷰포트(1280px)에서 노출
     const toc = page.getByRole("navigation", { name: "이 페이지 목차" });
     await expect(toc).toBeVisible();
-    await expect(toc.getByRole("link", { name: /Architecture & Event Model/ })).toBeVisible();
+    await expect(toc.getByRole("link", { name: /아키텍처와 이벤트 모델/ })).toBeVisible();
     // 스크롤-스파이: 문서 하단으로 스크롤하면 마지막 섹션(부록 B) 링크가 활성(aria-current)이 된다.
     // (heading remount로 observer가 죽으면 활성 표시가 갱신되지 않으므로 이 단언이 회귀를 잡는다.)
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
@@ -128,3 +129,43 @@ test.describe("LLM Model Bench UI", () => {
     }
   });
 });
+
+// EN/JA 라벨 폭 회귀 가드 — 로케일별로 데스크톱 탭 오버플로·부제 줄바꿈을 검사한다.
+// (기본 ko는 위 블록이 이미 커버; 여기선 로케일을 localStorage로 핀해 en/ja를 추가로 확인.)
+const NAV_LABEL_BY_LOCALE = {
+  en: { menu: "Main menu" },
+  ja: { menu: "メインメニュー" },
+} as const;
+
+for (const locale of ["en", "ja"] as const) {
+  test.describe(`레이아웃(${locale})`, () => {
+    test.beforeEach(async ({ page }) => {
+      await page.addInitScript((l) => localStorage.setItem("llm-bench-locale", l), locale);
+    });
+
+    test(`헤더: 데스크톱 너비에서 탭바 가로 스크롤·잘림 없음 (${locale})`, async ({ page }) => {
+      const nav = page.getByRole("navigation", { name: NAV_LABEL_BY_LOCALE[locale].menu });
+      for (const width of [1280, 1440, 1920]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/");
+        await expect(nav.getByRole("link").last()).toBeInViewport();
+        const bar = nav.locator("div").first();
+        const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
+        expect(overflow, `${locale} @${width}px 탭바 가로 오버플로`).toBeLessThanOrEqual(1);
+      }
+    });
+
+    test(`헤더: 1100px에서 부제 세로 깨짐 없음 (${locale})`, async ({ page }) => {
+      await page.setViewportSize({ width: 1100, height: 800 });
+      await page.goto("/");
+      const heading = page.getByRole("heading", { name: "LLM Model Bench" });
+      await expect(heading).toBeVisible();
+      const subtitle = page.locator("header p").first();
+      const lines = await subtitle.evaluate((el) => {
+        const lh = parseFloat(getComputedStyle(el).lineHeight);
+        return el.offsetHeight / (lh || 20);
+      });
+      expect(lines, `${locale} 부제 줄 수`).toBeLessThan(1.5);
+    });
+  });
+}

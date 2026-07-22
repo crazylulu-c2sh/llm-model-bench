@@ -3,10 +3,11 @@ import {
   getScenarioBenchMeta,
   getScenarioImageAssets,
   isVisionScenario,
-  visionSubcategoryLabel,
+  visionSubcategory,
 } from "@llm-bench/shared";
 import { Layers, ZoomIn } from "lucide-react";
 import { useState } from "react";
+import { useI18n } from "../i18n";
 import { VisionImageModal } from "./VisionImageModal";
 
 export function ScenarioGuideCards({
@@ -18,6 +19,7 @@ export function ScenarioGuideCards({
   running?: boolean;
   touchedScenarioIds?: readonly string[];
 }) {
+  const { m, locale } = useI18n();
   const touched = touchedScenarioIds ?? [];
   const baseUrl =
     typeof window !== "undefined" ? window.location.origin : undefined;
@@ -26,14 +28,14 @@ export function ScenarioGuideCards({
     <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
       <h2 className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
         <Layers className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-        벤치 시나리오 안내
+        {m.bench.scenarioGuideHeading}
       </h2>
       <p className="mb-3 text-xs leading-relaxed text-[var(--muted)]">
-        각 카드는 해당 시나리오가 무엇을 검증하는지 요약합니다. <strong>Vision</strong> 뱃지 카드는 이미지 입력을 받으며 비전 미지원 모델에서는 400을 받을 수 있습니다.
+        {m.bench.scenarioGuideIntroA}<strong>Vision</strong>{m.bench.scenarioGuideIntroB}
       </p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {PUBLIC_SCENARIO_IDS.map((id) => {
-          const meta = getScenarioBenchMeta(id);
+          const meta = getScenarioBenchMeta(id, locale);
           const active = Boolean(currentScenario && currentScenario === id);
           const wasTouched = running && touched.includes(id);
           const cardBench =
@@ -43,7 +45,13 @@ export function ScenarioGuideCards({
                 ? "scenario-guide-card--bench-touched border-[var(--border)]"
                 : "border-[var(--border)]";
           const isVision = isVisionScenario(id);
-          const images = isVision ? getScenarioImageAssets(id, baseUrl) : [];
+          const visionSub = visionSubcategory(id);
+          const visionLabel = visionSub ? m.docs.visionSubcategory[visionSub] : undefined;
+          const images = isVision
+            ? getScenarioImageAssets(id, baseUrl, (sub, sid) =>
+                sub ? m.docs.imageAlt(m.docs.visionSubcategory[sub], sid) : sid,
+              )
+            : [];
           return (
             <article
               key={id}
@@ -68,10 +76,10 @@ export function ScenarioGuideCards({
                     setModal({
                       url: images[0].url,
                       scenarioId: id,
-                      category: visionSubcategoryLabel(id),
+                      category: visionLabel,
                     })
                   }
-                  aria-label={`${id} 이미지 확대`}
+                  aria-label={m.bench.enlargeImageAria(id)}
                 >
                   <img
                     src={images[0].url}
@@ -84,22 +92,22 @@ export function ScenarioGuideCards({
                     className="absolute right-1 top-1 inline-flex items-center gap-0.5 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100"
                   >
                     <ZoomIn className="size-3" />
-                    확대
+                    {m.bench.enlarge}
                   </span>
                 </button>
               ) : null}
               {meta ? (
                 <>
-                  <p className="mt-2 leading-relaxed text-[var(--muted)]">{meta.purposeKo}</p>
+                  <p className="mt-2 leading-relaxed text-[var(--muted)]">{meta.purpose}</p>
                   <details className="mt-2 border-t border-[var(--border)] pt-2">
                     <summary className="cursor-pointer select-none font-semibold text-[var(--foreground)]">
-                      합격 / 불합격 기준
+                      {m.bench.passFailCriteria}
                     </summary>
-                    <p className="mt-1.5 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.criteriaKo}</p>
+                    <p className="mt-1.5 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.criteria}</p>
                   </details>
                 </>
               ) : (
-                <p className="mt-2 text-[var(--muted)]">등록된 설명이 없습니다.</p>
+                <p className="mt-2 text-[var(--muted)]">{m.bench.noDescription}</p>
               )}
             </article>
           );

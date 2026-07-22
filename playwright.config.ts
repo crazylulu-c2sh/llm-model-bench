@@ -18,6 +18,9 @@ export default defineConfig({
   use: {
     baseURL: e2eOrigin,
     trace: "on-first-retry",
+    // i18n 기본 로케일 = ko. Desktop Chrome 기본은 en-US라, 감지 순서(localStorage → navigator.languages → ko)에서
+    // 저장값이 없으면 영어로 렌더돼 한국어 단언이 깨진다. ko-KR로 핀해 기존 스펙을 기본 로케일로 고정한다.
+    locale: "ko-KR",
   },
   projects: [
     {

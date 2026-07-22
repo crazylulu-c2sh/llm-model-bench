@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useLayoutEffect, useRef } from "react";
 import { Activity, Loader2 } from "lucide-react";
+import { useI18n, type Messages } from "../i18n";
 import { formatTimeWithMs } from "../lib/time-format";
 
 export type BenchStepKind = "info" | "ok" | "err" | "warn";
@@ -25,31 +26,33 @@ function apiShort(api: string): string {
 }
 
 /** 벤치 실행 중 헤더·요약에 쓰는 한 줄(실행 중 전용 톤). */
-export function formatBenchRunningLine(current: BenchCurrent | null): string {
+export function formatBenchRunningLine(current: BenchCurrent | null, b: Messages["bench"]): string {
   const parts = [
     current?.modelId,
     current?.api ? apiShort(current.api) : undefined,
     current?.scenario,
     current?.iterLabel,
   ].filter(Boolean);
-  return parts.length ? parts.join(" · ") : "스트림 연결 중…";
+  return parts.length ? parts.join(" · ") : b.streamConnecting;
 }
 
 export function formatBenchProgressSummary({
   running,
   current,
+  b,
 }: {
   running: boolean;
   current: BenchCurrent | null;
+  b: Messages["bench"];
 }): string {
-  if (running) return formatBenchRunningLine(current);
+  if (running) return formatBenchRunningLine(current, b);
   const parts = [
     current?.modelId,
     current?.api ? apiShort(current.api) : undefined,
     current?.scenario,
     current?.iterLabel,
   ].filter(Boolean);
-  return parts.length ? `마지막 상태 · ${parts.join(" · ")}` : "벤치 대기 중. 모델을 선택한 뒤 실행하세요.";
+  return parts.length ? b.lastState(parts.join(" · ")) : b.benchIdle;
 }
 
 function lineClass(kind: BenchStepKind): string {
@@ -75,7 +78,8 @@ export function BenchProgressPanel({
   /** 부모에서 벤치 라이브 테두리 등 유틸 클래스 주입 */
   className?: string;
 }) {
-  const summary = formatBenchProgressSummary({ running, current });
+  const { m } = useI18n();
+  const summary = formatBenchProgressSummary({ running, current, b: m.bench });
   const logScrollRef = useRef<HTMLUListElement>(null);
 
   useLayoutEffect(() => {
@@ -97,7 +101,7 @@ export function BenchProgressPanel({
           ) : (
             <Activity className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
           )}
-          벤치 실행 단계
+          {m.bench.progressHeading}
         </h2>
         {benchAction ? <div className="flex shrink-0 flex-wrap items-center gap-2">{benchAction}</div> : null}
       </div>
@@ -109,7 +113,7 @@ export function BenchProgressPanel({
       {progress && progress.total > 0 ? (
         <div className="mb-3">
           <div role="status" className="mb-1 flex items-center justify-between gap-2 text-xs text-[var(--muted)]">
-            <span className="font-semibold uppercase tracking-wide">실행률</span>
+            <span className="font-semibold uppercase tracking-wide">{m.bench.progressRate}</span>
             <span className="font-mono tabular-nums text-[var(--foreground)]">
               {progress.pct}% · {progress.completed}/{progress.total}
             </span>
@@ -119,7 +123,7 @@ export function BenchProgressPanel({
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={progress.pct}
-            aria-valuetext={`실행률 ${progress.pct}% · ${progress.completed}/${progress.total}`}
+            aria-valuetext={m.bench.progressRateValue(progress.pct, progress.completed, progress.total)}
             className="h-1.5 overflow-hidden rounded-full bg-[var(--border)]"
           >
             <div
@@ -131,14 +135,14 @@ export function BenchProgressPanel({
       ) : null}
 
       <div>
-        <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">이벤트 로그</h3>
+        <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{m.bench.eventLogHeading}</h3>
         <ul
           ref={logScrollRef}
           className="max-h-40 overflow-y-auto rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 font-mono text-[11px] leading-relaxed"
-          aria-label="벤치 스트림 이벤트 로그"
+          aria-label={m.bench.eventLogAria}
         >
           {lines.length === 0 ? (
-            <li className="text-[var(--muted)]">이벤트 수신 대기…</li>
+            <li className="text-[var(--muted)]">{m.bench.eventLogEmpty}</li>
           ) : (
             lines.map((ln, i) => (
               <li key={`${ln.ts}-${i}`} className={lineClass(ln.kind)}>

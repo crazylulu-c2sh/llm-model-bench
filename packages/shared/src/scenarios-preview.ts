@@ -160,7 +160,7 @@ import {
 } from "./stress-long-context-corpus";
 import { DEFAULT_CALENDAR_TIMEZONE } from "./scenario-scoring-constants";
 import { getScenarioDef } from "./scenario-registry";
-import { visionSubcategoryLabel } from "./vision-category";
+import { visionSubcategory, type VisionSubcategory } from "./vision-category";
 
 const STRESS_PING_USER_BASE = "ping";
 const STRESS_SHORT_REPLY_EN_USER = "In one short sentence, explain what a load test measures.";
@@ -380,19 +380,23 @@ const VISION_IMAGE_FILES: Record<string, string> = {
   vision_wireframe_html_b: "wireframe_html_b.jpg",
 };
 
-/** 비전 시나리오의 이미지 자산 경로 반환. 텍스트 시나리오는 빈 배열. */
+/**
+ * 비전 시나리오의 이미지 자산 경로 반환. 텍스트 시나리오는 빈 배열.
+ * alt는 로케일별로 다르므로 `buildAlt`로 주입한다(미지정 시 로케일 중립 = id).
+ */
 export function getScenarioImageAssets(
   id: string,
   baseUrl?: string,
+  buildAlt?: (subcategory: VisionSubcategory | undefined, id: string) => string,
 ): ScenarioImageAsset[] {
   const filename = VISION_IMAGE_FILES[id];
   if (!filename) return [];
   const base = baseUrl?.replace(/\/+$/, "") ?? "";
-  const category = visionSubcategoryLabel(id);
+  const subcategory = visionSubcategory(id);
   return [
     {
       url: `${base}/vision/${filename}`,
-      alt: category ? `${category} 시나리오 예시 이미지 (${id})` : id,
+      alt: buildAlt ? buildAlt(subcategory, id) : id,
       mime: "image/jpeg",
     },
   ];

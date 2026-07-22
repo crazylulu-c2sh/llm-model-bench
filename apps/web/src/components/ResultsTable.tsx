@@ -1,6 +1,6 @@
 import { formatTtftMs, isVisionScenario, scenarioExecutionOrderIndex, scoreToRubric } from "@llm-bench/shared";
 import { apiRouteRank } from "./chart-types";
-import { compareModelBenchQueueOrder } from "../lib/model-sort";
+import { compareModelBenchQueueOrder, compareStringsPinned } from "../lib/model-sort";
 import { buildModelColorMap } from "../lib/model-color";
 import { ModelLabel } from "./ModelLabel";
 import { computeGroupWinners } from "../lib/result-winners";
@@ -22,6 +22,7 @@ import {
 import { AlertTriangle, ArrowDown, ArrowDownUp, ArrowUp, CircleCheck, CircleX, HelpCircle } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { MetricTableIntro } from "./MetricChartLegend";
+import { useI18n, type Messages } from "../i18n";
 
 export type ResultRow = {
   rowKey: string;
@@ -66,9 +67,9 @@ const EMPTY_PENDING_ROWS: PendingSkeletonRow[] = [];
 
 const columnHelper = createColumnHelper<ResultRow>();
 
-function apiHeaderTitle(api: string): string {
-  if (api === "chat_completions") return "OpenAI 호환 chat completions 스타일 엔드포인트";
-  if (api === "messages") return "Anthropic 스타일 messages 엔드포인트";
+function apiHeaderTitle(api: string, m: Messages): string {
+  if (api === "chat_completions") return m.results.table.apiTitleChat;
+  if (api === "messages") return m.results.table.apiTitleMessages;
   return `API: ${api}`;
 }
 
@@ -97,6 +98,7 @@ export function ResultsTable({
   benchModelOrder?: string[];
   onRowClick?: (row: ResultRow) => void;
 }) {
+  const { m } = useI18n();
   const modelQueue = benchModelOrder;
   // 내용 기반 키: 호출부가 매 렌더 새 배열(예: benchQueueDraft.map(...))을 넘겨도 `data` 참조가
   // 바뀌지 않도록 한다. 불안정한 `data`는 TanStack에 매 렌더 새 참조로 전달돼 무한 재렌더(먹통)를 유발.
@@ -109,7 +111,7 @@ export function ResultsTable({
           compareModelBenchQueueOrder(a.model_id, b.model_id, modelQueue) ||
           scenarioExecutionOrderIndex(a.scenario) - scenarioExecutionOrderIndex(b.scenario) ||
           apiRouteRank(a.api) - apiRouteRank(b.api) ||
-          a.api.localeCompare(b.api),
+          compareStringsPinned(a.api, b.api),
       ),
     // modelQueue 대신 내용 키를 dep으로 사용(참조 불안정성 차단).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,10 +171,10 @@ export function ResultsTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            title="이 행 벤치에 사용된 모델 ID"
+            title={m.results.table.colModelTitle}
             onClick={() => onColumnSort(column.id)}
           >
-            모델
+            {m.results.table.colModel}
             {sortDirIcon(column, sorting)}
           </button>
         ),
@@ -194,10 +196,10 @@ export function ResultsTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            title="벤치 시나리오 식별자"
+            title={m.results.table.colScenarioTitle}
             onClick={() => onColumnSort(column.id)}
           >
-            시나리오
+            {m.results.table.colScenario}
             {sortDirIcon(column, sorting)}
           </button>
         ),
@@ -208,7 +210,10 @@ export function ResultsTable({
           // 기존 reasoning_leaked_into_content(LM Studio 0.4.14–0.4.18 버그 신호)를 OR 폴백으로 유지.
           const leaked = r.channel_tag_leak_detected === true || r.reasoning_leaked_into_content === true;
           const contaminated = corrupted || leaked;
-          const detail = [corrupted ? "도구 인자 손상" : null, leaked ? "추론 누수" : null]
+          const detail = [
+            corrupted ? m.results.toolArgsCorrupted : null,
+            leaked ? m.results.reasoningLeak : null,
+          ]
             .filter(Boolean)
             .join(" · ");
           return (
@@ -217,8 +222,8 @@ export function ResultsTable({
               {contaminated ? (
                 <span
                   className="inline-flex items-center text-amber-500"
-                  title={`LM Studio 엔진 프로토콜 회귀 의심 — ${detail}. 행을 열어 조치 안내를 확인하세요.`}
-                  aria-label={`LM Studio 엔진 프로토콜 회귀 의심 — ${detail}`}
+                  title={m.results.table.contaminatedTitle(detail)}
+                  aria-label={m.results.table.contaminatedAria(detail)}
                 >
                   <AlertTriangle className="size-3 shrink-0" aria-hidden />
                 </span>
@@ -229,7 +234,7 @@ export function ResultsTable({
         sortingFn: (a, b) => {
           const d = scenarioExecutionOrderIndex(a.original.scenario) - scenarioExecutionOrderIndex(b.original.scenario);
           if (d !== 0) return d;
-          return a.original.scenario.localeCompare(b.original.scenario);
+          return compareStringsPinned(a.original.scenario, b.original.scenario);
         },
       }),
       columnHelper.accessor("api", {
@@ -237,7 +242,7 @@ export function ResultsTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            title="호출한 API 종류"
+            title={m.results.table.colApiTitle}
             onClick={() => onColumnSort(column.id)}
           >
             API
@@ -247,7 +252,7 @@ export function ResultsTable({
         cell: (info) => {
           const v = info.getValue();
           return (
-            <span className="text-xs" title={apiHeaderTitle(v)}>
+            <span className="text-xs" title={apiHeaderTitle(v, m)}>
               {v}
             </span>
           );
@@ -255,7 +260,7 @@ export function ResultsTable({
         sortingFn: (a, b) => {
           const d = apiRouteRank(a.original.api) - apiRouteRank(b.original.api);
           if (d !== 0) return d;
-          return a.original.api.localeCompare(b.original.api);
+          return compareStringsPinned(a.original.api, b.original.api);
         },
       }),
       columnHelper.accessor("ttft_ms", {
@@ -263,7 +268,7 @@ export function ResultsTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            title="Time To First Token — HTTP 요청 발신부터 첫 출력 토큰(텍스트·추론·tool_call)까지(밀리초)"
+            title={m.results.table.colTtftTitle}
             onClick={() => onColumnSort(column.id)}
           >
             TTFT (ms)
@@ -277,15 +282,15 @@ export function ResultsTable({
             <span
               className={`inline-flex items-center gap-1 whitespace-nowrap font-mono text-xs${win ? " font-bold" : ""}`}
               style={win ? { color: "var(--dir-lower)" } : undefined}
-              title={win ? "이 시나리오·API 그룹에서 가장 빠른 TTFT" : undefined}
+              title={win ? m.results.table.ttftWinTitle : undefined}
             >
               {win ? <span aria-hidden>▾</span> : null}
               {formatTtftMs(v)}
               {row.original.reasoning_hidden ? (
                 <span
                   className="inline-flex items-center text-amber-500"
-                  title="추론 숨김 — TTFT는 첫 가시 토큰까지(숨은 추론 포함)라 다른 라우트와 비교 주의"
-                  aria-label="추론 숨김 — TTFT 비교 주의"
+                  title={m.results.table.reasoningHiddenTitle}
+                  aria-label={m.results.table.reasoningHiddenAria}
                 >
                   <AlertTriangle className="size-3 shrink-0" aria-hidden />
                 </span>
@@ -300,10 +305,10 @@ export function ResultsTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            title="출력 토큰 수 — provider usage.completion_tokens 또는 글자수/4 근사(TPS와 동일 기준)"
+            title={m.results.table.colOutputTokensTitle}
             onClick={() => onColumnSort(column.id)}
           >
-            출력 토큰
+            {m.results.table.colOutputTokens}
             {sortDirIcon(column, sorting)}
           </button>
         ),
@@ -318,8 +323,8 @@ export function ResultsTable({
               className="whitespace-nowrap font-mono text-xs"
               title={
                 approx
-                  ? "provider가 usage를 보고하지 않아 글자수/4 추정치(approx)"
-                  : "provider 보고 completion_tokens(usage)"
+                  ? m.results.table.outputTokensApproxTitle
+                  : m.results.table.outputTokensUsageTitle
               }
             >
               {v}
@@ -338,7 +343,7 @@ export function ResultsTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            title="Tokens Per Second (근사) — 출력 텍스트 길이 기반 토큰 추정 ÷ 총 소요 시간(초)"
+            title={m.results.table.colTpsTitle}
             onClick={() => onColumnSort(column.id)}
           >
             TPS (tok/s)
@@ -356,10 +361,10 @@ export function ResultsTable({
               style={win ? { color: "var(--dir-higher)" } : undefined}
               title={
                 win
-                  ? "이 시나리오·API 그룹에서 가장 높은 TPS"
+                  ? m.results.table.tpsWinTitle
                   : approx
-                    ? "provider가 usage 토큰 수를 안 줘서 글자수/4 추정치로 계산(approx). CJK·코드에서 오차 큼."
-                    : "provider 보고 실토큰 기반(usage)"
+                    ? m.results.table.tpsApproxTitle
+                    : m.results.table.tpsUsageTitle
               }
             >
               {win ? <span aria-hidden className="mr-0.5">▴</span> : null}
@@ -377,8 +382,8 @@ export function ResultsTable({
       columnHelper.display({
         id: "quality",
         header: () => (
-          <span title="텍스트 시나리오는 합격/불합격 이진. 비전 시나리오는 rubric 0~3(score 0/0.33/0.67/1), rubric ≥ 2 가 통과.">
-            품질
+          <span title={m.results.table.colQualityTitle}>
+            {m.results.table.colQuality}
           </span>
         ),
         cell: ({ row }) => {
@@ -394,12 +399,12 @@ export function ResultsTable({
                   ? "text-[var(--chart-fail)] border-[var(--chart-fail)]"
                   : "text-[var(--muted)] border-[var(--border)]";
             const rubricLabel = rubric ?? "?";
-            const passLabel = pass ? "통과" : "미통과";
+            const passLabel = pass ? m.results.pass : m.results.notPass;
             return (
               <span
                 className={`inline-flex items-center gap-1.5 rounded border bg-[var(--surface)] px-1.5 py-0.5 ${colorClass}`}
-                aria-label={`루브릭 ${rubricLabel}/3, score ${score.toFixed(2)}, ${passLabel}`}
-                title={`rubric ${rubricLabel}/3 · score ${score.toFixed(2)} · ${passLabel}`}
+                aria-label={m.results.table.qualityVisionAria(rubricLabel, score.toFixed(2), passLabel)}
+                title={m.results.table.qualityVisionTitle(rubricLabel, score.toFixed(2), passLabel)}
               >
                 <span className="font-mono text-xs">{rubricLabel}/3</span>
                 <span className="text-[10px] text-[var(--muted)]">·</span>
@@ -412,7 +417,7 @@ export function ResultsTable({
             return (
               <span className="inline-flex items-center gap-1.5">
                 <CircleCheck className="size-4 shrink-0 text-[var(--chart-pass)]" aria-hidden />
-                <span className="text-xs text-[var(--foreground)]">합격</span>
+                <span className="text-xs text-[var(--foreground)]">{m.results.passBadge}</span>
               </span>
             );
           }
@@ -420,7 +425,7 @@ export function ResultsTable({
             return (
               <span className="inline-flex items-center gap-1.5">
                 <CircleX className="size-4 shrink-0 text-[var(--chart-fail)]" aria-hidden />
-                <span className="text-xs text-[var(--foreground)]">불합격</span>
+                <span className="text-xs text-[var(--foreground)]">{m.results.failBadge}</span>
               </span>
             );
           }
@@ -438,8 +443,8 @@ export function ResultsTable({
             columnHelper.display({
               id: "agent",
               header: () => (
-                <span title="멀티턴 에이전트 시나리오의 종료 상태 — 완료(턴수)/정체/예산소진. 상세 지표는 스코어보드 '에이전트' 뷰.">
-                  에이전트
+                <span title={m.results.table.colAgentTitle}>
+                  {m.results.table.colAgent}
                 </span>
               ),
               cell: ({ row }) => {
@@ -450,21 +455,24 @@ export function ResultsTable({
                   return (
                     <span
                       className="inline-flex items-center gap-1 rounded border border-[var(--chart-pass)] bg-[var(--surface)] px-1.5 py-0.5 text-xs text-[var(--chart-pass)]"
-                      title={`완료 · ${turns_to_completion ?? "?"}턴`}
+                      title={m.results.table.agentCompletedTitle(turns_to_completion ?? "?")}
                     >
-                      완료 <span className="font-mono text-[10px] text-[var(--muted)]">{turns_to_completion ?? "?"}턴</span>
+                      {m.results.table.agentCompleted}{" "}
+                      <span className="font-mono text-[10px] text-[var(--muted)]">
+                        {m.results.table.agentTurns(turns_to_completion ?? "?")}
+                      </span>
                     </span>
                   );
                 }
                 const isBudget = agent_completion_reason === "budget_exhausted";
-                const label = isBudget ? "예산소진" : "정체";
+                const label = isBudget ? m.results.table.agentBudget : m.results.table.agentStall;
                 const colorClass = isBudget
                   ? "text-[var(--chart-fail)] border-[var(--chart-fail)]"
                   : "text-[var(--tier-okay)] border-[var(--tier-okay)]";
                 const title =
-                  (isBudget ? "maxTurns 까지 도구 호출만 반복" : "빈 턴으로 정체") +
-                  (thinking_exhausted_budget ? " · 사고가 per-turn 예산 소진" : "") +
-                  (empty_turn_count ? ` · 빈 턴 ${empty_turn_count}` : "");
+                  (isBudget ? m.results.table.agentBudgetTitle : m.results.table.agentStallTitle) +
+                  (thinking_exhausted_budget ? m.results.table.agentThinkingExhausted : "") +
+                  (empty_turn_count ? m.results.table.agentEmptyTurns(empty_turn_count) : "");
                 return (
                   <span
                     className={`inline-flex items-center gap-1 rounded border bg-[var(--surface)] px-1.5 py-0.5 text-xs ${colorClass}`}
@@ -493,16 +501,16 @@ export function ResultsTable({
   return (
     <div>
       <MetricTableIntro />
-      {hasRows ? <p className="mb-2 text-xs text-[var(--muted)]">{resultsSortLine(sorting)}</p> : null}
+      {hasRows ? <p className="mb-2 text-xs text-[var(--muted)]">{resultsSortLine(sorting, m.results.sort)}</p> : null}
       {!hasRows && !hasPending ? (
-        <p className="text-sm text-[var(--muted)]">결과 행이 없습니다.</p>
+        <p className="text-sm text-[var(--muted)]">{m.results.table.noRows}</p>
       ) : (
         <div
           className={`rounded border border-[var(--border)]${shouldScroll ? " overflow-auto" : ""}`}
           style={shouldScroll ? { maxHeight: `calc(${maxRows + 2} * 2.25rem)` } : undefined}
         >
           <table className="w-full min-w-[36rem] text-left text-sm">
-            <caption className="sr-only">시나리오별 벤치 결과</caption>
+            <caption className="sr-only">{m.results.table.caption}</caption>
             <thead className="bg-[var(--surface)] text-[var(--muted)]">
               {table.getHeaderGroups().map((hg) => (
                 <tr key={hg.id}>
@@ -539,7 +547,9 @@ export function ResultsTable({
                     className={`border-t border-[var(--border)] ${onRowClick ? "cursor-pointer hover:bg-[var(--surface)] focus-visible:bg-[var(--surface-2)]" : ""}`}
                     tabIndex={onRowClick ? 0 : undefined}
                     aria-label={
-                      onRowClick ? `${row.original.model_id} ${row.original.scenario} 상세 열기` : undefined
+                      onRowClick
+                        ? m.results.table.rowOpenAria(row.original.model_id, row.original.scenario)
+                        : undefined
                     }
                     onClick={() => onRowClick?.(row.original)}
                     onKeyDown={(e) => {
@@ -594,24 +604,44 @@ export function ResultsTable({
           </table>
           {onRowClick ? (
             <p className="border-t border-[var(--border)] px-2 py-1.5 text-xs text-[var(--muted)]">
-              행을 클릭하거나 Enter 키로 프롬프트·출력 상세를 볼 수 있습니다.
+              {m.results.table.rowClickHint}
             </p>
           ) : null}
         </div>
       )}
       {hasReasoningHidden ? (
         <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
-          <span className="text-amber-500">⚠</span> 표시 행은 <code className="font-mono">messages</code> 라우트에서 추론이 숨겨진 채 측정됐습니다 — TTFT가 "첫 가시 토큰까지(숨은 추론 포함)"라 chat_completions·사고 OFF와 직접 비교하면 부풀려 보입니다. TPS는 provider 실토큰으로 보정됩니다.
+          <span className="text-amber-500">⚠</span> {m.results.table.reasoningHiddenNoteLead}
+          <code className="font-mono">messages</code>
+          {m.results.table.reasoningHiddenNoteTail}
         </p>
       ) : null}
       {hasApproxTps ? (
         <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
-          <code className="font-mono">*</code> TPS는 provider가 usage 토큰 수를 보고하지 않아 <code className="font-mono">chars/4</code> 추정치(approx)로 계산됐습니다 — CJK·코드 응답에서 오차가 큽니다.
+          <code className="font-mono">*</code>
+          {m.results.table.approxNoteMid}
+          <code className="font-mono">chars/4</code>
+          {m.results.table.approxNoteTail}
         </p>
       ) : null}
       {hasEngineProtocolWarning ? (
         <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
-          <span className="text-amber-500">⚠</span> 시나리오 옆 표시 행은 <strong>도구 인자 손상</strong> 또는 <strong>추론 누수</strong>가 감지됐습니다 — LM Studio 엔진 프로토콜 회귀(bug-tracker #1922 등)일 수 있어 점수가 오염됐을 수 있습니다. LM Studio를 0.4.19+로 올리거나 "Use LM Studio Engine Protocol"을 끄고 재측정하세요(<a className="underline" href="/profile#lmstudio-host" target="_blank" rel="noreferrer" title="새 창에서 열림">조치 안내<span className="sr-only">(새 창)</span></a>).
+          <span className="text-amber-500">⚠</span> {m.results.table.engineWarnLead}
+          <strong>{m.results.toolArgsCorrupted}</strong>
+          {m.results.table.engineWarnOr}
+          <strong>{m.results.reasoningLeak}</strong>
+          {m.results.table.engineWarnMid}
+          <a
+            className="underline"
+            href="/profile#lmstudio-host"
+            target="_blank"
+            rel="noreferrer"
+            title={m.results.newWindowTitle}
+          >
+            {m.results.actionGuide}
+            <span className="sr-only">{m.results.newWindowSuffix}</span>
+          </a>
+          {m.results.table.engineWarnTail}
         </p>
       ) : null}
     </div>

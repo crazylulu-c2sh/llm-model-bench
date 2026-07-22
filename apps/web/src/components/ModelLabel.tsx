@@ -1,5 +1,6 @@
 import type { ProviderKind } from "@llm-bench/shared";
 import { cleanModelDisplayName, inferModelVendor, parseModelQuant } from "@llm-bench/shared";
+import { useI18n } from "../i18n";
 import { BackendIcon, VendorIcon, backendLabel } from "./VendorIcon";
 
 /**
@@ -21,6 +22,7 @@ export function ModelLabel({
   showQuant?: boolean;
   className?: string;
 }) {
+  const { m } = useI18n();
   const vendor = inferModelVendor(modelId);
   const display = cleanModelDisplayName(modelId);
   const quant = showQuant ? parseModelQuant(modelId) : null;
@@ -33,13 +35,13 @@ export function ModelLabel({
       {quant ? (
         <span
           className="shrink-0 rounded border border-[var(--border)] px-1 py-px font-mono text-[10px] text-[var(--muted)]"
-          title={`양자화 ${quant}`}
+          title={m.common.quantTitle(quant)}
         >
           {quant}
         </span>
       ) : null}
       {showBackend && provider ? (
-        <span className="shrink-0 text-[var(--muted)]" title={backendLabel(provider)} aria-label={backendLabel(provider)}>
+        <span className="shrink-0 text-[var(--muted)]" title={backendLabel(provider, m)} aria-label={backendLabel(provider, m)}>
           <BackendIcon provider={provider} size={12} />
         </span>
       ) : null}

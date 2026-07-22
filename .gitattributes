@@ -1,0 +1,10 @@
+# i18n 번역 산출물(AI 초안에서 출발, ko가 진실의 원천) — GitHub diff에서 접어 코드 리뷰 집중.
+# 검수는 필요하나 PR 코드 리뷰의 노이즈를 줄인다.
+apps/web/src/i18n/messages/en/** linguist-generated=true
+apps/web/src/i18n/messages/ja/** linguist-generated=true
+apps/web/src/content/profile-doc/en.tsx linguist-generated=true
+apps/web/src/content/profile-doc/ja.tsx linguist-generated=true
+packages/shared/src/scenario-meta/meta.en.ts linguist-generated=true
+packages/shared/src/scenario-meta/meta.ja.ts linguist-generated=true
+docs/harness-knowhow.en.md linguist-generated=true
+docs/harness-knowhow.ja.md linguist-generated=true

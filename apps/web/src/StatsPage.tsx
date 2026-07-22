@@ -15,6 +15,7 @@ import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/S
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
 import { compareModelIdAlphanumeric, compareModelKey, normalizeBaseUrl } from "./lib/model-sort";
 import { buildChartRowsFromBenchState, mergeBenchDetailsToState, type MetricsAgg } from "./stats/hydrateBenchUi";
+import { useI18n, msg } from "./i18n";
 
 function statsItemHasResults(it: StatsModelLatestItem): boolean {
   return (it.scenario_count ?? 0) > 0;
@@ -26,6 +27,7 @@ function asProviderKind(p: string): ProviderKind {
 }
 
 export function StatsPage() {
+  const { m } = useI18n();
   const [listItems, setListItems] = useState<StatsModelLatestItem[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -46,10 +48,7 @@ export function StatsPage() {
         const j = (await res.json()) as StatsModelLatestResponse;
         if (cancelled) return;
         if (j.sqlite_available === false) {
-          toast.warning(
-            j.sqlite_error ??
-              "SQLite를 사용할 수 없습니다. 서버의 DB 파일 경로·권한·잠금 상태를 확인하세요.",
-          );
+          toast.warning(j.sqlite_error ?? msg().stats.sqliteUnavailable);
         }
         setListItems(j.items ?? []);
       } catch (e) {
@@ -99,7 +98,7 @@ export function StatsPage() {
         if (cancelled) return;
         const failed = results.filter((r) => r === null).length;
         if (failed > 0) {
-          toast.warning(`일부 런(${failed}건)을 불러오지 못했습니다.`);
+          toast.warning(msg().stats.someRunsFailed(failed));
         }
         const ok = results.filter(
           (r): r is BenchRunDetailResponse => r != null && r.meta != null && Array.isArray(r.scenarios),
@@ -288,22 +287,22 @@ export function StatsPage() {
   return (
     <>
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
-        <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">저장된 모델 (최신 런 기준)</h2>
+        <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">{m.stats.savedModelsTitle}</h2>
         <p className="mb-3 text-xs text-[var(--muted)]">
-          (model_id + Base URL) 조합마다 SQLite에 기록된 가장 최근 완료 런입니다. 시나리오 측정 집계가 없는 런은 선택할 수 없습니다.
+          {m.stats.savedModelsDesc}
         </p>
         {listLoading ? (
           <div role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]">
             <Loader2 className="size-4 animate-spin" aria-hidden />
-            목록 불러오는 중…
+            {m.stats.listLoading}
           </div>
         ) : listItems.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">표시할 완료 런이 없습니다. 벤치를 먼저 실행하세요.</p>
+          <p className="text-sm text-[var(--muted)]">{m.stats.noRuns}</p>
         ) : (
           <>
             {selectableCount === 0 ? (
               <p className="mb-3 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--muted)]">
-                아래 런에는 시나리오 측정 집계가 없어 선택할 수 없습니다. 벤치가 중단되었거나 저장 전 오류가 있었을 수 있습니다.
+                {m.stats.noSelectable}
               </p>
             ) : null}
             <div className="mb-3 flex flex-wrap gap-2">
@@ -312,12 +311,12 @@ export function StatsPage() {
                 className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium shadow-sm"
                 onClick={() => setSelectedIds([])}
               >
-                선택 해제
+                {m.stats.deselectAll}
               </button>
               {detailLoading ? (
                 <span role="status" className="inline-flex items-center gap-1 text-xs text-[var(--muted)]">
                   <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                  상세 로드 중…
+                  {m.stats.detailLoading}
                 </span>
               ) : null}
             </div>
@@ -341,13 +340,13 @@ export function StatsPage() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
           <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
             <Activity className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-            메트릭 차트
+            {m.stats.metricChartTitle}
           </h2>
           <HighlightToggle on={hlPreview} onChange={setHlPreview} />
         </div>
         {chartModelIds.length > 0 ? (
           <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
-            <span className="text-xs font-medium text-[var(--muted)]">차트 모델</span>
+            <span className="text-xs font-medium text-[var(--muted)]">{m.stats.chartModels}</span>
             {chartModelIds.map((id) => (
               <label
                 key={id}
@@ -371,24 +370,24 @@ export function StatsPage() {
           </div>
         ) : null}
         {!selectionKey ? (
-          <p className="py-8 text-center text-sm text-[var(--muted)]">위에서 모델을 하나 이상 선택하세요.</p>
+          <p className="py-8 text-center text-sm text-[var(--muted)]">{m.stats.selectAtLeastOne}</p>
         ) : chartRows.length > 0 && filteredChartRows.length === 0 ? (
-          <p className="py-8 text-center text-sm text-[var(--muted)]">표시할 모델을 하나 이상 선택하세요.</p>
+          <p className="py-8 text-center text-sm text-[var(--muted)]">{m.stats.selectAtLeastOneVisible}</p>
         ) : filteredChartRows.length > 0 ? (
           <BenchCharts chartRows={filteredChartRows} onBarPayload={(row) => openFromChartRow(row)} />
         ) : detailLoading ? (
-          <p className="py-8 text-center text-sm text-[var(--muted)]">차트 데이터를 불러오는 중…</p>
+          <p className="py-8 text-center text-sm text-[var(--muted)]">{m.stats.chartLoading}</p>
         ) : (
-          <p className="py-8 text-center text-sm text-[var(--muted)]">선택한 런에 시나리오 집계가 없습니다.</p>
+          <p className="py-8 text-center text-sm text-[var(--muted)]">{m.stats.noScenarioAgg}</p>
         )}
       </section>
 
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
-        <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">결과 테이블</h2>
+        <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">{m.stats.resultsTableTitle}</h2>
         {rows.length > 0 ? (
           <ResultsTable rows={rows} onRowClick={(r) => openDrawerForRow(r)} />
         ) : (
-          <p className="text-sm text-[var(--muted)]">선택한 런의 결과가 없습니다.</p>
+          <p className="text-sm text-[var(--muted)]">{m.stats.noResults}</p>
         )}
       </section>
 

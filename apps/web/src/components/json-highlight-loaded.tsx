@@ -1,6 +1,7 @@
 import { forwardRef } from "react";
 import { Highlight, themes } from "prism-react-renderer";
 import Prism from "prismjs";
+import { useI18n } from "../i18n";
 // Prism 언어 등록 — 의존 순서 고정 (임의 재정렬 금지):
 // typescript(→javascript 내장), jsx(→markup·javascript 내장), tsx(→jsx+typescript 선행 필수)
 import "prismjs/components/prism-typescript";
@@ -22,6 +23,7 @@ export const HighlightCode = forwardRef<
     maxHeight?: number;
   }
 >(function HighlightCode({ code, language, maxHeight = 256 }, ref) {
+  const { m } = useI18n();
   const theme = pickTheme();
   return (
     <Highlight prism={Prism} theme={theme} code={code} language={language}>
@@ -29,7 +31,7 @@ export const HighlightCode = forwardRef<
         <pre
           ref={ref}
           tabIndex={0}
-          aria-label="코드 내용 (스크롤 가능)"
+          aria-label={m.common.codeScrollable}
           className={`${className} max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded border border-[var(--border)] font-mono text-xs leading-relaxed`}
           style={{
             ...style,
