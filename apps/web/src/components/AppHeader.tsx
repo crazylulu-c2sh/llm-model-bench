@@ -11,6 +11,7 @@ import {
   Settings2,
   Sun,
   SunMoon,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
@@ -29,6 +30,7 @@ const NAV_TABS: Array<{
   { to: "/profile", label: "프로파일", icon: Settings2 },
   { to: "/provider-monitor", label: "프로바이더 모니터", icon: Cpu },
   { to: "/scenarios", label: "시나리오", icon: BookOpen },
+  { to: "/harness", label: "하네스", icon: Wrench },
 ];
 
 function ThemeIcon({ choice }: { choice: ThemeChoice }) {
@@ -49,6 +51,7 @@ function subtitleForPath(pathname: string): string {
   if (pathname === "/provider-monitor") return "로드된 모델 · 메모리·GPU 모니터 · lms CLI 조작";
   if (pathname === "/profile") return "모델 패밀리별 샘플링·컨텍스트·런타임 적용 규칙";
   if (pathname === "/scenarios") return "시나리오 목적·도구·채점·프롬프트 미리보기";
+  if (pathname === "/harness") return "벤치/스트레스 하네스 설계·기법 — 다른 프로젝트 참고용";
   if (pathname === "/stress") return "동시 사용자 부하 · 단계별 TPS · 라이브 워커 모니터";
   return "로컬 프로바이더 감지 · 단일 모델 시나리오 벤치";
 }

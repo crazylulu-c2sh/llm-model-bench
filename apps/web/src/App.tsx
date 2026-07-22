@@ -12,7 +12,7 @@ import {
   resolveBenchApiRoutes,
   resolveBenchProfile,
 } from "@llm-bench/shared";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { toast, Toaster } from "sonner";
 import type { SortingState } from "@tanstack/react-table";
@@ -70,6 +70,8 @@ import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
 import { ProfileDocPage } from "./ProfileDocPage";
 import { ProviderMonitorPage } from "./ProviderMonitorPage";
+// react-markdown 등을 메인 번들에서 분리 — /harness 첫 방문 시에만 로드
+const HarnessDocPage = lazy(() => import("./HarnessDocPage"));
 import { ScenariosDocPage } from "./ScenariosDocPage";
 import { StatsPage } from "./StatsPage";
 import { StressPage } from "./StressPage";
@@ -2316,6 +2318,20 @@ export function App() {
           <Route path="/profile" element={<ProfileDocPage />} />
           <Route path="/provider-monitor" element={<ProviderMonitorPage />} />
           <Route path="/scenarios" element={<ScenariosDocPage />} />
+          <Route
+            path="/harness"
+            element={
+              <Suspense
+                fallback={
+                  <p className="text-sm text-[var(--muted)]" aria-busy="true">
+                    문서 로딩 중…
+                  </p>
+                }
+              >
+                <HarnessDocPage />
+              </Suspense>
+            }
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </ErrorBoundary>

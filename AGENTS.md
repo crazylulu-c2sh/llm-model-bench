@@ -20,3 +20,4 @@
   - 채점: 0~3 루브릭 → `score: 0|0.33|0.67|1`, pass는 `score >= 0.67`. `packages/shared/src/scenarios-preview.ts#rubricToScore` 단일 호출 지점.
   - LLM-as-Judge: `LLM_JUDGE_ENABLED=1` + `ANTHROPIC_API_KEY` 설정 시에만 meme/wireframe 시나리오의 judge가 호출됨. 비활성 시 prefilter 통과 + rubric 1(pass: false)로 기록.
   - 클라이언트는 `POST /api/bench/stream` body에 `scenarioIds: string[]`를 명시적으로 전달. 미전송 시 서버는 `DEFAULT_SCENARIO_IDS`(텍스트 8개)만 실행.
+- **하네스 노하우 문서(`docs/harness-knowhow.md`, 웹 `/harness` 탭):** 벤치/스트레스 하네스 설계·기법을 다른 프로젝트가 참고할 수 있게 한/영 병기로 정리한 공개 문서입니다. 하네스 API(`apps/server/src/bench-runner.ts`, `openai-stream.ts`, `anthropic-stream.ts`, `stress-runner.ts`, `agent-loop.ts`, `contention-probe.ts`, `memory-preflight.ts` 등)를 바꾸는 PR에서는 이 문서에서 해당 함수/파일명을 검색해 영향 섹션의 영문 서술과 한국어 보충을 함께 갱신하세요.

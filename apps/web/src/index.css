@@ -121,6 +121,12 @@ html {
   html {
     scroll-padding-top: 5rem;
   }
+  /* 하네스 문서(/harness): xl+에서는 스크롤-스파이 사이드바가 목차를 대신하므로
+     마크다운 인라인 목차(#목차--contents)를 숨긴다. (모바일·GitHub 원본에서는 그대로 노출) */
+  #목차--contents,
+  #목차--contents + ul {
+    display: none;
+  }
 }
 
 /* 네이티브 select 외형 통일 (Safari 네이티브 높이/chevron 제거). 배경/글자색은 per-element 유틸리티에 위임. */
