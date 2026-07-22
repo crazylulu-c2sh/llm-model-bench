@@ -65,6 +65,7 @@ import {
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
 import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
 import { AppHeader, pageTitleForPath } from "./components/AppHeader";
+import { useI18n } from "./i18n";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
@@ -162,18 +163,19 @@ const BENCH_THROUGHPUT_MAX_TOKENS = 512;
 
 export function App() {
   const { choice: themeChoice, setChoice: setThemeChoice, resolved: themeResolved } = useTheme();
+  const { m } = useI18n();
   const { pathname } = useLocation();
   const onBenchPage = pathname === "/";
   const isFirstRouteRef = useRef(true);
   useEffect(() => {
-    document.title = pageTitleForPath(pathname);
+    document.title = pageTitleForPath(pathname, m);
     if (isFirstRouteRef.current) {
       // 첫 로드 시 포커스 강탈 금지 — 라우트 '변경' 시에만 본문으로 포커스 이동
       isFirstRouteRef.current = false;
       return;
     }
     document.getElementById("main")?.focus({ preventScroll: false });
-  }, [pathname]);
+  }, [pathname, m]);
   const [boot] = useState(() => readInitialUiState());
   const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
   const [apiKey, setApiKey] = useState(boot.apiKey);
