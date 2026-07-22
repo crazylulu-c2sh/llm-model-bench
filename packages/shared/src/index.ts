@@ -34,7 +34,13 @@ export {
   type StressWorkloadId,
 } from "./scenarios-preview";
 
-export { getScenarioBenchMeta, type ScenarioBenchMeta } from "./scenario-meta";
+export {
+  getScenarioBenchMeta,
+  getScenarioBenchMetaKoWire,
+  type ScenarioBenchMeta,
+  type ScenarioBenchMetaText,
+  type BenchLocale,
+} from "./scenario-meta";
 
 export {
   AGENT_AES_GROUND_TRUTH,

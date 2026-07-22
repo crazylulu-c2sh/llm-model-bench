@@ -152,7 +152,7 @@ const BENCH_THROUGHPUT_MAX_TOKENS = 512;
 
 export function App() {
   const { choice: themeChoice, setChoice: setThemeChoice, resolved: themeResolved } = useTheme();
-  const { m } = useI18n();
+  const { m, locale } = useI18n();
   const { pathname } = useLocation();
   const onBenchPage = pathname === "/";
   const isFirstRouteRef = useRef(true);
@@ -1630,7 +1630,7 @@ export function App() {
                     {(PUBLIC_SCENARIO_IDS as string[])
                       .filter((id) => !isVisionScenario(id))
                       .map((id) => {
-                        const meta = getScenarioBenchMeta(id);
+                        const meta = getScenarioBenchMeta(id, locale);
                         const checked = selectedScenarioIds.includes(id);
                         return (
                           <label key={id} className="flex items-start gap-2 text-xs text-[var(--muted)]">
@@ -1642,7 +1642,7 @@ export function App() {
                             />
                             <span>
                               <span className="font-mono text-[var(--foreground)]">{id}</span>
-                              {meta ? <span className="ml-1">— {meta.purposeKo.slice(0, 60)}</span> : null}
+                              {meta ? <span className="ml-1">— {meta.purpose.slice(0, 60)}</span> : null}
                             </span>
                           </label>
                         );
@@ -1658,7 +1658,7 @@ export function App() {
                   </div>
                   <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                     {(VISION_SCENARIO_IDS as string[]).map((id) => {
-                      const meta = getScenarioBenchMeta(id);
+                      const meta = getScenarioBenchMeta(id, locale);
                       const checked = selectedScenarioIds.includes(id);
                       return (
                         <label key={id} className="flex items-start gap-2 text-xs text-[var(--muted)]">
@@ -1670,7 +1670,7 @@ export function App() {
                           />
                           <span>
                             <span className="font-mono text-[var(--foreground)]">{id}</span>
-                            {meta ? <span className="ml-1">— {meta.purposeKo.slice(0, 60)}</span> : null}
+                            {meta ? <span className="ml-1">— {meta.purpose.slice(0, 60)}</span> : null}
                           </span>
                         </label>
                       );

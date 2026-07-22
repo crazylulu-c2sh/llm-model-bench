@@ -4,6 +4,7 @@ import {
   isVisionScenario,
   partitionThinkingBlocks,
   scoreToRubric,
+  type BenchLocale,
 } from "@llm-bench/shared";
 import type { Messages } from "../i18n";
 import type { ScenarioDetailPayload } from "./ScenarioDetailDrawer";
@@ -31,9 +32,13 @@ function measuredRunSuffix(payload: ScenarioDetailPayload, m: Messages): string 
  * 모델 출력은 앱의 정규화 단일 소스(`partitionThinkingBlocks`)로 사고 블록을 분리하며,
  * 채점에 쓰이는 최종 응답(사고 제거 + trim)을 "모델 출력" 섹션에 담는다.
  */
-export function buildScenarioDetailClipboardText(payload: ScenarioDetailPayload, m: Messages): string {
+export function buildScenarioDetailClipboardText(
+  payload: ScenarioDetailPayload,
+  m: Messages,
+  locale: BenchLocale,
+): string {
   const { thinking, response } = partitionThinkingBlocks(payload.outputText ?? "");
-  const benchMeta = getScenarioBenchMeta(payload.scenario);
+  const benchMeta = getScenarioBenchMeta(payload.scenario, locale);
   const c = m.results.clipboard;
 
   const lines: string[] = [];
@@ -56,8 +61,8 @@ export function buildScenarioDetailClipboardText(payload: ScenarioDetailPayload,
   }
 
   if (benchMeta) {
-    lines.push("", c.purposeHeading, benchMeta.purposeKo);
-    lines.push("", c.criteriaHeading, benchMeta.criteriaKo);
+    lines.push("", c.purposeHeading, benchMeta.purpose);
+    lines.push("", c.criteriaHeading, benchMeta.criteria);
   }
 
   lines.push("", "## System Prompt", payload.systemPrompt.trim() || "—");

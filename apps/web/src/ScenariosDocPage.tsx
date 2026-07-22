@@ -15,6 +15,7 @@ import { useLocation } from "react-router-dom";
 import { HighlightToggle, JsonCodeBlock } from "./components/JsonCodeBlock";
 import { VisionImageModal } from "./components/VisionImageModal";
 import { defaultScenarioBenchRequestPreview } from "./lib/scenario-prompt-preview";
+import { useI18n } from "./i18n";
 
 function formatRequestJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -43,7 +44,8 @@ function ScenarioArticle({
   baseUrl: string | undefined;
   onImageClick: (url: string, scenarioId: string, category?: string) => void;
 }) {
-  const meta = getScenarioBenchMeta(id);
+  const { locale } = useI18n();
+  const meta = getScenarioBenchMeta(id, locale);
   const previewOpts = useMemo(
     () => ({
       referenceIso: calendarReferenceIso,
@@ -100,34 +102,34 @@ function ScenarioArticle({
         <div className="mt-3 space-y-3 text-sm">
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">목적</h4>
-            <p className="mt-1 leading-relaxed text-[var(--muted)]">{meta.purposeKo}</p>
+            <p className="mt-1 leading-relaxed text-[var(--muted)]">{meta.purpose}</p>
           </div>
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">합격 / 불합격 기준</h4>
-            <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.criteriaKo}</p>
+            <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.criteria}</p>
           </div>
-          {meta.promptNotesKo ? (
+          {meta.promptNotes ? (
             <div>
               <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">프롬프트·주입</h4>
-              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.promptNotesKo}</p>
+              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.promptNotes}</p>
             </div>
           ) : null}
-          {meta.toolsSummaryKo ? (
+          {meta.toolsSummary ? (
             <div>
               <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">도구</h4>
-              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.toolsSummaryKo}</p>
+              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.toolsSummary}</p>
             </div>
           ) : null}
-          {meta.routesKo ? (
+          {meta.routes ? (
             <div>
               <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">API 라우트</h4>
-              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.routesKo}</p>
+              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.routes}</p>
             </div>
           ) : null}
-          {meta.implementationKo ? (
+          {meta.implementation ? (
             <div>
               <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">채점·실행</h4>
-              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.implementationKo}</p>
+              <p className="mt-1 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.implementation}</p>
             </div>
           ) : null}
           <div>
@@ -200,7 +202,8 @@ function ScenarioArticle({
  * 요청 미리보기에 묶여 있어 agent_* 빌트인에 못 쓴다 — 여기선 레지스트리 메타(목적·기준·도구·라우트)만 표시한다.
  */
 function AgentScenarioArticle({ id }: { id: string }) {
-  const meta = getScenarioBenchMeta(id);
+  const { locale } = useI18n();
+  const meta = getScenarioBenchMeta(id, locale);
   return (
     <article id={id} className="scroll-mt-20 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
       <h4 className="inline-flex items-center gap-2 font-mono text-sm font-semibold text-[var(--foreground)]">
@@ -213,22 +216,22 @@ function AgentScenarioArticle({ id }: { id: string }) {
         <dl className="mt-2 space-y-2 text-xs leading-relaxed text-[var(--muted)]">
           <div>
             <dt className="font-semibold text-[var(--foreground)]">목적</dt>
-            <dd>{meta.purposeKo}</dd>
+            <dd>{meta.purpose}</dd>
           </div>
           <div>
             <dt className="font-semibold text-[var(--foreground)]">합격 기준</dt>
-            <dd>{meta.criteriaKo}</dd>
+            <dd>{meta.criteria}</dd>
           </div>
-          {meta.toolsSummaryKo ? (
+          {meta.toolsSummary ? (
             <div>
               <dt className="font-semibold text-[var(--foreground)]">도구</dt>
-              <dd>{meta.toolsSummaryKo}</dd>
+              <dd>{meta.toolsSummary}</dd>
             </div>
           ) : null}
-          {meta.routesKo ? (
+          {meta.routes ? (
             <div>
               <dt className="font-semibold text-[var(--foreground)]">라우트</dt>
-              <dd>{meta.routesKo}</dd>
+              <dd>{meta.routes}</dd>
             </div>
           ) : null}
         </dl>

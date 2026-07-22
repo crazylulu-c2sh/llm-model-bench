@@ -49,7 +49,7 @@ export function ScenarioDetailDrawer({
   hlPreview: boolean;
   onClose: () => void;
 }) {
-  const { m } = useI18n();
+  const { m, locale } = useI18n();
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -71,7 +71,7 @@ export function ScenarioDetailDrawer({
 
   if (!open || !payload) return null;
 
-  const benchMeta = getScenarioBenchMeta(payload.scenario);
+  const benchMeta = getScenarioBenchMeta(payload.scenario, locale);
   const { thinking, response } = partitionThinkingBlocks(payload.outputText ?? "");
   const showThinkingSplit = thinking.length > 0;
 
@@ -102,7 +102,7 @@ export function ScenarioDetailDrawer({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <CopyButton
-              text={buildScenarioDetailClipboardText(payload, m)}
+              text={buildScenarioDetailClipboardText(payload, m, locale)}
               label={m.results.detail.copyAll}
               copiedLabel={m.results.detail.copied}
               title={m.results.detail.copyAllTitle}
@@ -214,11 +214,11 @@ export function ScenarioDetailDrawer({
               <div className="sm:col-span-2 space-y-2 rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-xs">
                 <div>
                   <span className="font-semibold text-[var(--foreground)]">{m.results.detail.purposeTitle}</span>
-                  <p className="mt-0.5 leading-relaxed text-[var(--muted)]">{benchMeta.purposeKo}</p>
+                  <p className="mt-0.5 leading-relaxed text-[var(--muted)]">{benchMeta.purpose}</p>
                 </div>
                 <div>
                   <span className="font-semibold text-[var(--foreground)]">{m.results.detail.criteriaTitle}</span>
-                  <p className="mt-0.5 whitespace-pre-line leading-relaxed text-[var(--muted)]">{benchMeta.criteriaKo}</p>
+                  <p className="mt-0.5 whitespace-pre-line leading-relaxed text-[var(--muted)]">{benchMeta.criteria}</p>
                 </div>
               </div>
             ) : (

@@ -23,7 +23,7 @@ function payload(over: Partial<ScenarioDetailPayload> = {}): ScenarioDetailPaylo
 
 describe("buildScenarioDetailClipboardText", () => {
   it("includes header, metadata, purpose/criteria, and both prompts", () => {
-    const text = buildScenarioDetailClipboardText(payload(), ko);
+    const text = buildScenarioDetailClipboardText(payload(), ko, "ko");
     expect(text).toContain("# 시나리오 상세 — code_sort_js / chat_completions");
     expect(text).toContain("- 시나리오: code_sort_js");
     expect(text).toContain("- API: chat_completions");
@@ -40,7 +40,7 @@ describe("buildScenarioDetailClipboardText", () => {
   });
 
   it("normalizes model output: no thinking → single '모델 출력 (정규화)' section (trimmed body)", () => {
-    const text = buildScenarioDetailClipboardText(payload(), ko);
+    const text = buildScenarioDetailClipboardText(payload(), ko, "ko");
     expect(text).toContain("## 모델 출력 (정규화) (측정 3/3)");
     expect(text).toContain("function sortNums(arr){}");
     // 사고 블록이 없으면 별도 사고/최종 응답 분리 없음
@@ -52,6 +52,7 @@ describe("buildScenarioDetailClipboardText", () => {
     const text = buildScenarioDetailClipboardText(
       payload({ outputText: "<think>secret reasoning</think>\n\nfinal answer" }),
       ko,
+      "ko",
     );
     expect(text).toContain("## 사고 블록");
     expect(text).toContain("secret reasoning");
@@ -66,6 +67,7 @@ describe("buildScenarioDetailClipboardText", () => {
     const text = buildScenarioDetailClipboardText(
       payload({ modelId: undefined, reasoningLeakedIntoContent: true }),
       ko,
+      "ko",
     );
     expect(text).not.toContain("- 모델:");
     expect(text).toContain("⚠");

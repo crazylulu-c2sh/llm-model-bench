@@ -19,7 +19,7 @@ export function ScenarioGuideCards({
   running?: boolean;
   touchedScenarioIds?: readonly string[];
 }) {
-  const { m } = useI18n();
+  const { m, locale } = useI18n();
   const touched = touchedScenarioIds ?? [];
   const baseUrl =
     typeof window !== "undefined" ? window.location.origin : undefined;
@@ -35,7 +35,7 @@ export function ScenarioGuideCards({
       </p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {PUBLIC_SCENARIO_IDS.map((id) => {
-          const meta = getScenarioBenchMeta(id);
+          const meta = getScenarioBenchMeta(id, locale);
           const active = Boolean(currentScenario && currentScenario === id);
           const wasTouched = running && touched.includes(id);
           const cardBench =
@@ -92,12 +92,12 @@ export function ScenarioGuideCards({
               ) : null}
               {meta ? (
                 <>
-                  <p className="mt-2 leading-relaxed text-[var(--muted)]">{meta.purposeKo}</p>
+                  <p className="mt-2 leading-relaxed text-[var(--muted)]">{meta.purpose}</p>
                   <details className="mt-2 border-t border-[var(--border)] pt-2">
                     <summary className="cursor-pointer select-none font-semibold text-[var(--foreground)]">
                       {m.bench.passFailCriteria}
                     </summary>
-                    <p className="mt-1.5 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.criteriaKo}</p>
+                    <p className="mt-1.5 whitespace-pre-line leading-relaxed text-[var(--muted)]">{meta.criteria}</p>
                   </details>
                 </>
               ) : (
