@@ -60,6 +60,14 @@ test.describe("LLM Model Bench UI", () => {
     await expect(page.getByRole("link", { name: /docs\/harness-knowhow\.md/ })).toBeVisible();
     await expect(page.getByRole("heading", { name: /Harness Know-How/ })).toBeVisible();
     await expect(navLink(page, "하네스")).toHaveAttribute("aria-current", "page");
+    // 스크롤-스파이 사이드바(xl+): 기본 Desktop Chrome 뷰포트(1280px)에서 노출
+    const toc = page.getByRole("navigation", { name: "이 페이지 목차" });
+    await expect(toc).toBeVisible();
+    await expect(toc.getByRole("link", { name: /Architecture & Event Model/ })).toBeVisible();
+    // 스크롤-스파이: 문서 하단으로 스크롤하면 마지막 섹션(부록 B) 링크가 활성(aria-current)이 된다.
+    // (heading remount로 observer가 죽으면 활성 표시가 갱신되지 않으므로 이 단언이 회귀를 잡는다.)
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await expect(toc.getByRole("link", { name: /부록 B\. 레퍼런스/ })).toHaveAttribute("aria-current", "location");
   });
 
   test("탭 클릭으로 홈 복귀", async ({ page, baseURL }) => {
