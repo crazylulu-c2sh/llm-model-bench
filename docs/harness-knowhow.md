@@ -20,12 +20,14 @@
 - [10. Run persistence & regression detection / 런 영속화와 회귀 탐지](#10-run-persistence--regression-detection--런-영속화와-회귀-탐지)
 - [11. Provider Gotchas / 프로바이더 함정](#11-provider-gotchas--프로바이더-함정)
 - [12. How to reuse (checklist) / 재사용 방법 (체크리스트)](#12-how-to-reuse-checklist--재사용-방법-체크리스트)
+- [부록 A. 용어 설명 / Appendix A. Glossary](#부록-a-용어-설명--appendix-a-glossary)
+- [부록 B. 레퍼런스 / Appendix B. References](#부록-b-레퍼런스--appendix-b-references)
 
 ---
 
 ## 1. Architecture & Event Model / 아키텍처와 이벤트 모델
 
-**Reference (EN).** This is a pnpm workspace monorepo of three deployable apps that all import one shared library. `@llm-bench/server` (`apps/server`) is a Hono HTTP service that owns benchmark orchestration and SQLite persistence; `@llm-bench/web` (`apps/web`) is a React SPA; `@llm-bench/mcp` (`apps/mcp`) exposes the same benchmarks as Model Context Protocol tools. `@llm-bench/shared` (`packages/shared/src/index.ts`) is the single source of truth: every wire type — `StreamEvent`, `BenchRunMeta`, `BenchResult`, the request bodies (`BenchStreamBodySchema`), and the scoring logic — is defined once as a Zod schema and inferred into a TS type via `z.infer`, so all three apps validate against identical shapes. The reusable core is `runBench` in `apps/server/src/bench-runner.ts`: it is an `async function*` that *yields* a stream of typed events (`AsyncGenerator<StreamEvent>`) instead of writing to a socket. Orchestration is thus fully decoupled from transport — the HTTP route adapts each yielded event into an SSE frame, tests iterate the generator directly, and the MCP server consumes the same SSE endpoint over the network.
+**Reference (EN).** This is a pnpm workspace monorepo of three deployable apps that all import one shared library. `@llm-bench/server` (`apps/server`) is a Hono HTTP service that owns benchmark orchestration and SQLite persistence; `@llm-bench/web` (`apps/web`) is a React SPA; `@llm-bench/mcp` (`apps/mcp`) exposes the same benchmarks as Model Context Protocol[^mcp-spec] tools. `@llm-bench/shared` (`packages/shared/src/index.ts`) is the single source of truth: every wire type — `StreamEvent`, `BenchRunMeta`, `BenchResult`, the request bodies (`BenchStreamBodySchema`), and the scoring logic — is defined once as a Zod schema and inferred into a TS type via `z.infer`, so all three apps validate against identical shapes. The reusable core is `runBench` in `apps/server/src/bench-runner.ts`: it is an `async function*` that *yields* a stream of typed events (`AsyncGenerator<StreamEvent>`) instead of writing to a socket. Orchestration is thus fully decoupled from transport — the HTTP route adapts each yielded event into an SSE frame, tests iterate the generator directly, and the MCP server consumes the same SSE endpoint over the network.
 
 **보충 설명 (KO).** 핵심 재사용 패턴은 "제너레이터가 이벤트를 yield하고, 소비자가 전송 방식을 정한다"는 분리입니다. `runBench`는 SSE·WebSocket·HTTP 같은 전송 계층을 전혀 모릅니다. 그저 순서대로 `StreamEvent`를 yield할 뿐이고, 어떤 소비자든 `for await (const ev of runBench(...))`로 받아 원하는 형태(SSE 프레임, DB insert, 테스트 assertion)로 어댑트합니다. 덕분에 같은 오케스트레이션 코드가 (1) 프로덕션 SSE 스트리밍, (2) SQLite 영속화, (3) 단위 테스트에서 그대로 재사용됩니다. 이벤트 스키마를 `shared` 패키지에 Zod discriminated union으로 두는 것이 이 구조의 계약(contract)입니다.
 
@@ -176,7 +178,7 @@ Both provider adapters consume an SSE `ReadableStream` incrementally — `consum
 ### Truncation detection
 
 - OpenAI stores the last non-empty `choices[0].finish_reason` in `finishReason`; `"length"` means the `max_tokens` ceiling was hit (truncated). Anthropic stores `message_delta.delta.stop_reason` in `stopReason`; `"max_tokens"` is the truncation signal.
-- Both fields can be `null` on OpenAI-compatible servers that omit them, so treat `null` as "unknown", not "clean stop". Note Anthropic tracks stream *completion* separately (`sawMessageDelta` from `message_stop`) from the *reason*.
+- Both fields can be `null` on OpenAI-compatible servers that omit them, so treat `null` as "unknown", not "clean stop". Note Anthropic tracks stream *completion* separately (`sawMessageDelta` from `message_stop`) from the *reason*.[^oai-compat][^anthropic-stream]
 
 ### `tool_call` merging by index
 
@@ -301,7 +303,7 @@ Note `required_bytes` in the emitted event is the **raw** `size_bytes` (pre-over
 
 ## 5. Provider load/unload & TTL / 프로바이더 로드·언로드와 TTL
 
-**Reference.** Local model backends differ in *how* you tell them to hold a model in memory for a bounded window, so the harness gates this behind a single capability check, `providerSupportsLoadTtl(kind)`, and applies the TTL per-provider. LM Studio accepts a `ttl` (in **seconds**) directly on its load call, giving idle auto-eviction. Ollama uses `keep_alive`, but with a sharp caveat: its OpenAI-compatible `/v1/chat/completions` endpoint — the one the benchmark actually drives inference through — **ignores `keep_alive` and silently resets the model's lifetime to the default 5 minutes on every request** ([ollama#11458](https://github.com/ollama/ollama/issues/11458)). The reusable workaround is to apply the desired TTL out-of-band via Ollama's *native* API twice: once as a preload before the run, and once again after the run to re-assert the intended keep-alive.
+**Reference.** Local model backends differ in *how* you tell them to hold a model in memory for a bounded window, so the harness gates this behind a single capability check, `providerSupportsLoadTtl(kind)`, and applies the TTL per-provider. LM Studio accepts a `ttl` (in **seconds**) directly on its load call, giving idle auto-eviction. Ollama uses `keep_alive`, but with a sharp caveat: its OpenAI-compatible `/v1/chat/completions` endpoint — the one the benchmark actually drives inference through — **ignores `keep_alive` and silently resets the model's lifetime to the default 5 minutes on every request** ([ollama#11458](https://github.com/ollama/ollama/issues/11458)). The reusable workaround is to apply the desired TTL out-of-band via Ollama's *native* API twice: once as a preload before the run, and once again after the run to re-assert the intended keep-alive.[^lms-rest][^ollama-api]
 
 **보충 설명.** 두 백엔드는 "모델을 메모리에 얼마나 붙잡아 둘지"를 지정하는 방식이 다릅니다. 그래서 하네스는 `providerSupportsLoadTtl()` 하나로 지원 여부를 판별하고, 실제 적용은 프로바이더별로 분기합니다. 핵심 함정은 Ollama의 `/v1/chat/completions`가 `keep_alive`를 무시하고 요청마다 기본 5분으로 리셋한다는 점이며, 이를 네이티브 `/api/generate`로 **preload + 벤치 종료 후 재적용**하여 우회합니다. `openai_compatible`·`manual` 프로바이더는 TTL 개념이 없어 값이 있어도 무시됩니다.
 
@@ -346,7 +348,7 @@ export async function ollamaKeepAliveLoad(
 
 ## 6. Contention / Pollution Guard / 오염 가드 (경합 방지)
 
-**Reference (English).** A benchmark that measures latency and throughput on a shared GPU is only trustworthy if no *other* inference runs concurrently — a foreign generation can inflate TTFT and depress tokens/sec, silently poisoning the numbers. The reusable technique here is a **multi-signal idle gate** that never trusts a single probe: it fuses GPU utilization (`nvidia-smi`), Prometheus `/metrics` request gauges (vLLM / llama.cpp / TGI), the `lms ps --json` activity view (LM Studio), and Ollama `expires_at` churn. The key structural insight is **two sampling modes** that avoid *self*-contention (our own load lighting up the GPU): an idle sampler (`sampleIdle`) used only when no request of ours is in-flight, and an in-flight sampler (`sampleInFlight`) used only *during* our streaming that ignores GPU util (which we ourselves cause) and instead counts request-queue deltas above our known contribution of 1. This is wired into three phases — a `pre_bench` gate, a `between_iterations` gate, and a background in-flight monitor that aborts and re-measures on detection. See `apps/server/src/contention-probe.ts` and its integration in `apps/server/src/bench-runner.ts`.
+**Reference (English).** A benchmark that measures latency and throughput on a shared GPU is only trustworthy if no *other* inference runs concurrently — a foreign generation can inflate TTFT and depress tokens/sec, silently poisoning the numbers. The reusable technique here is a **multi-signal idle gate** that never trusts a single probe: it fuses GPU utilization (`nvidia-smi`), Prometheus `/metrics` request gauges (vLLM[^vllm-metrics] / llama.cpp[^llamacpp-server] / TGI[^tgi-metrics]), the `lms ps --json` activity view (LM Studio), and Ollama `expires_at` churn. The key structural insight is **two sampling modes** that avoid *self*-contention (our own load lighting up the GPU): an idle sampler (`sampleIdle`) used only when no request of ours is in-flight, and an in-flight sampler (`sampleInFlight`) used only *during* our streaming that ignores GPU util (which we ourselves cause) and instead counts request-queue deltas above our known contribution of 1. This is wired into three phases — a `pre_bench` gate, a `between_iterations` gate, and a background in-flight monitor that aborts and re-measures on detection. See `apps/server/src/contention-probe.ts` and its integration in `apps/server/src/bench-runner.ts`.
 
 **보충 설명 (한국어).** 공유 GPU에서 지연·처리량을 재는 벤치는 다른 추론이 끼어들면 수치가 오염됩니다. 핵심은 신호 하나에 의존하지 않는 **다중 신호 유휴 게이트**입니다. `sampleIdle`은 *우리 요청이 in-flight가 아닐 때만* 호출되어 GPU util·`/metrics`·`lms ps`를 신뢰하고(활성 신호 하나라도 임계 초과면 대기), `sampleInFlight`는 *우리 스트리밍 중에만* 호출되어 우리가 유발한 GPU util은 무시하고 서버 요청 수 게이지(우리 기여=1을 알기에 `running≥2`부터 경합)·타 모델 generating·로드 ID churn·Ollama `expires_at` 전진으로 외부 동시 추론을 감지합니다. `manual` provider면 가드는 자동 비활성화됩니다(`resolveContentionConfig`).
 
@@ -354,7 +356,7 @@ export async function ollamaKeepAliveLoad(
 - **Idle vs in-flight thresholds:** idle 모드는 `metrics.running >= 1 || metrics.waiting >= 1`이면 active로 보고 대기; in-flight 모드는 우리 요청 1건을 빼기 위해 `metrics.running >= 2 || metrics.waiting >= 1`을 경합 기준으로 씁니다.
 - **`effective` (가드가 실제 효과가 있었나):** `sampleIdle`이 GPU/metrics/lms 중 "지금 연산 중"을 판정 가능한 신호를 하나라도 관측하면 `hasActiveSignal=true` → 게이트가 이를 `effective`로 승격. 로드된 재고(inventory)는 `effective`에 기여하지 않으며, 활성 신호가 전혀 없을 때만 `inventory_only_no_active_signal`(다른 모델이 로드돼 있음) 또는 `no_contention_signal_available` reason 라벨로 남습니다.
 
-Prometheus 파서는 세 엔진의 게이지를 합산합니다(매칭 없으면 `null` = 미지원 서버):
+Prometheus[^prometheus-fmt] 파서는 세 엔진의 게이지를 합산합니다(매칭 없으면 `null` = 미지원 서버):
 
 ```ts
 const RUNNING_METRICS = ["vllm:num_requests_running", "llamacpp:requests_processing", "tgi_batch_current_size"];
@@ -604,7 +606,7 @@ export LLM_JUDGE_MODEL=claude-opus-4-7
 
 ## 10. Run persistence & regression detection / 런 영속화와 회귀 탐지
 
-**Reference.** Bench runs are persisted to a local SQLite file (Node's built-in `node:sqlite` `DatabaseSync`, no external driver) so that history, scoreboards, and A/B comparison survive process restarts. A single connection is opened lazily and cached for the process lifetime; if the file can't be opened the harness degrades gracefully (history/persistence disabled, benchmarks still run). Live streaming events are folded into rows incrementally by a small state machine (`start` → `onEvent` → `finalize`), and regression detection is a **pure function** over two persisted run details, so it can be reused server-side or in tests without a DB. The reusable pattern: keep write helpers thin and typed per table, treat the DB as optional, and make the diff logic side-effect-free and threshold-driven.
+**Reference.** Bench runs are persisted to a local SQLite file (Node's built-in `node:sqlite`[^node-sqlite] `DatabaseSync`, no external driver) so that history, scoreboards, and A/B comparison survive process restarts. A single connection is opened lazily and cached for the process lifetime; if the file can't be opened the harness degrades gracefully (history/persistence disabled, benchmarks still run). Live streaming events are folded into rows incrementally by a small state machine (`start` → `onEvent` → `finalize`), and regression detection is a **pure function** over two persisted run details, so it can be reused server-side or in tests without a DB. The reusable pattern: keep write helpers thin and typed per table, treat the DB as optional, and make the diff logic side-effect-free and threshold-driven.
 
 **보충 설명.** 이 저장소는 `apps/server/src/db/` 아래에 테이블별 얇은 헬퍼를 두는 방식을 씁니다. DB 연결은 `tryOpenProdBenchDatabase()`가 성공 시 프로세스 전역에서 재사용하고, 실패하면 `null`을 반환해 벤치는 계속 돌되 히스토리 API만 꺼집니다(최근 실패 후 `PROD_DB_RETRY_AFTER_MS = 60_000`ms 동안은 파일 I/O를 아끼려고 즉시 `null`). 스트림 이벤트는 완결된 결과를 한 번에 쓰는 대신, 이벤트가 올 때마다 행을 upsert/patch하며 누적합니다. 회귀 판정(`computeCompare`)은 DB에 의존하지 않는 순수 함수라 서버 라우트·단위 테스트 어디서나 같은 결과를 냅니다.
 
@@ -685,7 +687,7 @@ When you drive a local **LM Studio** backend, two failure modes can silently poi
 
 한국어 보충 설명: LM Studio는 두 경우 모두 200 응답을 정상으로 돌려주기 때문에 하니스가 예외로 잡을 수 없다. 대신 이 repo는 런 레코드에 불린 플래그만 붙이고(점수는 그대로) UI에서 `⚠` 배지로 해당 행을 표시한다. 배지 자체는 링크가 아니라 아이콘이며, 조치 안내 `/profile#lmstudio-host` 링크는 행 상세 드로어(`ScenarioDetailDrawer.tsx`)와 결과 표 범례(`ResultsTable.tsx`)에 들어 있다(앵커는 웹 `ProfileDocPage.tsx`의 `id="lmstudio-host"`). 두 문서는 버전 타임라인·근본 원인이 계속 바뀌므로 여기서 복제하지 말고 canonical 문서를 링크만 한다.
 
-- **Engine-protocol regressions (tool-arg corruption + reasoning leak).** Symptom: with *"Use LM Studio Engine Protocol"* on (builds ~0.4.14–0.4.18), streamed `tool_calls[].function.arguments` come back concatenated like `{}{}{}` so downstream `JSON.parse` fails and tool scenarios score a silent 0; separately, reasoning replays into the response `content` instead of `reasoning_content` and pollutes graded text. Workaround: pin LM Studio **0.4.19+** (both fixed) or turn the option off. Detected as the `⚠` badges **`tool_call_args_corrupted`** and **`reasoning_leaked_into_content`**. Doc: [`docs/lmstudio-engine-protocol.md`](docs/lmstudio-engine-protocol.md) · in-app: `/profile#lmstudio-host`.
+- **Engine-protocol regressions (tool-arg corruption + reasoning leak).** Symptom: with *"Use LM Studio Engine Protocol"* on (builds ~0.4.14–0.4.18), streamed `tool_calls[].function.arguments` come back concatenated like `{}{}{}`[^lms-1922] so downstream `JSON.parse` fails and tool scenarios score a silent 0; separately, reasoning replays into the response `content` instead of `reasoning_content` and pollutes graded text. Workaround: pin LM Studio **0.4.19+** (both fixed) or turn the option off. Detected as the `⚠` badges **`tool_call_args_corrupted`** and **`reasoning_leaked_into_content`**. Doc: [`docs/lmstudio-engine-protocol.md`](docs/lmstudio-engine-protocol.md) · in-app: `/profile#lmstudio-host`.
 - **Jinja template crashes (Anthropic `/v1/messages` + `tools`).** Symptom: only on the Anthropic messages route with tools, the model's built-in Jinja `chat_template` renders against an OpenAI-shaped assumption, hits an `UndefinedValue`, and the run finishes empty (`Response finished but empty`); the same model's OpenAI `/v1/chat/completions` route often renders fine. Workaround: re-download a fixed GGUF and/or update LM Studio, or apply the host-side template-override scripts (`scripts/fix-nemotron-lmstudio-template.sh`, `scripts/fix-gemma4-lmstudio-template.sh`, run with `--dry-run` first). Doc: [`docs/lmstudio-jinja-template-crashes.md`](docs/lmstudio-jinja-template-crashes.md) · in-app: `/profile#lmstudio-host`.
 
 The two badges map to distinct detection sites, so keep them separate when you reuse the pattern:
@@ -766,3 +768,102 @@ export const CompareThresholdsSchema = z.object({
 ```
 
 - Wire it into CI headlessly via the `llm-bench-compare` CLI (`apps/mcp/src/compare-cli.ts`, `--fail-on-regression` / `--webhook`); the thresholds are Zod-validated so callers can override any subset.
+
+---
+
+## 부록 A. 용어 설명 / Appendix A. Glossary
+
+**EN.** Terms used across this document, grouped by the section that explains them in depth. Code identifiers stay in English; each group heading links back to its main section.
+
+**KO.** 문서 전반에 나오는 용어를 해당 개념을 자세히 다루는 섹션별로 묶었습니다. 코드 식별자는 영어 그대로 두며, 각 그룹 제목은 본문 섹션으로 되돌아가는 링크입니다.
+
+### 측정 · Metrics — [§3](#3-streaming-metrics-extraction--스트리밍-메트릭-추출)
+
+| 용어 Term | Definition (EN) | 설명 (KO) |
+|---|---|---|
+| TTFT | Time To First Token — ms from request send to the first content / `reasoning_content` / tool-call delta. | 요청 전송부터 첫 토큰(본문·추론·툴 델타) 도착까지의 ms. |
+| TPS | Tokens Per Second — output tokens ÷ elapsed. `aggregate_tps` sums a stage; `tps_per_user` = aggregate ÷ concurrency. | 초당 출력 토큰. `aggregate_tps`는 스테이지 합산, `tps_per_user`는 동시성으로 나눈 값. |
+| `approxOutputTokens` | Fallback token estimate (~len/4) used when the server omits a usage count. | 서버가 usage를 주지 않을 때 문자 길이/4 근사치. |
+| p50 / p95 | Median / 95th-percentile latency (or TTFT) within a stage. | 스테이지 내 지연(또는 TTFT)의 중앙값 / 95백분위. |
+| warmup vs measured | Warmup runs prime caches and are discarded; measured runs feed metrics. | warmup은 캐시 예열용으로 버리고, measured 런만 집계에 반영. |
+| truncation | Output cut at the token cap — `finish_reason:"length"` (OpenAI) / `stop_reason:"max_tokens"` (Anthropic). | 토큰 상한에서 잘림 — 위 두 신호로 감지. |
+
+### 실행 모델 · Orchestration — [§1](#1-architecture--event-model--아키텍처와-이벤트-모델)
+
+| 용어 Term | Definition (EN) | 설명 (KO) |
+|---|---|---|
+| SSE | Server-Sent Events — one-way `text/event-stream` of `data:` frames. | 단방향 이벤트 스트림(`data:` 프레임). |
+| `AsyncGenerator` event model | `runBench` *yields* typed events; each consumer chooses its own transport. | `runBench`가 이벤트를 yield하고 소비자가 전송 방식을 결정. |
+| discriminated union | `StreamEvent` union keyed on `type` for exhaustive narrowing. | `type`로 분기하는 이벤트 합집합. |
+| persist-stream lifecycle | `start → onEvent → finalize` folds live events into DB rows. | 라이브 이벤트를 DB 행으로 접는 상태기계. |
+
+### 프로바이더 · Provider — [§2](#2-multi-provider-abstraction--멀티-프로바이더-추상화) · [§5](#5-provider-loadunload--ttl--프로바이더-로드언로드와-ttl)
+
+| 용어 Term | Definition (EN) | 설명 (KO) |
+|---|---|---|
+| `ProviderKind` | `lm_studio` / `ollama` / `openai_compatible` / `manual`. | 감지된 백엔드 종류. |
+| capability | `{ openaiChat, anthropicMessages }` — which wire routes a server supports. | 지원되는 요청 포맷 불리언. |
+| API route | `chat_completions` (OpenAI) or `messages` (Anthropic). | 실행 라우트. |
+| TTL / `keep_alive` | Bounded model residency — LM Studio load `ttl` (seconds) vs Ollama `keep_alive`. | 모델 상주 시간 — 백엔드별 지정 방식. |
+| preload | A native-API call that loads a model before measuring. | 측정 전 네이티브 API로 모델 적재. |
+| resident instance | A model already loaded in the backend (`lmStudioResidentInstances`). | 이미 로드된 모델 인스턴스. |
+| memory-fit preflight | Predicts RAM fit before load to avoid OOM (`FitPolicy`). | 로드 전 RAM 적합성 예측(OOM 방지). |
+
+### 가드 · Guards — [§4](#4-memory-fit-preflight--oom-guard--메모리-적합성-프리플라이트--oom-방지) · [§6](#6-contention--pollution-guard--오염-가드-경합-방지)
+
+| 용어 Term | Definition (EN) | 설명 (KO) |
+|---|---|---|
+| contention / pollution | Foreign concurrent inference that inflates TTFT and depresses TPS. | 결과를 오염시키는 외부 동시 추론. |
+| idle gate | `pre_bench` / `between_iterations` / in-flight phases requiring N consecutive idle polls. | 유휴 폴 N회 연속을 요구하는 단계별 게이트. |
+| `sampleIdle` vs `sampleInFlight` | Two sampling modes so our own load is not misread as contention. | 자기 부하를 오탐하지 않게 나눈 두 샘플링 모드. |
+| repetition loop | Runaway repeated output, detected and aborted. | 폭주 반복 출력 감지·중단. |
+| tool-arg corruption | Streamed tool arguments concatenated like `{}{}{}` (LM Studio engine bug). | 스트리밍 툴 인자 손상. |
+| reasoning leak | Reasoning replayed into the visible `content` channel. | 추론이 본문으로 새어 나옴. |
+
+### 스트레스·에이전트 · Stress & Agent — [§7](#7-stress-ramp--backpressure--스트레스-램프와-백프레셔) · [§8](#8-multi-turn-agent-loop-harness--멀티턴-에이전트-루프-하네스)
+
+| 용어 Term | Definition (EN) | 설명 (KO) |
+|---|---|---|
+| ramp | Concurrency sweep `start → max` by `step`, each held for `durationMs`. | 동시성 단계 스윕. |
+| worker pool | N concurrent workers re-firing requests within a stage. | 스테이지별 N개 동시 워커. |
+| backpressure | Bounded producer/consumer queue (`QUEUE_HIGH_WATER`, `awaitDrainIfFull`). | 상한 큐로 메모리 폭주 방지. |
+| `tps_unreliable` | Stage flagged (and `aggregate_tps` nulled) on <5 successes, <3s, or 0 output. | 신뢰 불가 스테이지 플래그. |
+| agent loop / mock tool | Multi-turn loop fed canned tool results to expose failures a single shot hides. | 캔드 툴 결과 기반 멀티턴 루프. |
+| empty turn | A turn that produced no visible content. | 본문을 내지 않은 턴. |
+| stall vs `budget_exhausted` | Loop end reason — no progress vs token budget used up. | 루프 종료 이유 — 정체 vs 예산 소진. |
+| thinking / reasoning channel | The separate reasoning stream, kept apart from visible content. | 본문과 분리된 추론 채널. |
+
+### 채점·회귀 · Scoring & Regression — [§9](#9-quality-scoring--llm-as-judge--품질-채점과-llm-as-judge) · [§10](#10-run-persistence--regression-detection--런-영속화와-회귀-탐지)
+
+| 용어 Term | Definition (EN) | 설명 (KO) |
+|---|---|---|
+| rubric | Score scale `0 / 0.33 / 0.67 / 1`; pass is `score >= 0.67`. | 루브릭 점수 스케일. |
+| prefilter | Deterministic checks (empty/regex/JSON-shape/script) run before any judge. | 판정 전 결정적 검사. |
+| LLM-as-judge | Optional Anthropic-Messages grading, gated by `LLM_JUDGE_ENABLED`. | 선택적 LLM 판정. |
+| `stripThinkingBlocks` | Removes inline reasoning before grading and UI display. | 채점·UI 표시 전 추론 제거. |
+| regression thresholds | `qualityDropAbs` · `tpsRegressionPct` · `ttftRegressionPct` · `flagNewEmptyTurns`. | 회귀 판정 임계값. |
+| WAL | SQLite write-ahead logging mode used by the run DB. | 런 DB가 쓰는 SQLite WAL 모드. |
+
+## 부록 B. 레퍼런스 / Appendix B. References
+
+**EN.** External sources are cited as footnotes at the exact spots they back up in the body; they collect into the numbered list at the end of this page (each with a `↩` back-link). Internal references are listed below.
+
+**KO.** 외부 출처는 본문의 근거 지점마다 각주로 달았고, 이 페이지 맨 아래 번호 목록으로 모입니다(각 항목에 `↩` 역링크). 내부 참고 문서는 아래에 정리합니다.
+
+- [`docs/lmstudio-engine-protocol.md`](docs/lmstudio-engine-protocol.md) — LM Studio 엔진 프로토콜 회귀(툴 인자 손상·추론 누수)의 정본 진단·해결.
+- [`docs/lmstudio-jinja-template-crashes.md`](docs/lmstudio-jinja-template-crashes.md) — Anthropic `/v1/messages` + tools에서의 Jinja 템플릿 크래시와 오버라이드.
+- [`LLM_PROFILE.md`](LLM_PROFILE.md) — 모델 패밀리별 샘플링·컨텍스트·런타임 규칙.
+- [`README.md`](README.md) — 프로젝트 개요와 「하네스 노하우」 절.
+- 웹 UI: `/profile`(패밀리별 규칙·`#lmstudio-host` 호스트 설정) · `/scenarios`(시나리오 카탈로그) 탭.
+
+[^mcp-spec]: [Model Context Protocol — Specification](https://modelcontextprotocol.io/specification) — MCP 서버(`apps/mcp`)가 노출하는 도구·트랜스포트 규격.
+[^oai-compat]: [LM Studio — OpenAI-compatible Chat Completions](https://lmstudio.ai/docs/developer/openai-compat/chat-completions) — `/v1/chat/completions` SSE 델타(`choices[].delta`) 형식. (OpenAI 공식 문서는 봇 접근을 차단하므로 검증 가능한 호환 스펙으로 대체.)
+[^anthropic-stream]: [Anthropic — Messages streaming](https://docs.anthropic.com/en/api/messages-streaming) — `/v1/messages` SSE 이벤트(`content_block_delta`·`thinking_delta`·`message_delta`) 형식.
+[^lms-rest]: [LM Studio — REST API](https://lmstudio.ai/docs/developer/rest) — 모델 load/unload 및 로드 시 `ttl`(초) 지정.
+[^ollama-api]: [Ollama — API](https://docs.ollama.com/api) — `keep_alive`로 모델 상주 시간 지정(네이티브 `/api/generate`·`/api/chat`).
+[^vllm-metrics]: [vLLM — Production metrics](https://docs.vllm.ai/en/latest/usage/metrics.html) — `vllm:num_requests_running` / `num_requests_waiting` 게이지.
+[^llamacpp-server]: [llama.cpp — server](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) — `/metrics` Prometheus 노출(요청 처리 게이지).
+[^tgi-metrics]: [Hugging Face TGI — Metrics](https://huggingface.co/docs/text-generation-inference/en/reference/metrics) — 배치·큐 게이지.
+[^prometheus-fmt]: [Prometheus — Exposition formats](https://prometheus.io/docs/instrumenting/exposition_formats/) — `/metrics` 텍스트 파싱 규격.
+[^node-sqlite]: [Node.js — `node:sqlite`](https://nodejs.org/api/sqlite.html) — 외부 드라이버 없는 내장 `DatabaseSync`.
+[^lms-1922]: [LM Studio bug-tracker #1922](https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/1922) — 엔진 프로토콜 런타임에서 스트리밍 `tool_calls` 인자 손상.
