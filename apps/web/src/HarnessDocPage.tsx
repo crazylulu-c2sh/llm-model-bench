@@ -305,7 +305,7 @@ export default function HarnessDocPage() {
                     <a
                       href={`#${g.id}`}
                       onClick={onTocClick(g.id)}
-                      aria-current={activeId === g.id ? "location" : undefined}
+                      aria-current={groupActive ? "location" : undefined}
                       className={`-ml-px block border-l-2 py-1 pl-3 leading-snug no-underline transition-colors ${
                         groupActive
                           ? "border-[var(--accent-2)] font-medium text-[var(--foreground)]"
@@ -314,26 +314,6 @@ export default function HarnessDocPage() {
                     >
                       {g.text}
                     </a>
-                    {groupActive && g.children.length > 0 ? (
-                      <ul className="mb-1 space-y-0.5">
-                        {g.children.map((c) => (
-                          <li key={c.id}>
-                            <a
-                              href={`#${c.id}`}
-                              onClick={onTocClick(c.id)}
-                              aria-current={activeId === c.id ? "location" : undefined}
-                              className={`-ml-px block border-l-2 py-0.5 pl-6 text-xs leading-snug no-underline transition-colors ${
-                                activeId === c.id
-                                  ? "border-[var(--accent-2)] text-[var(--foreground)]"
-                                  : "border-transparent text-[var(--muted)] hover:text-[var(--foreground)]"
-                              }`}
-                            >
-                              {c.text}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
                   </li>
                 );
               })}
