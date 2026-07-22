@@ -1,6 +1,12 @@
 import { forwardRef } from "react";
 import { Highlight, themes } from "prism-react-renderer";
 import Prism from "prismjs";
+// Prism 언어 등록 — 의존 순서 고정 (임의 재정렬 금지):
+// typescript(→javascript 내장), jsx(→markup·javascript 내장), tsx(→jsx+typescript 선행 필수)
+import "prismjs/components/prism-typescript";
+import "prismjs/components/prism-jsx";
+import "prismjs/components/prism-tsx";
+import "prismjs/components/prism-bash";
 import "prismjs/components/prism-json";
 import "prismjs/components/prism-markdown";
 

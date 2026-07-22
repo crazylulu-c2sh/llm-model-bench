@@ -10,7 +10,7 @@ import { test, expect, type Page, type Route } from "@playwright/test";
 
 const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
 
-const ROUTES = ["/", "/stats", "/stress", "/provider-stats", "/profile", "/provider-monitor", "/scenarios"] as const;
+const ROUTES = ["/", "/stats", "/stress", "/provider-stats", "/profile", "/provider-monitor", "/scenarios", "/harness"] as const;
 
 async function expectNoViolations(page: Page) {
   const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();

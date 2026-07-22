@@ -17,6 +17,7 @@ test.describe("LLM Model Bench UI", () => {
     await expect(nav.getByRole("link", { name: "프로파일" })).toBeVisible();
     await expect(nav.getByRole("link", { name: "프로바이더 모니터" })).toBeVisible();
     await expect(nav.getByRole("link", { name: "시나리오" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "하네스" })).toBeVisible();
   });
 
   test("탭: 모델 통계 페이지 부제", async ({ page }) => {
@@ -51,6 +52,14 @@ test.describe("LLM Model Bench UI", () => {
     await expect(page.getByRole("heading", { name: "벤치 시나리오 문서" })).toBeVisible();
     await expect(page.locator("article").filter({ hasText: "chat_hello" }).first()).toBeVisible();
     await expect(navLink(page, "시나리오")).toHaveAttribute("aria-current", "page");
+  });
+
+  test("탭: 하네스 문서", async ({ page }) => {
+    await page.goto("/harness");
+    await expect(page.getByText("벤치/스트레스 하네스 설계·기법 — 다른 프로젝트 참고용")).toBeVisible();
+    await expect(page.getByRole("link", { name: /docs\/harness-knowhow\.md/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Harness Know-How/ })).toBeVisible();
+    await expect(navLink(page, "하네스")).toHaveAttribute("aria-current", "page");
   });
 
   test("탭 클릭으로 홈 복귀", async ({ page, baseURL }) => {
