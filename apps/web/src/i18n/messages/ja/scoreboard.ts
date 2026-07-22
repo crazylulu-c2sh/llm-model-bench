@@ -1,4 +1,69 @@
 import type { Messages } from "../ko";
 
 // scoreboard — ko와 키가 정확히 일치해야 함(타입이 강제).
-export const scoreboard: Messages["scoreboard"] = {};
+export const scoreboard: Messages["scoreboard"] = {
+  title: "スコアボード",
+  vendorOther: "その他",
+  groupLabel: { text: "テキスト", vision: "ビジョン", agent: "エージェント", total: "合計" },
+  metricLabel: { quality: "品質", speed: "速度", latency: "レイテンシ" },
+  bandLabel: { high: "優秀", good: "良好", mid: "普通", low: "低い" },
+  capTitle:
+    "ルーブリック採点シナリオ（ビジョン・エージェント）が LLM_JUDGE_ENABLED=1 なしでキャップ — 該当・合計の品質が低く出ることがあります",
+  approxTitle:
+    "provider が usage トークンを返さず chars/4 で推定（approx）— CJK・コードで誤差が大きい",
+  metricTitle: {
+    quality: "正答率・ルーブリック（0〜100）",
+    speed: "デコード TPS 中央値（実 tok/s）。ソート・色の基準。下の小さい数字は基準 30 tok/s=1000 のスコア",
+    latency: "Time-To-First-Token、最初のトークンまでの ms（低いほど良い、スコア対象外）",
+  },
+  viewAria: "表示",
+  viewChart: "チャート",
+  viewTable: "表",
+  viewLeaks: "リーク",
+  viewAgent: "エージェント",
+  scorePoints: (n: number) => `${n}点`,
+  speedCellRange: (min: string, max: string) => ` · 範囲 ${min}〜${max} tok/s`,
+  speedCellTitle: (median: string, range: string, score: number | null) =>
+    `中央値 ${median} tok/s${range} · スコア ${score}`,
+  sortAsc: "昇順",
+  sortDesc: "降順",
+  model: "モデル",
+  sortLine: (name: string, dir: string) => `ソート: ${name} · ${dir}`,
+  sortHeaderAria: (label: string, suffix: string) => `${label} でソート${suffix}`,
+  sortDirSuffix: (dir: string) => `（${dir}）`,
+  textOnlyBadgeTitle: "ビジョン・エージェントのシナリオ未実行 — 合計はテキストスコアと同じ",
+  intro:
+    "品質は絶対スコア（0〜100）、速度はデコード TPS 中央値（実 tok/s）で色は絶対 tier（快適≥30・実用≥15・採用可≥5）、小さい数字は基準 30 tok/s=1000 のスコア。レイテンシ（TTFT）は最初のトークンまでの ms で低いほど良い（スコア対象外）。測定ラン平均 · テキスト/ビジョンはシナリオ同一重み、合計は全体プーリング。",
+  introChartHint: " バーにカーソルを合わせると詳細。",
+  introTableHint: " ヘッダーを押してソート。",
+  legendQualityBand: "品質の色 = 絶対スコアのバンド:",
+  legendSpeedLatency:
+    "速度 = デコード TPS 中央値（tok/s）· 色=絶対 tier·バー=列最高比の相対 · レイテンシ = TTFT ms（低いほど良い）",
+  vendorFilterLabel: "ベンダー:",
+  vendorShow: "表示",
+  vendorHide: "非表示",
+  vendorToggleTitle: (label: string, action: string) => `${label} ${action}`,
+  all: "すべて",
+  allVendorsHidden: "すべてのベンダーが非表示です。上のフィルターでベンダーを選んで再表示してください。",
+  tableCaption: "モデル別のテキスト・ビジョン・エージェント・合計の品質・速度・レイテンシのスコアボード",
+  qualityTag: "（品質）",
+  speedTag: "（速度）",
+  textOnlyFootnote: "ビジョンシナリオを実行していないため、合計はテキストスコアのみで計算されています。",
+  modelFallback: "モデル",
+  chartTextOnlyNote: "text-only — 合計はテキストスコアと同じ",
+  summaryRankItem: (rank: number, modelId: string, score: number) => `${rank}位 ${modelId} ${score}`,
+  summaryRest: (n: number) => ` ほか ${n}件`,
+  summaryAvg: (n: number) => `, 平均 ${n}`,
+  summary: (group: string, metric: string, body: string) => `${group} ${metric} ランキング — ${body}`,
+  metricAria: "指標",
+  groupAria: "グループ",
+  colorAria: "色",
+  orderAria: "並び順",
+  colorScore: "スコア色",
+  colorVendor: "ベンダー色",
+  orderScore: "スコア順",
+  orderVendor: "ベンダー別",
+  averageLabel: "平均",
+  emptyValues: (group: string, metric: string) =>
+    `表示する ${group} ${metric} の値がありません。別の指標/グループを選んでください。`,
+};
