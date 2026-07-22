@@ -172,10 +172,10 @@ export const META_JA: Record<ScenarioId, ScenarioBenchMetaText> = {
       "完了した出力文字列に対し、`\"name\":\"get_weather\"` パターンの正規表現と、全体/行単位の JSON `tool_calls[].function.name` パースで検査します。平文の単語言及は合格シグナルではありません。",
   },
   structured_action: {
-    purpose: "プローズなしで有効な JSON オブジェクト 1 つのみを出力させるとき、スキーマ遵守を見ます。",
+    purpose: "prose なしで有効な JSON オブジェクト 1 つのみを出力させるとき、スキーマ遵守を見ます。",
     criteria: '{"action":"文字列","confidence":0~1 の数値} 形式の JSON がパース・検証できれば合格です。',
     promptNotes:
-      "system: JSON スキーマ・形式(プローズ・フェンス禁止)。user: 四半期レポートを検討して submit/revise/hold を選ぶ課題。",
+      "system: JSON スキーマ・形式(prose・フェンス禁止)。user: 四半期レポートを検討して submit/revise/hold を選ぶ課題。",
     toolsSummary: "なし。",
     routes: "通常テキストの応答を JSON としてパース試行。",
     implementation:
@@ -297,7 +297,7 @@ export const META_JA: Record<ScenarioId, ScenarioBenchMetaText> = {
     promptNotes: "既定の max_tokens 32。同時ワーカーごとに `ping (client {k})` の変形が可能。",
     toolsSummary: "なし。",
     routes: "プロバイダーベンチでは単一ルート(chat_completions 優先)でのみ測定。",
-    implementation: "プロバイダーベンチの ramp-up ステージごとにワーカーが繰り返し発射。モデルベンチのタブには表示されません。",
+    implementation: "プロバイダーベンチの ramp-up ステージごとにワーカーがリクエストを繰り返し送信。モデルベンチのタブには表示されません。",
   },
   stress_short_reply: {
     purpose: "プロバイダーベンチ専用: 英語 1 文の応答を同時ユーザー負荷で比較。",
@@ -305,7 +305,7 @@ export const META_JA: Record<ScenarioId, ScenarioBenchMetaText> = {
     promptNotes: "既定の max_tokens 128。同時ワーカーごとに `(client {k})` の変形。",
     toolsSummary: "なし。",
     routes: "プロバイダーベンチの単一ルート。",
-    implementation: "プロバイダーベンチの ramp-up ステージごとに繰り返し発射。モデルベンチのタブには非表示。",
+    implementation: "プロバイダーベンチの ramp-up ステージごとにリクエストを繰り返し送信。モデルベンチのタブには非表示。",
   },
   stress_short_reply_ko: {
     purpose: "プロバイダーベンチ専用: 韓国語 1 文の応答負荷 — 多言語処理の比較用。",
@@ -360,7 +360,7 @@ export const AGENT_META_JA: Record<string, ScenarioBenchMetaText> = {
   agent_loop_mock_v1: {
     purpose:
       "マルチターンエージェントの基本: read_document → wiki_search → wiki_read の後に最終 JSON カードを出力する " +
-      "research-then-answer ループ。単一ショットでは捉えられない空ターンのストール・中間ターンの思考リークをターンをまたいで露呈させる。",
+      "research-then-answer ループ。単発では捉えられない空ターンのストール・中間ターンの思考リークをターンをまたいで露呈させる。",
     criteria:
       "完了判定 = ツール呼び出しを止めたターン(no_tool_calls)。最終カードは #105 の決定論的採点器が rubric 0-3 で " +
       "採点する(LLM judge 不要): スキーマ + AES マーカー ≥2 + sources が文書を参照すれば 3。ストール/バジェット枯渇は 0。 " +
@@ -370,7 +370,7 @@ export const AGENT_META_JA: Record<string, ScenarioBenchMetaText> = {
   },
   agent_loop_budget_v1: {
     purpose:
-      "ハード予算の変種: agent_loop_mock_v1 と同一スクリプトだが per-turn max_tokens を 192 に絞り、 " +
+      "ハードバジェットの変種: agent_loop_mock_v1 と同一スクリプトだが per-turn max_tokens を 192 に絞り、 " +
       "思考を reasoning_content に過剰に流すモデルが予算を使い切って空ターン(finish_reason=length)で " +
       "ストールするかを再現する。",
     criteria:
@@ -398,8 +398,8 @@ export const AGENT_META_JA: Record<string, ScenarioBenchMetaText> = {
     purpose:
       "エラー復旧: read_document の初回呼び出しが retryable エラーを返し、2 回目以降は正常な本文。一時的なツールエラーから " +
       "リトライで回復できるかを見る — 脆弱なモデルはストールするか、エラーペイロードを要約する。 " +
-      "エラーを『答えを得るには必ず呼ぶ最初のツール』に置いた理由: ワークフローを短絡したモデルがエラーに遭遇すらできず " +
-      "シナリオが何も測定できなくなる事態を防ぐためだ(短絡そのものは減点しない)。",
+      "エラーを『答えを得るには必ず呼ぶ最初のツール』に置いた理由: ワークフローをショートカットしたモデルがエラーに遭遇すらできず " +
+      "シナリオが何も測定できなくなる事態を防ぐためだ(ショートカットそのものは減点しない)。",
     criteria:
       "決定論的採点(0-3): リトライを **実測** で判定する — tool_call_counts.read_document ≥2 でなければ本物のリトライではない。 " +
       "有効なカード + マーカー ≥2 + 実測リトライ + retried=true の一致なら 3;リトライしたがフラグ欠落、または " +
@@ -431,7 +431,7 @@ export const AGENT_META_JA: Record<string, ScenarioBenchMetaText> = {
       "決定論的採点(0-3): 正解した項目数のはしご — 2/2 なら 3、1/2 なら 2、0/2(スキーマは有効)なら 1、 " +
       "ストール・バジェット枯渇・JSON パース失敗は 0。項目 1 は active レコードの id 完全一致 + fact にそのレコード固有のマーカー、 " +
       "項目 2 は abstained=true でなければ正解にならず、superseded レコードで答えを捏造すると誤答だ。 " +
-      "理由は select=<判定> abstain=<判定> の規格なので、誤答の種類(hallucinated/wrong/abstained)がそのまま集計される。 " +
+      "理由は select=<判定> abstain=<判定> の形式なので、誤答の種類(hallucinated/wrong/abstained)がそのまま集計される。 " +
       "corpus は架空(fictional)のため想起は不可能。",
     toolsSummary:
       "search(シーケンス: 1 回目候補 3 個・2 回目候補 2 個) / resolve(argDispatch: ref — superseded も成功) / " +

@@ -7,7 +7,7 @@ export const stress: Messages["stress"] = {
     stress_short_reply: "短い応答（英語）",
     stress_short_reply_ko: "短い応答（韓国語）",
     stress_short_reply_ja: "短い応答（日本語）",
-    stress_long_context: "長いコンテキスト / プレフィル負荷（英語）",
+    stress_long_context: "長いコンテキスト / Prefill負荷（英語）",
     stress_long_context_ko: "長いコンテキスト / プレフィル負荷（韓国語）",
     stress_long_context_ja: "長いコンテキスト / プレフィル負荷（日本語）",
   },
@@ -27,7 +27,7 @@ export const stress: Messages["stress"] = {
     persistLabel: "このブラウザにAPIキーを保存（ローカルディスク・平文）",
     persistWarnBefore: "オフにすると同じタブ内でのみ ",
     persistWarnMid:
-      " に保存され、リロードは維持されますがブラウザを閉じると消えることがあります。オンにすると ",
+      " に保存され、リロードでは維持されますがブラウザを閉じると消えることがあります。オンにすると ",
     persistWarnAfter: " に平文で残り、XSSなどに晒される可能性があります。",
     models: (n) => `モデル${n}個`,
     routes: (list) => `ルート ${list}`,
@@ -103,7 +103,7 @@ export const stress: Messages["stress"] = {
     footNoteAfter:
       "（低信頼性）のステージは棒を省略しグレー表示 · approxはchars/4推定のためCJKでは1ランク低く見えることがあります",
     explain:
-      "rampステージ終了ごとに更新されます。同時実行が増えてTPSが平坦になれば処理量の上限、低下すればキューイング/リソース競合の兆候です。",
+      "rampステージ終了ごとに更新されます。同時実行が増えてTPSが平坦になればスループットの上限、低下すればキューイング/リソース競合の兆候です。",
   },
 
   worker: {
@@ -132,7 +132,7 @@ export const stress: Messages["stress"] = {
     okay: "採用可能",
     slow: "遅すぎる",
   },
-  tpsUnreliableTooltip: "— (信頼度低)",
+  tpsUnreliableTooltip: "— (低信頼性)",
 
   table: {
     heading: "ステージ別結果",
@@ -148,7 +148,7 @@ export const stress: Messages["stress"] = {
     lowConfidence: "低信頼性",
     empty: "まだ結果がありません。",
     perUserHeaderTitle: (fast, good, okay) =>
-      `色: 快適 ≥${fast} · 十分 ${good}–${fast - 1} · 許容可 ${okay}–${good - 1} · 遅すぎ <${okay}`,
+      `色: 快適 ≥${fast} · 実用的 ${good}–${fast - 1} · 採用可能 ${okay}–${good - 1} · 遅すぎる <${okay}`,
     allApproxNote:
       "このランではproviderがusageトークン数を報告しなかったため、全ステージでchars/4推定値(approx)でTPSを計算しました。CJK応答はトークンあたりの文字数が少なく、過小推定の誤差が大きくなります。",
     mixedNoteBefore: "一部のステージが ",

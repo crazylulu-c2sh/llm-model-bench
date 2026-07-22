@@ -52,7 +52,7 @@ export const monitor: Messages["monitor"] = {
   colRoute: "ルート",
 
   agentEmptyState:
-    "エージェントシナリオの計測ランがありません — シナリオ選択で「エージェントのみ」をオンにしてベンチを実行してください。",
+    "エージェントシナリオの測定ランがありません — シナリオ選択で「エージェントのみ」をオンにしてベンチを実行してください。",
   agentTableCaption: "モデル × ルート別エージェント能力指標",
   nColTitleAgent: "この (モデル, ルート) スライスの agent ラン数",
   agentMetricLabel: {
@@ -97,20 +97,20 @@ export const monitor: Messages["monitor"] = {
   leakMetricLabel: {
     thinking_leak: "思考リーク",
     empty_turn: "空ターン",
-    channel_tag: "チャンネルタグ",
+    channel_tag: "チャネルタグ",
   },
   leakMetricTitle: {
     thinking_leak:
       "thinking_leak_ratio = reasoning トークン / 総出力トークン — 低いほど思考が最終回答に漏れない",
     empty_turn:
-      "empty_turn_rate = content が空で tool_call もないランの割合 — エージェント停滞のシグナル",
+      "empty_turn_rate = content が空で tool_call もないランの割合 — エージェントストールのシグナル",
     channel_tag: "channel_tag_leak = <think>/<|channel|> タグが content に残ったランの割合",
   },
-  leakEmptyState: "リーク/ストール指標を計算する計測ランがありません。",
+  leakEmptyState: "リーク/ストール指標を計算する測定ランがありません。",
   leakTableCaption: "モデル × ルート別リーク/ストール指標",
   safeCol: "安全",
   safeColTitle: "3 つの指標がすべて閾値以下なら agent-safe",
-  nColTitleLeak: "この (モデル, ルート) スライスの計測ラン数",
+  nColTitleLeak: "この (モデル, ルート) スライスの測定ラン数",
   leakWarningTitle: "リーク/ストール閾値超過 — エージェントループに注意",
   warningAria: "注意",
 

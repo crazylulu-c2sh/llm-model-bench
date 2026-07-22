@@ -30,7 +30,7 @@ export const stress: Messages["stress"] = {
     persistWarnMid:
       ", so it survives refreshes but may be lost when the browser closes. When on, it remains in ",
     persistWarnAfter: " as plaintext and may be exposed to XSS and the like.",
-    models: (n) => `${n} models`,
+    models: (n) => (n === 1 ? "1 model" : `${n} models`),
     routes: (list) => `Routes ${list}`,
     routesNone: "none",
   },
@@ -128,7 +128,7 @@ export const stress: Messages["stress"] = {
   },
 
   tpsTier: {
-    fast: "Great",
+    fast: "Comfortable",
     good: "Usable",
     okay: "Acceptable",
     slow: "Too slow",

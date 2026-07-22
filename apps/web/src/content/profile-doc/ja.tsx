@@ -69,7 +69,7 @@ export const ja: ProfileDocContent = {
       <p className="mt-3 text-sm leading-relaxed text-[var(--muted)]">
         <code className="font-mono text-xs">reasoning_content</code> / Anthropic <code className="font-mono text-xs">thinking_delta</code> /
         MiniMax <code className="font-mono text-xs">reasoning_split</code> はストリーム段階で推論を分離します。上記の regex は{" "}
-        <code className="font-mono text-xs">chat_completions</code> の合成出力・LM Studio パーサー未設定時のフォールバックです。
+        <code className="font-mono text-xs">chat_completions</code> のマージされた出力・LM Studio パーサー未設定時のフォールバックです。
       </p>
     </>
   ),
@@ -85,8 +85,8 @@ export const ja: ProfileDocContent = {
           <strong className="text-[var(--foreground)]">エンジンプロトコル回帰(ツール破損・推論リーク)</strong> — Developer → Runtime Settings の{" "}
           <code className="font-mono text-xs">Use LM Studio Engine Protocol</code> が有効な 0.4.14–0.4.18 のベータランタイムでは、ストリーミングの{" "}
           <code className="font-mono text-xs">tool_calls</code> 引数が <code className="font-mono text-xs">{"{}{}"}</code> に連結・破損したり(bug-tracker #1922)、
-          推論が <code className="font-mono text-xs">reasoning_content</code> ではなく本文の <code className="font-mono text-xs">content</code> に漏れ込みます(0.4.19 で修正)。
-          ベンチ結果の表・詳細に <span className="text-[var(--warning)]">⚠</span> バッジで検出されます。{" "}
+          推論が <code className="font-mono text-xs">reasoning_content</code> ではなく本文の <code className="font-mono text-xs">content</code> に漏れ込んだりします(0.4.19 で修正)。
+          ベンチ結果の表・詳細に <span className="text-[var(--warning)]">⚠</span> バッジとして検出されます。{" "}
           <strong className="text-[var(--foreground)]">LM Studio を 0.4.19+ に更新する</strong>か、このオプションをオフにして再計測してください。
           Developer の "When applicable, separate reasoning_content and content in API responses" も有効にしておくと良いです。
         </li>
@@ -304,7 +304,7 @@ export const ja: ProfileDocContent = {
       </li>,
       <li key="gemma_think_token">
         思考を <strong className="text-[var(--foreground)]">オン</strong> にするとシステムプロンプトの前に{" "}
-        <code className="font-mono text-xs">&lt;|think|&gt;</code> が付きます。公式のチャンネル出力は{" "}
+        <code className="font-mono text-xs">&lt;|think|&gt;</code> が付きます。公式のチャネル出力は{" "}
         <code className="font-mono text-xs">&lt;|channel&gt;thought\n</code> … <code className="font-mono text-xs">&lt;channel|&gt;</code>
         (QAT を含め同一の chat template)。12B/26B/31B は思考 OFF 時に空の thought プレフィックスが出ることがあります — ベンチは strip·{" "}
         <code className="font-mono text-xs">enable_thinking: false</code> で緩和します。

@@ -10,7 +10,7 @@ export const scoreboard: Messages["scoreboard"] = {
   capTitle:
     "Rubric-scored scenarios (vision·agent) are capped without LLM_JUDGE_ENABLED=1 — their quality and the total may read low",
   approxTitle:
-    "Provider reported no usage tokens, so chars/4 is estimated (approx) — large error on CJK/code",
+    "Provider reported no usage tokens, so tokens are estimated as chars/4 (approx) — large error on CJK/code",
   metricTitle: {
     quality: "Accuracy·rubric (0–100)",
     speed: "Median decode TPS (actual tok/s). Sort/color basis. The small number below is the score at 30 tok/s = 1000",
@@ -42,7 +42,7 @@ export const scoreboard: Messages["scoreboard"] = {
   vendorFilterLabel: "Vendor:",
   vendorShow: "show",
   vendorHide: "hide",
-  vendorToggleTitle: (label: string, action: string) => `${label} ${action}`,
+  vendorToggleTitle: (label: string, action: string) => `${action} ${label}`,
   all: "All",
   allVendorsHidden: "All vendors are hidden. Pick a vendor in the filter above to show them again.",
   tableCaption: "Per-model text·vision·agent·total quality·speed·latency scoreboard",

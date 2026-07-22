@@ -75,7 +75,7 @@ export const results: Messages["results"] = {
     compareLead: "比較バー: 実行（シナリオ・API・モデル）ごとに、",
     compareMid: " 棒グラフは ms 単位で表示し、TPS 専用チャートは同じ順で",
     compareTail:
-      " TPS のみ表示します。TPS バーの色はモデル別です。シナリオ・API のまとまり（モデル数分の連続行）の間は空帯で区切ります。",
+      " のみ表示します。TPS バーの色はモデル別です。シナリオ・API のまとまり（モデル数分の連続行）の間は空帯で区切ります。シナリオ・API のまとまり（モデル数分の連続行）の間は空帯で区切ります。",
     sessionLead: "ライブバー: ",
     sessionMid: " 棒グラフは ms 単位、TPS 専用チャートは同じ順の ",
     sessionTail: "です。モデルが2つ以上ならシナリオ・API ブロックの間を空帯で区切ります。",
@@ -131,7 +131,7 @@ export const results: Messages["results"] = {
     agentStall: "ストール",
     agentBudgetTitle: "maxTurns までツール呼び出しのみ繰り返し",
     agentStallTitle: "空ターンでストール",
-    agentThinkingExhausted: " · 思考がターンごとのバジェットを枯渇",
+    agentThinkingExhausted: " · 思考でターンごとのバジェットが枯渇",
     agentEmptyTurns: (n: number) => ` · 空ターン ${n}`,
     noRows: "結果行がありません。",
     caption: "シナリオ別のベンチ結果",

@@ -83,9 +83,9 @@ export const bench: Messages["bench"] = {
   loadTtlHintC: ". Since Ollama inference (",
   loadTtlHintD:
     ") resets keep_alive to the default 5 minutes, the given TTL is re-applied after the bench finishes.",
-  notApplied: "Disabled",
+  notApplied: "Not applied",
   contentionGuardTitle:
-    "If other inference (same/other model) is running, it waits before starting; if detected mid-bench, it discards only the contaminated measurement runs and re-measures.",
+    "If other inference (same/other model) is running, it waits before starting; if detected mid-bench, it discards only the contaminated measured runs and re-measures.",
   contentionGuardLabel: "Contention guard (wait/re-measure when other inference is detected)",
   contentionGuardHint:
     "Detects active inference via GPU util·/metrics·lms ps. In environments with no signal it is automatically treated as ineffective.",
@@ -182,7 +182,7 @@ export const bench: Messages["bench"] = {
   noScenarioData: "No scenario data.",
   detectFailed: "Failed to detect the provider.",
   unreachableDefault: "Can't connect to the Base URL. Check the server is up, the address, and the firewall.",
-  partialDefault: "Only part of the model-list route responded. Check your network or proxy settings.",
+  partialDefault: "Only some of the model-list routes responded. Check your network or proxy settings.",
   noModelsHintLmStudio: "Load a model in LM Studio, then try again.",
   noModelsHintGeneric: "The model list is empty. Check the Base URL·API key.",
   detectedNoModels: (hint) => `Detected but no models. ${hint}`,
@@ -205,11 +205,11 @@ export const bench: Messages["bench"] = {
   eventLogEmpty: "Waiting for events…",
   eventRunStart: (rid) => `Run started · ${rid}`,
   eventMemFitDetail: (required, free) => `need ~${required}, free ${free}`,
-  eventMemSkip: (modelId, detail) => `Skipped: out of memory · ${modelId} · ${detail}`,
+  eventMemSkip: (modelId, detail) => `Skipped: not enough memory · ${modelId} · ${detail}`,
   eventMemUnloadOthers: (modelId, detail) => `Unloading other models to free memory · ${modelId} · ${detail}`,
   eventModelLoaded: (modelId) => `Model loaded · ${modelId}`,
   unloadPhaseAfterBench: "after-bench ",
-  unloadPhasePreflightFit: "memory-free ",
+  unloadPhasePreflightFit: "memory-reclaim ",
   eventUnloadDone: (phase, modelId, status) => `${phase}unload done · ${modelId} · ${status}`,
   eventUnloadFail: (phase, modelId, status) => `${phase}unload failed · ${modelId} · ${status}`,
   iterWarmup: (cur, total) => `warmup ${cur}/${total}`,
@@ -258,7 +258,7 @@ export const bench: Messages["bench"] = {
 
   // Provider summary (ProviderSummary)
   serverUnreachable: "Couldn't reach the server.",
-  partialModelList: "Only part of the model-list route responded.",
+  partialModelList: "Only some of the model-list routes responded.",
   detectStep: (hint) => `Detection step: ${hint}`,
   modelCount: (n) => `${n} model${n === 1 ? "" : "s"}`,
 

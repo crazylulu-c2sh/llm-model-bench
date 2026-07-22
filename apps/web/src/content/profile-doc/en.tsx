@@ -211,12 +211,12 @@ export const en: ProfileDocContent = {
       intent: (
         <>
           A per-family “recommended starting point.” Usually the same as <PresetAnchor name="thinking_general" />, or close
-          to its diversity. The unknown family falls back to a conservative default (<code className="font-mono text-xs">temperature: 0.2, top_p: 1.0</code>) instead of this name.
+          to its diversity. The unknown family drops to a conservative fallback (<code className="font-mono text-xs">temperature: 0.2, top_p: 1.0</code>) instead of this name.
         </>
       ),
       examples: [
         "General use of qwen3_coder_next-based coder models",
-        "When you want to briefly bypass a specific heuristic and compare against family defaults",
+        "When you want to temporarily bypass a specific heuristic and compare against family defaults",
       ],
     },
     thinking_general: {

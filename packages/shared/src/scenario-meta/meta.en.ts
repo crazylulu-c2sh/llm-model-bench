@@ -254,7 +254,7 @@ export const META_EN: Record<ScenarioId, ScenarioBenchMetaText> = {
     purpose: "Evaluates whether the model accurately explains, in Korean, the visual contrast and satirical intent of a two-panel meme (Gemini-generated image).",
     criteria: MEME_CRITERIA_EN,
     promptNotes:
-      "B is split horizontally (left/right) and shares the same prompt as A (split top/bottom) — the prompt does not specify the split direction. system: Korean · 3–5 sentences · panel specificity. user: only the satire / panel-contrast task.",
+      "B is split side-by-side (left/right) and shares the same prompt as A (split top/bottom) — the prompt does not specify the split direction. system: Korean · 3–5 sentences · panel specificity. user: only the satire / panel-contrast task.",
     toolsSummary: "None.",
     routes: VISION_ROUTES_EN,
     implementation: MEME_IMPLEMENTATION_EN,
@@ -366,7 +366,7 @@ export const AGENT_META_EN: Record<string, ScenarioBenchMetaText> = {
       "(no LLM judge needed): schema + AES markers ≥2 + sources referencing the documents → 3. Stall / budget-exhausted → 0. " +
       "Metrics: completion rate · turns · valid-tool-call rate · mid-turn leak.",
     toolsSummary: "read_document / wiki_search / wiki_read (all mock). maxTurns 6.",
-    routes: "chat_completions (OpenAI-compatible) / messages (Anthropic), common.",
+    routes: "Common to both chat_completions (OpenAI-compatible) and messages (Anthropic).",
   },
   agent_loop_budget_v1: {
     purpose:

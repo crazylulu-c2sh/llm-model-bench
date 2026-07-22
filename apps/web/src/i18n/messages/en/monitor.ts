@@ -48,7 +48,7 @@ export const monitor: Messages["monitor"] = {
   widgetNotLoopback: "Not a loopback environment — disabled",
   widgetNotLocalhost: "baseUrl is not localhost — disabled",
 
-  bandLabel: { high: "High", good: "Good", mid: "Fair", low: "Low" },
+  bandLabel: { high: "Excellent", good: "Good", mid: "Fair", low: "Low" },
 
   colModel: "Model",
   colRoute: "Route",
@@ -87,7 +87,7 @@ export const monitor: Messages["monitor"] = {
     arg_attempt_rate:
       "ratio of runs with attempts>0 — low means giving up on the call itself when seeing a complex id (read together with fidelity)",
     output_efficiency:
-      "Σfinal-turn tokens / Σall-turn usage tokens — inverse of mid-turn thinking waste (higher is better)",
+      "Σfinal-turn tokens / Σall-turn usage tokens — inverse of intermediate-turn thinking waste (higher is better)",
     quality_mean:
       "deterministic rubric mean — **0–1 scale** (different meaning from other ratio metrics). The scoreboard main quality pools routes, so here we see per-route divergence",
     workflow_adherence_mean:
@@ -111,7 +111,7 @@ export const monitor: Messages["monitor"] = {
   leakEmptyState: "No measured runs to compute leak/stall metrics.",
   leakTableCaption: "Leak/stall metrics by model × route",
   safeCol: "Safe",
-  safeColTitle: "agent-safe when all three metrics are below threshold",
+  safeColTitle: "agent-safe when all three metrics are at or below the threshold",
   nColTitleLeak: "Number of measured runs in this (model, route) slice",
   leakWarningTitle: "Leak/stall threshold exceeded — caution for agent loops",
   warningAria: "Caution",

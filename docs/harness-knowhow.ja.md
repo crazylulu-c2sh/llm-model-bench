@@ -1,6 +1,6 @@
 # ハーネスノウハウ
 
-本プロジェクトのローカル LLM ベンチマーク／ストレスハーネスから抽出した、再利用可能な技術をまとめた公開成果物です — マルチプロバイダー抽象化、ストリーミングの TTFT/TPS 抽出、GPU 競合ガード、メモリ適合性プリフライト、マルチターンのエージェントループ、ランプ式ストレステスト、実行の永続化／回帰比較。各セクションは簡潔な技術リファレンスに続けて、正確なソースファイルへのポインタを示すので、システム全体を採用しなくても、他のプロジェクトが単一の技術だけを取り込めます。
+本プロジェクトのローカル LLM ベンチマーク／ストレスハーネスから抽出した、再利用可能な技術だけを抜き出してまとめたものです — マルチプロバイダー抽象化、ストリーミングの TTFT/TPS 抽出、GPU 競合ガード、メモリ適合性プリフライト、マルチターンのエージェントループ、ランプ式ストレステスト、実行の永続化／回帰比較。各セクションは簡潔な技術リファレンスに続けて、正確なソースファイルへのポインタを示すので、システム全体を採用しなくても、他のプロジェクトが単一の技術だけを取り込めます。
 
 > **メンテナンス。** ハーネス API（`apps/server/src/bench-runner.ts`、`openai-stream.ts`、`anthropic-stream.ts`、`stress-runner.ts`、`agent-loop.ts`、`contention-probe.ts`、`memory-preflight.ts` など）を変更する PR では、この文書内で該当する関数名・ファイル名を検索し、影響を受けるセクションの記述を更新してください。
 
@@ -25,9 +25,9 @@
 
 ## 1. アーキテクチャとイベントモデル
 
-これは、3 つのデプロイ可能なアプリが 1 つの共有ライブラリを import する pnpm ワークスペースのモノレポです。`@llm-bench/server`（`apps/server`）はベンチマークのオーケストレーションと SQLite 永続化を持つ Hono の HTTP サービス、`@llm-bench/web`（`apps/web`）は React SPA、`@llm-bench/mcp`（`apps/mcp`）は同じベンチマークを Model Context Protocol[^mcp-spec] のツールとして公開します。`@llm-bench/shared`（`packages/shared/src/index.ts`）が唯一の信頼できる情報源です。あらゆるワイヤー型 — `StreamEvent`、`BenchRunMeta`、`BenchResult`、リクエストボディ（`BenchStreamBodySchema`）、採点ロジック — が Zod スキーマとして一度だけ定義され、`z.infer` で TS 型に推論されるので、3 つのアプリすべてが同一の形状に対して検証します。再利用可能な中核は `apps/server/src/bench-runner.ts` の `runBench` です。これはソケットに書き込む代わりに型付きイベントのストリームを *yield* する `async function*`（`AsyncGenerator<StreamEvent>`）です。こうしてオーケストレーションはトランスポートから完全に分離されます — HTTP ルートは yield された各イベントを SSE フレームに適応させ、テストはジェネレータを直接反復し、MCP サーバーは同じ SSE エンドポイントをネットワーク越しに消費します。中核となる再利用パターンは「ジェネレータがイベントを yield し、コンシューマがトランスポートを決める」という分離です。`runBench` は SSE・WebSocket・HTTP といったトランスポート層を一切知りません。順番に `StreamEvent` を yield するだけで、どのコンシューマも `for await (const ev of runBench(...))` で受け取り、望む形（SSE フレーム、DB insert、テストの assertion）に適応させます。イベントスキーマを `shared` パッケージの Zod discriminated union に置くことが、この構造の契約（contract）です。
+これは、3 つのデプロイ可能なアプリが 1 つの共有ライブラリを import する pnpm ワークスペースのモノレポです。`@llm-bench/server`（`apps/server`）はベンチマークのオーケストレーションと SQLite 永続化を持つ Hono の HTTP サービス、`@llm-bench/web`（`apps/web`）は React SPA、`@llm-bench/mcp`（`apps/mcp`）は同じベンチマークを Model Context Protocol[^mcp-spec] のツールとして公開します。`@llm-bench/shared`（`packages/shared/src/index.ts`）が唯一の信頼できる情報源です。あらゆるワイヤー型 — `StreamEvent`、`BenchRunMeta`、`BenchResult`、リクエストボディ（`BenchStreamBodySchema`）、採点ロジック — が Zod スキーマとして一度だけ定義され、`z.infer` で TS 型に推論されるので、3 つのアプリすべてが同一の形状に対して検証します。再利用可能な中核は `apps/server/src/bench-runner.ts` の `runBench` です。これはソケットに書き込む代わりに型付きイベントのストリームを *yield* する `async function*`（`AsyncGenerator<StreamEvent>`）です。こうしてオーケストレーションはトランスポートから完全に分離されます — HTTP ルートは yield された各イベントを SSE フレームに適応させ、テストはジェネレータを直接反復し、MCP サーバーは同じ SSE エンドポイントをネットワーク越しに消費します。中核となる再利用パターンは「ジェネレータがイベントを yield し、コンシューマがトランスポートを決める」という分離です。`runBench` は SSE・WebSocket・HTTP といったトランスポート層を一切知りません。順番に `StreamEvent` を yield するだけで、どのコンシューマも `for await (const ev of runBench(...))` で受け取り、望む形（SSE フレーム、DB insert、テストの assertion）に適応させます。おかげで同じオーケストレーションコードが (1) 本番の SSE ストリーミング、(2) SQLite 永続化、(3) 単体テストでそのまま再利用されます。イベントスキーマを `shared` パッケージの Zod discriminated union に置くことが、この構造の契約（contract）です。
 
-- **共有コントラクト。** `StreamEventSchema` は `packages/shared/src/index.ts` の `z.discriminatedUnion("type", [...])` です。判別子 `type` により、各コンシューマは網羅的に絞り込めます。検証はアプリごとではなく共有境界で行われます。
+- **共有コントラクト。** `StreamEventSchema` は `packages/shared/src/index.ts` の `z.discriminatedUnion("type", [...])` です。判別子 `type` により、各コンシューマは網羅的に絞り込めます。検証はアプリごとではなく共有境界で一度だけ行われます。
 - **ジェネレータのシグネチャ**（`apps/server/src/bench-runner.ts`）:
 
 ```ts
@@ -141,7 +141,7 @@ export function resolveBenchApiRoutes(
 
 ## 3. ストリーミングメトリクス抽出
 
-両プロバイダーアダプタは SSE の `ReadableStream` を逐次的に消費し（`consumeOpenAiChatStream` はバッファを `\n`（行）ごとに、`consumeAnthropicMessagesStream` は `\n\n`（イベントブロック）ごとに分割）、生テキストではなく単一のフラットなメトリクスオブジェクトを返します。コンシューマは *最初* の content/reasoning/tool デルタで `performance.now()` を 1 回だけサンプリングし、HTTP リクエスト開始時に取得した `origin` からの相対で TTFT を求めます。またモデルの出力を 3 つの並行チャネル（`text` / `assistantText` / `reasoningText`）に分離し、推論トークンが採点対象の回答を汚染することなくスループットに算入されるようにします。再利用可能な考え方は、測定（TTFT、トークン推定、切り詰めフラグ、ツール呼び出しの組み立て、破損ガード）をすべてストリームリーダー内で行うことで、どのベンダーの SSE 方言が生成したかによらず、比較可能でプロバイダー非依存な数値を呼び出し側に渡せる、という点です。要点は (1) 最初のデルタでのみ TTFT を刻み、(2) `usageOutputTokens`（プロバイダー報告）を優先し、なければ `approxOutputTokens`（長さベース推定）にフォールバックし、(3) 推論（reasoning/thinking）チャネルを採点用本文と物理的に分離しておくことです。OpenAI 側はここに反復ループの早期終了と tool_call 引数の破損検出まで加えます。ソース: `apps/server/src/openai-stream.ts`, `apps/server/src/anthropic-stream.ts`。
+両プロバイダーアダプタは SSE の `ReadableStream` を逐次的に消費し（`consumeOpenAiChatStream` はバッファを `\n`（行）ごとに、`consumeAnthropicMessagesStream` は `\n\n`（イベントブロック）ごとに分割）、生テキストではなく単一のフラットなメトリクスオブジェクトを返します。コンシューマは *最初* の content/reasoning/tool デルタで `performance.now()` を 1 回だけサンプリングし、HTTP リクエスト開始時に取得した `origin` からの相対で TTFT を求めます。またモデルの出力を 3 つの並行チャネル（`text` / `assistantText` / `reasoningText`）に分離し、推論トークンが採点対象の回答を汚染することなくスループットに算入されるようにします。再利用可能な考え方は、測定（TTFT、トークン推定、切り詰めフラグ、ツール呼び出しの組み立て、破損ガード）をすべてストリームリーダー内で行うことで、どのベンダーの SSE 方言が生成したかによらず、比較可能でプロバイダー非依存な数値を呼び出し側に渡せる、という点です。要点は (1) 最初のデルタでのみ TTFT を刻み、(2) `usageOutputTokens`（プロバイダー報告）を優先し、なければ `approxOutputTokens`（長さベース推定）にフォールバックし、(3) 推論（reasoning/thinking）チャネルを採点用本文と物理的に分離しておくことです。OpenAI 側はここに反復ループの早期終了と tool_call 引数の破損検出まで加えます。ソース: `apps/server/src/openai-stream.ts`, `apps/server/src/anthropic-stream.ts`。両アダプタは SSE ストリームを直接パースしながら、レイテンシ・スループット・切り詰め・ツール呼び出しを一度に測定します。
 
 ### 最初のデルタでの `performance.now()` による TTFT
 
@@ -222,7 +222,7 @@ export type AnthropicStreamMetrics = {
 
 ## 4. メモリ適合性プリフライトとOOMガード
 
-モデルの重みを RAM にロードする前に、このハーネスは実際に収まるかを予測し、収まらなければ実行をスキップするか、常駐している他のモデルを追い出します — ハードな OOM（「システムリソース不足」）を、クリーンでログに残る判断に変えます。予測器はモデルの生の `size_bytes` を取り、ランタイム／KV オーバーヘッド係数で膨らませ、空きメモリから固定の OS 安全予約を引いた値と比較します。重要なのは、このゲートは **LM Studio 中心** である点です。必要サイズのシグナルも追い出しの仕組みも LM Studio のローカルモデル API 由来なので、**他のプロバイダー（ホスト型 API、他のローカルランタイム）には同等のプリフライトゲートが存在せず**、このチェックなしで単に実行されます。中核ロジックは `apps/server/src/memory-preflight.ts` にあり、LM Studio 固有のヘルパーは `apps/server/src/lmstudio.ts` にあります。中心的な考え方は「ロードする前に予測する」ことです。サイズが不明な場合は絶対にブロックせず続行（`proceed`）して後方互換を保ち、実際のブロックは `fitPolicy` が明示指定されたときだけ起こります。このゲートは LM Studio のローカルモデル一覧・アンロード API に依存するので、他のプロバイダーには同じ事前チェックが存在しない点に必ず注意してください。
+モデルの重みを RAM にロードする前に、このハーネスは実際に収まるかを予測し、収まらなければ実行をスキップするか、常駐している他のモデルを追い出します — ハードな OOM（「システムリソース不足」）を、クリーンでログに残る判断に変えます。予測器はモデルの生の `size_bytes` を取り、ランタイム／KV オーバーヘッド係数で膨らませ、空きメモリから固定の OS 安全予約を引いた値と比較します。重要なのは、このゲートは **LM Studio 中心** である点です。必要サイズのシグナルも追い出しの仕組みも LM Studio のローカルモデル API 由来なので、**他のプロバイダー（ホスト型 API、他のローカルランタイム）には同等のプリフライトゲートが存在せず**、このチェックなしで単に実行されます。中核ロジックは `apps/server/src/memory-preflight.ts` にあり、LM Studio 固有のヘルパーは `apps/server/src/lmstudio.ts` にあります。中心的な考え方は「ロードする前に予測する」ことです。候補モデルのディスク／重みサイズ（`size_bytes`）にオーバーヘッド係数を掛けて必要 RAM を推定し、`free - reserve` と比較します。サイズが不明な場合は絶対にブロックせず続行（`proceed`）して後方互換を保ち、実際のブロックは `fitPolicy` が明示指定されたときだけ起こります。このゲートは LM Studio のローカルモデル一覧・アンロード API に依存するので、他のプロバイダーには同じ事前チェックが存在しない点に必ず注意してください。
 
 ### 調整可能な定数
 
@@ -259,7 +259,7 @@ export function lmStudioResidentInstances(
 
 - モデルキーは `baseKey()` で正規化され、`.replace(/:\d+$/, "")` により末尾の数値 `:<N>` サフィックスを取り除くので、ベンチの `modelId` が LM Studio のリスト上の `key` と一致します。
 - `lmStudioModelSizeBytes()` はリスト上の `size_bytes` を読みます。それが無ければ `preflightMemoryFit()` は `detect` が報告する `size_bytes` にフォールバックし、両方欠けている場合にのみサイズを不明として扱います。
-- `lmStudioResidentInstances()` はローカルの `firstNumberField()` ヘルパーで、順序付きキーのフォールバック（`ram_usage` → `ram` → `ram_bytes`、および `vram_usage` → `vram` → `vram_bytes` の対応版）を使ってインスタンスごとの使用量を読み、monitor-collect の `numberField` 慣例に倣います。これらのインスタンスがハーネスの再取得できる RAM です。各 `instanceId` は `loaded_instances[].id` 由来で — LM Studio 公式の unload ボディが運ぶのと同じ値（`{ "instance_id": "…" }`、`lmStudioUnload()` が POST）です。
+- `lmStudioResidentInstances()` はローカルの `firstNumberField()` ヘルパーで、順序付きキーのフォールバック（`ram_usage` → `ram` → `ram_bytes`、および `vram_usage` → `vram` → `vram_bytes` の対応版）を使ってインスタンスごとの使用量を読み、monitor-collect の `numberField` 慣例に倣います。これらのインスタンスがハーネスが回収できる RAM です。各 `instanceId` は `loaded_instances[].id` 由来で — LM Studio 公式の unload ボディが運ぶのと同じ値（`{ "instance_id": "…" }`、`lmStudioUnload()` が POST）です。
 
 ### 適合性の計算
 
@@ -293,7 +293,7 @@ const fitsAfterUnload  = requiredWithOverhead <= free + residentRam - FIT_SAFETY
 
 ## 5. プロバイダーのロード・アンロードとTTL
 
-ローカルモデルバックエンドは、モデルを一定時間メモリに保持させる *方法* が異なります。そこでハーネスはこれを単一の capability チェック `providerSupportsLoadTtl(kind)` の背後でゲートし、TTL をプロバイダーごとに適用します。LM Studio はロード呼び出しに直接 `ttl`（**秒** 単位）を受け付け、アイドル時の自動追い出しを提供します。Ollama は `keep_alive` を使いますが、鋭い注意点があります。ベンチが実際に推論を駆動する OpenAI 互換の `/v1/chat/completions` エンドポイントは **`keep_alive` を無視し、リクエストごとにモデルの寿命をデフォルトの 5 分へ静かにリセットします**（[ollama#11458](https://github.com/ollama/ollama/issues/11458)）。再利用可能な回避策は、望みの TTL を Ollama の *ネイティブ* API 経由で帯域外に 2 回適用することです。1 回は実行前のプリロードとして、もう 1 回は実行後に意図した keep-alive を再表明するためです。`openai_compatible`・`manual` プロバイダーは TTL の概念がなく、値があっても無視されます。[^lms-rest][^ollama-api]
+ローカルモデルバックエンドは、モデルを一定時間メモリに保持させる *方法* が異なります。そこでハーネスはこれを単一の capability チェック `providerSupportsLoadTtl(kind)` の背後でゲートし、TTL をプロバイダーごとに適用します。LM Studio はロード呼び出しに直接 `ttl`（**秒** 単位）を受け付け、アイドル時の自動追い出しを提供します。Ollama は `keep_alive` を使いますが、鋭い注意点があります。ベンチが実際に推論を駆動する OpenAI 互換の `/v1/chat/completions` エンドポイントは **`keep_alive` を無視し、リクエストごとにモデルの寿命をデフォルトの 5 分へ静かにリセットします**（[ollama#11458](https://github.com/ollama/ollama/issues/11458)）。再利用可能な回避策は、望みの TTL を Ollama の *ネイティブ* API 経由で帯域外に 2 回適用することです。1 回は実行前のプリロードとして、もう 1 回は実行後に意図した keep-alive を再表明するためです。両バックエンドは「モデルをどれだけメモリに保持させるか」の指定方法が異なるため、ハーネスは `providerSupportsLoadTtl()` 1 つで対応可否を判別し、実際の適用はプロバイダーごとに分岐します。核心の落とし穴は、Ollama の `/v1/chat/completions` が `keep_alive` を無視しリクエストごとにデフォルトの 5 分へリセットする点で、これをネイティブの `/api/generate` による **プリロード + ベンチ終了後の再適用** で回避します。`openai_compatible`・`manual` プロバイダーは TTL の概念がなく、値があっても無視されます。[^lms-rest][^ollama-api]
 
 - **Capability ゲート**（`packages/shared/src/provider-kind.ts`）: `providerSupportsLoadTtl(p)` は `"lm_studio"` と `"ollama"` に対してのみ `true` を返します。`false` のとき呼び出し側はすべての TTL ロジックをショートサーキットします。
 - **LM Studio**（`apps/server/src/lmstudio.ts`）: `lmStudioLoad(baseUrl, modelKey, { ttlSeconds })` は `{ model, ttl }` を `/api/v1/models/load`（`/api/v0/...` にフォールバック）へ POST します。`ttl` は `ttlSeconds` が有限かつ `> 0` のときだけ含まれ、整数秒に切り捨てられます。これはネイティブの LM Studio フィールドなので、再適用のダンスは不要です。
@@ -336,7 +336,7 @@ export async function ollamaKeepAliveLoad(
 
 ## 6. 競合／汚染ガード
 
-共有 GPU 上でレイテンシとスループットを測るベンチマークは、*他の* 推論が同時に走っていない場合にのみ信頼できます — 外部の生成は TTFT を膨らませ tokens/sec を押し下げ、数値を静かに汚染します。ここでの再利用可能な技術は、単一のプローブを決して信用しない **多信号アイドルゲート** です。GPU 使用率（`nvidia-smi`）、Prometheus `/metrics` のリクエストゲージ（vLLM[^vllm-metrics] / llama.cpp[^llamacpp-server] / TGI[^tgi-metrics]）、`lms ps --json` のアクティビティビュー（LM Studio）、Ollama の `expires_at` の変化を融合します。鍵となる構造的洞察は、*自己* 競合（自分のロードで GPU が点灯すること）を避けるための **2 つのサンプリングモード** です。アイドルサンプラー（`sampleIdle`）は自分のリクエストが in-flight でないときにのみ使い、in-flight サンプラー（`sampleInFlight`）は自分のストリーミング *中* にのみ使って、（自分が起こした）GPU 使用率は無視し、代わりに既知の寄与分 1 を超えるリクエストキューの増分を数えます。これは 3 つのフェーズ — `pre_bench` ゲート、`between_iterations` ゲート、検出時に中断して再測定するバックグラウンドの in-flight モニター — に組み込まれています。`manual` プロバイダーの場合、ガードは自動的に無効化されます（`resolveContentionConfig`）。`apps/server/src/contention-probe.ts` と `apps/server/src/bench-runner.ts` の統合を参照。
+共有 GPU 上でレイテンシとスループットを測るベンチマークは、*他の* 推論が同時に走っていない場合にのみ信頼できます — 外部の生成は TTFT を膨らませ tokens/sec を押し下げ、数値を静かに汚染します。ここでの再利用可能な技術は、単一のプローブを決して信用しない **多信号アイドルゲート** です。GPU 使用率（`nvidia-smi`）、Prometheus `/metrics` のリクエストゲージ（vLLM[^vllm-metrics] / llama.cpp[^llamacpp-server] / TGI[^tgi-metrics]）、`lms ps --json` のアクティビティビュー（LM Studio）、Ollama の `expires_at` の変化を融合します。鍵となる構造的洞察は、*自己* 競合（自分の負荷で GPU が点灯すること）を避けるための **2 つのサンプリングモード** です。アイドルサンプラー（`sampleIdle`）は自分のリクエストが in-flight でないときにのみ使い、in-flight サンプラー（`sampleInFlight`）は自分のストリーミング *中* にのみ使って、（自分が起こした）GPU 使用率は無視し、代わりに既知の寄与分 1 を超えるリクエストキューの増分を数えます。これは 3 つのフェーズ — `pre_bench` ゲート、`between_iterations` ゲート、検出時に中断して再測定するバックグラウンドの in-flight モニター — に組み込まれています。`sampleIdle` は *自分のリクエストが in-flight でないときのみ* 呼ばれ、GPU 使用率・`/metrics`・`lms ps` を信頼し（アクティブ信号が 1 つでもしきい値を超えれば待機）、`sampleInFlight` は *自分のストリーミング中のみ* 呼ばれ、自分が起こした GPU 使用率は無視して、サーバーのリクエスト数ゲージ（自分の寄与 = 1 が既知なので `running≥2` から競合）・他モデルの generating・ロード済み ID の churn・Ollama の `expires_at` の前進によって外部の同時推論を検出します。`manual` プロバイダーの場合、ガードは自動的に無効化されます（`resolveContentionConfig`）。`apps/server/src/contention-probe.ts` と `apps/server/src/bench-runner.ts` の統合を参照。
 
 - **信号の到達範囲（どこで有効か）:** GPU と `lms ps` はサーバーマシンのローカルでのみ有効（`isTargetOnServerHost(baseUrl)`）。`lms ps` はさらに `provider === "lm_studio"` + `isLmsCliEnabled()` + CLI 有効トグルのときのみ。`/metrics` はネットワークエンドポイントなので、リモート対象（`openai_compatible`/`manual`）でも可能です。非対応サーバーでは `/metrics` が non-OK またはパース不能で一度失敗すると `metricsUnavailable` にラッチされ、再ポーリングしません。
 - **アイドル vs in-flight のしきい値:** アイドルモードは `metrics.running >= 1 || metrics.waiting >= 1` なら active とみなして待機します。in-flight モードは自分のリクエスト 1 件を差し引くため `metrics.running >= 2 || metrics.waiting >= 1` を競合基準にします。
@@ -377,7 +377,7 @@ type ContentionConfig = {
 
 | 信号 | ソース | アイドルゲート（`sampleIdle`） | in-flight モニター（`sampleInFlight`） |
 |---|---|---|---|
-| GPU 使用率 | `getGpuSnapshot()` 経由の `nvidia-smi` | `maxUtil > gpuUtilThresholdPct` なら active | **使用しない**（自分のロード） |
+| GPU 使用率 | `getGpuSnapshot()` 経由の `nvidia-smi` | `maxUtil > gpuUtilThresholdPct` なら active | **使用しない**（自分の負荷） |
 | リクエストゲージ | Prometheus `/metrics` | `running≥1 \|\| waiting≥1` | `running≥2 \|\| waiting≥1` |
 | LM Studio アクティビティ | `lms ps --json` | いずれかの `generating` または自分の `queued>0` | *外部* モデルの generating、または自分の `queued>0` |
 | 新規モデルロード | ロード済みモデル在庫 | トリガーではない; アクティブ信号が無いとき `inventory_only_no_active_signal` のラベルのみ | `baseline.loadedIds` に無い ID → `new_model_loaded` |
@@ -407,7 +407,7 @@ type ContentionConfig = {
 
 ## 7. ストレスランプとバックプレッシャー
 
-ストレス実行は、離散的な *ステージ*（`start → max` を `step` ずつ）で同時実行数を段階的に引き上げ、各ステージ内で `concurrency` 個の async ワーカーを起動して、固定の `durationMs` のエンキューウィンドウの間、ストリーミングリクエストを連続して発射し、その後 in-flight リクエストをドレインします。ワーカーは結果を直接書き込まず、型付きイベントを有界のインメモリキューに `push` し、外側の async generator がそれらを `yield` します。こうして実行全体が単一の `AsyncGenerator<StressStreamEvent>` となり、トランスポート（SSE/WebSocket）がそれをクライアントへ直接パイプできます。バックプレッシャーは high-water mark で強制されます。キューが埋まると、プロデューサは無制限に確保する代わりにドレイン信号を `await` します。各ステージは、p50/p95 のレイテンシ + TTFT、`aggregate_tps`、`tps_per_user`、`error_rate` を持つコンパクトな `StressStageResult` に集約され、サンプルが信頼するには小さすぎる／短すぎる場合は `tps_unreliable` フラグが付きます。この形は、ライブの進捗をストリームしつつクリーンなステージ単位サマリーも発行する、あらゆる負荷ハーネスで再利用できます。中核の考え方は *プロデューサ（ワーカー）とコンシューマ（ジェネレータ）をキューで分離する* ことです。ワーカーは結果を直接放出せず `queue.push` 後に `wake()` でコンシューマを起こし、コンシューマはキューから 1 つずつ `yield` します。キューが `QUEUE_HIGH_WATER`（256）に達するとワーカーは `awaitDrainIfFull()` で待機し、コンシューマがキューを半分（128）以下に空けると `drainSignal()` で再び起こしてメモリ暴走を防ぎます。`apps/server/src/stress-runner.ts` と `packages/shared/src/stress.ts` を参照。
+ストレス実行は、離散的な *ステージ*（`start → max` を `step` ずつ）で同時実行数を段階的に引き上げ、各ステージ内で `concurrency` 個の async ワーカーを起動して、固定の `durationMs` のエンキューウィンドウの間、ストリーミングリクエストを連続して発射し、その後 in-flight リクエストをドレインします。ワーカーは結果を直接書き込まず、型付きイベントを有界のインメモリキューに `push` し、外側の async generator がそれらを `yield` します。こうして実行全体が単一の `AsyncGenerator<StressStreamEvent>` となり、トランスポート（SSE/WebSocket）がそれをクライアントへ直接パイプできます。バックプレッシャーは high-water mark で強制されます。キューが埋まると、プロデューサは無制限に確保する代わりにドレイン信号を `await` します。各ステージは、p50/p95 のレイテンシ + TTFT、`aggregate_tps`、`tps_per_user`、`error_rate` を持つコンパクトな `StressStageResult` に集約され、サンプルが小さすぎる／短すぎて信頼できない場合は `tps_unreliable` フラグが付きます。この形は、ライブの進捗をストリームしつつクリーンなステージ単位サマリーも発行する、あらゆる負荷ハーネスで再利用できます。中核の考え方は *プロデューサ（ワーカー）とコンシューマ（ジェネレータ）をキューで分離する* ことです。ワーカーは結果を直接放出せず `queue.push` 後に `wake()` でコンシューマを起こし、コンシューマはキューから 1 つずつ `yield` します。キューが `QUEUE_HIGH_WATER`（256）に達するとワーカーは `awaitDrainIfFull()` で待機し、コンシューマがキューを半分（128）以下に空けると `drainSignal()` で再び起こしてメモリ暴走を防ぎます。ステージ要約値は信頼性ゲートを通過する必要があり、サンプルが不足する場合は TPS を `null` にして `tps_unreliable: true` を付け、読み手が誤解しないようにします。`apps/server/src/stress-runner.ts` と `packages/shared/src/stress.ts` を参照。
 
 - **Ramp ループ。** `for (let cc = meta.ramp.start; cc <= meta.ramp.max; cc += meta.ramp.step)` — 同時実行レベルごとに 1 ステージ。`clampRamp()` は入力を `start∈[1,256]`、`max=max(start,…,256)`、`step∈[1,64]`、`durationMs∈[100,600_000]` に制限するので、不正なリクエストが無限または退化したランプを生むことはありません。
 - **ワーカープール。** ステージごとに `concurrency` 個のワーカーが `workerPromises[]` に起動されます。各ワーカーはループします: `externalSignal.aborted` と `performance.now() >= enqueueDeadline`（`enqueueDeadline = stageStart + meta.ramp.durationMs`）をチェックし、1 件のストリーミングリクエストを発行し、`WorkerRequestOutcome` を記録し、繰り返します。`401`/`403` はそのワーカーを早期に離脱させます（認証は負荷下で回復しません）。
@@ -482,7 +482,7 @@ export interface StressStageResult {
 
 ## 8. マルチターンエージェントループハーネス
 
-マルチターンのエージェントループハーネスは、実際のツールを一切実行せずに、モデルを N 回のツール呼び出しラウンドにわたって駆動します。すべての `tool_call` は定型の「モック」レスポンスで応答するので、単発の function-calling プローブでは再現できないクロスターンの失敗モード — 空ターンのストール、中間ターンへ漏れる思考、可視の回答が出る前にターンごとのトークンバジェットを使い切る推論 — を再現できます。中核はルート非依存の純粋なリデューサ（`stepAgentLoop`）で、ルート正規化されたターン（`NormalizedTurn`）を消費し、`LoopState` を蓄積し、「このツール結果でループ継続」か「これが最終ターン」かの `StepDecision` を返します。2 つの薄いルートアダプタ（OpenAI `chat_completions` と Anthropic `messages`）が `NormalizedTurn` を構築して同じリデューサに供給するので、ワイヤーフォーマットによらずメトリクスは同一に計算されます。全体はシナリオ上の `agentLoop` ブロックで宣言的に定義され、その存在がシナリオをマルチターンにします。再利用の要点は 2 つです。(1) ツールを実際に実行せず **定型（canned）のモック結果だけを返す** ので、実行環境なしでもマルチターンの挙動を決定論的に観察でき、(2) ターン分析ロジックをルートから分離した **純粋なリデューサ** にすることで OpenAI/Anthropic 両ルートが同一の指標を算出します。`apps/server/src/agent-loop.ts` と `packages/shared/src/scenario-registry.ts` のスキーマを参照。
+マルチターンのエージェントループハーネスは、実際のツールを一切実行せずに、モデルを N 回のツール呼び出しラウンドにわたって駆動します。すべての `tool_call` は定型の「モック」レスポンスで応答するので、単発の function-calling プローブでは再現できないクロスターンの失敗モード — 空ターンのストール、中間ターンへ漏れる思考、可視の回答が出る前にターンごとのトークンバジェットを使い切る推論 — を再現できます。中核はルート非依存の純粋なリデューサ（`stepAgentLoop`）で、ルート正規化されたターン（`NormalizedTurn`）を消費し、`LoopState` を蓄積し、「このツール結果でループ継続」か「これが最終ターン」かの `StepDecision` を返します。2 つの薄いルートアダプタ（OpenAI `chat_completions` と Anthropic `messages`）が `NormalizedTurn` を構築して同じリデューサに供給するので、ワイヤーフォーマットによらずメトリクスは同一に計算されます。全体はシナリオ上の `agentLoop` ブロックで宣言的に定義され、その存在がシナリオをマルチターンにします。再利用の要点は 2 つです。(1) ツールを実際に実行せず **定型（canned）のモック結果だけを返す** ので、実行環境なしでもマルチターンの挙動を決定論的に観察でき、(2) ターン分析ロジックをルートから分離した **純粋なリデューサ** にすることで OpenAI/Anthropic 両ルートが同一の指標を算出します。`apps/server/src/agent-loop.ts` と `packages/shared/src/scenario-registry.ts` のスキーマを参照。ルートアダプタがストリーム結果を `NormalizedTurn` に正規化し、リデューサ（`stepAgentLoop`）はその正規化されたターンを受け取って状態を蓄積します。単発の function-calling では捉えられない欠陥 — 空ターンでのストール、中間ターンへの思考リーク、ターンごとのバジェット枯渇 — をターンを跨いで露呈させることが目的です。
 
 - **モックのディスパッチ（`pullMock`）**: 通常の `MockTool` では、ハーネスはツールごとの `responses` キュー（`cursor: Map<string,number>`）から次のエントリをポップし、キューが尽きたら `repeatLast` が設定されていれば最後のエントリを繰り返します。ツールが `argDispatch` を定義していれば、レスポンスは代わりに `JSON.parse(args)[argKey]` を `cases` で引いて選ばれるので、モデルは不透明な id を逐語コピーしないとヒットしません — こうして引数の忠実度を測ります。
 - **ルートアダプタは正規化するだけ**: `runAgentLoopOpenAi` / `runAgentLoopAnthropic` は `token_delta` イベントをストリームする async generator で、`NormalizedTurn`（可視 `content`、`reasoningText`、`toolCalls`、`usageOutputTokens`、`finishReason`）を構築し、次の反復の前にアシスタントターン + ツール結果をトランスクリプトに追記します。
@@ -535,7 +535,7 @@ return finalize(state, "budget_exhausted", null, state.lastVisible, state.lastCo
 
 ## 9. 品質採点とLLM-as-judge
 
-品質はシナリオごとに単一のエントリーポイント `scoreScenario(id, output, ctx?)`（`apps/server/src/scenarios.ts`）で採点され、`{ pass, score?, reason?, judge_pending? }` を返します。ほとんどのシナリオは **高速な prefilter**（空出力チェック、正規表現／部分文字列のキュー一致、JSON 形状の検証、スクリプト検出）で決定論的に解決するので、API キーなしでもスコアは再現可能です。主観的なビジョンシナリオ（ミーム説明、ワイヤーフレーム HTML）は prefilter だけを走らせ、その後 `LLM_JUDGE_ENABLED` 環境変数でゲートされた **任意の LLM-as-judge** 呼び出し（Anthropic Messages API に対して）に委譲します。内部の全ルーブリックスコアは共有の `0 / 0.33 / 0.67 / 1` スケールにマッピングされ、**`score >= 0.67`（ルーブリック >= 2）が合格** です。prefilter が通ると暫定スコア（`0.33`、内部ルーブリック 1）と `judge_pending: true` フラグだけを付けて返し、judge が有効なときだけ `bench-runner` がその結果で上書きします。judge が無効なときはスコアが `0.33` で **キャップ** され、`computeQualityScores` がこれを `judge_capped` の caveat として表面化します（無音処理はしません）。本節は要約です。シナリオごとの正式なルーブリックと実行時ルールは、アプリの `/profile` ページとリポジトリの `README.md` にあります。
+品質はシナリオごとに単一のエントリーポイント `scoreScenario(id, output, ctx?)`（`apps/server/src/scenarios.ts`）で採点され、`{ pass, score?, reason?, judge_pending? }` を返します。ほとんどのシナリオは **高速な prefilter**（空出力チェック、正規表現／部分文字列のキュー一致、JSON 形状の検証、スクリプト検出）で決定論的に解決するので、API キーなしでもスコアは再現可能です。主観的なビジョンシナリオ（ミーム説明、ワイヤーフレーム HTML）は prefilter だけを走らせ、その後 `LLM_JUDGE_ENABLED` 環境変数でゲートされた **任意の LLM-as-judge** 呼び出し（Anthropic Messages API に対して）に委譲します。内部の全ルーブリックスコアは共有の `0 / 0.33 / 0.67 / 1` スケールにマッピングされ、**`score >= 0.67`（ルーブリック >= 2）が合格** です。採点は、決定論的な prefilter を第一段階として走らせ、正解を固定できない主観的（ビジョン）シナリオだけを LLM judge に委譲する 2 段階の構造です。prefilter が通ると暫定スコア（`0.33`、内部ルーブリック 1）と `judge_pending: true` フラグだけを付けて返し、judge が有効なときだけ `bench-runner` がその結果で上書きします。judge が無効なときはスコアが `0.33` で **キャップ** され、`computeQualityScores` がこれを `judge_capped` の caveat として表面化します（無音処理はしません）。本節は要約です。シナリオごとの正式なルーブリックと実行時ルールは、アプリの `/profile` ページとリポジトリの `README.md` にあります。
 
 - **ルーブリック → スコアのマッピング** — 単一のソース `rubricToScore(n: 0 | 1 | 2 | 3)`（`packages/shared/src/scenarios-preview.ts`）で、サーバー・judge・UI が再利用:
 
@@ -586,7 +586,7 @@ export LLM_JUDGE_MODEL=claude-opus-4-7
 
 ## 10. 実行の永続化と回帰検出
 
-ベンチ実行はローカルの SQLite ファイル（Node 組み込みの `node:sqlite`[^node-sqlite] `DatabaseSync`、外部ドライバなし）に永続化されるので、履歴・スコアボード・A/B 比較がプロセス再起動をまたいで残ります。単一の接続を遅延的に開き、プロセス寿命の間キャッシュします。ファイルを開けない場合はハーネスは優雅に劣化します（履歴／永続化は無効、ベンチは引き続き走る）。ライブのストリーミングイベントは小さなステートマシン（`start` → `onEvent` → `finalize`）で行に逐次畳み込まれ、回帰検出は 2 つの永続化された実行詳細に対する **純粋関数** なので、DB なしでサーバー側でもテストでも再利用できます。再利用パターン: 書き込みヘルパーをテーブルごとに薄く型付けし、DB を任意扱いし、差分ロジックを副作用なし・しきい値駆動にすること。DB 接続は `tryOpenProdBenchDatabase()` が成功時にプロセス全体で再利用し、失敗時は `null` を返してベンチは継続しつつ履歴 API だけ無効化します（直近の失敗後 `PROD_DB_RETRY_AFTER_MS = 60_000` ms の間はファイル I/O を節約するため即 `null`）。回帰判定（`computeCompare`）は DB に依存しない純粋関数なので、サーバールートでも単体テストでも同じ結果を出します。
+ベンチ実行はローカルの SQLite ファイル（Node 組み込みの `node:sqlite`[^node-sqlite] `DatabaseSync`、外部ドライバなし）に永続化されるので、履歴・スコアボード・A/B 比較がプロセス再起動をまたいで残ります。単一の接続を遅延的に開き、プロセス寿命の間キャッシュします。ファイルを開けない場合はハーネスは優雅に劣化します（履歴／永続化は無効、ベンチは引き続き走る）。ライブのストリーミングイベントは小さなステートマシン（`start` → `onEvent` → `finalize`）で行に逐次畳み込まれ、回帰検出は 2 つの永続化された実行詳細に対する **純粋関数** なので、DB なしでサーバー側でもテストでも再利用できます。再利用パターン: 書き込みヘルパーをテーブルごとに薄く型付けし、DB を任意扱いし、差分ロジックを副作用なし・しきい値駆動にすること。このリポジトリは `apps/server/src/db/` 配下にテーブルごとの薄いヘルパーを置く方式を採っています。DB 接続は `tryOpenProdBenchDatabase()` が成功時にプロセス全体で再利用し、失敗時は `null` を返してベンチは継続しつつ履歴 API だけ無効化します（直近の失敗後 `PROD_DB_RETRY_AFTER_MS = 60_000` ms の間はファイル I/O を節約するため即 `null`）。ストリームイベントは、完結した結果を一括で書くのではなく、イベントが届くたびに行を upsert/patch して蓄積します。回帰判定（`computeCompare`）は DB に依存しない純粋関数なので、サーバールートでも単体テストでも同じ結果を出します。
 
 ### SQLite 永続化（persistence）
 
@@ -661,7 +661,7 @@ type MetricDelta = { a: number|null; b: number|null; delta: number|null; pct: nu
 
 ## 11. プロバイダーの落とし穴
 
-ローカルの **LM Studio** バックエンドを駆動するとき、2 つの失敗モードが HTTP エラーを一切 throw せずにスコアを静かに汚染し得ます。どちらも、あなたのハーネスではなく特定のアプリビルド／GGUF テンプレートに依存します。以下の 2 つのドキュメントを正典として扱い、内容を複製するのではなく単一の信頼できる情報源として保ってリンクしてください。バージョンのタイムラインや根本原因の分析は、LM Studio が新しいエンジンビルドを出すたびにドリフトするためです。アプリ内では、影響を受ける各結果行が `apps/web/src/components/ResultsTable.tsx` で `⚠` バッジ付きにマークされます。バッジのツールチップはオペレーターに行を開くよう促し、行の詳細ドロワー（`apps/web/src/components/ScenarioDetailDrawer.tsx`）とテーブル凡例が、オペレーター向け是正のための `/profile#lmstudio-host` へのディープリンクを持ちます。ここでの再利用可能なパターンは **注釈専用の検出** です: 破損を実行レコードにフラグし、合否判定はそのままにし、人間をバージョン付きの修正ページへ誘導します。LM Studio はどちらの場合も 200 応答を正常として返すため、ハーネスは例外として捕捉できません。バッジ自体はリンクではなくアイコンで、是正案内 `/profile#lmstudio-host` のリンクは行の詳細ドロワー（`ScenarioDetailDrawer.tsx`）と結果表の凡例（`ResultsTable.tsx`）に入っています（アンカーは Web の `ProfileDocPage.tsx` の `id="lmstudio-host"`）。
+ローカルの **LM Studio** バックエンドを駆動するとき、2 つの失敗モードが HTTP エラーを一切 throw せずにスコアを静かに汚染し得ます。どちらも、あなたのハーネスではなく特定のアプリビルド／GGUF テンプレートに依存します。以下の 2 つのドキュメントを正典として扱い、内容を複製するのではなく単一の信頼できる情報源として保ってリンクしてください。バージョンのタイムラインや根本原因の分析は、LM Studio が新しいエンジンビルドを出すたびにドリフトするためです。アプリ内では、影響を受ける各結果行が `apps/web/src/components/ResultsTable.tsx` で `⚠` バッジ付きにマークされます。バッジのツールチップはオペレーターに行を開くよう促し、行の詳細ドロワー（`apps/web/src/components/ScenarioDetailDrawer.tsx`）とテーブル凡例が、オペレーター向け是正のための `/profile#lmstudio-host` へのディープリンクを持ちます。ここでの再利用可能なパターンは **注釈専用の検出** です: 破損を実行レコードにフラグし、合否判定はそのままにし、人間をバージョン付きの修正ページへ誘導します。LM Studio はどちらの場合も 200 応答を正常として返すため、ハーネスは例外として捕捉できません。代わりにこのリポジトリは実行レコードに boolean フラグだけを付け（スコアはそのまま）、UI で該当行を `⚠` バッジでマークします。バッジ自体はリンクではなくアイコンで、是正案内 `/profile#lmstudio-host` のリンクは行の詳細ドロワー（`ScenarioDetailDrawer.tsx`）と結果表の凡例（`ResultsTable.tsx`）に入っています（アンカーは Web の `ProfileDocPage.tsx` の `id="lmstudio-host"`）。
 
 - **エンジンプロトコル回帰（ツール引数の破損 + 推論リーク）。** 症状: *「Use LM Studio Engine Protocol」* を on にすると（ビルド ~0.4.14–0.4.18）、ストリームされる `tool_calls[].function.arguments` が `{}{}{}` のように連結して返り[^lms-1922]、下流の `JSON.parse` が失敗してツールシナリオが静かに 0 点になります。別途、推論が `reasoning_content` ではなくレスポンス `content` に再生され、採点テキストを汚染します。回避策: LM Studio **0.4.19+** に固定する（両方修正済み）か、オプションをオフにする。`⚠` バッジ **`tool_call_args_corrupted`** と **`reasoning_leaked_into_content`** として検出されます。ドキュメント: [`docs/lmstudio-engine-protocol.md`](docs/lmstudio-engine-protocol.md) · アプリ内: `/profile#lmstudio-host`。
 - **Jinja テンプレートのクラッシュ（Anthropic `/v1/messages` + `tools`）。** 症状: tools 付きの Anthropic messages ルートでのみ、モデル組み込みの Jinja `chat_template` が OpenAI 形状の前提でレンダリングされて `UndefinedValue` に当たり、実行が空で終わります（`Response finished but empty`）。同じモデルの OpenAI `/v1/chat/completions` ルートは正常にレンダリングされることが多いです。回避策: 修正済みの GGUF を再ダウンロードする、かつ／または LM Studio を更新する、あるいはホスト側のテンプレート上書きスクリプト（`scripts/fix-nemotron-lmstudio-template.sh`, `scripts/fix-gemma4-lmstudio-template.sh`、まず `--dry-run` で実行）を適用する。ドキュメント: [`docs/lmstudio-jinja-template-crashes.md`](docs/lmstudio-jinja-template-crashes.md) · アプリ内: `/profile#lmstudio-host`。
@@ -689,7 +689,7 @@ const leaked =
 
 ## 12. 再利用の方法（チェックリスト）
 
-このハーネスの各技術は、単独で取り出せる 1 つの小さな、ほぼ純粋なエントリモジュールの背後にあります — ほとんどは `fetchImpl` かつ／または `signal` を取り、素のデータか `AsyncGenerator` を返し、フレームワークの糊を避けます。下の「これが欲しい? ここから」マップで、パターンを担うファイルと export シンボルへ直行し、まずその 1 関数のシグネチャと doc コメントを読み、コラボレーターが必要なときだけ import を辿ってください。ストリーミング・検出・比較の中核は HTTP レイヤーや SQLite に依存しないので、別のサーバーや CLI にきれいに移植できます。共通の慣例を知っておくと移植が速くなります。ほとんどのエントリ関数は `fetchImpl?: typeof fetch`（テスト注入・プロキシ差し替え用）と `signal?: AbortSignal`（キャンセル）を取ります。`performance.now()` 基準のタイミングは `requestStartedAt` を渡して「HTTP 送信時点」にアンカリングします（リトライやキュー待ちまで含めたいなら、この値を外側でキャプチャ）。
+このハーネスの各技術は、単独で取り出せる 1 つの小さな、ほぼ純粋なエントリモジュールの背後にあります — ほとんどは `fetchImpl` かつ／または `signal` を取り、素のデータか `AsyncGenerator` を返し、フレームワークの糊を避けます。下の「これが欲しい? ここから」マップで、パターンを担うファイルと export シンボルへ直行し、まずその 1 関数のシグネチャと doc コメントを読み、コラボレーターが必要なときだけ import を辿ってください。ストリーミング・検出・比較の中核は HTTP レイヤーや SQLite に依存しないので、別のサーバーや CLI にきれいに移植できます。各技法はおおむね「入力 → 純粋関数／ジェネレータ → データ」という形の単一エントリモジュールに隔離されており、まるごと取り出しやすくなっています。共通の慣例を知っておくと移植が速くなります。ほとんどのエントリ関数は `fetchImpl?: typeof fetch`（テスト注入・プロキシ差し替え用）と `signal?: AbortSignal`（キャンセル）を取ります。`performance.now()` 基準のタイミングは `requestStartedAt` を渡して「HTTP 送信時点」にアンカリングします（リトライやキュー待ちまで含めたいなら、この値を外側でキャプチャ）。
 
 | これが欲しい… | ここから（リポジトリ相対） | エントリシンボル |
 |---|---|---|
@@ -700,7 +700,7 @@ const leaked =
 | マルチターンエージェントループ（モックツールハーネス、ターン単位メトリクス） | `apps/server/src/agent-loop.ts` | `runAgentLoopOpenAi()` / `runAgentLoopAnthropic()` |
 | 永続化 + 回帰差分 | `apps/server/src/db/` + `packages/shared/src/scoring/compare.ts` | `tryOpenProdBenchDatabase()`, `BenchRunPersistence`, `computeCompare()` |
 
-**ストリーミングメトリクス — `openai-stream.ts`。** 単一の SSE リーダーで 1 つのフラットなメトリクスオブジェクトを yield する `consumeOpenAiChatStream` をコピーしてください。各フィールドの doc コメントが仕様です。
+**ストリーミングメトリクス — `openai-stream.ts`。** 単一の SSE リーダーで 1 つのフラットなメトリクスオブジェクトを返す `consumeOpenAiChatStream` をコピーしてください。各フィールドの doc コメントが仕様です。
 
 ```ts
 export async function consumeOpenAiChatStream(
@@ -720,7 +720,7 @@ export async function consumeOpenAiChatStream(
 
 - ルート可用性のヒューリスティック `routeLikelyAvailable(status, body)` は、不正モデルの `4xx`（または JSON 本文付きの `404`）を「ルートが存在する」と扱います — 「エンドポイント不在」と「エンドポイント存在、リクエストが誤り」を見分けるのに拝借してください。
 
-**競合ガード — `contention-probe.ts`。** 再利用可能な考え方は、自分のロードが競合として読まれないよう 2 つの **別々のサンプリングモード** を持つことです: `sampleIdle()`（in-flight が何も無いときだけ呼ぶ; GPU util + `/metrics` + `lms ps` を信頼）と `sampleInFlight(baseline)`（自分のリクエスト中; GPU ノイズを無視し、`running>=2 / waiting>=1`、モデルロードの churn、Ollama `expires_at` の前進を監視）。`requiredConsecutiveIdle` 回のクリーンなポーリングを待ってから進む `AsyncGenerator<StreamEvent, GateResult>` の `runIdleGate()` と、バックグラウンド検出用の `startInflightMonitor()` で駆動します。`parsePrometheusRunningWaiting()` は単独で取り出せる vLLM/llama.cpp/TGI ゲージパーサです。
+**競合ガード — `contention-probe.ts`。** 再利用可能な考え方は、自分の負荷が競合として読まれないよう 2 つの **別々のサンプリングモード** を持つことです: `sampleIdle()`（in-flight が何も無いときだけ呼ぶ; GPU util + `/metrics` + `lms ps` を信頼）と `sampleInFlight(baseline)`（自分のリクエスト中; GPU ノイズを無視し、`running>=2 / waiting>=1`、モデルロードの churn、Ollama `expires_at` の前進を監視）。`requiredConsecutiveIdle` 回のクリーンなポーリングを待ってから進む `AsyncGenerator<StreamEvent, GateResult>` の `runIdleGate()` と、バックグラウンド検出用の `startInflightMonitor()` で駆動します。`parsePrometheusRunningWaiting()` は単独で取り出せる vLLM/llama.cpp/TGI ゲージパーサです。
 
 **負荷／ストレスランプ — `stress-runner.ts`。** `runStress()` は同時実行を `ramp.start` から `ramp.max` へ `ramp.step` ずつスイープし、`durationMs` が経過するまでリクエストを再発射する `concurrency` 個のワーカーを走らせます。コピーする価値: 無制限のメモリなしにリクエスト単位イベントをストリームする、有界のプロデューサ／コンシューマキュー（`QUEUE_HIGH_WATER = 256` と `awaitDrainIfFull`）と、**信頼性ゲート** — ステージが `< 5` 成功、`< 3000ms` 実行、または成功ゼロのとき `tps_unreliable` を立てる（`aggregate_tps` を null にする）。
 
@@ -753,7 +753,7 @@ export const CompareThresholdsSchema = z.object({
 | TPS | Tokens Per Second — 出力トークン ÷ 経過時間。`aggregate_tps` はステージを合算、`tps_per_user` = aggregate ÷ 同時実行数。 |
 | `approxOutputTokens` | サーバーが usage カウントを省略したときに使うフォールバックのトークン推定（約 len/4）。 |
 | p50 / p95 | ステージ内のレイテンシ（または TTFT）の中央値 / 95 パーセンタイル。 |
-| warmup vs measured | warmup 実行はキャッシュを温めて破棄され、measured 実行がメトリクスに入る。 |
+| warmup vs measured | warmup 実行はキャッシュを温めて破棄され、measured 実行だけがメトリクスに入る。 |
 | truncation | トークン上限での出力切り詰め — `finish_reason:"length"`（OpenAI）/ `stop_reason:"max_tokens"`（Anthropic）。 |
 
 ### 実行モデル — [§1](#1-アーキテクチャとイベントモデル)
@@ -769,7 +769,7 @@ export const CompareThresholdsSchema = z.object({
 
 | 用語 | 定義 |
 |---|---|
-| `ProviderKind` | `lm_studio` / `ollama` / `openai_compatible` / `manual`。 |
+| `ProviderKind` | `lm_studio` / `ollama` / `openai_compatible` / `manual` — 検出されたバックエンドの種類。 |
 | capability | `{ openaiChat, anthropicMessages }` — サーバーがどのワイヤールートをサポートするか。 |
 | API route | `chat_completions`（OpenAI）または `messages`（Anthropic）。 |
 | TTL / `keep_alive` | 有界のモデル常駐 — LM Studio ロードの `ttl`（秒）vs Ollama の `keep_alive`。 |
@@ -792,13 +792,13 @@ export const CompareThresholdsSchema = z.object({
 
 | 用語 | 定義 |
 |---|---|
-| ramp | `step` ずつの同時実行スイープ `start → max`、各 `durationMs` 保持。 |
+| ramp | `step` ずつの同時実行スイープ `start → max`、各ステージを `durationMs` の間維持。 |
 | worker pool | ステージ内でリクエストを再発射する N 個の同時ワーカー。 |
 | backpressure | 有界のプロデューサ／コンシューマキュー（`QUEUE_HIGH_WATER`、`awaitDrainIfFull`）。 |
 | `tps_unreliable` | 成功 <5、<3s、または出力 0 のときステージにフラグ（`aggregate_tps` を null）。 |
 | agent loop / mock tool | 単発では隠れる失敗を露呈させる、定型ツール結果を供給するマルチターンループ。 |
 | empty turn | 可視コンテンツを何も生成しなかったターン。 |
-| stall vs `budget_exhausted` | ループ終了理由 — 進展なし vs トークンバジェット使い切り。 |
+| stall vs `budget_exhausted` | ループ終了理由 — 進展なし vs トークンバジェット枯渇。 |
 | thinking / reasoning channel | 可視コンテンツと切り離された別の推論ストリーム。 |
 
 ### 採点・回帰 — [§9](#9-品質採点とllm-as-judge) · [§10](#10-実行の永続化と回帰検出)

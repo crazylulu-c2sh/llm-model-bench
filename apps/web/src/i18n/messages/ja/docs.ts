@@ -9,7 +9,7 @@ export const docs: Messages["docs"] = {
     meme: "ミーム",
     wireframe: "ワイヤーフレーム",
   },
-  imageAlt: (category, id) => `${category} シナリオの入力例画像 (${id})`,
+  imageAlt: (category, id) => `${category} シナリオのサンプル画像 (${id})`,
 
   scenarios: {
     heading: "ベンチシナリオドキュメント",
