@@ -56,8 +56,10 @@ function subtitleForPath(pathname: string): string {
 }
 
 const tabLinkClass = (isActive: boolean) =>
-  `group min-w-0 rounded-md px-2.5 py-2 text-center text-sm font-semibold tracking-tight no-underline transition-[background-color,color,padding] duration-200 max-xl:hover:px-3 xl:min-w-[4.5rem] xl:px-4 xl:text-base ${
-    isActive ? "max-xl:px-3 bg-[var(--accent)] text-white shadow-md" : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+  `group min-w-0 border-b-2 px-3 pt-1.5 pb-3 text-center text-sm tracking-tight no-underline transition-[color,border-color] duration-200 ${
+    isActive
+      ? "border-[var(--accent)] font-semibold text-[var(--foreground)]"
+      : "border-transparent font-medium text-[var(--muted)] hover:border-[var(--border)] hover:text-[var(--foreground)]"
   }`;
 
 const tabLabelClass = (isActive: boolean) =>
@@ -93,7 +95,7 @@ export function AppHeader({
   return (
     <header
       className={[
-        "sticky top-0 z-20 flex flex-col gap-y-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 shadow-sm xl:px-6",
+        "sticky top-0 z-20 flex flex-col gap-y-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 pt-4 shadow-sm xl:px-6",
         showBenchProgress ? "app-header--bench-progress relative overflow-hidden" : "",
       ]
         .filter(Boolean)
@@ -135,13 +137,10 @@ export function AppHeader({
             </p>
           </div>
         </div>
-        <label className="flex shrink-0 items-center gap-2 text-sm">
-          <span className="inline-flex items-center gap-1.5 text-[var(--muted)]">
-            <ThemeIcon choice={themeChoice} />
-            테마
-          </span>
+        <label className="flex shrink-0 items-center gap-2 text-sm text-[var(--muted)]">
+          <ThemeIcon choice={themeChoice} />
           <select
-            className="min-w-[10rem] rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
+            className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
             value={themeChoice}
             onChange={(e) => setThemeChoice(e.target.value as ThemeChoice)}
             aria-label="테마 선택"
@@ -154,7 +153,7 @@ export function AppHeader({
       </div>
       {/* Row 2: 전폭 탭바 */}
       <nav className="relative z-10 min-w-0" aria-label="주요 메뉴">
-        <div className="mx-auto flex w-fit max-w-full flex-nowrap gap-1 overflow-x-auto rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] p-1 shadow-sm">
+        <div className="flex w-full flex-nowrap gap-1 overflow-x-auto">
           {NAV_TABS.map(({ to, end, label, icon: Icon }) => {
             const isActive = pathname === to;
             return (

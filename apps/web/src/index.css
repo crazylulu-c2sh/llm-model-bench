@@ -113,15 +113,9 @@ input[type="radio"] {
   accent-color: var(--accent-2);
 }
 
-/* sticky 헤더(로고+테마 행 / 전폭 탭 행) 아래로 해시 앵커가 묻히지 않도록.
-   헤더는 모든 너비에서 2행이며, 초소형 화면은 테마 컨트롤 줄바꿈으로 더 커진다. */
+/* sticky 헤더(로고+테마 행 / 밑줄 탭 행, 모든 너비에서 약 120px) 아래로 해시 앵커가 묻히지 않도록. */
 html {
-  scroll-padding-top: 12.5rem;
-}
-@media (width >= 640px) {
-  html {
-    scroll-padding-top: 9.5rem;
-  }
+  scroll-padding-top: 8.5rem;
 }
 @media (width >= 1280px) {
   /* 하네스 문서(/harness): xl+에서는 스크롤-스파이 사이드바가 목차를 대신하므로
