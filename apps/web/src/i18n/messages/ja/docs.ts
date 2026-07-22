@@ -47,4 +47,13 @@ export const docs: Messages["docs"] = {
     agentRoutes: "ルート",
     noMetadata: "登録されたメタデータなし。",
   },
+
+  harness: {
+    canonicalLead: "他プロジェクト参考用 · 正本:",
+    newWindow: "（新しいウィンドウで開く）",
+    tocAria: "このページの目次",
+    tocTitle: "このページ",
+    backToTop: "トップへ",
+    footnoteLabel: "脚注",
+  },
 };

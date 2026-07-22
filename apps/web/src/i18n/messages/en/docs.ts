@@ -47,4 +47,13 @@ export const docs: Messages["docs"] = {
     agentRoutes: "Routes",
     noMetadata: "No metadata registered.",
   },
+
+  harness: {
+    canonicalLead: "Reference for other projects · canonical:",
+    newWindow: " (opens in a new window)",
+    tocAria: "On this page",
+    tocTitle: "On this page",
+    backToTop: "Back to top",
+    footnoteLabel: "Footnotes",
+  },
 };
