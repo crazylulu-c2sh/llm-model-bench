@@ -29,7 +29,7 @@ jobs:
       # (v6은 node24 런타임 + pnpm v11 공식 지원. node20 강제 실행 경고 해소용으로 v4→v6 범프.)
       - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc # 24.12.0 정확히 핀 (engine-strict 충족)
           cache: pnpm
