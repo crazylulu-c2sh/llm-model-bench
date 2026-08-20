@@ -8,3 +8,14 @@ packages:
 allowBuilds:
   esbuild: true
   sharp: true
+
+# Dependabot 취약점 대응 — 직접 의존성이 아닌 transitive 패키지를 강제 고정.
+# 상위 패키지(tsup/eslint-plugin-jsx-a11y 등)가 아직 patched 버전을 요구하지 않아 override 필요.
+overrides:
+  brace-expansion@1: ^1.1.18
+  brace-expansion@5: ^5.0.9
+  nanoid: ^3.3.18
+  postcss: ^8.5.23
+  fast-uri: ^3.1.5
+  ip-address: ^10.3.1
+  esbuild: ^0.28.1
