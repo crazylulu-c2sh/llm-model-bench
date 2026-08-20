@@ -86,6 +86,52 @@ describe("buildProfileAugmentedMeta", () => {
     expect(extras.stop).toEqual(["<|im_end|>"]);
   });
 
+  it("carries Qwen3.8 reasoning_effort on both transports (top-level + chat_template_kwargs)", () => {
+    const meta = buildProfileAugmentedMeta(baseMeta("Qwen/Qwen3.8-27B"), {
+      modelId: "Qwen/Qwen3.8-27B",
+      profile: { profileId: "auto", taskMode: "general", thinkingIntent: "on" },
+      profileMaxTokens: null,
+    });
+    expect(meta.profile_id).toBe("qwen38");
+    expect(meta.profile_preset).toBe("thinking_general");
+    expect(meta.reasoning_effort).toBe("low");
+    expect(meta.extra_body?.chat_template_kwargs).toEqual({ reasoning_effort: "low" });
+    expect(meta.stop).toEqual(["<|im_end|>"]);
+    // 모델카드 권장: 사고 262,144 / 최종 응답 131,072.
+    expect(meta.max_tokens).toBe(262_144);
+
+    const extras = openAiExtrasFromMeta(meta);
+    expect(extras.reasoning_effort).toBe("low");
+    expect((extras.chat_template_kwargs as Record<string, unknown>).reasoning_effort).toBe("low");
+    expect(extras.presence_penalty).toBe(0);
+    expect(extras.repetition_penalty).toBe(1.0);
+    expect("frequency_penalty" in extras).toBe(false);
+  });
+
+  it("sends enable_thinking=false + reasoning_effort=none for Qwen3.8 thinking off", () => {
+    const meta = buildProfileAugmentedMeta(baseMeta("Qwen/Qwen3.8-27B"), {
+      modelId: "Qwen/Qwen3.8-27B",
+      profile: { taskMode: "general", thinkingIntent: "off", reasoningEffort: "xhigh" },
+      profileMaxTokens: null,
+    });
+    expect(meta.reasoning_effort).toBe("none");
+    expect(meta.extra_body?.chat_template_kwargs).toEqual({
+      enable_thinking: false,
+      reasoning_effort: "none",
+    });
+    expect(meta.max_tokens).toBe(131_072);
+  });
+
+  it("routes an undefined newer Qwen release to the Qwen3.8 guide", () => {
+    const meta = buildProfileAugmentedMeta(baseMeta("Qwen4-30B-A3B"), {
+      modelId: "Qwen4-30B-A3B",
+      profile: { profileId: "auto", taskMode: "general", thinkingIntent: "on" },
+      profileMaxTokens: null,
+    });
+    expect(meta.profile_id).toBe("qwen38");
+    expect(meta.reasoning_effort).toBe("low");
+  });
+
   it("uses MiniMax-style defaults for minimax ids", () => {
     const meta = buildProfileAugmentedMeta(baseMeta("unsloth/MiniMax-M2.7-GGUF"), {
       modelId: "unsloth/MiniMax-M2.7-GGUF",

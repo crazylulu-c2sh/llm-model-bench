@@ -110,6 +110,9 @@ export const bench: Messages["bench"] = {
   throughputNoChatRoute: "This provider has no chat_completions route, so it can't be used.",
   maxTokensLabel: "max_tokens (leave empty for the model card's recommended value)",
   maxTokensPlaceholder: "e.g. 32768",
+  qwen38ReasoningEffortLabel: "Qwen3.8 reasoning_effort",
+  qwen38ReasoningEffortHint:
+    "The model card defaults to xhigh, but reasoning tokens balloon, so the harness defaults to low. Raise it when you need accuracy.",
   preserveThinkingHint: "Recommended only for agent-style multi-turn.",
   advancedSummary: "Advanced: preset · sampling JSON override",
   presetOverrideLabel: "Force preset (empty = auto)",

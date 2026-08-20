@@ -87,4 +87,98 @@ describe("resolveBenchProfile", () => {
     expect(r.sampling.temperature).toBe(0.6);
     expect(r.sampling.top_p).toBe(0.95);
   });
+  it("uses Qwen3.8 thinking preset (presence_penalty 0, not 1.5 like qwen3.5/3.6)", () => {
+    const r = resolveBenchProfile({
+      modelId: "Qwen/Qwen3.8-27B",
+      taskMode: "general",
+      thinkingIntent: "on",
+    });
+    expect(r.family).toBe("qwen38");
+    expect(r.preset).toBe("thinking_general");
+    expect(r.sampling).toEqual({
+      temperature: 1.0,
+      top_p: 0.95,
+      top_k: 20,
+      min_p: 0.0,
+      presence_penalty: 0.0,
+      repetition_penalty: 1.0,
+    });
+    expect(r.stopSequences).toEqual(["<|im_end|>"]);
+    expect(r.maxTokensRecommended).toBe(262_144);
+  });
+
+  it("defaults Qwen3.8 reasoning_effort to low on both transports", () => {
+    const r = resolveBenchProfile({
+      modelId: "Qwen/Qwen3.8-27B",
+      taskMode: "general",
+      thinkingIntent: "on",
+    });
+    expect(r.reasoningEffort).toBe("low");
+    expect(r.extraBody.chat_template_kwargs).toEqual({ reasoning_effort: "low" });
+  });
+
+  it("honors an explicit Qwen3.8 reasoning_effort on both transports", () => {
+    const r = resolveBenchProfile({
+      modelId: "Qwen/Qwen3.8-27B",
+      taskMode: "coding",
+      thinkingIntent: "on",
+      reasoningEffort: "xhigh",
+    });
+    expect(r.reasoningEffort).toBe("xhigh");
+    expect(r.extraBody.chat_template_kwargs).toEqual({ reasoning_effort: "xhigh" });
+  });
+
+  it("sets enable_thinking=false + reasoning_effort=none for Qwen3.8 when thinking off", () => {
+    const r = resolveBenchProfile({
+      modelId: "Qwen/Qwen3.8-27B",
+      taskMode: "general",
+      thinkingIntent: "off",
+      // 사고를 끈 요청에서는 UI가 보낸 effort보다 none이 우선한다.
+      reasoningEffort: "xhigh",
+    });
+    expect(r.preset).toBe("nonthinking_general");
+    expect(r.sampling.temperature).toBe(0.7);
+    expect(r.sampling.top_p).toBe(0.8);
+    expect(r.sampling.presence_penalty).toBe(1.5);
+    expect(r.reasoningEffort).toBe("none");
+    expect(r.extraBody.chat_template_kwargs).toEqual({
+      enable_thinking: false,
+      reasoning_effort: "none",
+    });
+    expect(r.maxTokensRecommended).toBe(131_072);
+  });
+
+  it("merges preserve_thinking for Qwen3.8", () => {
+    const r = resolveBenchProfile({
+      modelId: "Qwen/Qwen3.8-27B",
+      taskMode: "general",
+      thinkingIntent: "on",
+      preserveThinking: true,
+    });
+    expect(r.extraBody.chat_template_kwargs).toEqual({
+      preserve_thinking: true,
+      reasoning_effort: "low",
+    });
+  });
+
+  it("leaves gpt-oss reasoning_effort default untouched", () => {
+    const r = resolveBenchProfile({
+      modelId: "openai/gpt-oss-20b",
+      taskMode: "general",
+      thinkingIntent: "on",
+    });
+    expect(r.family).toBe("gpt_oss");
+    expect(r.reasoningEffort).toBe("medium");
+    expect(r.extraBody.chat_template_kwargs).toBeUndefined();
+  });
+
+  it("does not treat Qwen3-8B as Qwen3.8", () => {
+    const r = resolveBenchProfile({
+      modelId: "Qwen/Qwen3-8B",
+      taskMode: "general",
+      thinkingIntent: "on",
+    });
+    expect(r.family).toBe("unknown");
+    expect(r.reasoningEffort).toBeUndefined();
+  });
 });

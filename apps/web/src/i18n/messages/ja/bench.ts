@@ -110,6 +110,9 @@ export const bench: Messages["bench"] = {
   throughputNoChatRoute: "このプロバイダーは chat_completions ルートがないため使用できません。",
   maxTokensLabel: "max_tokens (空欄でモデルカードの推奨値)",
   maxTokensPlaceholder: "例: 32768",
+  qwen38ReasoningEffortLabel: "Qwen3.8 reasoning_effort",
+  qwen38ReasoningEffortHint:
+    "モデルカードの既定は xhigh ですが、思考トークンが膨張するためハーネスの既定は low です。精度が必要なら上げてください。",
   preserveThinkingHint: "エージェント型のマルチターンでのみオンにすることを推奨します。",
   advancedSummary: "高度: プリセット·サンプリング JSON オーバーライド",
   presetOverrideLabel: "preset を強制 (空欄で自動)",

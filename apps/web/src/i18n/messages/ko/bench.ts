@@ -104,6 +104,9 @@ export const bench = {
   throughputNoChatRoute: "이 프로바이더는 chat_completions 라우트가 없어 사용할 수 없습니다.",
   maxTokensLabel: "max_tokens (비워두면 모델 카드 권장값)",
   maxTokensPlaceholder: "예: 32768",
+  qwen38ReasoningEffortLabel: "Qwen3.8 reasoning_effort",
+  qwen38ReasoningEffortHint:
+    "모델 카드 기본은 xhigh지만 사고 토큰이 폭주해 하네스 기본은 low입니다. 정확도가 필요하면 올리세요.",
   preserveThinkingHint: "에이전트형 멀티턴에서만 켜는 것을 권장합니다.",
   advancedSummary: "고급: 프리셋·샘플링 JSON 오버라이드",
   presetOverrideLabel: "preset 강제 (비우면 자동)",

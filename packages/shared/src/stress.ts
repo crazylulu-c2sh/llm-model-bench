@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ResolvedBenchProfile } from "./llm-profiles";
+import type { ReasoningEffort, ResolvedBenchProfile } from "./llm-profiles";
 import type { StressWorkloadId } from "./scenarios-preview";
 
 export type StressProviderKind = "lm_studio" | "ollama" | "openai_compatible" | "manual";
@@ -50,7 +50,7 @@ export interface StressRunMeta {
   profile_thinking_intent?: "on" | "off";
   effective_sampling?: Record<string, number | undefined>;
   extra_body?: Record<string, unknown>;
-  reasoning_effort?: "minimal" | "low" | "medium" | "high";
+  reasoning_effort?: ReasoningEffort;
   /** LM Studio 플래그 — bench-runner와 동일 의미 */
   unload_other_models?: boolean;
   auto_unload_after_bench?: boolean;

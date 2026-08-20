@@ -67,7 +67,12 @@ import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
 import { AppHeader, pageTitleForPath } from "./components/AppHeader";
 import { useI18n, msg } from "./i18n";
 import { ConfirmDialog } from "./components/ConfirmDialog";
-import { readInitialUiState, saveUiSnapshot } from "./persisted-settings";
+import {
+  QWEN38_REASONING_EFFORTS,
+  readInitialUiState,
+  saveUiSnapshot,
+  type Qwen38ReasoningEffort,
+} from "./persisted-settings";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
 const ProfileDocPage = lazy(() => import("./ProfileDocPage").then((m) => ({ default: m.ProfileDocPage })));
 import { ProviderMonitorPage } from "./ProviderMonitorPage";
@@ -257,6 +262,14 @@ export function App() {
   const [contentionPreBenchTimeoutSec, setContentionPreBenchTimeoutSec] = useState(boot.contentionPreBenchTimeoutSec);
   const [contentionMaxRetries, setContentionMaxRetries] = useState(boot.contentionMaxRetries);
   const [reasoningEffort, setReasoningEffort] = useState<"minimal" | "low" | "medium" | "high">(boot.reasoningEffort);
+  /**
+   * Qwen3.8 전용 reasoning_effort. gpt-oss와 유효 범위가 달라(gpt-oss: minimal, Qwen3.8: none/xhigh)
+   * state를 분리한다 — 하나를 공유하면 profileId="auto" + 혼합 모델 큐에서 서로의 범위를 벗어난
+   * 값이 전송된다. 와이어 필드는 기존 `reasoningEffort` 하나를 모델별로 골라 채운다.
+   */
+  const [qwen38ReasoningEffort, setQwen38ReasoningEffort] = useState<Qwen38ReasoningEffort>(
+    boot.qwen38ReasoningEffort,
+  );
   const [presetOverride, setPresetOverride] = useState<SamplingPresetName | "">(boot.presetOverride);
   const [samplingOverridesText, setSamplingOverridesText] = useState(boot.samplingOverridesText);
   const [profileAdvancedOpen, setProfileAdvancedOpen] = useState(boot.profileAdvancedOpen);
@@ -290,8 +303,10 @@ export function App() {
         profileId,
         profileMaxTokens: effectiveMaxTokens,
         thinkingIntent: effectiveThinking,
-        preserveThinking: fam === "qwen36" && !benchmarkThroughputMode ? preserveThinking : false,
-        reasoningEffort: fam === "gpt_oss" ? reasoningEffort : undefined,
+        preserveThinking:
+          (fam === "qwen36" || fam === "qwen38") && !benchmarkThroughputMode ? preserveThinking : false,
+        reasoningEffort:
+          fam === "gpt_oss" ? reasoningEffort : fam === "qwen38" ? qwen38ReasoningEffort : undefined,
         presetOverride: benchmarkThroughputMode ? undefined : presetOverride || undefined,
         samplingOverrides: samplingOverrides ?? undefined,
       };
@@ -303,6 +318,7 @@ export function App() {
       preserveThinking,
       profileId,
       profileMaxTokens,
+      qwen38ReasoningEffort,
       reasoningEffort,
       samplingOverridesText,
       thinkingIntent,
@@ -365,6 +381,7 @@ export function App() {
         thinkingIntent,
         preserveThinking,
         reasoningEffort,
+        qwen38ReasoningEffort,
         presetOverride,
         samplingOverridesText,
         profileAdvancedOpen,
@@ -393,6 +410,7 @@ export function App() {
     thinkingIntent,
     preserveThinking,
     reasoningEffort,
+    qwen38ReasoningEffort,
     presetOverride,
     samplingOverridesText,
     profileAdvancedOpen,
@@ -420,6 +438,7 @@ export function App() {
     thinkingIntent,
     preserveThinking,
     reasoningEffort,
+    qwen38ReasoningEffort,
     presetOverride,
     samplingOverridesText,
     profileAdvancedOpen,
@@ -445,6 +464,7 @@ export function App() {
     thinkingIntent,
     preserveThinking,
     reasoningEffort,
+    qwen38ReasoningEffort,
     presetOverride,
     samplingOverridesText,
     profileAdvancedOpen,
@@ -546,19 +566,23 @@ export function App() {
     const out: Record<string, { family: LlmProfileFamily; preset: SamplingPresetName }> = {};
     for (const m of detect.models) {
       const inferred = inferLlmProfileFamily(m.id);
-      const effectiveQwen36 =
-        profileId === "auto" ? inferred === "qwen36" : profileId === "qwen36";
-      const effectiveGptOss =
-        profileId === "auto" ? inferred === "gpt_oss" : profileId === "gpt_oss";
+      const famForGating = profileId === "auto" ? inferred : profileId;
+      const effectivePreserveThinking = famForGating === "qwen36" || famForGating === "qwen38";
+      const effectiveGptOss = famForGating === "gpt_oss";
+      const effectiveQwen38 = famForGating === "qwen38";
       const resolved = resolveBenchProfile({
         modelId: m.id,
         taskMode: "general",
         thinkingIntent: thinkingIntent,
-        preserveThinking: effectiveQwen36 ? preserveThinking : false,
+        preserveThinking: effectivePreserveThinking ? preserveThinking : false,
         presetOverride: presetOverride || null,
         samplingOverrides: parseSamplingOverridesJson(samplingOverridesText),
         maxTokensOverride: profileMaxTokens.trim() ? Number(profileMaxTokens) : null,
-        reasoningEffort: effectiveGptOss ? reasoningEffort : null,
+        reasoningEffort: effectiveGptOss
+          ? reasoningEffort
+          : effectiveQwen38
+            ? qwen38ReasoningEffort
+            : null,
         profileFamilyOverride: profileId === "auto" ? null : profileId,
       });
       const famLabel = profileId === "auto" ? inferred : profileId;
@@ -572,6 +596,7 @@ export function App() {
     preserveThinking,
     profileId,
     profileMaxTokens,
+    qwen38ReasoningEffort,
     reasoningEffort,
     samplingOverridesText,
     thinkingIntent,
@@ -950,6 +975,7 @@ export function App() {
         thinkingIntent,
         preserveThinking,
         reasoningEffort,
+        qwen38ReasoningEffort,
         presetOverride,
         samplingOverridesText,
         profileAdvancedOpen,
@@ -982,6 +1008,7 @@ export function App() {
     thinkingIntent,
     preserveThinking,
     reasoningEffort,
+    qwen38ReasoningEffort,
     presetOverride,
     samplingOverridesText,
     profileAdvancedOpen,
@@ -1869,6 +1896,7 @@ export function App() {
                 <option value="gemma4">Gemma 4</option>
                 <option value="qwen35">Qwen 3.5</option>
                 <option value="qwen36">Qwen 3.6</option>
+                <option value="qwen38">Qwen 3.8</option>
                 <option value="gpt_oss">gpt-oss</option>
                 <option value="minimax">MiniMax</option>
                 <option value="nemotron3">Nemotron 3</option>
@@ -1924,6 +1952,28 @@ export function App() {
                 </select>
               </label>
             ) : null}
+            {profileId === "auto" || profileId === "qwen38" ? (
+              <label className="grid min-w-0 gap-1">
+                <span className="text-xs font-medium text-[var(--muted)]">
+                  {msg().bench.qwen38ReasoningEffortLabel}
+                </span>
+                <select
+                  className="min-w-0 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)] disabled:opacity-50"
+                  value={qwen38ReasoningEffort}
+                  disabled={profileId !== "auto" && profileId !== "qwen38"}
+                  onChange={(e) => setQwen38ReasoningEffort(e.target.value as Qwen38ReasoningEffort)}
+                >
+                  {QWEN38_REASONING_EFFORTS.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+                <span className="leading-snug text-[11px] text-[var(--muted)]">
+                  {msg().bench.qwen38ReasoningEffortHint}
+                </span>
+              </label>
+            ) : null}
             <label className="grid min-w-0 gap-1 sm:col-span-2 lg:col-span-3">
               <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.maxTokensLabel}</span>
               <input
@@ -1934,17 +1984,17 @@ export function App() {
                 placeholder={msg().bench.maxTokensPlaceholder}
               />
             </label>
-            {profileId === "auto" || profileId === "qwen36" ? (
+            {profileId === "auto" || profileId === "qwen36" || profileId === "qwen38" ? (
               <label className="flex min-w-0 cursor-pointer items-start gap-2 text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
                 <input
                   type="checkbox"
                   className="mt-0.5 shrink-0"
                   checked={preserveThinking}
-                  disabled={profileId !== "auto" && profileId !== "qwen36"}
+                  disabled={profileId !== "auto" && profileId !== "qwen36" && profileId !== "qwen38"}
                   onChange={(e) => setPreserveThinking(e.target.checked)}
                 />
                 <span className="min-w-0">
-                  <span className="font-medium text-[var(--foreground)]">Qwen3.6: preserve_thinking</span>
+                  <span className="font-medium text-[var(--foreground)]">Qwen3.6/3.8: preserve_thinking</span>
                   <span className="mt-0.5 block leading-snug">{msg().bench.preserveThinkingHint}</span>
                 </span>
               </label>

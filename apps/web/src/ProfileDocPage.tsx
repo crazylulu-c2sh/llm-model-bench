@@ -32,9 +32,9 @@ const SAMPLING_KEYS: (keyof SamplingParams)[] = [
 // 프리셋별 참고 패밀리(언어 중립 데이터) — 로케일별로 다르지 않아 콘텐츠 모듈이 아닌 페이지에 둔다.
 const PRESET_REFS: Record<SamplingPresetName, LlmProfileFamily[]> = {
   default: ["qwen3_coder_next", "qwen36"],
-  thinking_general: ["qwen36", "nemotron3"],
+  thinking_general: ["qwen38", "qwen36", "nemotron3"],
   thinking_coding: ["qwen36", "qwen35"],
-  nonthinking_general: ["nemotron3", "qwen36"],
+  nonthinking_general: ["nemotron3", "qwen38", "qwen36"],
   tool_call: ["qwen36", "nemotron3"],
 };
 

@@ -17,7 +17,11 @@ export const ko: ProfileDocContent = {
     <>
       <code className="font-mono text-xs">inferLlmProfileFamily(modelId)</code>는 정의 배열 순서대로{" "}
       <code className="font-mono text-xs">match</code> 정규식을 적용해 첫 일치 패밀리를 고릅니다. 아무것도 맞지 않으면{" "}
-      <code className="font-mono text-xs">unknown</code>이며, 이때는 내장 프리셋 테이블 없이 보수적 기본 샘플링만 씁니다.
+      <code className="font-mono text-xs">fallbackMatch</code>를 가진 정의를 같은 순서로 한 번 더 훑습니다 — 아직 정의가 없는
+      후속 버전(예: Qwen 3.9·4)을 <code className="font-mono text-xs">unknown</code>이 아니라 같은 계보의 최신 가이드로
+      보내기 위한 2패스입니다. 현재 이 폴백을 가진 정의는 <a className="text-[var(--accent-2)] underline" href="#qwen38">qwen38</a>{" "}
+      하나뿐이며, 폴백으로 해석돼도 <code className="font-mono text-xs">profile_id</code>는 그 정의의 id로 기록됩니다. 2패스에서도
+      맞는 게 없으면 <code className="font-mono text-xs">unknown</code>이며, 이때는 내장 프리셋 테이블 없이 보수적 기본 샘플링만 씁니다.
     </>
   ),
 
@@ -41,7 +45,7 @@ export const ko: ProfileDocContent = {
           <tbody className="text-[var(--muted)]">
             <tr className="border-b border-[var(--border)]">
               <td className="p-2 font-mono text-[var(--foreground)]">&lt;redacted_thinking&gt;…&lt;/redacted_thinking&gt;</td>
-              <td className="p-2">Qwen 3.5/3.6</td>
+              <td className="p-2">Qwen 3.5/3.6/3.8</td>
             </tr>
             <tr className="border-b border-[var(--border)]">
               <td className="p-2 font-mono text-[var(--foreground)]">시작부 …&lt;/redacted_thinking&gt; (여는 태그 없음)</td>
@@ -152,6 +156,7 @@ export const ko: ProfileDocContent = {
       <code className="font-mono text-xs">reasoning_effort</code>, <code className="font-mono text-xs">reasoning_split</code> 등)은 아래 각 모델 카드의 "런타임 노트"를 참고하세요 (
       <a className="text-[var(--accent-2)] underline" href="#gemma4">gemma4</a>,{" "}
       <a className="text-[var(--accent-2)] underline" href="#qwen36">qwen36</a>,{" "}
+      <a className="text-[var(--accent-2)] underline" href="#qwen38">qwen38</a>,{" "}
       <a className="text-[var(--accent-2)] underline" href="#nemotron3">nemotron3</a>,{" "}
       <a className="text-[var(--accent-2)] underline" href="#glm47_flash">glm47_flash</a>,{" "}
       <a className="text-[var(--accent-2)] underline" href="#gpt_oss">gpt_oss</a>,{" "}
@@ -284,6 +289,36 @@ export const ko: ProfileDocContent = {
         UI에서 <code className="font-mono text-xs">preserve_thinking</code>가 켜져 있으면 같은{" "}
         <code className="font-mono text-xs">chat_template_kwargs</code> 객체에 병합됩니다.
       </li>,
+    ],
+    qwen38: [
+      <li key="fallback">
+        <code className="font-mono text-xs">Qwen3.8</code> 정확 매칭 외에, 아직 정의가 없는 Qwen 신버전(
+        <code className="font-mono text-xs">qwen3.9</code>, <code className="font-mono text-xs">qwen4</code> 등)도 이 정의로
+        폴백됩니다. 구버전(<code className="font-mono text-xs">Qwen3-8B</code>,{" "}
+        <code className="font-mono text-xs">Qwen2.5</code>, <code className="font-mono text-xs">Qwen-7B</code>)은 해당하지 않습니다.
+      </li>,
+      <li key="reasoning_effort">
+        <code className="font-mono text-xs">reasoning_effort</code>는 최상위 필드(Ollama)와{" "}
+        <code className="font-mono text-xs">extra_body.chat_template_kwargs.reasoning_effort</code>(LM Studio·llama.cpp)에
+        <strong className="text-[var(--foreground)]">동시에</strong> 실립니다. 모델 카드 기본은{" "}
+        <code className="font-mono text-xs">xhigh</code>지만 사고 토큰이 폭주해 하네스 기본은{" "}
+        <code className="font-mono text-xs">low</code>입니다.
+      </li>,
+      <li key="enable_thinking">
+        thinking <strong className="text-[var(--foreground)]">끄기</strong> 시{" "}
+        <code className="font-mono text-xs">enable_thinking: false</code>와{" "}
+        <code className="font-mono text-xs">reasoning_effort: "none"</code>이 함께 실립니다.
+      </li>,
+      <li key="preserve_thinking">
+        UI에서 <code className="font-mono text-xs">preserve_thinking</code>가 켜져 있으면 같은{" "}
+        <code className="font-mono text-xs">chat_template_kwargs</code> 객체에 병합됩니다.
+      </li>,
+      <li key="max_tokens">
+        권장 <code className="font-mono text-xs">max_tokens</code>는 모델 카드 값(사고 262,144 / 비사고 131,072)입니다.
+        컨텍스트를 짧게 띄운 백엔드(vLLM <code className="font-mono text-xs">--max-model-len</code> 등)에서는 UI{" "}
+        <code className="font-mono text-xs">max_tokens</code>로 낮춰 쓰세요.
+      </li>,
+      <li key="multimodal">27B는 이미지·영상 입력을 네이티브 지원하므로 비전 시나리오에도 그대로 쓸 수 있습니다.</li>,
     ],
     nemotron3: [
       <li key="enable_thinking">

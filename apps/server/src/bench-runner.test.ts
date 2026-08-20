@@ -282,6 +282,87 @@ describe("runBench wire — Qwen3.6 penalty/stop (Part 1+4 regression)", () => {
   });
 });
 
+describe("runBench wire — Qwen3.8 reasoning_effort (dual transport)", () => {
+  it("sends reasoning_effort at top level AND inside chat_template_kwargs", async () => {
+    const qwenModel = "Qwen/Qwen3.8-27B";
+    let captured: Record<string, unknown> | null = null;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({ models: [{ key: qwenModel, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    for await (const _ of runBench(
+      baseBenchRequest({
+        modelId: qwenModel,
+        scenarioIds: ["chat_ping"],
+        skipModelLoad: true,
+        profile: { profileId: "auto", taskMode: "general", thinkingIntent: "on" },
+      }),
+      { ...lmStudioDetect(), models: [{ id: qwenModel }] },
+      { fetchImpl },
+    )) {
+      void _;
+    }
+    expect(captured).not.toBeNull();
+    const body = captured as unknown as Record<string, unknown>;
+    // Ollama의 OpenAI 호환 라우트가 읽는 최상위 필드
+    expect(body.reasoning_effort).toBe("low");
+    // LM Studio·llama.cpp가 읽는 chat template 경로
+    expect(body.chat_template_kwargs).toEqual({ reasoning_effort: "low" });
+    // 모델카드 thinking 값 — qwen3.5/3.6과 달리 presence_penalty가 0
+    expect(body.presence_penalty).toBe(0);
+    expect(body.repetition_penalty).toBe(1.0);
+    expect("frequency_penalty" in body).toBe(false);
+    expect(body.stop).toEqual(["<|im_end|>"]);
+  });
+
+  it("sends enable_thinking=false + reasoning_effort=none when thinking is off", async () => {
+    const qwenModel = "Qwen/Qwen3.8-27B";
+    let captured: Record<string, unknown> | null = null;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({ models: [{ key: qwenModel, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    for await (const _ of runBench(
+      baseBenchRequest({
+        modelId: qwenModel,
+        scenarioIds: ["chat_ping"],
+        skipModelLoad: true,
+        profile: {
+          profileId: "auto",
+          taskMode: "general",
+          thinkingIntent: "off",
+          reasoningEffort: "xhigh",
+        },
+      }),
+      { ...lmStudioDetect(), models: [{ id: qwenModel }] },
+      { fetchImpl },
+    )) {
+      void _;
+    }
+    const body = captured as unknown as Record<string, unknown>;
+    expect(body.reasoning_effort).toBe("none");
+    expect(body.chat_template_kwargs).toEqual({
+      enable_thinking: false,
+      reasoning_effort: "none",
+    });
+    expect(body.presence_penalty).toBe(1.5);
+  });
+});
+
 // Section A — vision-specific behavior (D5/D7) and judge integration
 describe("runBench vision D7 — warmup skips vision scenarios", () => {
   it("does not call upstream for vision scenario during warmup iterations", async () => {

@@ -1,5 +1,10 @@
 import type { BenchRunMeta, BenchTaskMode, LlmProfileFamily, ThinkingIntent } from "@llm-bench/shared";
-import { resolveBenchProfile, type SamplingParams, type SamplingPresetName } from "@llm-bench/shared";
+import {
+  resolveBenchProfile,
+  type ReasoningEffort,
+  type SamplingParams,
+  type SamplingPresetName,
+} from "@llm-bench/shared";
 
 export type BenchProfileRequestFields = {
   profileId?: LlmProfileFamilyOrAuto;
@@ -8,7 +13,7 @@ export type BenchProfileRequestFields = {
   preserveThinking?: boolean;
   presetOverride?: SamplingPresetName | null;
   samplingOverrides?: Partial<SamplingParams> | null;
-  reasoningEffort?: "minimal" | "low" | "medium" | "high" | null;
+  reasoningEffort?: ReasoningEffort | null;
   /**
    * 출력 상한(토큰). `BenchRequest.profileMaxTokens`와 동일 목적이며,
    * 한쪽만 넣어도 됩니다. 둘 다 있으면 `profileMaxTokens`(요청 상위 필드)가 우선합니다.
