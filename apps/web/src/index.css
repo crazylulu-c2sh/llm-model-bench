@@ -336,3 +336,15 @@ textarea {
       inset 0 0 0 9999px color-mix(in srgb, var(--accent) 9%, transparent);
   }
 }
+
+/**
+ * sonner `richColors` 라이트 테마 에러 토스트 대비 보정 (KWCAG 5.4.3 / WCAG 1.4.3).
+ * 라이브러리 기본값은 #e60000 on #fff0f0 = 4.34:1 로 AA(4.5:1)에 못 미친다(axe 실측).
+ * 저장소 토큰 --danger(#b31d28)로 덮으면 6.03:1이 된다. 다크 기본값은 이미 8:1 이상이라 그대로 둔다.
+ * 토큰 대비 회귀는 index-css-contrast.test.ts, 렌더 상태 회귀는 tests/e2e/a11y.spec.ts가 잡는다.
+ */
+/* `:root`로 특이도를 (0,3,0)으로 올린다 — sonner는 스타일시트를 런타임에 주입해
+   문서상 우리 번들 CSS보다 뒤에 오므로, 동일 특이도((0,2,0))로는 밀린다. */
+:root [data-sonner-toaster][data-sonner-theme="light"] {
+  --error-text: var(--danger);
+}

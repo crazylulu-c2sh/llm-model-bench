@@ -12,7 +12,34 @@ const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
 
 const ROUTES = ["/", "/stats", "/stress", "/provider-stats", "/profile", "/provider-monitor", "/scenarios", "/harness"] as const;
 
+/**
+ * axe의 color-contrast 규칙은 실행 중인 트랜지션의 *중간 프레임 합성색*을 그대로 읽는다.
+ * 백엔드 없는 프리뷰에서 /api 호출이 실패하면 sonner 에러 토스트가 0.4s 페이드인하는데,
+ * 그 중간이 잡히면 대비가 1.5~2.5로 계산돼 스캔이 무작위로 실패한다(정착 후에는 통과).
+ * `transition-duration: 0s`를 덮어써도 *이미 실행 중인* 트랜지션은 끊기지 않으므로,
+ * 실행 중인 애니메이션이 끝날 때까지 기다린 뒤 스캔한다. 모달·드로어 전환에도 동일하게 적용된다.
+ * 무한 애니메이션(스피너 등)은 finished가 영영 resolve되지 않으므로 타임아웃과 경합시킨다.
+ * 1패스가 끝나는 사이 새 토스트가 시작될 수 있어 2패스 돌린다.
+ */
+async function settleAnimations(page: Page) {
+  for (let pass = 0; pass < 2; pass++) {
+    await page.evaluate(
+      async (timeoutMs) =>
+        void (await Promise.all(
+          document.getAnimations().map((a) =>
+            Promise.race([
+              a.finished.catch(() => undefined),
+              new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+            ]),
+          ),
+        )),
+      1000,
+    );
+  }
+}
+
 async function expectNoViolations(page: Page) {
+  await settleAnimations(page);
   const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
   expect(results.violations).toEqual([]);
 }
@@ -111,19 +138,35 @@ test.describe("axe: 다크 테마(기본)", () => {
   });
 });
 
+/**
+ * 백엔드가 없을 때 뜨는 에러 토스트는 실제 사용자에게 보이는 상태다. 로컬에 dev 서버가
+ * 떠 있으면 프리뷰 프록시가 성공해 토스트가 안 뜨므로, 라우트를 끊어 CI와 같은 조건을 만든다.
+ * (이 상태를 스캔하지 않고 스텁으로 가리면 라이트 테마 대비 미달이 그대로 묻힌다 — 실제로 그랬다.)
+ */
+test.describe("axe: 백엔드 다운(에러 토스트) 상태", () => {
+  for (const [label, colorScheme] of [
+    ["다크", "dark"],
+    ["라이트", "light"],
+  ] as const) {
+    test(`axe: /stats 에러 토스트 (${label}) WCAG 2.1 AA 위반 없음`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme });
+      await page.addInitScript(
+        (theme) => localStorage.setItem("llm-bench-theme", theme),
+        colorScheme,
+      );
+      await page.route("**/api/**", (route) => route.abort("connectionrefused"));
+      await page.goto("/stats");
+      await expect(page.locator("[data-sonner-toast]").first()).toBeVisible();
+      await expectNoViolations(page);
+    });
+  }
+});
+
 test.describe("axe: 라이트 테마", () => {
   test.use({ colorScheme: "light" });
 
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("llm-bench-theme", "light"));
-    // 백엔드 없이 실행되는 CI 환경에서 API 프록시 오류로 에러 토스트가 렌더링되면
-    // 라이트 테마에서 sonner data-title 요소의 color-contrast axe 위반이 발생한다.
-    // 빈 성공 응답을 반환해 에러 토스트 자체가 나타나지 않도록 한다.
-    // (mockStatsApi가 호출되는 테스트에서는 LIFO 순서로 덮어씌워진다.)
-    await page.route("**/api/stats/model-latest", (route) =>
-      route.fulfill({ json: { items: [], sqlite_available: true } }),
-    );
-    await page.route("**/api/scenarios**", (route) => route.fulfill({ json: { items: [] } }));
   });
 
   for (const route of ["/", "/stats"] as const) {
