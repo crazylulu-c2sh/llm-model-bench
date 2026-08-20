@@ -198,6 +198,7 @@ export {
   type LlmProfileFamily,
   type LlmProfileDefinition,
   type PromptRules,
+  type ReasoningEffort,
   type ResolvedBenchProfile,
   type SamplingParams,
   type SamplingPresetName,
@@ -306,8 +307,8 @@ export const BenchRunMetaSchema = z.object({
   stop: z.array(z.string()).optional(),
   /** OpenAI-compatible servers: merged into request JSON */
   extra_body: z.record(z.string(), z.unknown()).optional(),
-  /** gpt-oss style deployments */
-  reasoning_effort: z.enum(["minimal", "low", "medium", "high"]).optional(),
+  /** gpt-oss(minimal~high) · Qwen3.8(none/low/medium/xhigh) 공용 추론 강도 */
+  reasoning_effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]).optional(),
   profile_id: z.string().optional(),
   profile_version: z.number().optional(),
   profile_preset: z.string().optional(),
@@ -571,6 +572,7 @@ const BenchProfileIdSchema = z.preprocess(
       "gemma4",
       "qwen35",
       "qwen36",
+      "qwen38",
       "gpt_oss",
       "minimax",
       "nemotron3",
@@ -584,7 +586,9 @@ const ThinkingIntentSchema = z.enum(["on", "off"]).optional();
 const PresetOverrideSchema = z
   .enum(["default", "thinking_general", "thinking_coding", "nonthinking_general", "tool_call"])
   .optional();
-const ReasoningEffortSchema = z.enum(["minimal", "low", "medium", "high"]).optional();
+const ReasoningEffortSchema = z
+  .enum(["none", "minimal", "low", "medium", "high", "xhigh"])
+  .optional();
 
 export const DetectBodySchema = z.object({
   baseUrl: z.string().min(1),

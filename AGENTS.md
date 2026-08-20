@@ -14,7 +14,7 @@
   - 게이트(CI): `pnpm --filter @llm-bench/web lint`(eslint-plugin-jsx-a11y), `tests/e2e/a11y.spec.ts`(axe-core WCAG 2.1 AA 스캔), `apps/web/src/index-css-contrast.test.ts`(토큰 대비 회귀).
 - Non-functional requirements (NFR) adopted for v1: API keys via env, session UI (`sessionStorage` by default), or **opt-in** plaintext `localStorage` only after explicit user consent with in-UI risk disclosure; reproducibility fields in bench payloads/results; serial model execution only; partial results + `error` stream events on failure; Vitest HTTP mocks for server provider clients.
 - Do not commit real API keys or customer base URLs in fixtures or logs.
-- **Vision benchmark (v1):** 10 비전 시나리오(`vision_*_a` / `_b`)는 opt-in 입니다.
+- **Vision benchmark (v1):** 10 비전 시나리오(`vision_*_a` / `_b`)는 opt-in 입니다. 비전 지원 모델 후보에는 Gemma 4 외에 Qwen3.8-27B(이미지·영상 네이티브)도 포함됩니다.
   - 자산: `apps/web/public/vision/*.jpg` (원본은 `docs/vision_bench/`). 갱신 시 `pnpm prepare:vision` 실행. JPEG를 쓰는 이유: LM Studio 일부 비전 빌드가 `image/webp` MIME을 거부함 (이전 WebP 자산은 v1.2에서 제거).
   - 이미지 전달: loopback/사설망 origin은 자동 base64 인라인, 공개 origin은 URL. 분기는 `apps/server/src/vision-assets.ts` 단일 모듈이 담당. LM Studio(`provider === "lm_studio"`) OpenAI 경로는 origin IP와 무관하게 base64 인라인(`data:image/jpeg;base64,...`)을 강제함 — `buildImagePart` `opts.forceInline` 참고.
   - 채점: 0~3 루브릭 → `score: 0|0.33|0.67|1`, pass는 `score >= 0.67`. `packages/shared/src/scenarios-preview.ts#rubricToScore` 단일 호출 지점.

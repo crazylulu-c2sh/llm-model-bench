@@ -18,7 +18,13 @@ export const en: ProfileDocContent = {
     <>
       <code className="font-mono text-xs">inferLlmProfileFamily(modelId)</code> applies the{" "}
       <code className="font-mono text-xs">match</code> regexes in definition-array order and picks the first matching
-      family. If nothing matches, it is <code className="font-mono text-xs">unknown</code>, in which case only
+      family. If nothing matches, it makes a second pass over the definitions that declare{" "}
+      <code className="font-mono text-xs">fallbackMatch</code> — so an as-yet-undefined successor (Qwen 3.9, 4, …) lands on
+      the newest guide of the same lineage instead of{" "}
+      <code className="font-mono text-xs">unknown</code>. Today only{" "}
+      <a className="text-[var(--accent-2)] underline" href="#qwen38">qwen38</a> carries that fallback, and a model resolved
+      through it still records that definition's id as <code className="font-mono text-xs">profile_id</code>. If the second
+      pass finds nothing either, it is <code className="font-mono text-xs">unknown</code>, in which case only
       conservative default sampling is used, without the built-in preset table.
     </>
   ),
@@ -44,7 +50,7 @@ export const en: ProfileDocContent = {
           <tbody className="text-[var(--muted)]">
             <tr className="border-b border-[var(--border)]">
               <td className="p-2 font-mono text-[var(--foreground)]">&lt;redacted_thinking&gt;…&lt;/redacted_thinking&gt;</td>
-              <td className="p-2">Qwen 3.5/3.6</td>
+              <td className="p-2">Qwen 3.5/3.6/3.8</td>
             </tr>
             <tr className="border-b border-[var(--border)]">
               <td className="p-2 font-mono text-[var(--foreground)]">leading …&lt;/redacted_thinking&gt; (no opening tag)</td>
@@ -157,6 +163,7 @@ export const en: ProfileDocContent = {
       <code className="font-mono text-xs">reasoning_effort</code>, <code className="font-mono text-xs">reasoning_split</code>, etc.) — see each model card's "Runtime notes" below (
       <a className="text-[var(--accent-2)] underline" href="#gemma4">gemma4</a>,{" "}
       <a className="text-[var(--accent-2)] underline" href="#qwen36">qwen36</a>,{" "}
+      <a className="text-[var(--accent-2)] underline" href="#qwen38">qwen38</a>,{" "}
       <a className="text-[var(--accent-2)] underline" href="#nemotron3">nemotron3</a>,{" "}
       <a className="text-[var(--accent-2)] underline" href="#glm47_flash">glm47_flash</a>,{" "}
       <a className="text-[var(--accent-2)] underline" href="#gpt_oss">gpt_oss</a>,{" "}
@@ -289,6 +296,37 @@ export const en: ProfileDocContent = {
         If <code className="font-mono text-xs">preserve_thinking</code> is enabled in the UI, it is merged into the same{" "}
         <code className="font-mono text-xs">chat_template_kwargs</code> object.
       </li>,
+    ],
+    qwen38: [
+      <li key="fallback">
+        Besides exact <code className="font-mono text-xs">Qwen3.8</code> matches, not-yet-defined newer Qwen releases (
+        <code className="font-mono text-xs">qwen3.9</code>, <code className="font-mono text-xs">qwen4</code>, …) fall back to
+        this definition. Older ones (<code className="font-mono text-xs">Qwen3-8B</code>,{" "}
+        <code className="font-mono text-xs">Qwen2.5</code>, <code className="font-mono text-xs">Qwen-7B</code>) do not.
+      </li>,
+      <li key="reasoning_effort">
+        <code className="font-mono text-xs">reasoning_effort</code> is sent on{" "}
+        <strong className="text-[var(--foreground)]">both</strong> paths: the top-level field (Ollama) and{" "}
+        <code className="font-mono text-xs">extra_body.chat_template_kwargs.reasoning_effort</code> (LM Studio, llama.cpp).
+        The model card defaults to <code className="font-mono text-xs">xhigh</code>, but reasoning tokens balloon, so the
+        harness defaults to <code className="font-mono text-xs">low</code>.
+      </li>,
+      <li key="enable_thinking">
+        With thinking <strong className="text-[var(--foreground)]">off</strong>, both{" "}
+        <code className="font-mono text-xs">enable_thinking: false</code> and{" "}
+        <code className="font-mono text-xs">reasoning_effort: "none"</code> are sent.
+      </li>,
+      <li key="preserve_thinking">
+        When <code className="font-mono text-xs">preserve_thinking</code> is checked in the UI it is merged into the same{" "}
+        <code className="font-mono text-xs">chat_template_kwargs</code> object.
+      </li>,
+      <li key="max_tokens">
+        The recommended <code className="font-mono text-xs">max_tokens</code> are the model-card values (262,144 thinking /
+        131,072 non-thinking). On a backend started with a short context (vLLM{" "}
+        <code className="font-mono text-xs">--max-model-len</code>, …), lower it via the UI{" "}
+        <code className="font-mono text-xs">max_tokens</code> field.
+      </li>,
+      <li key="multimodal">The 27B natively accepts image and video input, so vision scenarios work as-is.</li>,
     ],
     nemotron3: [
       <li key="enable_thinking">

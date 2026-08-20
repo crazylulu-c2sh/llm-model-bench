@@ -22,6 +22,7 @@ import {
   providerSupportsLoadTtl,
   resolveBenchProfile,
   type LlmProfileFamily,
+  type ReasoningEffort,
   type SamplingParams,
   type SamplingPresetName,
   type ThinkingIntent,
@@ -64,7 +65,7 @@ export type StressRequest = {
     preserveThinking?: boolean;
     presetOverride?: SamplingPresetName;
     samplingOverrides?: SamplingParams;
-    reasoningEffort?: "minimal" | "low" | "medium" | "high";
+    reasoningEffort?: ReasoningEffort;
   };
 };
 

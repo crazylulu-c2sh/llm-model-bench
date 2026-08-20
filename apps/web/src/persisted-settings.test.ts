@@ -230,6 +230,43 @@ describe("readInitialUiState contention guard + v2→v3 migration", () => {
   });
 });
 
+describe("readInitialUiState — Qwen3.8 프로파일", () => {
+  it("qwen38ReasoningEffort 기본값은 low (모델카드 기본 xhigh가 아님)", () => {
+    expect(readInitialUiState().qwen38ReasoningEffort).toBe("low");
+  });
+
+  it("profileId=qwen38과 qwen38ReasoningEffort를 왕복 저장한다", () => {
+    window.localStorage.setItem(
+      PREFS_STORAGE_KEY,
+      JSON.stringify({ v: 3, profileId: "qwen38", qwen38ReasoningEffort: "xhigh" }),
+    );
+    const s = readInitialUiState();
+    expect(s.profileId).toBe("qwen38");
+    expect(s.qwen38ReasoningEffort).toBe("xhigh");
+  });
+
+  it("신규 키가 없는 기존 v3 prefs는 리셋 없이 기본값만 채운다", () => {
+    window.localStorage.setItem(
+      PREFS_STORAGE_KEY,
+      JSON.stringify({ v: 3, baseUrl: "http://10.0.0.9:1234", profileId: "qwen36" }),
+    );
+    const s = readInitialUiState();
+    expect(s.baseUrl).toBe("http://10.0.0.9:1234");
+    expect(s.profileId).toBe("qwen36");
+    expect(s.qwen38ReasoningEffort).toBe("low");
+  });
+
+  it("범위를 벗어난 qwen38ReasoningEffort는 prefs 전체를 기본값으로 되돌린다", () => {
+    window.localStorage.setItem(
+      PREFS_STORAGE_KEY,
+      JSON.stringify({ v: 3, baseUrl: "http://10.0.0.9:1234", qwen38ReasoningEffort: "minimal" }),
+    );
+    const s = readInitialUiState();
+    expect(s.qwen38ReasoningEffort).toBe("low");
+    expect(s.baseUrl).not.toBe("http://10.0.0.9:1234");
+  });
+});
+
 describe("readInitialUiState loadTtlSeconds", () => {
   it("defaults to empty string (미적용)", () => {
     const s = readInitialUiState();

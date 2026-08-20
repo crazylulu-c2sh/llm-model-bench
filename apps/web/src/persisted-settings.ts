@@ -9,6 +9,12 @@ import {
   type ThinkingIntent,
 } from "@llm-bench/shared";
 
+/** Qwen3.8 chat template이 받는 reasoning_effort 단계(모델카드 기본은 xhigh). */
+export const QWEN38_REASONING_EFFORTS = ["xhigh", "medium", "low", "none"] as const;
+export type Qwen38ReasoningEffort = (typeof QWEN38_REASONING_EFFORTS)[number];
+/** 모델카드 기본은 xhigh이나 로컬 벤치에서 사고 토큰이 폭주해 하네스 기본은 low. */
+export const QWEN38_REASONING_EFFORT_DEFAULT: Qwen38ReasoningEffort = "low";
+
 export const PREFS_STORAGE_KEY = "llm-bench-ui-prefs";
 export const SESSION_API_KEY = "llm-bench-api-key";
 
@@ -27,12 +33,13 @@ const PrefsSchema = z
     persistApiKeyToDisk: z.boolean().optional(),
     apiKey: z.string().optional(),
     profileId: z
-      .enum(["auto", "unknown", "gemma4", "qwen35", "qwen36", "gpt_oss", "minimax", "nemotron3", "qwen3_coder_next", "glm47_flash"])
+      .enum(["auto", "unknown", "gemma4", "qwen35", "qwen36", "qwen38", "gpt_oss", "minimax", "nemotron3", "qwen3_coder_next", "glm47_flash"])
       .optional(),
     profileMaxTokens: z.number().int().positive().optional(),
     thinkingIntent: z.enum(["on", "off"]).optional(),
     preserveThinking: z.boolean().optional(),
     reasoningEffort: z.enum(["minimal", "low", "medium", "high"]).optional(),
+    qwen38ReasoningEffort: z.enum(QWEN38_REASONING_EFFORTS).optional(),
     presetOverride: z
       .enum(["default", "thinking_general", "thinking_coding", "nonthinking_general", "tool_call"])
       .optional(),
@@ -132,6 +139,7 @@ export function readInitialUiState() {
       thinkingIntent: "on" as ThinkingIntent,
       preserveThinking: false,
       reasoningEffort: "medium" as const,
+      qwen38ReasoningEffort: QWEN38_REASONING_EFFORT_DEFAULT,
       presetOverride: "" as const,
       samplingOverridesText: "",
       profileAdvancedOpen: false,
@@ -163,6 +171,7 @@ export function readInitialUiState() {
     thinkingIntent: (p.thinkingIntent ?? "on") as ThinkingIntent,
     preserveThinking: p.preserveThinking ?? false,
     reasoningEffort: (p.reasoningEffort ?? "medium") as "minimal" | "low" | "medium" | "high",
+    qwen38ReasoningEffort: p.qwen38ReasoningEffort ?? QWEN38_REASONING_EFFORT_DEFAULT,
     presetOverride: (p.presetOverride ?? "") as SamplingPresetName | "",
     samplingOverridesText: p.samplingOverridesJson ?? "",
     profileAdvancedOpen: p.profileAdvancedOpen ?? false,
@@ -192,6 +201,7 @@ export type SaveUiSnapshot = {
   thinkingIntent: ThinkingIntent;
   preserveThinking: boolean;
   reasoningEffort: "minimal" | "low" | "medium" | "high";
+  qwen38ReasoningEffort: Qwen38ReasoningEffort;
   presetOverride: SamplingPresetName | "";
   samplingOverridesText: string;
   profileAdvancedOpen: boolean;
@@ -232,6 +242,7 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
     thinkingIntent: s.thinkingIntent,
     preserveThinking: s.preserveThinking,
     reasoningEffort: s.reasoningEffort,
+    qwen38ReasoningEffort: s.qwen38ReasoningEffort,
     presetOverride: s.presetOverride || undefined,
     samplingOverridesJson: s.samplingOverridesText.trim() ? s.samplingOverridesText : undefined,
     profileAdvancedOpen: s.profileAdvancedOpen,

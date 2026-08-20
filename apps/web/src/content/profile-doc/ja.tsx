@@ -17,6 +17,11 @@ export const ja: ProfileDocContent = {
     <>
       <code className="font-mono text-xs">inferLlmProfileFamily(modelId)</code> は定義配列の順に{" "}
       <code className="font-mono text-xs">match</code> 正規表現を適用し、最初に一致したファミリーを選びます。何も一致しなければ{" "}
+      <code className="font-mono text-xs">fallbackMatch</code> を持つ定義を同じ順序でもう一度走査します — まだ定義のない
+      後継バージョン(Qwen 3.9・4 など)を <code className="font-mono text-xs">unknown</code> ではなく同系統の最新ガイドへ
+      流すための 2 パスです。現在このフォールバックを持つ定義は{" "}
+      <a className="text-[var(--accent-2)] underline" href="#qwen38">qwen38</a> のみで、フォールバック経由で解決されても{" "}
+      <code className="font-mono text-xs">profile_id</code> はその定義の id として記録されます。2 パス目でも一致しなければ{" "}
       <code className="font-mono text-xs">unknown</code> となり、その場合は組み込みプリセットテーブルを使わず、保守的なデフォルトサンプリングのみを使います。
     </>
   ),
@@ -41,7 +46,7 @@ export const ja: ProfileDocContent = {
           <tbody className="text-[var(--muted)]">
             <tr className="border-b border-[var(--border)]">
               <td className="p-2 font-mono text-[var(--foreground)]">&lt;redacted_thinking&gt;…&lt;/redacted_thinking&gt;</td>
-              <td className="p-2">Qwen 3.5/3.6</td>
+              <td className="p-2">Qwen 3.5/3.6/3.8</td>
             </tr>
             <tr className="border-b border-[var(--border)]">
               <td className="p-2 font-mono text-[var(--foreground)]">先頭 …&lt;/redacted_thinking&gt;(開きタグなし)</td>
@@ -151,6 +156,7 @@ export const ja: ProfileDocContent = {
       <code className="font-mono text-xs">reasoning_effort</code>, <code className="font-mono text-xs">reasoning_split</code> など)は、下の各モデルカードの「ランタイムノート」を参照してください(
       <a className="text-[var(--accent-2)] underline" href="#gemma4">gemma4</a>,{" "}
       <a className="text-[var(--accent-2)] underline" href="#qwen36">qwen36</a>,{" "}
+      <a className="text-[var(--accent-2)] underline" href="#qwen38">qwen38</a>,{" "}
       <a className="text-[var(--accent-2)] underline" href="#nemotron3">nemotron3</a>,{" "}
       <a className="text-[var(--accent-2)] underline" href="#glm47_flash">glm47_flash</a>,{" "}
       <a className="text-[var(--accent-2)] underline" href="#gpt_oss">gpt_oss</a>,{" "}
@@ -283,6 +289,36 @@ export const ja: ProfileDocContent = {
         UI で <code className="font-mono text-xs">preserve_thinking</code> が有効になっていると、同じ{" "}
         <code className="font-mono text-xs">chat_template_kwargs</code> オブジェクトにマージされます。
       </li>,
+    ],
+    qwen38: [
+      <li key="fallback">
+        <code className="font-mono text-xs">Qwen3.8</code> の完全一致に加えて、まだ定義のない新しい Qwen(
+        <code className="font-mono text-xs">qwen3.9</code>・<code className="font-mono text-xs">qwen4</code> など)もこの定義に
+        フォールバックします。旧バージョン(<code className="font-mono text-xs">Qwen3-8B</code>・
+        <code className="font-mono text-xs">Qwen2.5</code>・<code className="font-mono text-xs">Qwen-7B</code>)は対象外です。
+      </li>,
+      <li key="reasoning_effort">
+        <code className="font-mono text-xs">reasoning_effort</code> はトップレベルのフィールド(Ollama)と{" "}
+        <code className="font-mono text-xs">extra_body.chat_template_kwargs.reasoning_effort</code>(LM Studio・llama.cpp)の
+        <strong className="text-[var(--foreground)]">両方</strong>に載ります。モデルカードの既定は{" "}
+        <code className="font-mono text-xs">xhigh</code> ですが、思考トークンが膨張するためハーネスの既定は{" "}
+        <code className="font-mono text-xs">low</code> です。
+      </li>,
+      <li key="enable_thinking">
+        thinking を<strong className="text-[var(--foreground)]">オフ</strong>にすると{" "}
+        <code className="font-mono text-xs">enable_thinking: false</code> と{" "}
+        <code className="font-mono text-xs">reasoning_effort: "none"</code> が同時に載ります。
+      </li>,
+      <li key="preserve_thinking">
+        UI で <code className="font-mono text-xs">preserve_thinking</code> をオンにすると、同じ{" "}
+        <code className="font-mono text-xs">chat_template_kwargs</code> オブジェクトにマージされます。
+      </li>,
+      <li key="max_tokens">
+        推奨 <code className="font-mono text-xs">max_tokens</code> はモデルカードの値(思考 262,144 / 非思考 131,072)です。
+        コンテキストを短く起動したバックエンド(vLLM <code className="font-mono text-xs">--max-model-len</code> など)では UI の{" "}
+        <code className="font-mono text-xs">max_tokens</code> で下げてください。
+      </li>,
+      <li key="multimodal">27B は画像・動画入力をネイティブに扱えるため、ビジョンシナリオでもそのまま使えます。</li>,
     ],
     nemotron3: [
       <li key="enable_thinking">

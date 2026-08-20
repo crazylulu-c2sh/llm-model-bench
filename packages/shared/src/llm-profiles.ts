@@ -7,6 +7,7 @@ export type LlmProfileFamily =
   | "gemma4"
   | "qwen35"
   | "qwen36"
+  | "qwen38"
   | "gpt_oss"
   | "minimax"
   | "nemotron3"
@@ -17,6 +18,13 @@ export type LlmProfileFamily =
 export type BenchTaskMode = "general" | "coding" | "tool";
 
 export type ThinkingIntent = "on" | "off";
+
+/**
+ * 추론 강도. gpt-oss 계열이 쓰던 minimal~high에 Qwen3.8의 `none` / `xhigh`를 더한 합집합.
+ * 유효 범위는 패밀리마다 다르다(gpt_oss: minimal|low|medium|high, qwen38: none|low|medium|xhigh) —
+ * UI가 패밀리별로 선택지를 좁혀서 보내고, `resolveBenchProfile`이 미지정 시 기본값을 채운다.
+ */
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export type SamplingPresetName =
   | "default"
@@ -45,6 +53,14 @@ export type LlmProfileDefinition = {
   id: LlmProfileFamily;
   version: number;
   match: RegExp[];
+  /**
+   * 정확 매칭(`match`)이 전부 실패했을 때만 평가되는 2패스 폴백 패턴.
+   * 아직 정의가 없는 후속 버전을 `unknown`(temperature 0.2 / max_tokens 512)이 아니라
+   * 같은 계보의 최신 가이드로 흘려보내기 위한 것.
+   * ⚠ 한 계보에서 이 필드를 갖는 정의는 **최신 하나뿐**이어야 한다. qwen39를 추가할 때는
+   *   qwen38에서 지우고 qwen39로 옮길 것 — `llm-profiles.fallback.test.ts`가 보유 목록을 고정한다.
+   */
+  fallbackMatch?: RegExp[];
   presets: Record<SamplingPresetName, SamplingParams>;
   /** Recommended max output tokens — bench defaults pick `default` unless overridden */
   recommendedMaxTokens: { default: number; complex: number };
@@ -142,6 +158,67 @@ export const LLM_PROFILE_DEFINITIONS: LlmProfileDefinition[] = [
     contextNativeMax: 262_144,
     contextRecommendedStart: 32_768,
     promptRules: { gemmaThinkToken: true, stripThinkingFromAssistantHistory: true },
+  },
+  {
+    id: "qwen38",
+    version: 1,
+    // `\.?`만 허용한다 — /qwen3[-_.]?8/로 넓히면 별개 모델인 `Qwen3-8B`를 삼킨다.
+    match: [/qwen3\.?8/i],
+    // 미등록 Qwen 신버전(3.9 · 4 · 4.1 …) 폴백. 구분자 없이 붙는 숫자만 버전으로 본다 —
+    // `Qwen-7B`/`Qwen-72B`의 파라미터 수는 대시 뒤에 오므로 걸리지 않는다.
+    // 메이저 10 이상이 나오면 이 정규식만 확장하면 된다.
+    fallbackMatch: [/qwen(?:3\.\d+|[4-9](?:\.\d+)?)/i],
+    stopSequences: ["<|im_end|>"],
+    presets: {
+      // 모델카드 thinking 권장값. qwen35/36과 달리 presence_penalty가 1.5가 아니라 0.0이다.
+      default: {
+        temperature: 1.0,
+        top_p: 0.95,
+        top_k: 20,
+        min_p: 0.0,
+        presence_penalty: 0.0,
+        repetition_penalty: 1.0,
+      },
+      thinking_general: {
+        temperature: 1.0,
+        top_p: 0.95,
+        top_k: 20,
+        min_p: 0.0,
+        presence_penalty: 0.0,
+        repetition_penalty: 1.0,
+      },
+      // Qwen3.8은 코딩/일반 thinking을 나누지 않는다 — 모델카드 thinking 값을 그대로 쓴다.
+      thinking_coding: {
+        temperature: 1.0,
+        top_p: 0.95,
+        top_k: 20,
+        min_p: 0.0,
+        presence_penalty: 0.0,
+        repetition_penalty: 1.0,
+      },
+      nonthinking_general: {
+        temperature: 0.7,
+        top_p: 0.8,
+        top_k: 20,
+        min_p: 0.0,
+        presence_penalty: 1.5,
+        repetition_penalty: 1.0,
+      },
+      tool_call: {
+        temperature: 1.0,
+        top_p: 0.95,
+        top_k: 20,
+        min_p: 0.0,
+        presence_penalty: 0.0,
+        repetition_penalty: 1.0,
+      },
+    },
+    // 모델카드 권장: reasoning 262,144 / 최종 응답 131,072.
+    // 컨텍스트가 짧은 백엔드(vLLM --max-model-len 등)에서는 UI max_tokens로 낮춰 쓸 것.
+    recommendedMaxTokens: { default: 131_072, complex: 262_144 },
+    contextNativeMax: 262_144,
+    contextRecommendedStart: 131_072,
+    promptRules: { stripThinkingFromAssistantHistory: true },
   },
   {
     id: "qwen36",
@@ -321,6 +398,10 @@ export function inferLlmProfileFamily(modelId: string): LlmProfileFamily {
   for (const def of LLM_PROFILE_DEFINITIONS) {
     if (def.match.some((re) => re.test(id))) return def.id;
   }
+  // 2패스: 정의가 아직 없는 후속 버전을 같은 계보의 최신 가이드로 보낸다(§fallbackMatch).
+  for (const def of LLM_PROFILE_DEFINITIONS) {
+    if (def.fallbackMatch?.some((re) => re.test(id))) return def.id;
+  }
   return "unknown";
 }
 
@@ -350,7 +431,7 @@ export type ResolvedBenchProfile = {
   maxTokensRecommended: number;
   /** OpenAI-compatible `extra_body` merge (e.g. Qwen chat_template_kwargs) */
   extraBody: Record<string, unknown>;
-  reasoningEffort?: "minimal" | "low" | "medium" | "high";
+  reasoningEffort?: ReasoningEffort;
   promptRulesApplied: PromptRules;
   /** Stop strings to send as OpenAI `stop` (family-specific; see LlmProfileDefinition.stopSequences) */
   stopSequences?: string[];
@@ -378,7 +459,7 @@ export function resolveBenchProfile(input: {
   /** Partial sampling overrides from UI */
   samplingOverrides?: Partial<SamplingParams> | null;
   maxTokensOverride?: number | null;
-  reasoningEffort?: "minimal" | "low" | "medium" | "high" | null;
+  reasoningEffort?: ReasoningEffort | null;
   /**
    * When UI/server profile is not `auto`, use this family instead of inferring from `modelId`
    * (sampling, extra_body, prompt rules).
@@ -399,18 +480,39 @@ export function resolveBenchProfile(input: {
     def?.presets[preset] ?? def?.presets.default ?? { temperature: 0.2, top_p: 1.0 };
   const sampling: SamplingParams = { ...baseSampling, ...(input.samplingOverrides ?? {}) };
 
+  // extra_body 조립보다 먼저 확정한다 — qwen38은 최상위 `reasoning_effort`와
+  // `chat_template_kwargs.reasoning_effort` 양쪽에 같은 값을 실어야 하기 때문.
+  const reasoningEffort: ReasoningEffort | undefined =
+    family === "gpt_oss"
+      ? (input.reasoningEffort ?? "medium")
+      : family === "qwen38"
+        ? input.thinkingIntent === "off"
+          ? "none"
+          : // 모델카드 기본은 xhigh이나 로컬 벤치에서 사고 토큰이 폭주해 타임아웃·오염 가드
+            // 재시도를 유발한다. 하네스 기본은 low로 낮추고 UI에서 올릴 수 있게 둔다.
+            (input.reasoningEffort ?? "low")
+        : undefined;
+
   let extraBody: Record<string, unknown> = {};
   if (
     (family === "qwen35" ||
       family === "qwen36" ||
+      family === "qwen38" ||
       family === "nemotron3" ||
       family === "gemma4") &&
     input.thinkingIntent === "off"
   ) {
     extraBody = deepMergeObjects(extraBody, { chat_template_kwargs: { enable_thinking: false } });
   }
-  if (family === "qwen36" && input.preserveThinking) {
+  if ((family === "qwen36" || family === "qwen38") && input.preserveThinking) {
     extraBody = deepMergeObjects(extraBody, { chat_template_kwargs: { preserve_thinking: true } });
+  }
+  // Qwen3.8: LM Studio/llama.cpp는 chat_template_kwargs 경로로만 effort를 받는다.
+  // Ollama의 OpenAI 호환 라우트는 최상위 필드를 읽으므로 두 경로 모두에 싣는다.
+  if (family === "qwen38" && reasoningEffort) {
+    extraBody = deepMergeObjects(extraBody, {
+      chat_template_kwargs: { reasoning_effort: reasoningEffort },
+    });
   }
   if (family === "minimax") {
     extraBody = deepMergeObjects(extraBody, { reasoning_split: true });
@@ -426,9 +528,6 @@ export function resolveBenchProfile(input: {
         ? recommended.complex
         : recommended.default;
 
-  const reasoningEffort =
-    family === "gpt_oss" ? (input.reasoningEffort ?? "medium") : undefined;
-
   const promptRulesApplied: PromptRules = {
     ...(def?.promptRules ?? {}),
   };
@@ -440,7 +539,7 @@ export function resolveBenchProfile(input: {
     sampling,
     maxTokensRecommended,
     extraBody,
-    reasoningEffort: reasoningEffort as ResolvedBenchProfile["reasoningEffort"],
+    reasoningEffort,
     promptRulesApplied,
     stopSequences: def?.stopSequences,
   };
