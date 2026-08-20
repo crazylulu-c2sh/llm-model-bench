@@ -314,7 +314,10 @@ describe("runBench wire — Qwen3.8 reasoning_effort (dual transport)", () => {
     // Ollama의 OpenAI 호환 라우트가 읽는 최상위 필드
     expect(body.reasoning_effort).toBe("low");
     // LM Studio·llama.cpp가 읽는 chat template 경로
-    expect(body.chat_template_kwargs).toEqual({ reasoning_effort: "low" });
+    expect(body.chat_template_kwargs).toEqual({
+      reasoning_effort: "low",
+      preserve_thinking: false,
+    });
     // 모델카드 thinking 값 — qwen3.5/3.6과 달리 presence_penalty가 0
     expect(body.presence_penalty).toBe(0);
     expect(body.repetition_penalty).toBe(1.0);
@@ -354,10 +357,11 @@ describe("runBench wire — Qwen3.8 reasoning_effort (dual transport)", () => {
       void _;
     }
     const body = captured as unknown as Record<string, unknown>;
+    // 최상위는 Ollama가 읽는 none, 템플릿에는 effort 미전송(공식 템플릿이 none을 거부).
     expect(body.reasoning_effort).toBe("none");
     expect(body.chat_template_kwargs).toEqual({
       enable_thinking: false,
-      reasoning_effort: "none",
+      preserve_thinking: false,
     });
     expect(body.presence_penalty).toBe(1.5);
   });

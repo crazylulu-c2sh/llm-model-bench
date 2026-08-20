@@ -114,7 +114,10 @@ describe("resolveBenchProfile", () => {
       thinkingIntent: "on",
     });
     expect(r.reasoningEffort).toBe("low");
-    expect(r.extraBody.chat_template_kwargs).toEqual({ reasoning_effort: "low" });
+    expect(r.extraBody.chat_template_kwargs).toEqual({
+      reasoning_effort: "low",
+      preserve_thinking: false,
+    });
   });
 
   it("honors an explicit Qwen3.8 reasoning_effort on both transports", () => {
@@ -125,7 +128,10 @@ describe("resolveBenchProfile", () => {
       reasoningEffort: "xhigh",
     });
     expect(r.reasoningEffort).toBe("xhigh");
-    expect(r.extraBody.chat_template_kwargs).toEqual({ reasoning_effort: "xhigh" });
+    expect(r.extraBody.chat_template_kwargs).toEqual({
+      reasoning_effort: "xhigh",
+      preserve_thinking: false,
+    });
   });
 
   it("sets enable_thinking=false + reasoning_effort=none for Qwen3.8 when thinking off", () => {
@@ -140,10 +146,12 @@ describe("resolveBenchProfile", () => {
     expect(r.sampling.temperature).toBe(0.7);
     expect(r.sampling.top_p).toBe(0.8);
     expect(r.sampling.presence_penalty).toBe(1.5);
+    // 최상위 필드는 Ollama가 think=false로 읽으므로 none을 유지하되,
+    // 템플릿에는 effort를 싣지 않는다 — 공식 템플릿이 none을 raise_exception으로 거부한다.
     expect(r.reasoningEffort).toBe("none");
     expect(r.extraBody.chat_template_kwargs).toEqual({
       enable_thinking: false,
-      reasoning_effort: "none",
+      preserve_thinking: false,
     });
     expect(r.maxTokensRecommended).toBe(131_072);
   });
@@ -159,6 +167,34 @@ describe("resolveBenchProfile", () => {
       preserve_thinking: true,
       reasoning_effort: "low",
     });
+  });
+
+  // 공식 chat template은 xhigh|medium|low 외의 값에 raise_exception을 던져 프롬프트 렌더링을
+  // 통째로 실패시킨다. UI는 3개만 노출하지만 HTTP/MCP 클라이언트는 합집합 전체를 보낼 수 있다.
+  it.each([
+    ["high", "xhigh"],
+    ["minimal", "low"],
+    ["none", "low"],
+  ] as const)("clamps Qwen3.8 chat_template reasoning_effort %s → %s", (given, expected) => {
+    const r = resolveBenchProfile({
+      modelId: "Qwen/Qwen3.8-27B",
+      taskMode: "general",
+      thinkingIntent: "on",
+      reasoningEffort: given,
+    });
+    expect(
+      (r.extraBody.chat_template_kwargs as Record<string, unknown>).reasoning_effort,
+    ).toBe(expected);
+  });
+
+  it("clamps gpt-oss reasoning_effort out of Qwen vocabulary", () => {
+    const r = resolveBenchProfile({
+      modelId: "openai/gpt-oss-20b",
+      taskMode: "general",
+      thinkingIntent: "on",
+      reasoningEffort: "xhigh",
+    });
+    expect(r.reasoningEffort).toBe("high");
   });
 
   it("leaves gpt-oss reasoning_effort default untouched", () => {

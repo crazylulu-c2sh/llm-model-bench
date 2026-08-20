@@ -304,14 +304,21 @@ export const ko: ProfileDocContent = {
         <code className="font-mono text-xs">xhigh</code>지만 사고 토큰이 폭주해 하네스 기본은{" "}
         <code className="font-mono text-xs">low</code>입니다.
       </li>,
+      <li key="effort_clamp">
+        공식 chat template이 받는 값은 <code className="font-mono text-xs">xhigh</code>·
+        <code className="font-mono text-xs">medium</code>·<code className="font-mono text-xs">low</code> 뿐이고, 그 외에는
+        예외를 던져 프롬프트 렌더링이 통째로 실패합니다. 서버가 템플릿에 싣기 전에 클램프합니다(
+        <code className="font-mono text-xs">high</code>→<code className="font-mono text-xs">xhigh</code>,{" "}
+        <code className="font-mono text-xs">minimal</code>→<code className="font-mono text-xs">low</code>).
+      </li>,
       <li key="enable_thinking">
-        thinking <strong className="text-[var(--foreground)]">끄기</strong> 시{" "}
-        <code className="font-mono text-xs">enable_thinking: false</code>와{" "}
-        <code className="font-mono text-xs">reasoning_effort: "none"</code>이 함께 실립니다.
+        thinking <strong className="text-[var(--foreground)]">끄기</strong>는 effort가 아니라{" "}
+        <code className="font-mono text-xs">enable_thinking: false</code>로 표현합니다. 최상위 필드에는 Ollama가 읽는{" "}
+        <code className="font-mono text-xs">"none"</code>이 실리지만 템플릿에는 effort를 싣지 않습니다.
       </li>,
       <li key="preserve_thinking">
-        UI에서 <code className="font-mono text-xs">preserve_thinking</code>가 켜져 있으면 같은{" "}
-        <code className="font-mono text-xs">chat_template_kwargs</code> 객체에 병합됩니다.
+        <code className="font-mono text-xs">preserve_thinking</code>은 템플릿 기본이 <code className="font-mono text-xs">true</code>라
+        끄려면 <code className="font-mono text-xs">false</code>를 명시해야 합니다 — 항상 명시적 boolean으로 보냅니다.
       </li>,
       <li key="max_tokens">
         권장 <code className="font-mono text-xs">max_tokens</code>는 모델 카드 값(사고 262,144 / 비사고 131,072)입니다.

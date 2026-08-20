@@ -122,23 +122,40 @@ preserveThinking `true` 시 `extra_body`에 추가:
 | promptRules.stripThinkingFromAssistantHistory | true |
 | 모달리티 | 텍스트 + 이미지 + 영상 (27B 네이티브 멀티모달) |
 
-`reasoning_effort`는 백엔드마다 읽는 위치가 달라 **두 경로 모두**에 실립니다 — 최상위 필드는 Ollama의 OpenAI 호환 라우트가, `chat_template_kwargs`는 LM Studio·llama.cpp가 읽습니다. 단계는 `xhigh` · `medium` · `low` · `none`이며 **모델카드 기본은 `xhigh`**입니다. 간단한 질문에도 사고 토큰이 2만+로 폭주해 타임아웃·오염 가드 재시도를 유발하므로 하네스 기본은 `low`로 낮췄습니다.
+`reasoning_effort`는 백엔드마다 읽는 위치가 달라 **두 경로 모두**에 실립니다 — 최상위 필드는 Ollama의 OpenAI 호환 라우트가, `chat_template_kwargs`는 LM Studio·llama.cpp가 읽습니다. **모델카드 기본은 `xhigh`**지만 간단한 질문에도 사고 토큰이 2만+로 폭주해 타임아웃·오염 가드 재시도를 유발하므로 하네스 기본은 `low`입니다.
+
+> ⚠️ **공식 `chat_template.jinja`가 받는 값은 `xhigh` · `medium` · `low` 뿐입니다.** 그 외 값이 오면 템플릿이 곧바로 예외를 던져 프롬프트 렌더링 자체가 실패합니다.
+>
+> ```jinja
+> {%- if resolved_reasoning_effort not in ('xhigh', 'medium', 'low') %}
+> {{ raise_exception('Unexpected reasoning effort ... Supported types are xhigh (default), medium, and low.') }}
+> ```
+>
+> 그래서 `resolveBenchProfile`이 템플릿에 싣기 전에 `qwen38TemplateEffort`로 클램프합니다 — `high`·`max` → `xhigh`, `minimal` → `low`, 미지정·`none` → `low`. 사고 끄기는 effort가 아니라 `enable_thinking`으로 표현합니다.
 
 ```json
-{"reasoning_effort":"low","chat_template_kwargs":{"reasoning_effort":"low"}}
+{"reasoning_effort":"low","chat_template_kwargs":{"reasoning_effort":"low","preserve_thinking":false}}
 ```
 
-thinkingIntent `off` 시(최상위 `reasoning_effort`도 `"none"`):
+thinkingIntent `off` 시 — 최상위 `reasoning_effort`는 `"none"`(Ollama가 think=false로 읽음), **템플릿에는 effort를 싣지 않습니다**(공식 템플릿이 거부):
 
 ```json
-{"chat_template_kwargs":{"enable_thinking":false,"reasoning_effort":"none"}}
+{"chat_template_kwargs":{"enable_thinking":false,"preserve_thinking":false}}
 ```
 
-preserveThinking `true` 시 `chat_template_kwargs`에 병합:
+`preserve_thinking`은 템플릿 기본이 `true`(미지정 시)라, 끄려면 `false`를 명시해야 합니다 — 항상 명시적 boolean으로 보냅니다:
 
 ```json
 {"chat_template_kwargs":{"preserve_thinking":true}}
 ```
+
+| 항목 | 확인된 값 (공식 `tokenizer_config.json` / `chat_template.jinja` 실측) |
+|------|------|
+| eos_token | `<\|im_end\|>` — `stopSequences` 근거 |
+| 사고 블록 | `<think>\n` … `\n</think>` — 기존 strip 패턴이 커버 |
+| reasoning_effort 허용값 | `xhigh` · `medium` · `low` (그 외 `raise_exception`) |
+| enable_thinking | 템플릿이 직접 분기 (`is false` 경로 존재) |
+| preserve_thinking | 미지정 시 `true` |
 
 > **max_tokens 주의**: 위 권장값은 모델카드 그대로(사고 262144 / 최종 응답 131072)입니다. 실제 요청 `max_tokens`는 사용자 값·프로파일 값·비전 floor 중 **최댓값**이 쓰이므로, 컨텍스트를 짧게 띄운 백엔드(vLLM `--max-model-len` 등)에서는 UI `max_tokens`로 명시해 낮추세요. llama.cpp·LM Studio는 대개 컨텍스트에 맞춰 클램프합니다.
 

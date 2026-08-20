@@ -304,14 +304,22 @@ export const ja: ProfileDocContent = {
         <code className="font-mono text-xs">xhigh</code> ですが、思考トークンが膨張するためハーネスの既定は{" "}
         <code className="font-mono text-xs">low</code> です。
       </li>,
+      <li key="effort_clamp">
+        公式 chat template が受け付ける値は <code className="font-mono text-xs">xhigh</code>・
+        <code className="font-mono text-xs">medium</code>・<code className="font-mono text-xs">low</code> のみで、それ以外は
+        例外を投げてプロンプトのレンダリング自体が失敗します。サーバーがテンプレートに載せる前にクランプします(
+        <code className="font-mono text-xs">high</code>→<code className="font-mono text-xs">xhigh</code>、
+        <code className="font-mono text-xs">minimal</code>→<code className="font-mono text-xs">low</code>)。
+      </li>,
       <li key="enable_thinking">
-        thinking を<strong className="text-[var(--foreground)]">オフ</strong>にすると{" "}
-        <code className="font-mono text-xs">enable_thinking: false</code> と{" "}
-        <code className="font-mono text-xs">reasoning_effort: "none"</code> が同時に載ります。
+        thinking のオフは effort ではなく{" "}
+        <code className="font-mono text-xs">enable_thinking: false</code> で表します。トップレベルには Ollama が読む{" "}
+        <code className="font-mono text-xs">"none"</code> が載りますが、テンプレートには effort を載せません。
       </li>,
       <li key="preserve_thinking">
-        UI で <code className="font-mono text-xs">preserve_thinking</code> をオンにすると、同じ{" "}
-        <code className="font-mono text-xs">chat_template_kwargs</code> オブジェクトにマージされます。
+        <code className="font-mono text-xs">preserve_thinking</code> はテンプレート既定が{" "}
+        <code className="font-mono text-xs">true</code> のため、オフにするには{" "}
+        <code className="font-mono text-xs">false</code> を明示する必要があります — 常に明示的な boolean で送ります。
       </li>,
       <li key="max_tokens">
         推奨 <code className="font-mono text-xs">max_tokens</code> はモデルカードの値(思考 262,144 / 非思考 131,072)です。

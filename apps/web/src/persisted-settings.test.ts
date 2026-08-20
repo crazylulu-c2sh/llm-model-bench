@@ -265,6 +265,17 @@ describe("readInitialUiState — Qwen3.8 프로파일", () => {
     expect(s.qwen38ReasoningEffort).toBe("low");
     expect(s.baseUrl).not.toBe("http://10.0.0.9:1234");
   });
+
+  // "none"은 잠시 UI 선택지였다가 제거됐다(공식 템플릿이 거부). 남아 있어도 리셋되면 안 된다.
+  it('저장된 "none"은 low로 흡수되고 나머지 prefs는 살아남는다', () => {
+    window.localStorage.setItem(
+      PREFS_STORAGE_KEY,
+      JSON.stringify({ v: 3, baseUrl: "http://10.0.0.9:1234", qwen38ReasoningEffort: "none" }),
+    );
+    const s = readInitialUiState();
+    expect(s.qwen38ReasoningEffort).toBe("low");
+    expect(s.baseUrl).toBe("http://10.0.0.9:1234");
+  });
 });
 
 describe("readInitialUiState loadTtlSeconds", () => {

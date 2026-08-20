@@ -21,8 +21,9 @@ export type ThinkingIntent = "on" | "off";
 
 /**
  * 추론 강도. gpt-oss 계열이 쓰던 minimal~high에 Qwen3.8의 `none` / `xhigh`를 더한 합집합.
- * 유효 범위는 패밀리마다 다르다(gpt_oss: minimal|low|medium|high, qwen38: none|low|medium|xhigh) —
- * UI가 패밀리별로 선택지를 좁혀서 보내고, `resolveBenchProfile`이 미지정 시 기본값을 채운다.
+ * 유효 범위는 패밀리마다 다르다(gpt_oss: minimal|low|medium|high, qwen38: low|medium|xhigh) —
+ * UI가 패밀리별로 선택지를 좁혀 보내지만, HTTP/MCP 클라이언트는 이 합집합 전체를 보낼 수 있다.
+ * 백엔드로 나가기 전에 `resolveBenchProfile`이 패밀리가 실제로 받는 값으로 클램프한다.
  */
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
@@ -393,6 +394,47 @@ export const LLM_PROFILE_DEFINITIONS: LlmProfileDefinition[] = [
   },
 ];
 
+/**
+ * 공식 Qwen3.8 chat template이 받는 값은 `xhigh` · `medium` · `low` 뿐이다.
+ * 그 외 값이 들어오면 템플릿이 `raise_exception('Unexpected reasoning effort ...')`으로
+ * 프롬프트 렌더링 자체를 실패시킨다(스톡 `chat_template.jinja` 실측). UI는 이 3개만 노출하지만
+ * HTTP/MCP 클라이언트나 과거 prefs는 gpt-oss 어휘(`minimal`/`high`)나 `none`을 보낼 수 있으므로
+ * 여기서 흡수한다. 별칭 방향은 커뮤니티 수정 템플릿(froggeric/Qwen-Fixed-Chat-Templates)의
+ * `high|max → xhigh`, `minimal → low` 관례를 따랐다.
+ */
+export function qwen38TemplateEffort(effort: ReasoningEffort | null | undefined): "xhigh" | "medium" | "low" {
+  switch (effort) {
+    case "xhigh":
+    case "medium":
+    case "low":
+      return effort;
+    case "high":
+      return "xhigh";
+    case "minimal":
+      return "low";
+    default:
+      // 미지정 · `none` — 사고 끄기는 thinkingIntent로 표현하고, effort는 하네스 기본값을 쓴다.
+      return "low";
+  }
+}
+
+/** gpt-oss 배포가 받는 값으로 클램프 — Qwen 어휘(`xhigh`/`none`)가 흘러들어와도 400을 만들지 않는다. */
+function gptOssEffort(effort: ReasoningEffort | null | undefined): "minimal" | "low" | "medium" | "high" {
+  switch (effort) {
+    case "minimal":
+    case "low":
+    case "medium":
+    case "high":
+      return effort;
+    case "xhigh":
+      return "high";
+    case "none":
+      return "minimal";
+    default:
+      return "medium";
+  }
+}
+
 export function inferLlmProfileFamily(modelId: string): LlmProfileFamily {
   const id = modelId.trim();
   for (const def of LLM_PROFILE_DEFINITIONS) {
@@ -480,17 +522,20 @@ export function resolveBenchProfile(input: {
     def?.presets[preset] ?? def?.presets.default ?? { temperature: 0.2, top_p: 1.0 };
   const sampling: SamplingParams = { ...baseSampling, ...(input.samplingOverrides ?? {}) };
 
-  // extra_body 조립보다 먼저 확정한다 — qwen38은 최상위 `reasoning_effort`와
-  // `chat_template_kwargs.reasoning_effort` 양쪽에 같은 값을 실어야 하기 때문.
+  // extra_body 조립보다 먼저 확정한다 — qwen38은 최상위 필드와 chat_template_kwargs 두 경로를
+  // 함께 쓰는데, 사고 끄기에서 두 경로가 받는 값이 다르기 때문(최상위 none / 템플릿은 미전송).
+  const thinkingOff = input.thinkingIntent === "off";
   const reasoningEffort: ReasoningEffort | undefined =
     family === "gpt_oss"
-      ? (input.reasoningEffort ?? "medium")
+      ? gptOssEffort(input.reasoningEffort)
       : family === "qwen38"
-        ? input.thinkingIntent === "off"
+        ? // 사고 끄기의 최상위 값은 `none` — Ollama의 OpenAI 호환 라우트가 이 값을 think=false로 읽는다.
+          // (템플릿에 실리는 값은 아래 extra_body에서 따로 만든다. 템플릿은 none을 거부한다.)
+          thinkingOff
           ? "none"
           : // 모델카드 기본은 xhigh이나 로컬 벤치에서 사고 토큰이 폭주해 타임아웃·오염 가드
             // 재시도를 유발한다. 하네스 기본은 low로 낮추고 UI에서 올릴 수 있게 둔다.
-            (input.reasoningEffort ?? "low")
+            qwen38TemplateEffort(input.reasoningEffort)
         : undefined;
 
   let extraBody: Record<string, unknown> = {};
@@ -504,14 +549,21 @@ export function resolveBenchProfile(input: {
   ) {
     extraBody = deepMergeObjects(extraBody, { chat_template_kwargs: { enable_thinking: false } });
   }
-  if ((family === "qwen36" || family === "qwen38") && input.preserveThinking) {
+  if (family === "qwen36" && input.preserveThinking) {
     extraBody = deepMergeObjects(extraBody, { chat_template_kwargs: { preserve_thinking: true } });
   }
-  // Qwen3.8: LM Studio/llama.cpp는 chat_template_kwargs 경로로만 effort를 받는다.
-  // Ollama의 OpenAI 호환 라우트는 최상위 필드를 읽으므로 두 경로 모두에 싣는다.
-  if (family === "qwen38" && reasoningEffort) {
+  if (family === "qwen38") {
+    // LM Studio/llama.cpp는 chat_template_kwargs 경로로만 effort를 받는다(Ollama는 최상위 필드).
+    // 사고 끄기는 `enable_thinking: false`(위)로만 표현하고 effort는 싣지 않는다 —
+    // 공식 템플릿이 xhigh|medium|low 외의 값에 raise_exception을 던지기 때문.
+    if (!thinkingOff) {
+      extraBody = deepMergeObjects(extraBody, {
+        chat_template_kwargs: { reasoning_effort: qwen38TemplateEffort(input.reasoningEffort) },
+      });
+    }
+    // 템플릿 기본이 `preserve_thinking is undefined → true`라, 끄려면 false를 명시해야 한다.
     extraBody = deepMergeObjects(extraBody, {
-      chat_template_kwargs: { reasoning_effort: reasoningEffort },
+      chat_template_kwargs: { preserve_thinking: !!input.preserveThinking },
     });
   }
   if (family === "minimax") {
