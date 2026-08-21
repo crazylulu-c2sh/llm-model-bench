@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  compareScenarioBenchOrder,
   DEFAULT_SCENARIO_IDS,
   defaultMaxTokensForVisionScenario,
   getScenarioSystemPromptPreview,
@@ -155,5 +156,33 @@ describe("scenario prompt previews", () => {
     expect(user).toContain("labels");
     expect(user).not.toMatch(/fenced/i);
     expect(user).not.toMatch(/no prose/i);
+  });
+});
+
+describe("compareScenarioBenchOrder", () => {
+  it("둘 다 realOrder에 있으면 realOrder 인덱스 순", () => {
+    const realOrder = ["vision_table_ocr_a", "chat_hello", "code_sort_js"];
+    expect(compareScenarioBenchOrder("chat_hello", "vision_table_ocr_a", realOrder)).toBeGreaterThan(0);
+    expect(compareScenarioBenchOrder("code_sort_js", "chat_hello", realOrder)).toBeGreaterThan(0);
+    expect(compareScenarioBenchOrder("chat_hello", "chat_hello", realOrder)).toBe(0);
+  });
+
+  it("한쪽만 realOrder에 있으면 찾은 쪽이 항상 먼저(mixed-case, compareModelBenchQueueOrder와 동일 정책)", () => {
+    // 정적 카탈로그 순서로는 code_sort_js가 chat_hello보다 뒤지만, realOrder에서 code_sort_js만
+    // 발견되면 카탈로그 순서와 무관하게 realOrder에 있는 쪽이 이긴다.
+    const realOrder = ["code_sort_js"];
+    expect(compareScenarioBenchOrder("code_sort_js", "chat_hello", realOrder)).toBeLessThan(0);
+    expect(compareScenarioBenchOrder("chat_hello", "code_sort_js", realOrder)).toBeGreaterThan(0);
+  });
+
+  it("둘 다 realOrder에 없으면 정적 카탈로그 순서로 폴백", () => {
+    expect(compareScenarioBenchOrder("chat_hello", "code_sort_js", [])).toBeLessThan(0);
+    expect(compareScenarioBenchOrder("code_sort_js", "chat_hello", [])).toBeGreaterThan(0);
+  });
+
+  it("폴백 안에서도 둘 다 정적 카탈로그에 없으면(예: agent_*/커스텀) 이름순 tiebreak으로 결정적 순서", () => {
+    expect(compareScenarioBenchOrder("agent_loop_zeta", "agent_loop_alpha", [])).toBeGreaterThan(0);
+    expect(compareScenarioBenchOrder("agent_loop_alpha", "agent_loop_zeta", [])).toBeLessThan(0);
+    expect(compareScenarioBenchOrder("agent_loop_same", "agent_loop_same", [])).toBe(0);
   });
 });

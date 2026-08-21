@@ -1,4 +1,4 @@
-import { formatTtftMs, isVisionScenario, scenarioExecutionOrderIndex, scoreToRubric } from "@llm-bench/shared";
+import { compareScenarioBenchOrder, formatTtftMs, isVisionScenario, scoreToRubric } from "@llm-bench/shared";
 import { apiRouteRank } from "./chart-types";
 import { compareModelBenchQueueOrder, compareStringsPinned } from "../lib/model-sort";
 import { buildModelColorMap } from "../lib/model-color";
@@ -63,6 +63,7 @@ type PendingSkeletonRow = { rowKey: string; model_id: string; scenario: string; 
 // 안정적 기본값: `= []` 기본 파라미터는 매 렌더 새 배열을 만들어 `data` useMemo(및 TanStack에
 // 넘기는 data 참조)를 매 렌더 바꿔 무한 재렌더 루프를 유발한다(모델 2개 선택 시 먹통). 모듈 상수로 고정.
 const EMPTY_MODEL_ORDER: string[] = [];
+const EMPTY_SCENARIO_ORDER: string[] = [];
 const EMPTY_PENDING_ROWS: PendingSkeletonRow[] = [];
 
 const columnHelper = createColumnHelper<ResultRow>();
@@ -88,6 +89,7 @@ export function ResultsTable({
   pendingRows = EMPTY_PENDING_ROWS,
   maxRows,
   benchModelOrder = EMPTY_MODEL_ORDER,
+  benchScenarioOrder = EMPTY_SCENARIO_ORDER,
   onRowClick,
 }: {
   rows: ResultRow[];
@@ -96,6 +98,8 @@ export function ResultsTable({
   maxRows?: number;
   /** 벤치 큐 순서 — 미전달 시 모델 ID alphanumeric 폴백 */
   benchModelOrder?: string[];
+  /** 실제 세션/런의 시나리오 실행 순서(`BenchRunMeta.scenario_ids`) — 미전달 시 정적 카탈로그 순서 폴백 */
+  benchScenarioOrder?: string[];
   onRowClick?: (row: ResultRow) => void;
 }) {
   const { m } = useI18n();
@@ -103,19 +107,20 @@ export function ResultsTable({
   // 내용 기반 키: 호출부가 매 렌더 새 배열(예: benchQueueDraft.map(...))을 넘겨도 `data` 참조가
   // 바뀌지 않도록 한다. 불안정한 `data`는 TanStack에 매 렌더 새 참조로 전달돼 무한 재렌더(먹통)를 유발.
   const modelQueueKey = modelQueue.join("\0");
+  const scenarioOrderKey = benchScenarioOrder.join("\0");
   // 기본 정렬과 동일한 키(모델 큐 → 시나리오 실행 순서 → API)로 베이스 행을 미리 정렬한다.
   const data = useMemo(
     () =>
       [...rows].sort(
         (a, b) =>
           compareModelBenchQueueOrder(a.model_id, b.model_id, modelQueue) ||
-          scenarioExecutionOrderIndex(a.scenario) - scenarioExecutionOrderIndex(b.scenario) ||
+          compareScenarioBenchOrder(a.scenario, b.scenario, benchScenarioOrder) ||
           apiRouteRank(a.api) - apiRouteRank(b.api) ||
           compareStringsPinned(a.api, b.api),
       ),
-    // modelQueue 대신 내용 키를 dep으로 사용(참조 불안정성 차단).
+    // modelQueue/benchScenarioOrder 대신 내용 키를 dep으로 사용(참조 불안정성 차단).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows, modelQueueKey],
+    [rows, modelQueueKey, scenarioOrderKey],
   );
   const hasApproxTps = useMemo(
     () => rows.some((r) => r.tps != null && r.tps_source === "approx"),
@@ -231,11 +236,8 @@ export function ResultsTable({
             </span>
           );
         },
-        sortingFn: (a, b) => {
-          const d = scenarioExecutionOrderIndex(a.original.scenario) - scenarioExecutionOrderIndex(b.original.scenario);
-          if (d !== 0) return d;
-          return compareStringsPinned(a.original.scenario, b.original.scenario);
-        },
+        sortingFn: (a, b) =>
+          compareScenarioBenchOrder(a.original.scenario, b.original.scenario, benchScenarioOrder),
       }),
       columnHelper.accessor("api", {
         header: ({ column }) => (

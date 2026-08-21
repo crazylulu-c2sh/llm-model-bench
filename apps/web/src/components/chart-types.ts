@@ -1,4 +1,7 @@
-import { compareStringsPinned, scenarioExecutionOrderIndex, tokensPerSecondFromRun } from "@llm-bench/shared";
+import { compareScenarioBenchOrder, compareStringsPinned, tokensPerSecondFromRun } from "@llm-bench/shared";
+
+/** 실제 실행 순서(`benchScenarioOrder`) 미전달 시 기본값 — 매 렌더 새 배열 생성으로 인한 참조 불안정 방지용 안정 상수 */
+export const EMPTY_SCENARIO_ORDER: string[] = [];
 
 // TPS 산식은 @llm-bench/shared `tps.ts` 단일 소스에서 재-export(복제본 제거, 산식 drift 방지).
 // App.tsx·hydrateBenchUi.ts 등 chart-types 경유 import는 자동으로 shared 산식을 쓴다.
@@ -64,12 +67,16 @@ export function apiRouteRank(api: string): number {
 }
 
 /**
- * 시나리오 1차 정렬 기준: 벤치 실행 순서(`scenarioExecutionOrderIndex`).
- * 미등록 ID·동률은 이름순으로 폴백 — `ResultsTable`의 시나리오 정렬과 동일 기준이라
+ * 시나리오 1차 정렬 기준: 실제 벤치 실행 순서(`realOrder`, 예: `BenchRunMeta.scenario_ids`) 우선,
+ * 없으면 정적 카탈로그 순서로 폴백 — `ResultsTable`의 시나리오 정렬과 동일 기준이라
  * 테이블·레이더·막대 차트의 시나리오 순서가 일치한다.
  */
-export function compareScenarioExecutionOrder(a: string, b: string): number {
-  return scenarioExecutionOrderIndex(a) - scenarioExecutionOrderIndex(b) || compareStringsPinned(a, b);
+export function compareScenarioExecutionOrder(
+  a: string,
+  b: string,
+  realOrder: string[] = EMPTY_SCENARIO_ORDER,
+): number {
+  return compareScenarioBenchOrder(a, b, realOrder);
 }
 
 /** 비교 시리즈마다 (시나리오·API) 키 집합이 동일한지 — 다르면 레이더에서 모델별로 축이 비는 현상이 난다. */
@@ -101,9 +108,12 @@ export function scenarioRowKey(scenario: string, api: string, modelId?: string):
 }
 
 /** 라이브 멀티모델 막대 Y축: scenario → API(chat/msg 순) → model → id(안정) */
-export function sortChartRowsForBarOrder(rows: ChartRow[]): ChartRow[] {
+export function sortChartRowsForBarOrder(
+  rows: ChartRow[],
+  realOrder: string[] = EMPTY_SCENARIO_ORDER,
+): ChartRow[] {
   return [...rows].sort((a, b) => {
-    const s = compareScenarioExecutionOrder(a.scenario, b.scenario);
+    const s = compareScenarioExecutionOrder(a.scenario, b.scenario, realOrder);
     if (s !== 0) return s;
     const d = apiRouteRank(a.api) - apiRouteRank(b.api);
     if (d !== 0) return d;
@@ -172,7 +182,10 @@ function rowMetrics(row: ChartRow): { ttft: number; tps: number; pass?: boolean 
 }
 
 /** 비교 모드: 동일 시나리오·API 키로 피벗 */
-export function pivotCompareSeries(series: CompareSeries[]): PivotCompareRow[] {
+export function pivotCompareSeries(
+  series: CompareSeries[],
+  realOrder: string[] = EMPTY_SCENARIO_ORDER,
+): PivotCompareRow[] {
   const keyOrder: string[] = [];
   const keyMeta = new Map<string, { scenario: string; api: string; label: string }>();
   for (const s of series) {
@@ -191,7 +204,7 @@ export function pivotCompareSeries(series: CompareSeries[]): PivotCompareRow[] {
   keyOrder.sort((ka, kb) => {
     const a = keyMeta.get(ka)!;
     const b = keyMeta.get(kb)!;
-    const s = compareScenarioExecutionOrder(a.scenario, b.scenario);
+    const s = compareScenarioExecutionOrder(a.scenario, b.scenario, realOrder);
     if (s !== 0) return s;
     const d = apiRouteRank(a.api) - apiRouteRank(b.api);
     if (d !== 0) return d;
@@ -230,6 +243,7 @@ export function comparePivotToFlatBarData(
   pivoted: PivotCompareRow[],
   compareSeries: CompareSeries[],
   fallbackLabel: string,
+  realOrder: string[] = EMPTY_SCENARIO_ORDER,
 ): FlatBarDatum[] {
   const out: FlatBarDatum[] = [];
   for (const p of pivoted) {
@@ -249,7 +263,7 @@ export function comparePivotToFlatBarData(
     });
   }
   out.sort((a, b) => {
-    const s = compareScenarioExecutionOrder(a.scenario, b.scenario);
+    const s = compareScenarioExecutionOrder(a.scenario, b.scenario, realOrder);
     if (s !== 0) return s;
     const d = apiRouteRank(a.api) - apiRouteRank(b.api);
     if (d !== 0) return d;

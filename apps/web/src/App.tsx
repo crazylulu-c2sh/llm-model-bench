@@ -329,6 +329,8 @@ export function App() {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [log, setLog] = useState<string[]>([]);
   const [rows, setRows] = useState<ResultRow[]>([]);
+  // 실제 세션 실행 순서(BenchRunMeta.scenario_ids) — SSE run_started에서 채워짐, 없으면 정적 카탈로그 순서 폴백.
+  const [benchScenarioOrder, setBenchScenarioOrder] = useState<string[]>([]);
   // 라이브 벤치는 단일 서버 대상 → detect.provider가 모든 모델에 균일. 스코어보드 백엔드 배지용.
   const providerByModel = useMemo(
     () => (detect ? new Map(rows.map((r) => [r.model_id, detect.provider])) : undefined),
@@ -621,8 +623,9 @@ export function App() {
             };
           }),
         ),
+        benchScenarioOrder,
       ),
-    [rows, detailAggregate],
+    [rows, detailAggregate, benchScenarioOrder],
   );
 
   const chartModelIds = useMemo(() => {
@@ -637,6 +640,14 @@ export function App() {
     }
     return [...s].sort();
   }, [chartRows, compareSeries]);
+
+  // 비교 탭은 독립적으로 불러온 과거 런들이라, 라이브 세션의 benchScenarioOrder 대신 첫 번째
+  // 유효 런의 실제 실행 순서(meta.scenario_ids)를 최선값으로 참조한다.
+  const compareScenarioOrder = useMemo(() => {
+    const first = compareRaw?.items.find((it) => it.run != null)?.run;
+    const ids = first?.meta.scenario_ids;
+    return Array.isArray(ids) ? (ids as string[]) : [];
+  }, [compareRaw]);
 
   const [chartModelFilter, setChartModelFilter] = useState<Record<string, boolean>>({});
 
@@ -922,6 +933,7 @@ export function App() {
     setDetecting(true);
     setDetect(null);
     setRows([]);
+    setBenchScenarioOrder([]);
     setLog([]);
     setDetailAggregate({});
     setLiveSystemPromptByRowKey({});
@@ -1034,6 +1046,7 @@ export function App() {
     }
     setRunning(true);
     setRows([]);
+    setBenchScenarioOrder([]);
     setDetailAggregate({});
     setLiveSystemPromptByRowKey({});
     setLiveUserPromptByRowKey({});
@@ -1096,6 +1109,9 @@ export function App() {
           if (ev.type === "run_started") {
             sawRunFinished = false;
             streamMeta = ev.meta ?? null;
+            if (Array.isArray(streamMeta?.scenario_ids) && streamMeta.scenario_ids.length > 0) {
+              setBenchScenarioOrder(streamMeta.scenario_ids);
+            }
             lastScenarioStart = null;
             iterInScenario = 0;
             pendingRetry = false;
@@ -2212,6 +2228,7 @@ export function App() {
                 chartRows={[]}
                 compareSeries={filteredCompareSeries}
                 onCompareCell={(scenario, api, modelId) => openCompareCell(scenario, api, modelId)}
+                benchScenarioOrder={compareScenarioOrder}
               />
             ) : (
               <p className="py-8 text-center text-sm text-[var(--muted)]">
@@ -2221,7 +2238,11 @@ export function App() {
           ) : chartRows.length > 0 && filteredChartRows.length === 0 ? (
             <p className="py-8 text-center text-sm text-[var(--muted)]">{msg().bench.selectModelToShow}</p>
           ) : (
-            <BenchCharts chartRows={filteredChartRows} onBarPayload={(row) => openFromChartRow(row)} />
+            <BenchCharts
+              chartRows={filteredChartRows}
+              onBarPayload={(row) => openFromChartRow(row)}
+              benchScenarioOrder={benchScenarioOrder}
+            />
           )}
         </section>
 
@@ -2232,6 +2253,7 @@ export function App() {
           <ResultsTable
             rows={rows}
             benchModelOrder={benchQueueDraft.map((m) => m.id)}
+            benchScenarioOrder={benchScenarioOrder}
             pendingRows={pendingSkeletonRows}
             maxRows={visibleSelectedScenarioIds.length * Math.max(activeBenchApiRoutes.length, 1)}
             onRowClick={(r) => openDrawerForRow(r)}
