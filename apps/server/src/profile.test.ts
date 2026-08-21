@@ -95,7 +95,10 @@ describe("buildProfileAugmentedMeta", () => {
     expect(meta.profile_id).toBe("qwen38");
     expect(meta.profile_preset).toBe("thinking_general");
     expect(meta.reasoning_effort).toBe("low");
-    expect(meta.extra_body?.chat_template_kwargs).toEqual({ reasoning_effort: "low" });
+    expect(meta.extra_body?.chat_template_kwargs).toEqual({
+      reasoning_effort: "low",
+      preserve_thinking: false,
+    });
     expect(meta.stop).toEqual(["<|im_end|>"]);
     // 모델카드 권장: 사고 262,144 / 최종 응답 131,072.
     expect(meta.max_tokens).toBe(262_144);
@@ -115,9 +118,10 @@ describe("buildProfileAugmentedMeta", () => {
       profileMaxTokens: null,
     });
     expect(meta.reasoning_effort).toBe("none");
+    // 템플릿에는 effort를 싣지 않는다 — 공식 템플릿이 none을 거부한다.
     expect(meta.extra_body?.chat_template_kwargs).toEqual({
       enable_thinking: false,
-      reasoning_effort: "none",
+      preserve_thinking: false,
     });
     expect(meta.max_tokens).toBe(131_072);
   });

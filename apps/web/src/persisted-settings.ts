@@ -9,8 +9,12 @@ import {
   type ThinkingIntent,
 } from "@llm-bench/shared";
 
-/** Qwen3.8 chat template이 받는 reasoning_effort 단계(모델카드 기본은 xhigh). */
-export const QWEN38_REASONING_EFFORTS = ["xhigh", "medium", "low", "none"] as const;
+/**
+ * 공식 Qwen3.8 chat template이 받는 reasoning_effort 단계 — 이 3개뿐이다.
+ * 그 외 값은 템플릿이 raise_exception으로 렌더링을 실패시킨다. 사고 끄기는 별도의
+ * thinkingIntent 셀렉트로 표현한다(`enable_thinking: false`).
+ */
+export const QWEN38_REASONING_EFFORTS = ["xhigh", "medium", "low"] as const;
 export type Qwen38ReasoningEffort = (typeof QWEN38_REASONING_EFFORTS)[number];
 /** 모델카드 기본은 xhigh이나 로컬 벤치에서 사고 토큰이 폭주해 하네스 기본은 low. */
 export const QWEN38_REASONING_EFFORT_DEFAULT: Qwen38ReasoningEffort = "low";
@@ -39,7 +43,11 @@ const PrefsSchema = z
     thinkingIntent: z.enum(["on", "off"]).optional(),
     preserveThinking: z.boolean().optional(),
     reasoningEffort: z.enum(["minimal", "low", "medium", "high"]).optional(),
-    qwen38ReasoningEffort: z.enum(QWEN38_REASONING_EFFORTS).optional(),
+    // v1.x에서 잠시 저장됐던 "none"은 사고 끄기 의미였으므로 low로 흡수한다.
+    // (enum을 벗어난 값이 남으면 safeParse가 실패해 prefs 전체가 초기화된다.)
+    qwen38ReasoningEffort: z
+      .preprocess((v) => (v === "none" ? "low" : v), z.enum(QWEN38_REASONING_EFFORTS))
+      .optional(),
     presetOverride: z
       .enum(["default", "thinking_general", "thinking_coding", "nonthinking_general", "tool_call"])
       .optional(),

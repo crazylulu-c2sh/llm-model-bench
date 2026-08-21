@@ -311,14 +311,22 @@ export const en: ProfileDocContent = {
         The model card defaults to <code className="font-mono text-xs">xhigh</code>, but reasoning tokens balloon, so the
         harness defaults to <code className="font-mono text-xs">low</code>.
       </li>,
+      <li key="effort_clamp">
+        The official chat template accepts only <code className="font-mono text-xs">xhigh</code>,{" "}
+        <code className="font-mono text-xs">medium</code> and <code className="font-mono text-xs">low</code>; anything else
+        raises and the whole prompt fails to render. The server clamps before sending (
+        <code className="font-mono text-xs">high</code>→<code className="font-mono text-xs">xhigh</code>,{" "}
+        <code className="font-mono text-xs">minimal</code>→<code className="font-mono text-xs">low</code>).
+      </li>,
       <li key="enable_thinking">
-        With thinking <strong className="text-[var(--foreground)]">off</strong>, both{" "}
-        <code className="font-mono text-xs">enable_thinking: false</code> and{" "}
-        <code className="font-mono text-xs">reasoning_effort: "none"</code> are sent.
+        Thinking <strong className="text-[var(--foreground)]">off</strong> is expressed with{" "}
+        <code className="font-mono text-xs">enable_thinking: false</code>, not with an effort value. The top-level field
+        still carries <code className="font-mono text-xs">"none"</code> for Ollama, but no effort goes to the template.
       </li>,
       <li key="preserve_thinking">
-        When <code className="font-mono text-xs">preserve_thinking</code> is checked in the UI it is merged into the same{" "}
-        <code className="font-mono text-xs">chat_template_kwargs</code> object.
+        <code className="font-mono text-xs">preserve_thinking</code> defaults to{" "}
+        <code className="font-mono text-xs">true</code> in the template, so turning it off requires sending{" "}
+        <code className="font-mono text-xs">false</code> — it is always sent as an explicit boolean.
       </li>,
       <li key="max_tokens">
         The recommended <code className="font-mono text-xs">max_tokens</code> are the model-card values (262,144 thinking /
