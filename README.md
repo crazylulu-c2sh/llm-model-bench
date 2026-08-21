@@ -134,15 +134,16 @@ pm2 start ecosystem.config.cjs
 ### PM2: 배포 후 업데이트
 
 ```bash
+git fetch
 git pull
-pnpm install
+pnpm ci
 pnpm build
 pm2 reload ecosystem.config.cjs
 ```
 
 또는 한줄인 경우
 ```bash
-git pull && pnpm install && pnpm build && pm2 reload ecosystem.config.cjs
+git fetch && git pull && pnpm ci && pnpm build && pm2 reload ecosystem.config.cjs
 ```
 
 `reload`는 무중단에 가깝게 프로세스를 교체합니다. 환경을 바꿨다면 `pm2 delete llm-bench` 후 다시 `pm2 start ecosystem.config.cjs`를 쓰거나 `pm2 reload ecosystem.config.cjs --update-env`로 반영합니다. 부팅 시 자동 기동은 `pm2 startup` + `pm2 save`입니다.
