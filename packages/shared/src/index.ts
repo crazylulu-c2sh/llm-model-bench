@@ -454,7 +454,12 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     type: z.literal("metrics_update"),
     aggregate: z.record(z.string(), z.unknown()),
   }),
-  z.object({ type: z.literal("run_finished"), run_id: z.string() }),
+  z.object({
+    type: z.literal("run_finished"),
+    run_id: z.string(),
+    /** 사용자가 `/bench/:runId/stop`으로 긴급 정지했을 때만 채워짐(정상 완료 시 없음). */
+    reason: z.enum(["cancelled"]).optional(),
+  }),
   z.object({
     type: z.literal("error"),
     layer: z.enum(["upstream", "downstream", "orchestrator"]),

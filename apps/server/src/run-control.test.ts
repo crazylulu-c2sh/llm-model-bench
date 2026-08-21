@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   _resetRunControlRegistryForTests,
+  cancelRunControl,
+  isRunCancelled,
   isRunPaused,
   pauseRunControl,
   registerRunControl,
@@ -77,5 +79,42 @@ describe("run-control registry", () => {
 
   it("waitWhileRunPaused registered for an unregistered run resolves immediately", async () => {
     await expect(waitWhileRunPaused("nope", 1000)).resolves.toBeUndefined();
+  });
+
+  it("registerRunControl returns a signal that cancelRunControl aborts", () => {
+    const signal = registerRunControl("r6");
+    expect(signal.aborted).toBe(false);
+    expect(cancelRunControl("r6")).toBe(true);
+    expect(signal.aborted).toBe(true);
+    expect(isRunCancelled("r6")).toBe(true);
+  });
+
+  it("cancelRunControl wakes a run that is currently paused-and-waiting", async () => {
+    registerRunControl("r7");
+    pauseRunControl("r7");
+    const waiter = waitWhileRunPaused("r7", 60_000);
+    let resolved = false;
+    void waiter.then(() => {
+      resolved = true;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    cancelRunControl("r7");
+    await waiter;
+    expect(resolved).toBe(true);
+    expect(isRunPaused("r7")).toBe(false);
+    expect(isRunCancelled("r7")).toBe(true);
+  });
+
+  it("pauseRunControl is a no-op once a run is cancelled", () => {
+    registerRunControl("r8");
+    cancelRunControl("r8");
+    expect(pauseRunControl("r8")).toBe(false);
+    expect(isRunPaused("r8")).toBe(false);
+  });
+
+  it("cancelRunControl is a no-op for an unregistered run", () => {
+    expect(cancelRunControl("missing")).toBe(false);
+    expect(isRunCancelled("missing")).toBe(false);
   });
 });

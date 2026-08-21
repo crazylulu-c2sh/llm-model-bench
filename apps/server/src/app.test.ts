@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // DB 경로를 임시로 고정(실데이터 무영향). tryOpenProdBenchDatabase는 최초 요청 때 열림.
@@ -10,6 +10,7 @@ import { makeBenchRunMeta } from "./bench-runner.js";
 import {
   finishRun,
   insertRun,
+  listRecentRuns,
   tryOpenProdBenchDatabase,
   upsertScenarioAggregate,
 } from "./db/database.js";
@@ -581,5 +582,80 @@ describe("scoreboard skipped — 측정 0건 모델 노출 (#109 후속)", () =>
     expect(s).toHaveLength(1); // dedupe — 한 번만
     expect(s[0]!.reason).toContain("no measured scenarios");
     expect(s[0]!.reason).toContain("load failed");
+  });
+});
+
+// 긴급 정지 선행 작업: /bench/stream의 실행 루프가 응답 스트림 구독과 분리돼 있어,
+// 클라이언트가 연결을 끊어도(새로고침 등) 서버에서 끝까지 실행되고 DB에 정상 기록돼야 한다.
+describe("bench/stream survives client disconnect (실행 주체 서버 이관)", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("cancelling the SSE reader (simulated disconnect) does not abort runBench — the run still finishes as ok", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.endsWith("/v1/chat/completions")) {
+        const enc = new TextEncoder();
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"pong"}}]}\n\n'));
+            controller.enqueue(enc.encode("data: [DONE]\n\n"));
+            controller.close();
+          },
+        });
+        return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      return new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const baseUrl = "http://127.0.0.1:9095";
+    const detect: DetectResult = {
+      provider: "lm_studio",
+      baseUrl,
+      models: [{ id: "disconnect-model" }],
+      steps: [],
+      capabilities: { openaiChat: true, anthropicMessages: false },
+    };
+
+    const resp = await req("/api/bench/stream", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        detect,
+        bench: {
+          baseUrl,
+          provider: "lm_studio",
+          modelId: "disconnect-model",
+          scenarioIds: ["chat_ping"],
+          warmupRuns: 0,
+          measuredRuns: 1,
+          skipModelLoad: true,
+          unloadOtherModels: false,
+          autoUnloadAfterBench: false,
+          contentionGuardEnabled: false,
+        },
+      }),
+    });
+    expect(resp.status).toBe(200);
+    expect(resp.body).toBeTruthy();
+
+    const reader = resp.body!.getReader();
+    const first = await reader.read(); // run_started
+    expect(first.done).toBe(false);
+    // 클라이언트 연결 끊김 시뮬레이션 — 응답 스트림의 cancel()이 호출된다.
+    await reader.cancel();
+
+    const db = tryOpenProdBenchDatabase();
+    expect(db).not.toBeNull();
+    await vi.waitFor(
+      () => {
+        const row = listRecentRuns(db!, 50).find((r) => r.base_url === baseUrl.replace(/\/+$/, ""));
+        expect(row?.status).toBe("ok");
+      },
+      { timeout: 2000, interval: 20 },
+    );
   });
 });

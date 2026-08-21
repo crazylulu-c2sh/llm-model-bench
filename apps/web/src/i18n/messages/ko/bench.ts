@@ -129,6 +129,8 @@ export const bench = {
   pauseBtnAria: "벤치 실행 일시정지",
   resumeBtn: "재개",
   resumeBtnAria: "일시정지된 벤치 재개",
+  stopBtn: "긴급 정지",
+  stopBtnAria: "벤치 실행 긴급 정지",
 
   // 벤치 실행 확인 다이얼로그
   confirmRun: "벤치 실행",
@@ -194,6 +196,7 @@ export const bench = {
   selectModelToBench: "벤치할 모델을 하나 이상 선택하세요.",
   benchDoneWithIssues: "벤치 종료 — 오류·미완료 스트림이 있었습니다. 로그를 확인하세요.",
   benchAllDone: "벤치가 모두 완료되었습니다.",
+  benchCancelledToast: "벤치를 정지했습니다.",
 
   // 진행 요약 · 이벤트 로그 (BenchProgressPanel · pushBenchLine)
   streamConnecting: "스트림 연결 중…",
@@ -220,6 +223,7 @@ export const bench = {
   iterMeasured: (cur: number, total: number) => `측정 ${cur}/${total}`,
   eventScenarioStart: (scenarioId: string, api: string, iterLabel: string) => `시작 · ${scenarioId} · ${api} (${iterLabel})`,
   eventRunFinished: (modelId: string) => `런 완료 · ${modelId}`,
+  eventRunCancelled: (modelId: string) => `정지됨 · ${modelId}`,
   waitPhasePre: "사전",
   waitPhaseBetween: "반복간",
   eventContentionWaiting: (where: string, reason: string, gpu: string, elapsedMs: number) =>

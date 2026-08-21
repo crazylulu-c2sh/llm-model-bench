@@ -1153,12 +1153,14 @@ export function App() {
     let anyHttpFail = false;
     let streamErrorCount = 0;
     let streamIncomplete = false;
+    let wasCancelled = false;
     for (const m of models) {
       appendLog(`bench start model=${m.id}`);
       setBenchCurrent({ modelId: m.id });
       setBenchRunId(null);
       setBenchPaused(false);
       let sawRunFinished = false;
+      let cancelledByUser = false;
       let streamMeta: BenchRunMeta | null = null;
       let lastScenarioStart: { sid: string; api: string } | null = null;
       let iterInScenario = 0;
@@ -1312,7 +1314,12 @@ export function App() {
           }
           if (ev.type === "run_finished") {
             sawRunFinished = true;
-            pushBenchLine("ok", msg().bench.eventRunFinished(m.id));
+            if (ev.reason === "cancelled") {
+              cancelledByUser = true;
+              pushBenchLine("warn", msg().bench.eventRunCancelled(m.id));
+            } else {
+              pushBenchLine("ok", msg().bench.eventRunFinished(m.id));
+            }
             setBenchCurrent({ modelId: m.id });
           }
           if (ev.type === "token_delta") {
@@ -1436,12 +1443,18 @@ export function App() {
         appendLog(String(e));
         pushBenchLine("err", msg().bench.eventRequestFailed(m.id, String(e).slice(0, 200)));
       }
+      if (cancelledByUser) {
+        wasCancelled = true;
+        break; // 큐에 남은 나머지 모델로 넘어가지 않고 전체 정지.
+      }
     }
     setRunning(false);
     setBenchRunId(null);
     setBenchPaused(false);
     appendLog("bench finished");
-    if (anyHttpFail || streamErrorCount > 0 || streamIncomplete) {
+    if (wasCancelled) {
+      toast(msg().bench.benchCancelledToast);
+    } else if (anyHttpFail || streamErrorCount > 0 || streamIncomplete) {
       toast.warning(msg().bench.benchDoneWithIssues);
     } else {
       toast.success(msg().bench.benchAllDone);
@@ -1453,6 +1466,11 @@ export function App() {
     const action = benchPaused ? "resume" : "pause";
     void fetch(`/api/bench/${benchRunId}/${action}`, { method: "POST" }).catch(() => {});
   }, [benchRunId, benchPaused]);
+
+  const stopBench = useCallback(() => {
+    if (!benchRunId) return;
+    void fetch(`/api/bench/${benchRunId}/stop`, { method: "POST" }).catch(() => {});
+  }, [benchRunId]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
@@ -2337,6 +2355,18 @@ export function App() {
                 >
                   {benchPaused ? <Play className="size-4" aria-hidden /> : <Pause className="size-4" aria-hidden />}
                   {benchPaused ? msg().bench.resumeBtn : msg().bench.pauseBtn}
+                </button>
+              ) : null}
+              {running ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-md bg-[var(--danger)] px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+                  onClick={stopBench}
+                  disabled={!benchRunId}
+                  aria-label={msg().bench.stopBtnAria}
+                >
+                  <Square className="size-4" aria-hidden />
+                  {msg().bench.stopBtn}
                 </button>
               ) : null}
             </>
