@@ -137,6 +137,9 @@ export const bench = {
   confirmUnloadOthersOn: "벤치 대상 외 모델 언로드가 켜져 있습니다(감지 목록 기준).",
   confirmAutoUnloadOn: "이번 벤치에서 로드한 대상 모델만 끝날 때 자동 언로드합니다(이미 로드된 모델은 유지).",
   confirmLoadTtl: (seconds: number, via: string) => `모델 로드 TTL ${seconds}초를 적용합니다(${via}).`,
+  estimatedFromOtherQuant: (quant: string) => `다른 양자화(${quant}) 기록 기준`,
+  estimatedTotalLabel: (text: string, covered: number, total: number) =>
+    `예상 총 소요 ~${text} · 이력 있음 ${covered}/${total}개`,
 
   // 메트릭 차트
   metricsChartHeading: "메트릭 차트",
@@ -195,6 +198,8 @@ export const bench = {
   progressHeading: "벤치 실행 단계",
   progressRate: "실행률",
   progressRateValue: (pct: number, completed: number, total: number) => `실행률 ${pct}% · ${completed}/${total}`,
+  etaRemaining: (text: string) => `~${text} 남음`,
+  etaWaiting: "대기 중…",
   eventLogHeading: "이벤트 로그",
   eventLogAria: "벤치 스트림 이벤트 로그",
   eventLogEmpty: "이벤트 수신 대기…",
