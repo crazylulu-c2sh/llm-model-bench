@@ -659,3 +659,130 @@ describe("bench/stream survives client disconnect (실행 주체 서버 이관)"
     );
   });
 });
+
+// 새로고침 후 라이브 재연결: GET /bench/running으로 진행 중인 런을 찾고,
+// GET /bench/:runId/reconnect로 지금까지의 이벤트를 replay + 이후 이벤트를 계속 받는다.
+describe("bench live reconnect (새로고침 복구)", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("GET /bench/running finds the in-progress run, and /reconnect replays buffered events then forwards new ones", async () => {
+    const enc = new TextEncoder();
+    const controllerBox: { ref: ReadableStreamDefaultController<Uint8Array> | null } = { ref: null };
+    const chatStream = new ReadableStream<Uint8Array>({
+      start(c) {
+        controllerBox.ref = c;
+      },
+    });
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.endsWith("/v1/chat/completions")) {
+        return new Response(chatStream, { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      return new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const baseUrl = "http://127.0.0.1:9096";
+    const detect: DetectResult = {
+      provider: "lm_studio",
+      baseUrl,
+      models: [{ id: "reconnect-model" }],
+      steps: [],
+      capabilities: { openaiChat: true, anthropicMessages: false },
+    };
+
+    const startResp = await req("/api/bench/stream", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        detect,
+        bench: {
+          baseUrl,
+          provider: "lm_studio",
+          modelId: "reconnect-model",
+          scenarioIds: ["chat_ping"],
+          warmupRuns: 0,
+          measuredRuns: 1,
+          skipModelLoad: true,
+          unloadOtherModels: false,
+          autoUnloadAfterBench: false,
+          contentionGuardEnabled: false,
+        },
+      }),
+    });
+    expect(startResp.status).toBe(200);
+    const reader = startResp.body!.getReader();
+    const decoder = new TextDecoder();
+    let seenScenarioStart = false;
+    let runId: string | null = null;
+    while (!seenScenarioStart) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error("stream ended before scenario_start");
+      for (const line of decoder.decode(value).split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        const ev = JSON.parse(line.slice(6)) as { type: string; run_id?: string };
+        if (ev.type === "run_started") runId = ev.run_id ?? null;
+        if (ev.type === "scenario_start") seenScenarioStart = true;
+      }
+    }
+    expect(runId).toBeTruthy();
+    // 원 요청 연결을 시뮬레이션상 "새로고침"으로 끊음 — 서버는 계속 실행된다(이전 회귀 테스트가 보장).
+    await reader.cancel();
+
+    const runningResp = await req(`/api/bench/running?baseUrl=${encodeURIComponent(baseUrl)}`);
+    expect(runningResp.status).toBe(200);
+    const runningBody = (await runningResp.json()) as { runs: Array<{ run_id: string; model_id: string }> };
+    expect(runningBody.runs.some((r) => r.run_id === runId)).toBe(true);
+    expect(runningBody.runs.find((r) => r.run_id === runId)?.model_id).toBe("reconnect-model");
+
+    const reconnectResp = await req(`/api/bench/${runId}/reconnect`);
+    expect(reconnectResp.status).toBe(200);
+    const reconnectReader = reconnectResp.body!.getReader();
+    const seenTypes: string[] = [];
+    const readUntilRunFinished = async () => {
+      let buf = "";
+      while (true) {
+        const { value, done } = await reconnectReader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n\n");
+        buf = lines.pop() ?? "";
+        for (const chunk of lines) {
+          if (!chunk.startsWith("data: ")) continue; // ": ping" 등 SSE 주석 줄 무시
+          const ev = JSON.parse(chunk.slice(6)) as { type: string };
+          seenTypes.push(ev.type);
+          if (ev.type === "run_finished") return;
+        }
+      }
+    };
+    const drain = readUntilRunFinished();
+
+    // replay(run_started, model_loaded, scenario_start)가 먼저 도착했는지 확인.
+    await vi.waitFor(() => {
+      expect(seenTypes).toContain("scenario_start");
+    });
+    expect(seenTypes[0]).toBe("run_started");
+
+    // 이제 원래 요청을 마저 완료 — 재연결된 구독자에게도 이후 이벤트가 계속 전달돼야 한다.
+    controllerBox.ref!.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"pong"}}]}\n\n'));
+    controllerBox.ref!.enqueue(enc.encode("data: [DONE]\n\n"));
+    controllerBox.ref!.close();
+
+    await drain;
+    expect(seenTypes).toContain("metrics_update");
+    expect(seenTypes).toContain("run_finished");
+
+    // 런이 끝났으니 더 이상 진행 중 목록에 없어야 한다.
+    const runningAfter = await req(`/api/bench/running?baseUrl=${encodeURIComponent(baseUrl)}`);
+    const runningAfterBody = (await runningAfter.json()) as { runs: Array<{ run_id: string }> };
+    expect(runningAfterBody.runs.some((r) => r.run_id === runId)).toBe(false);
+  });
+
+  it("GET /bench/:runId/reconnect for an unknown/finished runId → 404", async () => {
+    const r = await req("/api/bench/not-a-real-run/reconnect");
+    expect(r.status).toBe(404);
+  });
+});

@@ -252,6 +252,27 @@ export function buildOpenApiSpec(): object {
           },
         },
       },
+      "/bench/running": {
+        get: {
+          tags: ["bench"],
+          summary: "현재 서버에서 진행 중인 벤치 런 목록(새로고침 후 재연결 대상 탐색용). " +
+            "baseUrl 쿼리로 좁힐 수 있다.",
+          parameters: [{ name: "baseUrl", in: "query", schema: { type: "string" } }],
+          responses: { "200": { description: "{ runs: [{ run_id, base_url, model_id, provider, started_at, paused }] }" } },
+        },
+      },
+      "/bench/{runId}/reconnect": {
+        get: {
+          tags: ["bench"],
+          summary: "진행 중인 벤치 런에 재구독(SSE). /bench/stream과 달리 새 런을 시작하지 않고 " +
+            "기존 런의 라이브 이벤트를 받는다 — 연결 즉시 지금까지의 버퍼링된 이벤트를 replay한다.",
+          parameters: [{ name: "runId", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": sseResponse("StreamEvent", "StreamEvent SSE 스트림(버퍼링된 replay + 라이브)"),
+            "404": { description: "not_found — 존재하지 않거나 이미 종료된 런" },
+          },
+        },
+      },
       "/stress/stream": {
         post: {
           tags: ["bench"],

@@ -163,6 +163,29 @@ function consumeSseJsonLines(
   })();
 }
 
+/** 스트림 하나(POST /bench/stream 또는 GET /bench/:runId/reconnect)를 처리하는 동안의
+ *  누적 상태 — 예전엔 runBench의 for-model 루프 안 지역 변수였으나, 새로고침 후 라이브
+ *  재연결(reconnectBench)에서도 같은 이벤트 핸들러를 재사용하기 위해 분리했다. */
+type BenchStreamState = {
+  sawRunFinished: boolean;
+  cancelledByUser: boolean;
+  streamMeta: BenchRunMeta | null;
+  lastScenarioStart: { sid: string; api: string } | null;
+  iterInScenario: number;
+  pendingRetry: boolean;
+};
+
+function makeBenchStreamState(): BenchStreamState {
+  return {
+    sawRunFinished: false,
+    cancelledByUser: false,
+    streamMeta: null,
+    lastScenarioStart: null,
+    iterInScenario: 0,
+    pendingRetry: false,
+  };
+}
+
 type LatestByModelFetchResult =
   | { ok: true; data: LatestByModelResponse }
   | { ok: false; status: number };
@@ -402,6 +425,10 @@ export function App() {
    *  runBench 클로저의 streamMeta와 같은 run_started.meta에서 오지만, benchEta useMemo(컴포넌트 스코프)가
    *  읽어야 하므로 별도 state 대신 ref로 노출 — 리렌더 유발 없이 최신 값만 보이면 충분. */
   const activeRunMetaRef = useRef<{ warmupRuns: number; measuredRuns: number } | null>(null);
+  /** 새로고침 후 재연결 체크(runDetect)가 현재 이 탭에서 이미 벤치가 진행 중인지 알기 위한 ref.
+   *  running을 runDetect의 의존성 배열에 넣지 않고도 최신 값을 읽기 위함. */
+  const runningRef = useRef(false);
+  runningRef.current = running;
 
   // 영속 저장 (debounce 350ms). `/stress` 등 다른 라우트에서는 게이트로 차단해
   // App의 stale state가 stress 페이지의 공유 키 변경(baseUrl/apiKey 등)을 되돌리는 회귀 방지.
@@ -1127,6 +1154,247 @@ export function App() {
     });
   }, []);
 
+  const pushBenchLine = useCallback((kind: BenchStepKind, text: string) => {
+    setBenchStepLines((prev) => [...prev.slice(-79), { ts: Date.now(), kind, text }]);
+  }, []);
+
+  /** POST /bench/stream(신규 실행)과 GET /bench/:runId/reconnect(새로고침 후 재연결)가
+   *  공유하는 이벤트 처리기 — 두 경로 모두 같은 StreamEvent 모양을 받으므로, 상태 재구성 로직을
+   *  한 곳에만 둔다. `onError`는 여러 모델을 순차 실행하는 큐(runBench)가 전체 에러 카운트를
+   *  집계할 수 있도록 하는 훅 — reconnectBench는 단일 런만 다루므로 자체 카운터를 쓴다. */
+  const handleBenchStreamEvent = useCallback(
+    (ev: StreamEvent, modelId: string, state: BenchStreamState, onError?: () => void) => {
+      if (ev.type === "run_started") {
+        state.sawRunFinished = false;
+        state.streamMeta = ev.meta ?? null;
+        if (Array.isArray(state.streamMeta?.scenario_ids) && state.streamMeta.scenario_ids.length > 0) {
+          setBenchScenarioOrder(state.streamMeta.scenario_ids);
+        }
+        state.lastScenarioStart = null;
+        state.iterInScenario = 0;
+        state.pendingRetry = false;
+        const ridShort = ev.run_id.length > 28 ? `${ev.run_id.slice(0, 28)}…` : ev.run_id;
+        pushBenchLine("info", msg().bench.eventRunStart(ridShort));
+        setBenchCurrent({ modelId });
+        setBenchRunId(ev.run_id);
+        setBenchPaused(false);
+        activeRunMetaRef.current = { warmupRuns: ev.meta?.warmup_runs ?? 1, measuredRuns: ev.meta?.measured_runs ?? 3 };
+      }
+      if (ev.type === "preflight_memory_fit") {
+        // #81: 후보 로드 전 메모리-핏 예측 결과. skip이면 조용히 사라지지 않게 명확히 표시.
+        const gb = (b: number | null) => (b != null ? `${(b / 1024 ** 3).toFixed(1)}GB` : "?");
+        const detail = msg().bench.eventMemFitDetail(gb(ev.required_bytes), gb(ev.free_bytes));
+        if (ev.action === "skip") {
+          pushBenchLine("err", msg().bench.eventMemSkip(ev.model_id, detail));
+          appendLog(`preflight skip ${ev.model_id}: ${ev.reason}`);
+          toast.warning(`${ev.model_id}: ${ev.reason}`);
+        } else if (ev.action === "unload_other_models") {
+          pushBenchLine("info", msg().bench.eventMemUnloadOthers(ev.model_id, detail));
+          appendLog(`preflight unload_other_models ${ev.model_id}: ${ev.reason}`);
+        } else {
+          appendLog(`preflight ${ev.model_id}: ${ev.reason} (${detail})`);
+        }
+      }
+      if (ev.type === "model_loaded") {
+        pushBenchLine("info", msg().bench.eventModelLoaded(ev.model_id));
+        setBenchCurrent({ modelId: ev.model_id });
+      }
+      if (ev.type === "model_unloaded") {
+        const st = ev.status != null ? String(ev.status) : "?";
+        const phaseLabel =
+          ev.phase === "after_bench"
+            ? msg().bench.unloadPhaseAfterBench
+            : ev.phase === "preflight_fit"
+              ? msg().bench.unloadPhasePreflightFit
+              : "";
+        if (ev.ok) {
+          appendLog(msg().bench.logUnloadDone(phaseLabel, ev.model_id, st));
+          pushBenchLine("ok", msg().bench.eventUnloadDone(phaseLabel, ev.model_id, st));
+        } else {
+          appendLog(msg().bench.logUnloadFail(phaseLabel, ev.model_id, st));
+          pushBenchLine("err", msg().bench.eventUnloadFail(phaseLabel, ev.model_id, st));
+        }
+      }
+      if (ev.type === "scenario_start") {
+        if (typeof ev.system_prompt === "string" && ev.system_prompt.length > 0) {
+          setLiveSystemPromptByRowKey((prev) => ({
+            ...prev,
+            [scenarioRowKey(ev.scenario_id, ev.api_route, modelId)]: ev.system_prompt as string,
+          }));
+        }
+        if (typeof ev.user_prompt === "string" && ev.user_prompt.length > 0) {
+          setLiveUserPromptByRowKey((prev) => ({
+            ...prev,
+            [scenarioRowKey(ev.scenario_id, ev.api_route, modelId)]: ev.user_prompt as string,
+          }));
+        }
+        const p = { sid: ev.scenario_id, api: ev.api_route };
+        if (!state.lastScenarioStart || state.lastScenarioStart.sid !== p.sid || state.lastScenarioStart.api !== p.api) {
+          state.iterInScenario = 1;
+          state.lastScenarioStart = p;
+        } else if (state.pendingRetry) {
+          // 오염 재측정 — 같은 인덱스 재실행이므로 iter를 올리지 않는다.
+        } else {
+          state.iterInScenario += 1;
+        }
+        state.pendingRetry = false;
+        const wr = state.streamMeta?.warmup_runs ?? 1;
+        const mr = state.streamMeta?.measured_runs ?? 3;
+        const phase: BenchCurrent["phase"] = state.iterInScenario <= wr ? "warmup" : "measured";
+        const iterLabel =
+          phase === "warmup"
+            ? msg().bench.iterWarmup(state.iterInScenario, wr)
+            : msg().bench.iterMeasured(Math.min(state.iterInScenario - wr, mr), mr);
+        setBenchCurrent({
+          modelId,
+          scenario: p.sid,
+          api: p.api,
+          phase,
+          iterLabel,
+        });
+        setTouchedScenarioIds((prev) => (prev.includes(p.sid) ? prev : [...prev, p.sid]));
+        pushBenchLine("info", msg().bench.eventScenarioStart(p.sid, p.api, iterLabel));
+        setEtaPaused(false);
+      }
+      if (ev.type === "scenario_end") {
+        // 라이브 ETA 블렌딩용 실측치 누적(워밍업·측정 반복 모두) — pendingSkeletonRows와 같은 rowKey로 매칭.
+        const api = ev.api_route ?? state.lastScenarioStart?.api;
+        const totalMs = ev.metrics.total_ms;
+        if (api && typeof totalMs === "number" && totalMs > 0) {
+          const rowKey = scenarioRowKey(ev.scenario_id, api, modelId);
+          setLiveObserved((prev) => {
+            const next = new Map(prev);
+            const cur = next.get(rowKey) ?? { sum: 0, n: 0 };
+            next.set(rowKey, { sum: cur.sum + totalMs, n: cur.n + 1 });
+            return next;
+          });
+        }
+      }
+      if (ev.type === "run_finished") {
+        state.sawRunFinished = true;
+        if (ev.reason === "cancelled") {
+          state.cancelledByUser = true;
+          pushBenchLine("warn", msg().bench.eventRunCancelled(modelId));
+        } else {
+          pushBenchLine("ok", msg().bench.eventRunFinished(modelId));
+        }
+        setBenchCurrent({ modelId });
+      }
+      if (ev.type === "token_delta") {
+        setPreview((p) => (p + ev.text).slice(-8000));
+      }
+      if (ev.type === "contention_waiting") {
+        const where = ev.phase === "pre_bench" ? msg().bench.waitPhasePre : msg().bench.waitPhaseBetween;
+        const gpu = ev.gpu_util_pct != null ? ` · GPU ${ev.gpu_util_pct}%` : "";
+        pushBenchLine(
+          "warn",
+          msg().bench.eventContentionWaiting(where, ev.waiting_reason, gpu, ev.elapsed_ms),
+        );
+        setEtaPaused(true);
+      }
+      if (ev.type === "contention_resumed") {
+        pushBenchLine("ok", msg().bench.eventContentionResumed(ev.waited_ms));
+        setEtaPaused(false);
+      }
+      if (ev.type === "run_paused") {
+        setBenchPaused(true);
+        pushBenchLine("warn", msg().bench.eventRunPaused);
+        setEtaPaused(true);
+      }
+      if (ev.type === "run_resumed") {
+        setBenchPaused(false);
+        pushBenchLine("ok", msg().bench.eventRunResumed);
+        setEtaPaused(false);
+      }
+      if (ev.type === "iteration_discarded") {
+        // 폐기된 부분 출력 미리보기 초기화 + 다음 scenario_start를 재측정으로 표시.
+        setPreview("");
+        if (ev.will_retry) state.pendingRetry = true;
+        pushBenchLine(
+          "warn",
+          msg().bench.eventIterationDiscarded(ev.retry_count + 1, ev.max_retries, ev.scenario_id, ev.reason),
+        );
+      }
+      if (ev.type === "contention_summary") {
+        if (
+          ev.total_iterations_discarded > 0 ||
+          ev.max_pre_bench_wait_ms > 0 ||
+          ev.max_between_iteration_wait_ms > 0 ||
+          ev.abort_reason
+        ) {
+          const maxWait = Math.max(ev.max_pre_bench_wait_ms, ev.max_between_iteration_wait_ms);
+          const eff = ev.guard_effective ? "" : msg().bench.guardIneffective;
+          pushBenchLine(
+            "info",
+            msg().bench.eventContentionSummary(ev.total_iterations_discarded, maxWait, eff),
+          );
+        }
+      }
+      if (ev.type === "metrics_update") {
+        const agg = ev.aggregate as MetricsAgg;
+        if (!agg?.scenario_id || !agg?.api_route || !Array.isArray(agg.runs)) return;
+        const apiLabel = agg.api_route === "chat_completions" ? "chat" : agg.api_route === "messages" ? "msg" : agg.api_route;
+        setBenchCurrent({
+          modelId,
+          scenario: agg.scenario_id,
+          api: agg.api_route,
+          phase: "aggregate",
+        });
+        pushBenchLine("ok", msg().bench.eventAggregateDone(agg.scenario_id, apiLabel));
+        const rowKey = scenarioRowKey(agg.scenario_id, agg.api_route, modelId);
+        setDetailAggregate((prev) => ({ ...prev, [rowKey]: agg }));
+        const runs = agg.runs;
+        const last = runs[runs.length - 1];
+        if (!last) return;
+        const tpsSource =
+          last.usage_output_tokens != null && last.usage_output_tokens > 0 ? "usage" : "approx";
+        const outputTokens = outputTokensFromRun(last.output_text, last.usage_output_tokens);
+        const tpsRaw = tokensPerSecondFromRun(last.total_ms, last.output_text, last.usage_output_tokens);
+        const tps = tpsRaw > 0 ? Math.round(tpsRaw * 10) / 10 : null;
+        setRows((prev) => {
+          const filtered = prev.filter((x) => x.rowKey !== rowKey);
+          return [
+            ...filtered,
+            {
+              rowKey,
+              model_id: modelId,
+              scenario: agg.scenario_id,
+              api: agg.api_route,
+              ttft_ms: last.ttft_ms ?? null,
+              output_tokens: outputTokens,
+              tps,
+              tps_source: tpsSource,
+              reasoning_hidden: last.reasoning_hidden,
+              tool_call_args_corrupted: last.tool_call_args_corrupted,
+              reasoning_leaked_into_content: last.reasoning_leaked_into_content,
+              channel_tag_leak_detected: last.channel_tag_leak_detected,
+              agent_completion_reason: last.agent_completion_reason,
+              turns_to_completion: last.turns_to_completion,
+              empty_turn_count: last.empty_turn_count,
+              thinking_exhausted_budget: last.thinking_exhausted_budget,
+              pass: last.quality?.pass,
+              score: last.quality?.score,
+              reason: last.quality?.reason,
+            },
+          ];
+        });
+      }
+      if (ev.type === "error") {
+        onError?.();
+        appendLog(`error[${ev.layer}] ${ev.code}: ${ev.message}`);
+        const hint = benchErrorHint(ev.code);
+        const lineMessage = hint
+          ? `${hint} · ${ev.message}`
+          : ev.message;
+        pushBenchLine(
+          "err",
+          `error[${ev.layer}] ${ev.code} — ${lineMessage.slice(0, 220)}`,
+        );
+      }
+    },
+    [appendLog, pushBenchLine],
+  );
+
   const runBench = useCallback(async (modelsToRun: DetectModel[]) => {
     if (!detect) return;
     const models = modelsToRun;
@@ -1159,16 +1427,7 @@ export function App() {
       setBenchCurrent({ modelId: m.id });
       setBenchRunId(null);
       setBenchPaused(false);
-      let sawRunFinished = false;
-      let cancelledByUser = false;
-      let streamMeta: BenchRunMeta | null = null;
-      let lastScenarioStart: { sid: string; api: string } | null = null;
-      let iterInScenario = 0;
-      // 오염 폐기 후 같은 측정 인덱스를 재실행할 때 다음 scenario_start가 iter를 다시 올리지 않게 한다.
-      let pendingRetry = false;
-      const pushBenchLine = (kind: BenchStepKind, text: string) => {
-        setBenchStepLines((prev) => [...prev.slice(-79), { ts: Date.now(), kind, text }]);
-      };
+      const state = makeBenchStreamState();
       try {
         const r = await fetch("/api/bench/stream", {
           method: "POST",
@@ -1205,236 +1464,12 @@ export function App() {
           pushBenchLine("err", `HTTP ${r.status} · ${m.id}`);
           continue;
         }
-        await consumeSseJsonLines(r.body, (ev) => {
-          if (ev.type === "run_started") {
-            sawRunFinished = false;
-            streamMeta = ev.meta ?? null;
-            if (Array.isArray(streamMeta?.scenario_ids) && streamMeta.scenario_ids.length > 0) {
-              setBenchScenarioOrder(streamMeta.scenario_ids);
-            }
-            lastScenarioStart = null;
-            iterInScenario = 0;
-            pendingRetry = false;
-            const ridShort = ev.run_id.length > 28 ? `${ev.run_id.slice(0, 28)}…` : ev.run_id;
-            pushBenchLine("info", msg().bench.eventRunStart(ridShort));
-            setBenchCurrent({ modelId: m.id });
-            setBenchRunId(ev.run_id);
-            setBenchPaused(false);
-            activeRunMetaRef.current = { warmupRuns: ev.meta?.warmup_runs ?? 1, measuredRuns: ev.meta?.measured_runs ?? 3 };
-          }
-          if (ev.type === "preflight_memory_fit") {
-            // #81: 후보 로드 전 메모리-핏 예측 결과. skip이면 조용히 사라지지 않게 명확히 표시.
-            const gb = (b: number | null) => (b != null ? `${(b / 1024 ** 3).toFixed(1)}GB` : "?");
-            const detail = msg().bench.eventMemFitDetail(gb(ev.required_bytes), gb(ev.free_bytes));
-            if (ev.action === "skip") {
-              pushBenchLine("err", msg().bench.eventMemSkip(ev.model_id, detail));
-              appendLog(`preflight skip ${ev.model_id}: ${ev.reason}`);
-              toast.warning(`${ev.model_id}: ${ev.reason}`);
-            } else if (ev.action === "unload_other_models") {
-              pushBenchLine("info", msg().bench.eventMemUnloadOthers(ev.model_id, detail));
-              appendLog(`preflight unload_other_models ${ev.model_id}: ${ev.reason}`);
-            } else {
-              appendLog(`preflight ${ev.model_id}: ${ev.reason} (${detail})`);
-            }
-          }
-          if (ev.type === "model_loaded") {
-            pushBenchLine("info", msg().bench.eventModelLoaded(ev.model_id));
-            setBenchCurrent({ modelId: ev.model_id });
-          }
-          if (ev.type === "model_unloaded") {
-            const st = ev.status != null ? String(ev.status) : "?";
-            const phaseLabel =
-              ev.phase === "after_bench"
-                ? msg().bench.unloadPhaseAfterBench
-                : ev.phase === "preflight_fit"
-                  ? msg().bench.unloadPhasePreflightFit
-                  : "";
-            if (ev.ok) {
-              appendLog(msg().bench.logUnloadDone(phaseLabel, ev.model_id, st));
-              pushBenchLine("ok", msg().bench.eventUnloadDone(phaseLabel, ev.model_id, st));
-            } else {
-              appendLog(msg().bench.logUnloadFail(phaseLabel, ev.model_id, st));
-              pushBenchLine("err", msg().bench.eventUnloadFail(phaseLabel, ev.model_id, st));
-            }
-          }
-          if (ev.type === "scenario_start") {
-            if (typeof ev.system_prompt === "string" && ev.system_prompt.length > 0) {
-              setLiveSystemPromptByRowKey((prev) => ({
-                ...prev,
-                [scenarioRowKey(ev.scenario_id, ev.api_route, m.id)]: ev.system_prompt as string,
-              }));
-            }
-            if (typeof ev.user_prompt === "string" && ev.user_prompt.length > 0) {
-              setLiveUserPromptByRowKey((prev) => ({
-                ...prev,
-                [scenarioRowKey(ev.scenario_id, ev.api_route, m.id)]: ev.user_prompt as string,
-              }));
-            }
-            const p = { sid: ev.scenario_id, api: ev.api_route };
-            if (!lastScenarioStart || lastScenarioStart.sid !== p.sid || lastScenarioStart.api !== p.api) {
-              iterInScenario = 1;
-              lastScenarioStart = p;
-            } else if (pendingRetry) {
-              // 오염 재측정 — 같은 인덱스 재실행이므로 iter를 올리지 않는다.
-            } else {
-              iterInScenario += 1;
-            }
-            pendingRetry = false;
-            const wr = streamMeta?.warmup_runs ?? 1;
-            const mr = streamMeta?.measured_runs ?? 3;
-            const phase: BenchCurrent["phase"] = iterInScenario <= wr ? "warmup" : "measured";
-            const iterLabel =
-              phase === "warmup"
-                ? msg().bench.iterWarmup(iterInScenario, wr)
-                : msg().bench.iterMeasured(Math.min(iterInScenario - wr, mr), mr);
-            setBenchCurrent({
-              modelId: m.id,
-              scenario: p.sid,
-              api: p.api,
-              phase,
-              iterLabel,
-            });
-            setTouchedScenarioIds((prev) => (prev.includes(p.sid) ? prev : [...prev, p.sid]));
-            pushBenchLine("info", msg().bench.eventScenarioStart(p.sid, p.api, iterLabel));
-            setEtaPaused(false);
-          }
-          if (ev.type === "scenario_end") {
-            // 라이브 ETA 블렌딩용 실측치 누적(워밍업·측정 반복 모두) — pendingSkeletonRows와 같은 rowKey로 매칭.
-            const api = ev.api_route ?? lastScenarioStart?.api;
-            const totalMs = ev.metrics.total_ms;
-            if (api && typeof totalMs === "number" && totalMs > 0) {
-              const rowKey = scenarioRowKey(ev.scenario_id, api, m.id);
-              setLiveObserved((prev) => {
-                const next = new Map(prev);
-                const cur = next.get(rowKey) ?? { sum: 0, n: 0 };
-                next.set(rowKey, { sum: cur.sum + totalMs, n: cur.n + 1 });
-                return next;
-              });
-            }
-          }
-          if (ev.type === "run_finished") {
-            sawRunFinished = true;
-            if (ev.reason === "cancelled") {
-              cancelledByUser = true;
-              pushBenchLine("warn", msg().bench.eventRunCancelled(m.id));
-            } else {
-              pushBenchLine("ok", msg().bench.eventRunFinished(m.id));
-            }
-            setBenchCurrent({ modelId: m.id });
-          }
-          if (ev.type === "token_delta") {
-            setPreview((p) => (p + ev.text).slice(-8000));
-          }
-          if (ev.type === "contention_waiting") {
-            const where = ev.phase === "pre_bench" ? msg().bench.waitPhasePre : msg().bench.waitPhaseBetween;
-            const gpu = ev.gpu_util_pct != null ? ` · GPU ${ev.gpu_util_pct}%` : "";
-            pushBenchLine(
-              "warn",
-              msg().bench.eventContentionWaiting(where, ev.waiting_reason, gpu, ev.elapsed_ms),
-            );
-            setEtaPaused(true);
-          }
-          if (ev.type === "contention_resumed") {
-            pushBenchLine("ok", msg().bench.eventContentionResumed(ev.waited_ms));
-            setEtaPaused(false);
-          }
-          if (ev.type === "run_paused") {
-            setBenchPaused(true);
-            pushBenchLine("warn", msg().bench.eventRunPaused);
-            setEtaPaused(true);
-          }
-          if (ev.type === "run_resumed") {
-            setBenchPaused(false);
-            pushBenchLine("ok", msg().bench.eventRunResumed);
-            setEtaPaused(false);
-          }
-          if (ev.type === "iteration_discarded") {
-            // 폐기된 부분 출력 미리보기 초기화 + 다음 scenario_start를 재측정으로 표시.
-            setPreview("");
-            if (ev.will_retry) pendingRetry = true;
-            pushBenchLine(
-              "warn",
-              msg().bench.eventIterationDiscarded(ev.retry_count + 1, ev.max_retries, ev.scenario_id, ev.reason),
-            );
-          }
-          if (ev.type === "contention_summary") {
-            if (
-              ev.total_iterations_discarded > 0 ||
-              ev.max_pre_bench_wait_ms > 0 ||
-              ev.max_between_iteration_wait_ms > 0 ||
-              ev.abort_reason
-            ) {
-              const maxWait = Math.max(ev.max_pre_bench_wait_ms, ev.max_between_iteration_wait_ms);
-              const eff = ev.guard_effective ? "" : msg().bench.guardIneffective;
-              pushBenchLine(
-                "info",
-                msg().bench.eventContentionSummary(ev.total_iterations_discarded, maxWait, eff),
-              );
-            }
-          }
-          if (ev.type === "metrics_update") {
-            const agg = ev.aggregate as MetricsAgg;
-            if (!agg?.scenario_id || !agg?.api_route || !Array.isArray(agg.runs)) return;
-            const apiLabel = agg.api_route === "chat_completions" ? "chat" : agg.api_route === "messages" ? "msg" : agg.api_route;
-            setBenchCurrent({
-              modelId: m.id,
-              scenario: agg.scenario_id,
-              api: agg.api_route,
-              phase: "aggregate",
-            });
-            pushBenchLine("ok", msg().bench.eventAggregateDone(agg.scenario_id, apiLabel));
-            const rowKey = scenarioRowKey(agg.scenario_id, agg.api_route, m.id);
-            setDetailAggregate((prev) => ({ ...prev, [rowKey]: agg }));
-            const runs = agg.runs;
-            const last = runs[runs.length - 1];
-            if (!last) return;
-            const tpsSource =
-              last.usage_output_tokens != null && last.usage_output_tokens > 0 ? "usage" : "approx";
-            const outputTokens = outputTokensFromRun(last.output_text, last.usage_output_tokens);
-            const tpsRaw = tokensPerSecondFromRun(last.total_ms, last.output_text, last.usage_output_tokens);
-            const tps = tpsRaw > 0 ? Math.round(tpsRaw * 10) / 10 : null;
-            setRows((prev) => {
-              const filtered = prev.filter((x) => x.rowKey !== rowKey);
-              return [
-                ...filtered,
-                {
-                  rowKey,
-                  model_id: m.id,
-                  scenario: agg.scenario_id,
-                  api: agg.api_route,
-                  ttft_ms: last.ttft_ms ?? null,
-                  output_tokens: outputTokens,
-                  tps,
-                  tps_source: tpsSource,
-                  reasoning_hidden: last.reasoning_hidden,
-                  tool_call_args_corrupted: last.tool_call_args_corrupted,
-                  reasoning_leaked_into_content: last.reasoning_leaked_into_content,
-                  channel_tag_leak_detected: last.channel_tag_leak_detected,
-                  agent_completion_reason: last.agent_completion_reason,
-                  turns_to_completion: last.turns_to_completion,
-                  empty_turn_count: last.empty_turn_count,
-                  thinking_exhausted_budget: last.thinking_exhausted_budget,
-                  pass: last.quality?.pass,
-                  score: last.quality?.score,
-                  reason: last.quality?.reason,
-                },
-              ];
-            });
-          }
-          if (ev.type === "error") {
+        await consumeSseJsonLines(r.body, (ev) =>
+          handleBenchStreamEvent(ev, m.id, state, () => {
             streamErrorCount += 1;
-            appendLog(`error[${ev.layer}] ${ev.code}: ${ev.message}`);
-            const hint = benchErrorHint(ev.code);
-            const lineMessage = hint
-              ? `${hint} · ${ev.message}`
-              : ev.message;
-            pushBenchLine(
-              "err",
-              `error[${ev.layer}] ${ev.code} — ${lineMessage.slice(0, 220)}`,
-            );
-          }
-        });
-        if (!sawRunFinished) {
+          }),
+        );
+        if (!state.sawRunFinished) {
           streamIncomplete = true;
           appendLog(msg().bench.logBenchIncomplete(m.id));
         }
@@ -1443,7 +1478,7 @@ export function App() {
         appendLog(String(e));
         pushBenchLine("err", msg().bench.eventRequestFailed(m.id, String(e).slice(0, 200)));
       }
-      if (cancelledByUser) {
+      if (state.cancelledByUser) {
         wasCancelled = true;
         break; // 큐에 남은 나머지 모델로 넘어가지 않고 전체 정지.
       }
@@ -1459,7 +1494,89 @@ export function App() {
     } else {
       toast.success(msg().bench.benchAllDone);
     }
-  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, fitPolicy, loadTtlSecondsNum, unloadOtherModels, visibleSelectedScenarioIds]);
+  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, fitPolicy, handleBenchStreamEvent, loadTtlSecondsNum, pushBenchLine, unloadOtherModels, visibleSelectedScenarioIds]);
+
+  /** 새로고침으로 화면 상태를 잃은 뒤, 서버에서 여전히 진행 중인 런에 라이브로 재구독한다.
+   *  runBench와 달리 큐(여러 모델 순차 실행) 개념이 없다 — 새로고침 전 큐에 남아있던 나머지
+   *  모델은 클라이언트 상태였으므로 복구 대상이 아니고, 지금 진행 중인 이 런만 대상이다. */
+  const reconnectBench = useCallback(
+    async (runId: string, modelId: string) => {
+      appendLog(`bench reconnect run_id=${runId} model=${modelId}`);
+      setRunning(true);
+      setRows([]);
+      setBenchScenarioOrder([]);
+      setDetailAggregate({});
+      setLiveSystemPromptByRowKey({});
+      setLiveUserPromptByRowKey({});
+      setPreview("");
+      setBenchStepLines([]);
+      setBenchCurrent({ modelId });
+      setTouchedScenarioIds([]);
+      setLiveObserved(new Map());
+      setEtaPaused(false);
+      setBenchRunId(null);
+      setBenchPaused(false);
+      activeRunMetaRef.current = null;
+      const state = makeBenchStreamState();
+      let anyHttpFail = false;
+      let streamErrorCount = 0;
+      try {
+        const r = await fetch(`/api/bench/${runId}/reconnect`);
+        if (!r.ok || !r.body) {
+          anyHttpFail = true;
+          appendLog(`bench reconnect http error ${r.status}`);
+        } else {
+          await consumeSseJsonLines(r.body, (ev) =>
+            handleBenchStreamEvent(ev, modelId, state, () => {
+              streamErrorCount += 1;
+            }),
+          );
+        }
+      } catch (e) {
+        anyHttpFail = true;
+        appendLog(String(e));
+      }
+      setRunning(false);
+      setBenchRunId(null);
+      setBenchPaused(false);
+      appendLog("bench reconnect finished");
+      if (state.cancelledByUser) {
+        toast(msg().bench.benchCancelledToast);
+      } else if (anyHttpFail || streamErrorCount > 0 || !state.sawRunFinished) {
+        toast.warning(msg().bench.benchDoneWithIssues);
+      } else {
+        toast.success(msg().bench.benchAllDone);
+      }
+    },
+    [appendLog, handleBenchStreamEvent],
+  );
+
+  /** 연결/감지 성공 직후 호출 — 이 baseUrl로 서버에서 여전히 진행 중인 벤치가 있으면
+   *  자동으로 라이브 재연결한다(새로고침 복구). best-effort — 실패해도 조용히 무시. */
+  const checkForLiveBenchRun = useCallback(
+    async (baseUrlToCheck: string) => {
+      if (runningRef.current) return; // 이 탭에서 이미 다른 런을 보고 있으면 건드리지 않음
+      try {
+        const r = await fetch(`/api/bench/running?baseUrl=${encodeURIComponent(baseUrlToCheck)}`);
+        if (!r.ok) return;
+        const j = (await r.json()) as { runs: Array<{ run_id: string; model_id: string }> };
+        const live = j.runs[0];
+        if (!live) return;
+        appendLog(`found live bench run_id=${live.run_id} model=${live.model_id} — reconnecting`);
+        void reconnectBench(live.run_id, live.model_id);
+      } catch {
+        // 재연결은 best-effort — 조용히 무시
+      }
+    },
+    [appendLog, reconnectBench],
+  );
+
+  // detect가 바뀔 때마다(연결/감지 성공 포함, 새로고침 후 재클릭 등) 이 baseUrl에 서버가
+  // 아직 들고 있는 진행 중인 벤치가 있는지 확인해 있으면 자동으로 재연결한다.
+  useEffect(() => {
+    if (!detect) return;
+    void checkForLiveBenchRun(detect.baseUrl);
+  }, [detect, checkForLiveBenchRun]);
 
   const toggleBenchPause = useCallback(() => {
     if (!benchRunId) return;

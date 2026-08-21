@@ -22,6 +22,13 @@ import { detectProvider } from "../detect.js";
 import { registerMonitorRoutes } from "../monitor-routes.js";
 import { runStress, type StressRequest } from "../stress-runner.js";
 import { cancelRunControl, pauseRunControl, resumeRunControl } from "../run-control.js";
+import {
+  endLiveRun,
+  listLiveRuns,
+  publishLiveEvent,
+  startLiveRun,
+  subscribeToLiveRun,
+} from "../bench-live-registry.js";
 import { registerCatalogRoutes } from "../catalog-routes.js";
 import { buildOpenApiSpec } from "../openapi/build-spec.js";
 import { renderDocsHtml } from "../openapi/docs-html.js";
@@ -445,26 +452,39 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
         persister = noopPersister;
       }
       let started = false;
+      // 새로고침 후 재연결(라이브 재구독)을 위한 브로드캐스트 대상 runId — run_started에서 채워진다.
+      let liveRunId: string | null = null;
       try {
         for await (const ev of runBench(req, detect)) {
           if (ev.type === "run_started") {
             const meta: BenchRunMeta = ev.meta ?? makeBenchRunMeta(req, detect, ev.run_id);
             persister.start(meta);
             started = true;
+            liveRunId = ev.run_id;
+            startLiveRun(ev.run_id, {
+              base_url: normBaseUrl(req.baseUrl),
+              model_id: req.modelId,
+              provider: req.provider,
+              started_at: Date.now(),
+            });
           }
           persister.onEvent(ev);
           push(ev);
+          if (liveRunId) publishLiveEvent(liveRunId, ev);
         }
       } catch (e) {
-        push({
+        const errEv: StreamEvent = {
           type: "error",
           layer: "orchestrator",
           code: "stream_failed",
           message: String(e),
-        });
+        };
+        push(errEv);
+        if (liveRunId) publishLiveEvent(liveRunId, errEv);
       } finally {
         clearInterval(keepalive);
         if (started) persister.finalize();
+        if (liveRunId) endLiveRun(liveRunId);
         try {
           controllerBox.ref?.close();
         } catch {
@@ -496,6 +516,75 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
   app.post(`${prefix}/bench/:runId/stop`, (c) => {
     const ok = cancelRunControl(c.req.param("runId"));
     return ok ? c.json({ ok: true }) : c.json({ ok: false, error: "not_found" }, 404);
+  });
+
+  // 새로고침 등으로 화면을 잃었을 때 "지금 진행 중인 벤치가 있는가"를 알아내기 위한 조회.
+  // baseUrl 쿼리로 좁힐 수 있다(현재 연결된 provider와 같은 벤치만 재연결 대상으로 삼기 위함).
+  app.get(`${prefix}/bench/running`, (c) => {
+    const baseUrl = c.req.query("baseUrl");
+    const all = listLiveRuns();
+    const runs = baseUrl ? all.filter((r) => r.base_url === normBaseUrl(baseUrl)) : all;
+    return c.json({ runs });
+  });
+
+  // 진행 중인 런에 재구독(SSE) — /bench/stream과 달리 새 런을 시작하지 않고 기존 런의
+  // 라이브 이벤트를 받는다. 연결 즉시 지금까지의 버퍼링된 이벤트(token_delta 제외)를
+  // replay해, 클라이언트가 /bench/stream과 동일한 이벤트 처리 경로로 상태를 재구성할 수 있게 한다.
+  app.get(`${prefix}/bench/:runId/reconnect`, (c) => {
+    const runId = c.req.param("runId");
+    const sub = subscribeToLiveRun(runId);
+    if (!sub) return c.json({ error: "not_found" }, 404);
+
+    const encoder = new TextEncoder();
+    const controllerBox: { ref: ReadableStreamDefaultController<Uint8Array> | null } = { ref: null };
+    const push = (ev: StreamEvent) => {
+      if (!controllerBox.ref) return;
+      try {
+        controllerBox.ref.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+      } catch {
+        controllerBox.ref = null;
+      }
+    };
+    const onEvent = (ev: StreamEvent) => push(ev);
+    const onDone = () => {
+      try {
+        controllerBox.ref?.close();
+      } catch {
+        // 무시
+      }
+    };
+    let keepalive: ReturnType<typeof setInterval> | null = null;
+
+    const readable = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controllerBox.ref = controller;
+        for (const ev of sub.bufferedEvents) push(ev);
+        sub.onEvent(onEvent);
+        sub.onDone(onDone);
+        keepalive = setInterval(() => {
+          if (!controllerBox.ref) return;
+          try {
+            controllerBox.ref.enqueue(encoder.encode(": ping\n\n"));
+          } catch {
+            controllerBox.ref = null;
+          }
+        }, 15_000);
+      },
+      cancel() {
+        if (keepalive) clearInterval(keepalive);
+        sub.unsubscribe();
+        controllerBox.ref = null;
+      },
+    });
+
+    return c.newResponse(readable, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
   });
 
   app.post(`${prefix}/stress/stream`, async (c) => {
