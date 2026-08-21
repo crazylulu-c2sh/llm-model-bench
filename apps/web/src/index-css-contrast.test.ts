@@ -64,6 +64,10 @@ const TEXT_TOKENS = [
   "--tier-good",
   "--tier-okay",
   "--tier-slow",
+  "--param-tier-tiny",
+  "--param-tier-small",
+  "--param-tier-medium",
+  "--param-tier-large",
 ] as const;
 
 const SURFACES = ["--surface", "--surface-2"] as const;

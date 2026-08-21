@@ -220,8 +220,18 @@ export {
   inferModelVendor,
   cleanModelDisplayName,
   parseModelQuant,
+  isSizeTag,
   type VendorKey,
 } from "./model-vendor";
+
+export {
+  PARAM_TIER_THRESHOLDS_B,
+  extractParamsBillionsFromModelId,
+  inferParamTier,
+  parseParamsBillions,
+  paramTierFromBillions,
+  type ParamTier,
+} from "./param-tier";
 
 export const DetectStepSchema = z.object({
   name: z.string(),

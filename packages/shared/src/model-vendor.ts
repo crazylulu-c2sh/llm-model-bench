@@ -59,8 +59,8 @@ export function inferModelVendor(modelId: string): VendorKey {
 const HOST_PREFIX = /^(hf\.co|huggingface\.co)\//i;
 const CONTAINER_SUFFIX = /[-_](gguf|ggml|bf16|fp16|f16|gptq|awq|mlx|int4|int8|mxfp4)$/i;
 
-/** `1.2b`·`270m`·`0.5b`·`8b` 같은 크기 태그(양자화 아님 — 표시명에서 보존). */
-function isSizeTag(t: string): boolean {
+/** `1.2b`·`270m`·`0.5b`·`8b` 같은 크기 태그(양자화 아님 — 표시명에서 보존, param-tier.ts의 등급 분류에도 재사용). */
+export function isSizeTag(t: string): boolean {
   return /^\d+(\.\d+)?[bmk]$/i.test(t);
 }
 /** `q4_k_m`·`Q4_K_M`·`iq2_m`·`bf16` 같은 양자화/정밀도 태그(size는 제외). */

@@ -225,7 +225,16 @@ export function ModelTable({
             {sortDirIcon(column)}
           </button>
         ),
-        cell: (info) => <ModelLabel modelId={info.getValue()} showQuant size={14} className="text-xs" />,
+        cell: (info) => (
+          <ModelLabel
+            modelId={info.getValue()}
+            paramsString={info.row.original.params_string}
+            showQuant
+            showTier
+            size={14}
+            className="text-xs"
+          />
+        ),
         sortingFn: "alphanumeric",
       }),
       columnHelper.accessor("label", {
