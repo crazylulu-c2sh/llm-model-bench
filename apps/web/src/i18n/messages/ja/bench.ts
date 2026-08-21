@@ -131,6 +131,12 @@ export const bench: Messages["bench"] = {
   runSelected: "選択モデルをベンチ",
   runSelectedAria: "選択モデルのベンチを実行",
   selectScenarioTitle: "実行するシナリオを 1 つ以上選択してください",
+  pauseBtn: "一時停止",
+  pauseBtnAria: "実行中のベンチを一時停止",
+  resumeBtn: "再開",
+  resumeBtnAria: "一時停止したベンチを再開",
+  stopBtn: "緊急停止",
+  stopBtnAria: "実行中のベンチを緊急停止",
 
   // ベンチ実行確認ダイアログ
   confirmRun: "ベンチ実行",
@@ -197,6 +203,7 @@ export const bench: Messages["bench"] = {
   selectModelToBench: "ベンチするモデルを 1 つ以上選択してください。",
   benchDoneWithIssues: "ベンチ終了 — エラー·未完了のストリームがありました。ログを確認してください。",
   benchAllDone: "ベンチがすべて完了しました。",
+  benchCancelledToast: "ベンチを停止しました。",
 
   // 進行サマリー · イベントログ (BenchProgressPanel · pushBenchLine)
   streamConnecting: "ストリーム接続中…",
@@ -223,10 +230,13 @@ export const bench: Messages["bench"] = {
   iterMeasured: (cur, total) => `測定 ${cur}/${total}`,
   eventScenarioStart: (scenarioId, api, iterLabel) => `開始 · ${scenarioId} · ${api} (${iterLabel})`,
   eventRunFinished: (modelId) => `ラン完了 · ${modelId}`,
+  eventRunCancelled: (modelId) => `停止しました · ${modelId}`,
   waitPhasePre: "事前",
   waitPhaseBetween: "反復間",
   eventContentionWaiting: (where, reason, gpu, elapsedMs) => `待機 · ${where} · ${reason}${gpu} (${elapsedMs}ms)`,
   eventContentionResumed: (waitedMs) => `再開 · ${waitedMs}ms 待機後`,
+  eventRunPaused: "⏸ 一時停止しました",
+  eventRunResumed: "▶ 再開しました",
   eventIterationDiscarded: (cur, max, scenarioId, reason) =>
     `競合破棄 · 再測定 ${cur}/${max} · ${scenarioId} · ${reason}`,
   guardIneffective: " · ガード無効(信号なし)",

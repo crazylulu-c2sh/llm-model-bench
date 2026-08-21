@@ -3,6 +3,12 @@ import { DEFAULT_SCENARIO_IDS } from "@llm-bench/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeBenchRunMeta, normalizeScenarioIdsForBench, runBench, type BenchRequest } from "./bench-runner.js";
 import { _resetStreamUsageCacheForTests } from "./openai-fetch.js";
+import {
+  _resetRunControlRegistryForTests,
+  cancelRunControl,
+  pauseRunControl,
+  resumeRunControl,
+} from "./run-control.js";
 import type { ScenarioId } from "./scenarios.js";
 
 function jsonResponse(obj: unknown, status = 200) {
@@ -25,6 +31,26 @@ function sseChatOk(): Response {
       controller.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"pong"}}]}\n\n'));
       controller.enqueue(enc.encode("data: [DONE]\n\n"));
       controller.close();
+    },
+  });
+  return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+}
+
+/** 첫 청크 emit 후 abort될 때까지 열린 채로 대기하는 스트림 — 긴급 정지의 in-flight abort 테스트용. */
+function sseHangingUntilAbort(signal?: AbortSignal): Response {
+  const enc = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"par"}}]}\n\n'));
+      const close = () => {
+        try {
+          controller.close();
+        } catch {
+          /* 이미 닫힘 */
+        }
+      };
+      if (signal?.aborted) close();
+      else signal?.addEventListener("abort", close, { once: true });
     },
   });
   return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
@@ -220,6 +246,135 @@ describe("runBench LM Studio autoUnloadAfterBench", () => {
     }
 
     expect(postUnloadCount).toBe(1);
+  });
+});
+
+describe("runBench pause/resume", () => {
+  afterEach(() => {
+    _resetRunControlRegistryForTests();
+  });
+
+  it("emits run_paused at the next iteration checkpoint and run_resumed once resumeRunControl is called", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) return sseChatOk();
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    const gen = runBench(baseBenchRequest({ skipModelLoad: true }), lmStudioDetect(), { fetchImpl });
+
+    const started = await gen.next();
+    expect(started.value?.type).toBe("run_started");
+    const runId = (started.value as { run_id: string }).run_id;
+
+    expect(pauseRunControl(runId)).toBe(true);
+
+    const modelLoaded = await gen.next();
+    expect(modelLoaded.value?.type).toBe("model_loaded");
+
+    // 제너레이터가 `run_paused`를 yield한 시점엔 아직 waitWhileRunPaused를 호출하지 않았으므로,
+    // 여기서 즉시 resumeRunControl을 호출해도 race 없이 정상적으로 바로 재개된다.
+    const paused = await gen.next();
+    expect(paused.value?.type).toBe("run_paused");
+    expect(resumeRunControl(runId)).toBe(true);
+
+    const resumed = await gen.next();
+    expect(resumed.value?.type).toBe("run_resumed");
+
+    const remaining: string[] = [];
+    for (let next = await gen.next(); !next.done; next = await gen.next()) {
+      remaining.push(next.value.type);
+    }
+    expect(remaining).toContain("run_finished");
+    expect(remaining).not.toContain("run_paused");
+  });
+});
+
+describe("runBench cancel (긴급 정지)", () => {
+  afterEach(() => {
+    _resetRunControlRegistryForTests();
+  });
+
+  it("stops before the next iteration when cancelled right after run_started — no scenario_start, no request_timeout error", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) return sseChatOk();
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    const events: string[] = [];
+    const gen = runBench(baseBenchRequest({ skipModelLoad: true }), lmStudioDetect(), { fetchImpl });
+
+    const started = await gen.next();
+    events.push(started.value!.type);
+    const runId = (started.value as { run_id: string }).run_id;
+    expect(cancelRunControl(runId)).toBe(true);
+
+    for (let next = await gen.next(); !next.done; next = await gen.next()) {
+      events.push(next.value.type);
+    }
+
+    expect(events).not.toContain("scenario_start");
+    expect(events).not.toContain("error");
+    const finished = events.includes("run_finished");
+    expect(finished).toBe(true);
+  });
+
+  it("aborts an in-flight request immediately and finishes with reason: cancelled", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) return sseHangingUntilAbort(init?.signal ?? undefined);
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    const allEvents: Array<{ type: string; [k: string]: unknown }> = [];
+    const gen = runBench(baseBenchRequest({ skipModelLoad: true }), lmStudioDetect(), { fetchImpl });
+
+    let runId: string | null = null;
+    for (let next = await gen.next(); !next.done; next = await gen.next()) {
+      allEvents.push(next.value as { type: string });
+      if (next.value.type === "run_started") runId = (next.value as { run_id: string }).run_id;
+      if (next.value.type === "scenario_start" && runId) {
+        // 진행 중인 요청(sseHangingUntilAbort로 자연 종료되지 않음)이 있는 상태에서 정지 —
+        // reqSignal에 cancelSignal이 묶여 있어야 이 hanging 스트림이 즉시 풀리고 런이 끝난다.
+        cancelRunControl(runId);
+      }
+    }
+
+    expect(allEvents.some((e) => e.type === "error" && e.code === "request_timeout")).toBe(false);
+    const finishedEvent = allEvents.find((e) => e.type === "run_finished");
+    expect(finishedEvent).toBeTruthy();
+    expect((finishedEvent as { reason?: string }).reason).toBe("cancelled");
+  });
+
+  it("stopping a paused run wakes it immediately and finishes as cancelled (no resume needed)", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) return sseChatOk();
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    const gen = runBench(baseBenchRequest({ skipModelLoad: true }), lmStudioDetect(), { fetchImpl });
+
+    const started = await gen.next();
+    const runId = (started.value as { run_id: string }).run_id;
+    expect(pauseRunControl(runId)).toBe(true);
+
+    await gen.next(); // model_loaded
+    const paused = await gen.next();
+    expect(paused.value?.type).toBe("run_paused");
+
+    expect(cancelRunControl(runId)).toBe(true);
+
+    const events: Array<{ type: string; [k: string]: unknown }> = [];
+    for (let next = await gen.next(); !next.done; next = await gen.next()) {
+      events.push(next.value as { type: string });
+    }
+
+    expect(events.some((e) => e.type === "run_resumed")).toBe(false);
+    const finishedEvent = events.find((e) => e.type === "run_finished");
+    expect(finishedEvent).toBeTruthy();
+    expect((finishedEvent as { reason?: string }).reason).toBe("cancelled");
   });
 });
 

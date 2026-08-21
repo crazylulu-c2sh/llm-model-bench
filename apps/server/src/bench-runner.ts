@@ -82,6 +82,13 @@ import {
   executeBenchTool,
   resolvePublicAssetsOrigin,
 } from "./tooling/bench-tools.js";
+import {
+  isRunCancelled,
+  isRunPaused,
+  registerRunControl,
+  unregisterRunControl,
+  waitWhileRunPaused,
+} from "./run-control.js";
 
 export type BenchRequest = {
   baseUrl: string;
@@ -529,6 +536,7 @@ export async function* runBench(
   let contentionAbortReason: string | undefined;
 
   const rid = runId();
+  const cancelSignal = registerRunControl(rid);
   const assetOrigin = resolvePublicAssetsOrigin(input);
   const meta = makeBenchRunMeta(input, detect, rid, {
     profileMaxTokensOverride: input.profileMaxTokens ?? null,
@@ -545,6 +553,7 @@ export async function* runBench(
       message:
         "Neither /v1/chat/completions nor /v1/messages appears available for this base URL.",
     };
+    unregisterRunControl(rid);
     return;
   }
 
@@ -571,6 +580,7 @@ export async function* runBench(
         message: `skipped: ${fit.event.reason}`,
       };
       yield { type: "run_finished", run_id: rid };
+      unregisterRunControl(rid);
       return;
     }
     if (fit.action === "unload_other_models") {
@@ -637,6 +647,7 @@ export async function* runBench(
           code: "load_failed",
           message: `LM Studio load failed: ${load.status} ${load.body}`,
         };
+        unregisterRunControl(rid);
         return;
       }
       modelLoadedByThisBench = true;
@@ -697,6 +708,7 @@ export async function* runBench(
         gpu_signal_available: gpuSignalAvailable,
         abort_reason: code,
       };
+      unregisterRunControl(rid);
       return;
     }
   }
@@ -704,10 +716,19 @@ export async function* runBench(
 
   try {
     let fatalStop = false;
+    let userCancelled = false;
     for (const api_route of meta.api_routes) {
       if (fatalStop) break;
+      if (isRunCancelled(rid)) {
+        userCancelled = true;
+        break;
+      }
       for (const scenarioId of meta.scenario_ids as ScenarioId[]) {
         if (fatalStop) break;
+        if (isRunCancelled(rid)) {
+          userCancelled = true;
+          break;
+        }
         if (api_route === "messages" && scenarioId === "tool_weather") {
           /* Anthropic tools format differs; still attempt with converted tools in body */
         }
@@ -755,6 +776,21 @@ export async function* runBench(
         let i = 0;
         let contentionRetries = 0;
         while (i < totalIterations) {
+          if (isRunCancelled(rid)) {
+            userCancelled = true;
+            fatalStop = true;
+            break;
+          }
+          if (isRunPaused(rid)) {
+            yield { type: "run_paused", scenario_id: scenarioId, api_route };
+            await waitWhileRunPaused(rid);
+            if (isRunCancelled(rid)) {
+              userCancelled = true;
+              fatalStop = true;
+              break;
+            }
+            yield { type: "run_resumed", scenario_id: scenarioId, api_route };
+          }
           const isWarmup = i < meta.warmup_runs;
           const ref = calendarReferenceAt(new Date());
           const visionThisRun = isVisionScenario(scenarioId);
@@ -863,10 +899,10 @@ export async function* runBench(
           let repetitionLoopAborted = false;
           const controller = new AbortController();
           const to = setTimeout(() => controller.abort(), requestTimeoutMs);
-          // STEP 4: 결합 시그널 — 타임아웃 OR 오염 감지로 in-flight 요청을 중단.
+          // STEP 4: 결합 시그널 — 타임아웃 OR 오염 감지 OR 사용자 긴급 정지로 in-flight 요청을 중단.
           const reqSignal: AbortSignal = measuredGuarded
-            ? AbortSignal.any([controller.signal, contentionController.signal])
-            : controller.signal;
+            ? AbortSignal.any([controller.signal, contentionController.signal, cancelSignal])
+            : AbortSignal.any([controller.signal, cancelSignal]);
           // STEP 4: 구간-스코프 in-flight 모니터. upstream 요청/스트림 구간에만 켜고
           // 채점·judge 전에 끈다(오탐 차단). teardown은 stopMonitor()가 책임.
           // async — in-flight 샘플이 teardown과 경쟁하더라도 양성 탐지를 잃지 않도록 await한다.
@@ -1344,6 +1380,13 @@ export async function* runBench(
 
             // STEP 4/5: 스트리밍 종료 → 모니터 정지(채점·judge는 감시 안 함). 경합 감지 시 측정 폐기.
             await stopMonitor();
+            // 사용자 긴급 정지 — 스트림이 예외 없이(mock/일부 provider는 abort를 "정상 종료"로
+            // 전달) 조기 종료됐더라도, 부분 출력을 채점하지 않고 즉시 런을 마친다.
+            if (isRunCancelled(rid)) {
+              userCancelled = true;
+              fatalStop = true;
+              break;
+            }
             if (measuredGuarded && contentionMonitor.detected) {
               contentionThisIteration = true;
             }
@@ -1509,6 +1552,10 @@ export async function* runBench(
             if (measuredGuarded && isAbortLikeError(e) && contentionMonitor.detected) {
               // STEP 5: 오염 abort는 request_timeout으로 매핑하지 않고 폐기·재측정 경로로.
               contentionThisIteration = true;
+            } else if (isRunCancelled(rid) && isAbortLikeError(e)) {
+              // 사용자 긴급 정지로 인한 in-flight abort — provider 타임아웃/오류로 취급하지
+              // 않는다(error 이벤트 없음). 아래 `if (iterationFailed)`에서 즉시 런을 종료한다.
+              iterationFailed = true;
             } else {
             const errMsg = String(e);
             // A5: vision-assets가 1MB 초과 자산에서 throw하는 `image_too_large:` prefix를
@@ -1599,6 +1646,11 @@ export async function* runBench(
           }
 
           if (iterationFailed) {
+            if (isRunCancelled(rid)) {
+              userCancelled = true;
+              fatalStop = true;
+              break;
+            }
             const canProceed = await canProceedAfterIterationError(
               base,
               input,
@@ -1657,8 +1709,9 @@ export async function* runBench(
       };
     }
 
-    yield { type: "run_finished", run_id: rid };
+    yield { type: "run_finished", run_id: rid, ...(userCancelled ? { reason: "cancelled" as const } : {}) };
   } finally {
+    unregisterRunControl(rid);
     if (
       input.provider === "lm_studio" &&
       !input.skipModelLoad &&

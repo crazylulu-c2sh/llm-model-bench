@@ -19,6 +19,7 @@ export class BenchRunPersistence {
   private logSeq = 0;
   private runId: string | null = null;
   private hadError = false;
+  private cancelled = false;
   private lastMeta: BenchRunMeta | null = null;
   /** `scenario_id|api_route` → 마지막 `scenario_start.user_prompt` (동적 프롬프트 정합) */
   private lastUserPromptByScenarioKey = new Map<string, string>();
@@ -33,6 +34,7 @@ export class BenchRunPersistence {
     this.lastMeta = meta;
     this.logSeq = 0;
     this.hadError = false;
+    this.cancelled = false;
     this.lastUserPromptByScenarioKey.clear();
     this.lastSystemPromptByScenarioKey.clear();
     insertRun(this.db, {
@@ -132,7 +134,14 @@ export class BenchRunPersistence {
         );
         break;
       case "run_finished":
-        this.logLine(`run_finished ${ev.run_id}`);
+        this.cancelled = ev.reason === "cancelled";
+        this.logLine(`run_finished ${ev.run_id}${this.cancelled ? " (cancelled)" : ""}`);
+        break;
+      case "run_paused":
+        this.logLine(`run_paused ${ev.scenario_id ?? "?"} ${ev.api_route ?? "?"}`);
+        break;
+      case "run_resumed":
+        this.logLine(`run_resumed ${ev.scenario_id ?? "?"} ${ev.api_route ?? "?"}`);
         break;
       default:
         break;
@@ -141,7 +150,7 @@ export class BenchRunPersistence {
 
   finalize(): void {
     if (!this.db || !this.runId) return;
-    finishRun(this.db, this.runId, this.hadError ? "partial" : "ok");
+    finishRun(this.db, this.runId, this.cancelled ? "cancelled" : this.hadError ? "partial" : "ok");
     this.runId = null;
     this.lastMeta = null;
     this.lastUserPromptByScenarioKey.clear();

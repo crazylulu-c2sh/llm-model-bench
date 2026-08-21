@@ -217,6 +217,41 @@ export function buildOpenApiSpec(): object {
           },
         },
       },
+      "/bench/{runId}/pause": {
+        post: {
+          tags: ["bench"],
+          summary: "실행 중인 벤치 런을 일시정지(다음 이터레이션 체크포인트에서 반영)",
+          parameters: [{ name: "runId", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": { description: "{ ok: true }" },
+            "404": { description: "not_found — 존재하지 않거나 이미 종료된 런" },
+          },
+        },
+      },
+      "/bench/{runId}/resume": {
+        post: {
+          tags: ["bench"],
+          summary: "일시정지된 벤치 런을 재개",
+          parameters: [{ name: "runId", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": { description: "{ ok: true }" },
+            "404": { description: "not_found — 존재하지 않거나 이미 종료된 런" },
+          },
+        },
+      },
+      "/bench/{runId}/stop": {
+        post: {
+          tags: ["bench"],
+          summary: "실행 중인 벤치 런을 긴급 정지(진행 중 요청 포함 즉시 중단, 재개 불가). " +
+            "HTTP 연결 종료(새로고침 등)와 무관한 명시적 컨트롤 — 연결이 끊겨도 런은 계속 실행되므로, " +
+            "정지하려면 반드시 이 엔드포인트를 호출해야 한다.",
+          parameters: [{ name: "runId", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": { description: "{ ok: true }" },
+            "404": { description: "not_found — 존재하지 않거나 이미 종료된 런" },
+          },
+        },
+      },
       "/stress/stream": {
         post: {
           tags: ["bench"],

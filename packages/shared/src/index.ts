@@ -454,7 +454,12 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     type: z.literal("metrics_update"),
     aggregate: z.record(z.string(), z.unknown()),
   }),
-  z.object({ type: z.literal("run_finished"), run_id: z.string() }),
+  z.object({
+    type: z.literal("run_finished"),
+    run_id: z.string(),
+    /** 사용자가 `/bench/:runId/stop`으로 긴급 정지했을 때만 채워짐(정상 완료 시 없음). */
+    reason: z.enum(["cancelled"]).optional(),
+  }),
   z.object({
     type: z.literal("error"),
     layer: z.enum(["upstream", "downstream", "orchestrator"]),
@@ -479,6 +484,18 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     type: z.literal("contention_resumed"),
     phase: z.enum(["pre_bench", "between_iterations"]),
     waited_ms: z.number(),
+    scenario_id: z.string().optional(),
+    api_route: z.enum(["chat_completions", "messages"]).optional(),
+  }),
+  /** 사용자가 `/bench/:runId/pause`를 호출해 런이 일시정지됨. */
+  z.object({
+    type: z.literal("run_paused"),
+    scenario_id: z.string().optional(),
+    api_route: z.enum(["chat_completions", "messages"]).optional(),
+  }),
+  /** 사용자가 `/bench/:runId/resume`을 호출해 일시정지가 풀리고 진행 재개. */
+  z.object({
+    type: z.literal("run_resumed"),
     scenario_id: z.string().optional(),
     api_route: z.enum(["chat_completions", "messages"]).optional(),
   }),

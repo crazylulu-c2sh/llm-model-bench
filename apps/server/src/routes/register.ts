@@ -21,6 +21,7 @@ import { makeBenchRunMeta, runBench, type BenchRequest } from "../bench-runner.j
 import { detectProvider } from "../detect.js";
 import { registerMonitorRoutes } from "../monitor-routes.js";
 import { runStress, type StressRequest } from "../stress-runner.js";
+import { cancelRunControl, pauseRunControl, resumeRunControl } from "../run-control.js";
 import { registerCatalogRoutes } from "../catalog-routes.js";
 import { buildOpenApiSpec } from "../openapi/build-spec.js";
 import { renderDocsHtml } from "../openapi/docs-html.js";
@@ -390,51 +391,87 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       },
     };
 
-    type Persister = { start(meta: BenchRunMeta): void; onEvent(ev: StreamEvent): void; finalize(): void };
-    const noopPersister: Persister = {
-      start() {},
-      onEvent() {},
-      finalize() {},
-    };
-
     const encoder = new TextEncoder();
+    // 응답 스트림의 컨트롤러 — 클라이언트가 연결을 끊으면(새로고침 포함) `cancel()`로
+    // ref가 null이 되어 이후 push()가 조용히 무시된다. 아래 실행 루프는 이 값과 완전히
+    // 무관하게(별도 async 컨텍스트) 끝까지 진행되므로, 연결이 끊겨도 벤치는 죽지 않는다.
+    // (객체 래퍼: bare `let`을 async IIFE 안에서 읽으면 이 TypeScript 버전에서 타입이
+    // `never`로 잘못 좁혀지는 문제가 있어, 재할당 가능한 상태를 프로퍼티로 감싼다.)
+    const controllerBox: { ref: ReadableStreamDefaultController<Uint8Array> | null } = { ref: null };
+    const push = (ev: StreamEvent) => {
+      if (!controllerBox.ref) return;
+      try {
+        controllerBox.ref.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+      } catch {
+        controllerBox.ref = null;
+      }
+    };
     const readable = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const push = (ev: StreamEvent) =>
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
-        let persister: Persister = noopPersister;
-        try {
-          const dbMod = await import("../db/database.js");
-          const { BenchRunPersistence } = await import("../db/persist-stream.js");
-          persister = new BenchRunPersistence(dbMod.tryOpenProdBenchDatabase());
-        } catch (e) {
-          console.error("[llm-bench-server] SQLite 계층 로드 실패 — 벤치는 진행하나 디스크 저장은 건너뜁니다:", e);
-          persister = noopPersister;
-        }
-        let started = false;
-        try {
-          for await (const ev of runBench(req, detect)) {
-            if (ev.type === "run_started") {
-              const meta: BenchRunMeta = ev.meta ?? makeBenchRunMeta(req, detect, ev.run_id);
-              persister.start(meta);
-              started = true;
-            }
-            persister.onEvent(ev);
-            push(ev);
-          }
-        } catch (e) {
-          push({
-            type: "error",
-            layer: "orchestrator",
-            code: "stream_failed",
-            message: String(e),
-          });
-        } finally {
-          if (started) persister.finalize();
-          controller.close();
-        }
+      start(controller) {
+        controllerBox.ref = controller;
+      },
+      cancel() {
+        // 구독 해제만 한다 — 실행 루프는 계속 진행된다. 긴급 정지는
+        // POST /bench/:runId/stop을 통해서만 가능하다(연결 종료는 정지가 아니다).
+        controllerBox.ref = null;
       },
     });
+
+    // 일시정지 중에는 수 분간 이벤트가 없을 수 있다 — 리버스 프록시/브라우저의 idle-read
+    // 타임아웃으로 연결이 끊기지 않도록 SSE 주석 줄로 주기적 keepalive를 보낸다.
+    // `:`로 시작하는 줄은 `consumeSseJsonLines`가 `data:` 줄만 파싱하므로 무시된다.
+    const keepalive = setInterval(() => {
+      if (!controllerBox.ref) return;
+      try {
+        controllerBox.ref.enqueue(encoder.encode(": ping\n\n"));
+      } catch {
+        controllerBox.ref = null;
+      }
+    }, 15_000);
+
+    // 실행 루프를 별도 async 컨텍스트로 완전히 분리 — await 하지 않는다(fire-and-forget).
+    // 응답 스트림(그리고 그것을 구독하는 브라우저 연결)의 생존 여부와 무관하게 끝까지
+    // 실행된다 — persister.finalize()도 마찬가지.
+    void (async () => {
+      type Persister = { start(meta: BenchRunMeta): void; onEvent(ev: StreamEvent): void; finalize(): void };
+      const noopPersister: Persister = { start() {}, onEvent() {}, finalize() {} };
+      let persister: Persister = noopPersister;
+      try {
+        const dbMod = await import("../db/database.js");
+        const { BenchRunPersistence } = await import("../db/persist-stream.js");
+        persister = new BenchRunPersistence(dbMod.tryOpenProdBenchDatabase());
+      } catch (e) {
+        console.error("[llm-bench-server] SQLite 계층 로드 실패 — 벤치는 진행하나 디스크 저장은 건너뜁니다:", e);
+        persister = noopPersister;
+      }
+      let started = false;
+      try {
+        for await (const ev of runBench(req, detect)) {
+          if (ev.type === "run_started") {
+            const meta: BenchRunMeta = ev.meta ?? makeBenchRunMeta(req, detect, ev.run_id);
+            persister.start(meta);
+            started = true;
+          }
+          persister.onEvent(ev);
+          push(ev);
+        }
+      } catch (e) {
+        push({
+          type: "error",
+          layer: "orchestrator",
+          code: "stream_failed",
+          message: String(e),
+        });
+      } finally {
+        clearInterval(keepalive);
+        if (started) persister.finalize();
+        try {
+          controllerBox.ref?.close();
+        } catch {
+          // 이미 닫혔거나 클라이언트가 사라짐 — 무시
+        }
+      }
+    })();
 
     return c.newResponse(readable, {
       status: 200,
@@ -444,6 +481,21 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
         Connection: "keep-alive",
       },
     });
+  });
+
+  app.post(`${prefix}/bench/:runId/pause`, (c) => {
+    const ok = pauseRunControl(c.req.param("runId"));
+    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: "not_found" }, 404);
+  });
+
+  app.post(`${prefix}/bench/:runId/resume`, (c) => {
+    const ok = resumeRunControl(c.req.param("runId"));
+    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: "not_found" }, 404);
+  });
+
+  app.post(`${prefix}/bench/:runId/stop`, (c) => {
+    const ok = cancelRunControl(c.req.param("runId"));
+    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: "not_found" }, 404);
   });
 
   app.post(`${prefix}/stress/stream`, async (c) => {

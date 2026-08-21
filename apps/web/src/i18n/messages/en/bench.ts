@@ -131,6 +131,12 @@ export const bench: Messages["bench"] = {
   runSelected: "Bench selected models",
   runSelectedAria: "Run bench on selected models",
   selectScenarioTitle: "Select at least one scenario to run",
+  pauseBtn: "Pause",
+  pauseBtnAria: "Pause the running bench",
+  resumeBtn: "Resume",
+  resumeBtnAria: "Resume the paused bench",
+  stopBtn: "Stop",
+  stopBtnAria: "Emergency-stop the running bench",
 
   // Bench run confirm dialog
   confirmRun: "Run bench",
@@ -197,6 +203,7 @@ export const bench: Messages["bench"] = {
   selectModelToBench: "Select at least one model to bench.",
   benchDoneWithIssues: "Bench ended — there were errors/incomplete streams. Check the log.",
   benchAllDone: "All benches completed.",
+  benchCancelledToast: "Bench stopped.",
 
   // Progress summary · event log (BenchProgressPanel · pushBenchLine)
   streamConnecting: "Connecting stream…",
@@ -223,10 +230,13 @@ export const bench: Messages["bench"] = {
   iterMeasured: (cur, total) => `measured ${cur}/${total}`,
   eventScenarioStart: (scenarioId, api, iterLabel) => `start · ${scenarioId} · ${api} (${iterLabel})`,
   eventRunFinished: (modelId) => `Run finished · ${modelId}`,
+  eventRunCancelled: (modelId) => `Stopped · ${modelId}`,
   waitPhasePre: "pre-bench",
   waitPhaseBetween: "between-iter",
   eventContentionWaiting: (where, reason, gpu, elapsedMs) => `waiting · ${where} · ${reason}${gpu} (${elapsedMs}ms)`,
   eventContentionResumed: (waitedMs) => `resumed · after ${waitedMs}ms wait`,
+  eventRunPaused: "⏸ paused",
+  eventRunResumed: "▶ resumed",
   eventIterationDiscarded: (cur, max, scenarioId, reason) =>
     `contention discard · re-measure ${cur}/${max} · ${scenarioId} · ${reason}`,
   guardIneffective: " · guard ineffective (no signal)",

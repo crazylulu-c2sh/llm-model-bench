@@ -5,7 +5,7 @@ import type { BenchRunMeta, StressRunStatus } from "@llm-bench/shared";
 
 export type { StressRunStatus };
 
-export type RunStatus = "running" | "ok" | "partial" | "error";
+export type RunStatus = "running" | "ok" | "partial" | "error" | "cancelled";
 
 export function defaultDbPath(): string {
   return process.env.BENCH_DB_PATH ?? path.resolve(process.cwd(), "data", "bench.sqlite");
@@ -599,7 +599,7 @@ export function latestFinishedRunsByModels(
            AND COALESCE(json_array_length(json_extract(s.aggregate_json, '$.runs')), 0) > 0
        ) AS scenario_count
      FROM bench_runs r
-     WHERE r.base_url = ? AND r.model_id = ? AND r.status IN ('ok', 'partial') AND r.finished_at IS NOT NULL
+     WHERE r.base_url = ? AND r.model_id = ? AND r.status IN ('ok', 'partial', 'cancelled') AND r.finished_at IS NOT NULL
      ORDER BY datetime(r.finished_at) DESC, datetime(r.created_at) DESC, r.rowid DESC
      LIMIT 1`,
   );
@@ -648,7 +648,7 @@ export function listLatestFinishedRunSummaries(db: DatabaseSync): LatestFinished
              ORDER BY datetime(finished_at) DESC, datetime(created_at) DESC, rowid DESC
            ) AS rn
          FROM bench_runs
-         WHERE status IN ('ok', 'partial') AND finished_at IS NOT NULL
+         WHERE status IN ('ok', 'partial', 'cancelled') AND finished_at IS NOT NULL
        ) AS ranked
        WHERE rn = 1
        ORDER BY model_id, base_url`,

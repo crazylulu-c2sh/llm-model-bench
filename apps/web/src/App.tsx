@@ -32,6 +32,7 @@ import {
   Loader2,
   MessageSquare,
   Monitor,
+  Pause,
   Play,
   Square,
 } from "lucide-react";
@@ -362,6 +363,8 @@ export function App() {
     [detect, rows],
   );
   const [running, setRunning] = useState(false);
+  const [benchRunId, setBenchRunId] = useState<string | null>(null);
+  const [benchPaused, setBenchPaused] = useState(false);
   const [preview, setPreview] = useState("");
   const [hlPreview, setHlPreview] = useState(boot.hlPreview);
   const [hlLog, setHlLog] = useState(boot.hlLog);
@@ -1144,14 +1147,20 @@ export function App() {
     setTouchedScenarioIds([]);
     setLiveObserved(new Map());
     setEtaPaused(false);
+    setBenchRunId(null);
+    setBenchPaused(false);
     activeRunMetaRef.current = null;
     let anyHttpFail = false;
     let streamErrorCount = 0;
     let streamIncomplete = false;
+    let wasCancelled = false;
     for (const m of models) {
       appendLog(`bench start model=${m.id}`);
       setBenchCurrent({ modelId: m.id });
+      setBenchRunId(null);
+      setBenchPaused(false);
       let sawRunFinished = false;
+      let cancelledByUser = false;
       let streamMeta: BenchRunMeta | null = null;
       let lastScenarioStart: { sid: string; api: string } | null = null;
       let iterInScenario = 0;
@@ -1209,6 +1218,8 @@ export function App() {
             const ridShort = ev.run_id.length > 28 ? `${ev.run_id.slice(0, 28)}…` : ev.run_id;
             pushBenchLine("info", msg().bench.eventRunStart(ridShort));
             setBenchCurrent({ modelId: m.id });
+            setBenchRunId(ev.run_id);
+            setBenchPaused(false);
             activeRunMetaRef.current = { warmupRuns: ev.meta?.warmup_runs ?? 1, measuredRuns: ev.meta?.measured_runs ?? 3 };
           }
           if (ev.type === "preflight_memory_fit") {
@@ -1303,7 +1314,12 @@ export function App() {
           }
           if (ev.type === "run_finished") {
             sawRunFinished = true;
-            pushBenchLine("ok", msg().bench.eventRunFinished(m.id));
+            if (ev.reason === "cancelled") {
+              cancelledByUser = true;
+              pushBenchLine("warn", msg().bench.eventRunCancelled(m.id));
+            } else {
+              pushBenchLine("ok", msg().bench.eventRunFinished(m.id));
+            }
             setBenchCurrent({ modelId: m.id });
           }
           if (ev.type === "token_delta") {
@@ -1320,6 +1336,16 @@ export function App() {
           }
           if (ev.type === "contention_resumed") {
             pushBenchLine("ok", msg().bench.eventContentionResumed(ev.waited_ms));
+            setEtaPaused(false);
+          }
+          if (ev.type === "run_paused") {
+            setBenchPaused(true);
+            pushBenchLine("warn", msg().bench.eventRunPaused);
+            setEtaPaused(true);
+          }
+          if (ev.type === "run_resumed") {
+            setBenchPaused(false);
+            pushBenchLine("ok", msg().bench.eventRunResumed);
             setEtaPaused(false);
           }
           if (ev.type === "iteration_discarded") {
@@ -1417,15 +1443,34 @@ export function App() {
         appendLog(String(e));
         pushBenchLine("err", msg().bench.eventRequestFailed(m.id, String(e).slice(0, 200)));
       }
+      if (cancelledByUser) {
+        wasCancelled = true;
+        break; // 큐에 남은 나머지 모델로 넘어가지 않고 전체 정지.
+      }
     }
     setRunning(false);
+    setBenchRunId(null);
+    setBenchPaused(false);
     appendLog("bench finished");
-    if (anyHttpFail || streamErrorCount > 0 || streamIncomplete) {
+    if (wasCancelled) {
+      toast(msg().bench.benchCancelledToast);
+    } else if (anyHttpFail || streamErrorCount > 0 || streamIncomplete) {
       toast.warning(msg().bench.benchDoneWithIssues);
     } else {
       toast.success(msg().bench.benchAllDone);
     }
   }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, fitPolicy, loadTtlSecondsNum, unloadOtherModels, visibleSelectedScenarioIds]);
+
+  const toggleBenchPause = useCallback(() => {
+    if (!benchRunId) return;
+    const action = benchPaused ? "resume" : "pause";
+    void fetch(`/api/bench/${benchRunId}/${action}`, { method: "POST" }).catch(() => {});
+  }, [benchRunId, benchPaused]);
+
+  const stopBench = useCallback(() => {
+    if (!benchRunId) return;
+    void fetch(`/api/bench/${benchRunId}/stop`, { method: "POST" }).catch(() => {});
+  }, [benchRunId]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
@@ -2282,23 +2327,49 @@ export function App() {
           progress={running ? benchProgress : undefined}
           eta={benchEta}
           benchAction={
-            <button
-              type="button"
-              className={[
-                "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold shadow-sm disabled:opacity-50",
-                benchStartEmphasis
-                  ? "bg-[var(--accent)] text-white"
-                  : "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]",
-              ].join(" ")}
-              onClick={requestBench}
-              disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
-              aria-busy={running}
-              aria-label={msg().bench.runSelectedAria}
-              title={visibleSelectedScenarioIds.length === 0 ? msg().bench.selectScenarioTitle : undefined}
-            >
-              {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Play className="size-4" aria-hidden />}
-              {msg().bench.runSelected}
-            </button>
+            <>
+              <button
+                type="button"
+                className={[
+                  "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold shadow-sm disabled:opacity-50",
+                  benchStartEmphasis
+                    ? "bg-[var(--accent)] text-white"
+                    : "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]",
+                ].join(" ")}
+                onClick={requestBench}
+                disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
+                aria-busy={running}
+                aria-label={msg().bench.runSelectedAria}
+                title={visibleSelectedScenarioIds.length === 0 ? msg().bench.selectScenarioTitle : undefined}
+              >
+                {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Play className="size-4" aria-hidden />}
+                {msg().bench.runSelected}
+              </button>
+              {running ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm disabled:opacity-50"
+                  onClick={toggleBenchPause}
+                  disabled={!benchRunId}
+                  aria-label={benchPaused ? msg().bench.resumeBtnAria : msg().bench.pauseBtnAria}
+                >
+                  {benchPaused ? <Play className="size-4" aria-hidden /> : <Pause className="size-4" aria-hidden />}
+                  {benchPaused ? msg().bench.resumeBtn : msg().bench.pauseBtn}
+                </button>
+              ) : null}
+              {running ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-md bg-[var(--danger)] px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+                  onClick={stopBench}
+                  disabled={!benchRunId}
+                  aria-label={msg().bench.stopBtnAria}
+                >
+                  <Square className="size-4" aria-hidden />
+                  {msg().bench.stopBtn}
+                </button>
+              ) : null}
+            </>
           }
         />
 
