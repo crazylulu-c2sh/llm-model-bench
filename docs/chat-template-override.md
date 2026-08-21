@@ -149,7 +149,11 @@ Qwen3.8 공식 템플릿은 `reasoning_effort`가 `xhigh`·`medium`·`low`가 �
 LM Studio에서 Qwen3.8-27B를 5개 런(bf16 · q4_k_xl · q8_k_xl · unsloth q8_0 + 초기 런) 돌린 결과
 **템플릿 렌더 실패는 0건**이었다. 도구 시나리오의 Anthropic `messages` 라우트 —
 gemma-4·nemotron이 깨지는 바로 그 경로 — 도 정상 렌더됐다.
-같은 서버의 `gemma-4-12b-it@q4_k_xl`·`@q8_k_xl`가 같은 시나리오에서 3/3 미완료(`stream_completed=false`)로
-실패한 것과 대조된다.
+
+> 이 측정은 **템플릿 오버라이드를 적용하지 않은 스톡 상태**에서 나왔다. 즉 "패치해서 고쳐진 것"이 아니라
+> **애초에 패치가 필요 없다**는 뜻이다. 같은 호스트의 `gemma-4-12b-it@q4_k_xl`·`@q8_k_xl`는
+> 같은 스톡 상태에서 같은 시나리오가 3/3 미완료(`stream_completed=false`)로 실패한다 —
+> [`lmstudio-jinja-template-crashes.md`](lmstudio-jinja-template-crashes.md)의 알려진 버그가 그대로 재현되는 것이며,
+> 그쪽은 패치 스크립트를 돌리면 된다.
 
 > 교체는 **관측된 실패가 있을 때만** 한다. 예방 목적의 선제 교체는 벤치 비교 가능성만 잃는다.

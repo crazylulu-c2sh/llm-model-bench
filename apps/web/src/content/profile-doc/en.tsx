@@ -347,8 +347,9 @@ export const en: ProfileDocContent = {
       </li>,
       <li key="multimodal">The 27B natively accepts image and video input, so vision scenarios work as-is.</li>,
       <li key="measured">
-        <strong className="text-[var(--foreground)]">Measured</strong> (LM Studio · 27B · 5 runs) — template render failures:{" "}
-        <strong className="text-[var(--foreground)]">zero</strong>, so no template override is needed. But even at{" "}
+        <strong className="text-[var(--foreground)]">Measured</strong> (LM Studio · 27B · 5 runs, stock template with no
+        override applied) — render failures: <strong className="text-[var(--foreground)]">zero</strong>, so no template
+        override is needed. But even at{" "}
         <code className="font-mono text-xs">effort=low</code> a single{" "}
         <code className="font-mono text-xs">chat_completions</code> scenario took up to ~15 minutes and a full run
         115–175 minutes, and the agent_loop scenarios reproduce{" "}

@@ -339,8 +339,9 @@ export const ja: ProfileDocContent = {
       </li>,
       <li key="multimodal">27B は画像・動画入力をネイティブに扱えるため、ビジョンシナリオでもそのまま使えます。</li>,
       <li key="measured">
-        <strong className="text-[var(--foreground)]">実測</strong>(LM Studio・27B・5 ラン)— テンプレートのレンダリング失敗は{" "}
-        <strong className="text-[var(--foreground)]">0 件</strong>で、テンプレートの差し替えは不要です。ただし{" "}
+        <strong className="text-[var(--foreground)]">実測</strong>(LM Studio・27B・5 ラン、オーバーライド未適用の素の
+        テンプレート)— レンダリング失敗は <strong className="text-[var(--foreground)]">0 件</strong>で、テンプレートの
+        差し替えは不要です。ただし{" "}
         <code className="font-mono text-xs">effort=low</code> でも{" "}
         <code className="font-mono text-xs">chat_completions</code> の単一シナリオが最長約 15 分、ラン全体で 115〜175 分
         かかり、agent_loop シナリオは <code className="font-mono text-xs">stall</code>・

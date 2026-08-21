@@ -337,8 +337,8 @@ export const ko: ProfileDocContent = {
       </li>,
       <li key="multimodal">27B는 이미지·영상 입력을 네이티브 지원하므로 비전 시나리오에도 그대로 쓸 수 있습니다.</li>,
       <li key="measured">
-        <strong className="text-[var(--foreground)]">실측</strong>(LM Studio · 27B · 5개 런) — 템플릿 렌더 실패{" "}
-        <strong className="text-[var(--foreground)]">0건</strong>이라 템플릿 교체가 필요 없습니다. 다만{" "}
+        <strong className="text-[var(--foreground)]">실측</strong>(LM Studio · 27B · 5개 런, 오버라이드 미적용 스톡 템플릿) —
+        렌더 실패 <strong className="text-[var(--foreground)]">0건</strong>이라 템플릿 교체가 필요 없습니다. 다만{" "}
         <code className="font-mono text-xs">effort=low</code>에서도 <code className="font-mono text-xs">chat_completions</code>{" "}
         단일 시나리오가 최장 약 15분, 런 전체 115~175분이었고, agent_loop 시나리오는{" "}
         <code className="font-mono text-xs">stall</code>·<code className="font-mono text-xs">budget_exhausted</code>로 3/3
