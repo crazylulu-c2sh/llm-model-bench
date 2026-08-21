@@ -41,7 +41,11 @@ export const scoreboard = {
   vendorHide: "숨기기",
   vendorToggleTitle: (label: string, action: string) => `${label} ${action}`,
   all: "전체",
-  allVendorsHidden: "모든 벤더가 숨겨졌습니다. 위 필터에서 벤더를 선택해 다시 표시하세요.",
+  paramTierFilterLabel: "규모:",
+  // Tiny/Small/Medium/Large는 모든 로케일에서 고정 영어(번역 안 함) — profileUnknown과 동일 규칙.
+  paramTier: { tiny: "Tiny", small: "Small", medium: "Medium", large: "Large" },
+  paramTierUnknown: "Unknown",
+  allFilteredOut: "필터로 모든 모델이 숨겨졌습니다. 위 필터에서 다시 선택해 표시하세요.",
   tableCaption: "모델별 텍스트·비전·에이전트·총합 품질·속도·지연 스코어보드",
   qualityTag: "(품질)",
   speedTag: "(속도)",

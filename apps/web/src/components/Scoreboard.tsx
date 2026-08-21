@@ -5,7 +5,9 @@ import {
   formatTps,
   formatTtftMs,
   inferModelVendor,
+  inferParamTier,
   leakMetricsFromRows,
+  type ParamTier,
   type ProviderKind,
   type VendorKey,
 } from "@llm-bench/shared";
@@ -31,6 +33,7 @@ import type { QualityGroupScore } from "../lib/quality-score";
 import type { SpeedGroup } from "../lib/speed-score";
 import { BAND_COLOR, qualityBand, type ScoreBand } from "../lib/score-bands";
 import { getTpsTier, tpsTierColor } from "../lib/tps-tier";
+import { PARAM_TIER_ORDER, paramTierColor, paramTierLabel } from "../lib/param-tier";
 import { ScoreboardChart, Segmented } from "./ScoreboardChart";
 import { ModelLabel } from "./ModelLabel";
 import { VendorIcon, vendorLabel } from "./VendorIcon";
@@ -376,6 +379,7 @@ export function Scoreboard({
   const [sort, setSort] = useState<ScoreboardSort>(DEFAULT_SCOREBOARD_SORT);
   const [view, setView] = useState<"chart" | "table" | "leaks" | "agent">("chart");
   const [hiddenVendors, setHiddenVendors] = useState<Set<VendorKey>>(() => new Set());
+  const [hiddenTiers, setHiddenTiers] = useState<Set<ParamTier | null>>(() => new Set());
   function onSortClick(key: ScoreboardSortKey) {
     setSort((prev) =>
       sameSortKey(prev.key, key)
@@ -389,32 +393,46 @@ export function Scoreboard({
     for (const b of board) m.set(inferModelVendor(b.model_id), (m.get(inferModelVendor(b.model_id)) ?? 0) + 1);
     return m;
   }, [board]);
-  const filteredBoard = useMemo(
-    () =>
-      hiddenVendors.size === 0
-        ? board
-        : board.filter((b) => !hiddenVendors.has(inferModelVendor(b.model_id))),
-    [board, hiddenVendors],
-  );
-  const filteredLeaks = useMemo(
-    () =>
-      hiddenVendors.size === 0
-        ? leaks
-        : leaks.filter((l) => !hiddenVendors.has(inferModelVendor(l.model_id))),
-    [leaks, hiddenVendors],
-  );
-  const filteredAgentMetrics = useMemo(
-    () =>
-      hiddenVendors.size === 0
-        ? agentMetrics
-        : agentMetrics.filter((a) => !hiddenVendors.has(inferModelVendor(a.model_id))),
-    [agentMetrics, hiddenVendors],
-  );
+  // 규모 등급 필터: 같은 등급끼리만 비교되도록 벤더 필터와 병행 적용(둘 다 AND 조건).
+  const tierCounts = useMemo(() => {
+    const m = new Map<ParamTier | null, number>();
+    for (const b of board) {
+      const t = inferParamTier({ modelId: b.model_id });
+      m.set(t, (m.get(t) ?? 0) + 1);
+    }
+    return m;
+  }, [board]);
+  const filteredBoard = useMemo(() => {
+    if (hiddenVendors.size === 0 && hiddenTiers.size === 0) return board;
+    return board.filter(
+      (b) => !hiddenVendors.has(inferModelVendor(b.model_id)) && !hiddenTiers.has(inferParamTier({ modelId: b.model_id })),
+    );
+  }, [board, hiddenVendors, hiddenTiers]);
+  const filteredLeaks = useMemo(() => {
+    if (hiddenVendors.size === 0 && hiddenTiers.size === 0) return leaks;
+    return leaks.filter(
+      (l) => !hiddenVendors.has(inferModelVendor(l.model_id)) && !hiddenTiers.has(inferParamTier({ modelId: l.model_id })),
+    );
+  }, [leaks, hiddenVendors, hiddenTiers]);
+  const filteredAgentMetrics = useMemo(() => {
+    if (hiddenVendors.size === 0 && hiddenTiers.size === 0) return agentMetrics;
+    return agentMetrics.filter(
+      (a) => !hiddenVendors.has(inferModelVendor(a.model_id)) && !hiddenTiers.has(inferParamTier({ modelId: a.model_id })),
+    );
+  }, [agentMetrics, hiddenVendors, hiddenTiers]);
   function toggleVendor(v: VendorKey) {
     setHiddenVendors((prev) => {
       const next = new Set(prev);
       if (next.has(v)) next.delete(v);
       else next.add(v);
+      return next;
+    });
+  }
+  function toggleTier(t: ParamTier | null) {
+    setHiddenTiers((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
       return next;
     });
   }
@@ -454,7 +472,9 @@ export function Scoreboard({
   const showChart = view === "chart" && !loadingLayout;
   // 벤더 필터는 벤치 로딩 중이 아니고 벤더가 2종 이상일 때만 노출.
   const showVendorFilter = !loadingLayout && vendorCounts.size >= 2;
-  const allVendorsHidden = !loadingLayout && filteredBoard.length === 0;
+  // 규모 등급 필터는 등급(unknown 포함)이 2종 이상일 때만 노출.
+  const showTierFilter = !loadingLayout && tierCounts.size >= 2;
+  const allFilteredOut = !loadingLayout && filteredBoard.length === 0;
 
   return (
     <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
@@ -528,9 +548,47 @@ export function Scoreboard({
           ) : null}
         </div>
       ) : null}
-      {allVendorsHidden ? (
+      {showTierFilter ? (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="text-[var(--muted)]">{m.scoreboard.paramTierFilterLabel}</span>
+          {[...PARAM_TIER_ORDER, null]
+            .filter((t) => tierCounts.has(t))
+            .map((t) => {
+              const hidden = hiddenTiers.has(t);
+              const label = paramTierLabel(t, m);
+              return (
+                <button
+                  key={t ?? "unknown"}
+                  type="button"
+                  onClick={() => toggleTier(t)}
+                  aria-pressed={!hidden}
+                  title={m.scoreboard.vendorToggleTitle(label, hidden ? m.scoreboard.vendorShow : m.scoreboard.vendorHide)}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors ${
+                    hidden
+                      ? "border border-dashed border-[var(--border)] text-[var(--muted)] opacity-60"
+                      : "border border-[var(--accent)] text-[var(--foreground)]"
+                  }`}
+                >
+                  <span className="size-2 shrink-0 rounded-full" style={{ background: paramTierColor(t) }} aria-hidden />
+                  {label}
+                  <span className="text-[var(--muted)]">{tierCounts.get(t)}</span>
+                </button>
+              );
+            })}
+          {hiddenTiers.size > 0 ? (
+            <button
+              type="button"
+              onClick={() => setHiddenTiers(new Set())}
+              className="ml-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--muted)] hover:text-[var(--foreground)]"
+            >
+              {m.scoreboard.all}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {allFilteredOut ? (
         <p className="rounded border border-dashed border-[var(--border)] px-3 py-10 text-center text-xs text-[var(--muted)]">
-          {m.scoreboard.allVendorsHidden}
+          {m.scoreboard.allFilteredOut}
         </p>
       ) : showChart ? (
         <ScoreboardChart board={filteredBoard} providerByModel={providerByModel} />

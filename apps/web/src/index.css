@@ -31,6 +31,11 @@ html[data-theme="dark"] {
   --tier-good: #d4a72c;
   --tier-okay: #db6d28;
   --tier-slow: #f85149;
+  /* 파라미터 규모 등급(Tiny~Large) — 좋고 나쁨의 방향이 없어 tier-fast 등의 램프와 분리한 단일색조 시퀀셜 팔레트 */
+  --param-tier-tiny: #b8dbf9;
+  --param-tier-small: #84c0f5;
+  --param-tier-medium: #50a6f1;
+  --param-tier-large: #2690ed;
   /* KWCAG 5.4.3: 텍스트 4.5:1 / UI 3:1 검증값 — index-css-contrast.test.ts가 회귀 감시 */
   --warning: #d4a72c;
   --border-input: #6e7681;
@@ -73,6 +78,10 @@ html[data-theme="light"] {
   --tier-good: #7d5300;
   --tier-okay: #bc4c00;
   --tier-slow: #cf222e;
+  --param-tier-tiny: #0f6cbd;
+  --param-tier-small: #0b518e;
+  --param-tier-medium: #083963;
+  --param-tier-large: #05233d;
   --warning: #9a6700;
   --border-input: #7d858f;
   --focus-ring: #116329;
