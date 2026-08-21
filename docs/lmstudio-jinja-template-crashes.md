@@ -11,6 +11,10 @@ LM Studio 백엔드로 벤치를 돌릴 때, **Anthropic 호환 `POST /v1/messag
 - [`scripts/fix-nemotron-lmstudio-template.sh`](../scripts/fix-nemotron-lmstudio-template.sh) — `nvidia/nemotron-3-nano*`
 - [`scripts/fix-gemma4-lmstudio-template.sh`](../scripts/fix-gemma4-lmstudio-template.sh) — `google/gemma-4-*` (unsloth/lmstudio-community 양자화 포함)
 
+> 이 문서는 **LM Studio에서 관측된 특정 크래시**의 원인·진단·전용 패치를 다룬다.
+> 엔진별로 chat template을 어떻게 바꾸는지(LM Studio · llama.cpp · vLLM · Ollama)만 필요하면
+> [`chat-template-override.md`](chat-template-override.md)를 보면 된다.
+
 ---
 
 ## 1. 증상 (로그에서 보이는 것)
@@ -111,6 +115,9 @@ Gemma 4의 `chat_template.jinja`(매크로 5개, ~290줄)는 **철저히 OpenAI 
 | 3 | **LM Studio 업데이트** | 없음 | 최신 llama.cpp/minja는 Anthropic content를 OpenAI 형태로 재구성 + 빌트인 보강. ②와 병행 권장 |
 | 4 | (최후) 해당 모델만 `messages` 경로 비활성 → `chat`로 폴백 | 설정 변경 필요 | 실패 경로 자체를 우회 |
 
+①을 LM Studio 밖(llama.cpp·vLLM·Ollama)에서 하는 방법은 [`chat-template-override.md`](chat-template-override.md) 참고.
+특히 **Ollama는 Jinja가 아니라 Go 템플릿**이라 여기 스크립트가 만드는 Jinja를 그대로 쓸 수 없다.
+
 순수 운영(코드/설정 무수정) 관점에선 **②+③**(GGUF 재다운로드 + LM Studio 업데이트)이 가장 깔끔하다.
 ②/③로도 안 풀리거나 특정 양자화를 고정해야 하면 **①** 템플릿 오버라이드를 쓴다.
 
@@ -176,5 +183,3 @@ UNLOAD+RELOAD 후, 도구가 붙은 첫 턴과 도구 결과 피드백 턴 두 �
 - 시나리오/도구 정의: [`apps/server/src/scenarios.ts`](../apps/server/src/scenarios.ts) (`translateToolsAnthropic`, `tool_weather`)
 - 프로파일·샘플링·`<|think|>` 규칙: [`packages/shared/src/llm-profiles.ts`](../packages/shared/src/llm-profiles.ts) (`gemma4`)
 - Anthropic 요청 빌드 + think 토큰 주입: [`apps/server/src/bench-runner.ts`](../apps/server/src/bench-runner.ts) (`prepareAnthropicScenario`)
-</content>
-</invoke>

@@ -116,8 +116,18 @@ export const ko: ProfileDocContent = {
           <code className="font-mono text-xs">--dry-run</code>으로 diff 확인 후 적용 → 모델 UNLOAD·RELOAD.
         </li>
         <li>
+          <strong className="text-[var(--foreground)]">엔진별 템플릿 교체</strong> — LM Studio는 My Models → ⚙️ →{" "}
+          <code className="font-mono text-xs">Prompt Template</code>(Jinja), llama.cpp는{" "}
+          <code className="font-mono text-xs">--jinja --chat-template-file</code>, vLLM은{" "}
+          <code className="font-mono text-xs">--chat-template</code>. <strong className="text-[var(--foreground)]">Ollama만
+          Jinja가 아니라 Go 템플릿</strong>이라 다른 엔진용 Jinja를 그대로 못 씁니다. 절차·검증·되돌리기는{" "}
+          <code className="font-mono text-xs">docs/chat-template-override.md</code>. 템플릿을 바꾸면 프롬프트가 달라져
+          스톡 모델 간 비교가 깨지므로 <strong className="text-[var(--foreground)]">관측된 실패가 있을 때만</strong> 교체하세요.
+        </li>
+        <li>
           상세 문서: <code className="font-mono text-xs">docs/lmstudio-engine-protocol.md</code>(엔진 프로토콜 회귀),{" "}
-          <code className="font-mono text-xs">docs/lmstudio-jinja-template-crashes.md</code>(Jinja 크래시) — 저장소 루트
+          <code className="font-mono text-xs">docs/lmstudio-jinja-template-crashes.md</code>(Jinja 크래시),{" "}
+          <code className="font-mono text-xs">docs/chat-template-override.md</code>(엔진별 교체 방법) — 저장소 루트
         </li>
         <li>
           <code className="font-mono text-xs">stripThinkingBlocks</code>·<code className="font-mono text-xs">enable_thinking</code>는
@@ -326,6 +336,14 @@ export const ko: ProfileDocContent = {
         <code className="font-mono text-xs">max_tokens</code>로 낮춰 쓰세요.
       </li>,
       <li key="multimodal">27B는 이미지·영상 입력을 네이티브 지원하므로 비전 시나리오에도 그대로 쓸 수 있습니다.</li>,
+      <li key="measured">
+        <strong className="text-[var(--foreground)]">실측</strong>(LM Studio · 27B · 5개 런) — 템플릿 렌더 실패{" "}
+        <strong className="text-[var(--foreground)]">0건</strong>이라 템플릿 교체가 필요 없습니다. 다만{" "}
+        <code className="font-mono text-xs">effort=low</code>에서도 <code className="font-mono text-xs">chat_completions</code>{" "}
+        단일 시나리오가 최장 약 15분, 런 전체 115~175분이었고, agent_loop 시나리오는{" "}
+        <code className="font-mono text-xs">stall</code>·<code className="font-mono text-xs">budget_exhausted</code>로 3/3
+        재현됩니다. 짧게 돌리려면 UI <code className="font-mono text-xs">max_tokens</code>를 낮추세요.
+      </li>,
     ],
     nemotron3: [
       <li key="enable_thinking">

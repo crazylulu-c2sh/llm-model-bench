@@ -117,8 +117,19 @@ export const ja: ProfileDocContent = {
           <code className="font-mono text-xs">--dry-run</code> で diff を確認してから適用 → モデルを UNLOAD·RELOAD。
         </li>
         <li>
+          <strong className="text-[var(--foreground)]">エンジン別のテンプレート差し替え</strong> — LM Studio は My Models → ⚙️ →{" "}
+          <code className="font-mono text-xs">Prompt Template</code>(Jinja)、llama.cpp は{" "}
+          <code className="font-mono text-xs">--jinja --chat-template-file</code>、vLLM は{" "}
+          <code className="font-mono text-xs">--chat-template</code>。<strong className="text-[var(--foreground)]">Ollama だけは
+          Jinja ではなく Go テンプレート</strong>なので、他エンジン用の Jinja をそのままは使えません。手順・検証・巻き戻しは{" "}
+          <code className="font-mono text-xs">docs/chat-template-override.md</code>。テンプレートを変えるとモデルに入る
+          プロンプトが変わり、素のモデル同士の比較が崩れるため、
+          <strong className="text-[var(--foreground)]">観測された失敗がある場合にのみ</strong>差し替えてください。
+        </li>
+        <li>
           詳細ドキュメント: <code className="font-mono text-xs">docs/lmstudio-engine-protocol.md</code>(エンジンプロトコル回帰)、{" "}
-          <code className="font-mono text-xs">docs/lmstudio-jinja-template-crashes.md</code>(Jinja クラッシュ)— リポジトリルート
+          <code className="font-mono text-xs">docs/lmstudio-jinja-template-crashes.md</code>(Jinja クラッシュ)、{" "}
+          <code className="font-mono text-xs">docs/chat-template-override.md</code>(エンジン別の差し替え)— リポジトリルート
         </li>
         <li>
           <code className="font-mono text-xs">stripThinkingBlocks</code>·<code className="font-mono text-xs">enable_thinking</code> は
@@ -327,6 +338,15 @@ export const ja: ProfileDocContent = {
         <code className="font-mono text-xs">max_tokens</code> で下げてください。
       </li>,
       <li key="multimodal">27B は画像・動画入力をネイティブに扱えるため、ビジョンシナリオでもそのまま使えます。</li>,
+      <li key="measured">
+        <strong className="text-[var(--foreground)]">実測</strong>(LM Studio・27B・5 ラン)— テンプレートのレンダリング失敗は{" "}
+        <strong className="text-[var(--foreground)]">0 件</strong>で、テンプレートの差し替えは不要です。ただし{" "}
+        <code className="font-mono text-xs">effort=low</code> でも{" "}
+        <code className="font-mono text-xs">chat_completions</code> の単一シナリオが最長約 15 分、ラン全体で 115〜175 分
+        かかり、agent_loop シナリオは <code className="font-mono text-xs">stall</code>・
+        <code className="font-mono text-xs">budget_exhausted</code> が 3/3 再現します。短く回すには UI の{" "}
+        <code className="font-mono text-xs">max_tokens</code> を下げてください。
+      </li>,
     ],
     nemotron3: [
       <li key="enable_thinking">
