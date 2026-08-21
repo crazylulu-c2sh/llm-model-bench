@@ -112,6 +112,7 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
 export function buildChartRowsFromBenchState(
   rows: ResultRow[],
   detailAggregate: Record<string, MetricsAgg>,
+  benchScenarioOrder: string[] = [],
 ): ChartRow[] {
   return sortChartRowsForBarOrder(
     rowsToChartData(
@@ -130,5 +131,6 @@ export function buildChartRowsFromBenchState(
         };
       }),
     ),
+    benchScenarioOrder,
   );
 }

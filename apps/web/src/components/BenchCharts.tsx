@@ -21,6 +21,7 @@ import {
 } from "recharts";
 import type { TooltipValueType } from "recharts";
 import {
+  EMPTY_SCENARIO_ORDER,
   apiRouteRank,
   apiShort,
   avg,
@@ -148,7 +149,7 @@ function metricRaw(row: ChartRow, metric: RadarMetric): number {
 }
 
 /** 시나리오·API 키 목록(세 레이더 축 공통) — 피벗과 동일하게 시나리오·API 순으로 정렬. */
-function scenarioApiKeyOrder(rows: ChartRow[]): string[] {
+function scenarioApiKeyOrder(rows: ChartRow[], realOrder: string[] = EMPTY_SCENARIO_ORDER): string[] {
   const meta = new Map<string, { scenario: string; api: string }>();
   for (const r of rows) {
     if (r.categorySpacer) continue;
@@ -158,7 +159,7 @@ function scenarioApiKeyOrder(rows: ChartRow[]): string[] {
   return [...meta.keys()].sort((ka, kb) => {
     const a = meta.get(ka)!;
     const b = meta.get(kb)!;
-    const s = compareScenarioExecutionOrder(a.scenario, b.scenario);
+    const s = compareScenarioExecutionOrder(a.scenario, b.scenario, realOrder);
     if (s !== 0) return s;
     const d = apiRouteRank(a.api) - apiRouteRank(b.api);
     if (d !== 0) return d;
@@ -167,8 +168,12 @@ function scenarioApiKeyOrder(rows: ChartRow[]): string[] {
 }
 
 /** 단일 시리즈(한 모델): 축은 전체 시나리오·API와 동일, 값은 메트릭별 실제 평균(없으면 0)을 그대로 반경에 사용. */
-function buildSingleRadarData(rows: ChartRow[], metric: RadarMetric): SingleRadarDatum[] {
-  const keys = scenarioApiKeyOrder(rows);
+function buildSingleRadarData(
+  rows: ChartRow[],
+  metric: RadarMetric,
+  realOrder: string[] = EMPTY_SCENARIO_ORDER,
+): SingleRadarDatum[] {
+  const keys = scenarioApiKeyOrder(rows, realOrder);
   const sums = new Map<string, { sum: number; n: number }>();
   for (const r of rows) {
     if (r.categorySpacer) continue;
@@ -517,12 +522,15 @@ function RadarPanelsColumn({
   singleRows,
   pivoted,
   mode,
+  benchScenarioOrder = EMPTY_SCENARIO_ORDER,
 }: {
   axisCount: number;
   compareSeries: CompareSeries[];
   singleRows: ChartRow[] | null;
   pivoted: PivotCompareRow[];
   mode: "compare" | "single";
+  /** 실제 세션/런의 시나리오 실행 순서 — 미전달 시 정적 카탈로그 순서 폴백 */
+  benchScenarioOrder?: string[];
 }) {
   const { m } = useI18n();
   const h = perRadarChartHeight(axisCount) + RADAR_LEGEND_HEIGHT_PX;
@@ -538,12 +546,12 @@ function RadarPanelsColumn({
   );
 
   const ttftSingle = useMemo(
-    () => (singleRows ? buildSingleRadarData(singleRows, "ttft") : []),
-    [singleRows],
+    () => (singleRows ? buildSingleRadarData(singleRows, "ttft", benchScenarioOrder) : []),
+    [singleRows, benchScenarioOrder],
   );
   const tpsSingle = useMemo(
-    () => (singleRows ? buildSingleRadarData(singleRows, "tps") : []),
-    [singleRows],
+    () => (singleRows ? buildSingleRadarData(singleRows, "tps", benchScenarioOrder) : []),
+    [singleRows, benchScenarioOrder],
   );
 
   const showTpsCompare = hasAnyPositiveMetricPivot(pivoted, "tps");
@@ -607,6 +615,8 @@ type BenchChartsProps = {
   compareSeries?: CompareSeries[] | null;
   onBarPayload?: (row: ChartRow) => void;
   onCompareCell?: (scenario: string, api: string, modelId?: string) => void;
+  /** 실제 세션/런의 시나리오 실행 순서 — 미전달 시 정적 카탈로그 순서 폴백 */
+  benchScenarioOrder?: string[];
 };
 
 const BAR_CHART_MAX_PX = 3200;
@@ -644,14 +654,25 @@ function computeVerticalBarChartHeight(
   return Math.min(BAR_CHART_MAX_PX, Math.max(BAR_CHART_MIN_TOTAL_PX, total));
 }
 
-export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareCell }: BenchChartsProps) {
+export function BenchCharts({
+  chartRows,
+  compareSeries,
+  onBarPayload,
+  onCompareCell,
+  benchScenarioOrder = EMPTY_SCENARIO_ORDER,
+}: BenchChartsProps) {
   const { m } = useI18n();
   const tooltipFmt = useMemo(() => makeTooltipMetricFormatter(m.results.chart), [m]);
   const compareMode = compareSeries && compareSeries.length >= 2;
-  const pivoted = compareMode ? pivotCompareSeries(compareSeries) : [];
+  const pivoted = compareMode ? pivotCompareSeries(compareSeries, benchScenarioOrder) : [];
 
   if (compareMode && compareSeries) {
-    const flatRows = comparePivotToFlatBarData(pivoted, compareSeries, m.results.chart.modelFallback);
+    const flatRows = comparePivotToFlatBarData(
+      pivoted,
+      compareSeries,
+      m.results.chart.modelFallback,
+      benchScenarioOrder,
+    );
     const flatRowsSpaced = insertCompareGroupSpacers(flatRows, compareSeries.length);
     const compareLatencyHeight = computeVerticalBarChartHeight(
       flatRowsSpaced.length,
@@ -852,7 +873,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
   const avgTps = avg(tpss);
   const sessionSeries = sessionChartRowsToCompareSeries(chartRows, m.results.chart.unknownModel);
   const useSessionMultiRadar = sessionSeries.length >= 2;
-  const pivotedSession = useSessionMultiRadar ? pivotCompareSeries(sessionSeries) : [];
+  const pivotedSession = useSessionMultiRadar ? pivotCompareSeries(sessionSeries, benchScenarioOrder) : [];
   const radarAxisCount = scenarioApiKeyOrder(chartRows).length;
   const sessionMulti = sessionHasMultiModel(chartRows);
   const sessionBarData = insertSessionGroupSpacers(chartRows, sessionMulti);
@@ -1041,6 +1062,7 @@ export function BenchCharts({ chartRows, compareSeries, onBarPayload, onCompareC
             singleRows={chartRows}
             pivoted={[]}
             mode="single"
+            benchScenarioOrder={benchScenarioOrder}
           />
         ) : useSessionMultiRadar ? (
           <p className="flex h-full min-h-64 items-center justify-center text-center text-sm text-[var(--muted)]">

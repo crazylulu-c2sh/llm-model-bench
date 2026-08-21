@@ -1,3 +1,5 @@
+import { compareStringsPinned } from "./model-sort";
+
 /** `getScenarioUserPromptPreview` 옵션 — 서버 `scenarioUserMessageContent`와 동기화 */
 export type ScenarioPromptPreviewOpts = {
   publicAssetBaseUrl?: string;
@@ -99,6 +101,21 @@ const SCENARIO_EXECUTION_ORDER_INDEX: Map<string, number> = new Map(
 export function scenarioExecutionOrderIndex(id: string): number {
   const i = SCENARIO_EXECUTION_ORDER_INDEX.get(id);
   return i === undefined ? BENCH_PUBLIC_EXECUTION_ORDER_IDS.length : i;
+}
+
+/**
+ * 실제 벤치 실행 순서(realOrder, 예: `BenchRunMeta.scenario_ids`) 우선 비교, 없으면 정적
+ * 카탈로그 순서(`scenarioExecutionOrderIndex`)로 폴백 — `compareModelBenchQueueOrder`와
+ * 동일한 mixed-case 정책(realOrder에 있는 쪽이 항상 먼저)을 쓴다. agent_loop·커스텀 시나리오처럼
+ * 정적 카탈로그에 없는 ID끼리 동률일 때도 이름순 tiebreak으로 항상 결정적 순서를 보장한다.
+ */
+export function compareScenarioBenchOrder(a: string, b: string, realOrder: readonly string[]): number {
+  const ia = realOrder.indexOf(a);
+  const ib = realOrder.indexOf(b);
+  if (ia !== -1 && ib !== -1) return ia - ib;
+  if (ia !== -1) return -1;
+  if (ib !== -1) return 1;
+  return scenarioExecutionOrderIndex(a) - scenarioExecutionOrderIndex(b) || compareStringsPinned(a, b);
 }
 
 /** 비전 시나리오 ID — 카테고리 라벨링·필터링용 */

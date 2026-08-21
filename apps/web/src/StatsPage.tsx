@@ -145,9 +145,20 @@ export function StatsPage() {
     return mergeBenchDetailsToState(sortedBenchDetails);
   }, [sortedBenchDetails]);
 
+  // 선택된 런들의 실제 모델 순서(정렬된 sortedBenchDetails 그대로) — ResultsTable 모델 축 기본값.
+  const benchModelOrder = useMemo(
+    () => sortedBenchDetails.map((d) => String(d.meta.model_id)),
+    [sortedBenchDetails],
+  );
+  // 첫 번째 선택 런의 실제 시나리오 실행 순서 — 여러 런의 시나리오 구성이 다르면 "최선 참고값".
+  const benchScenarioOrder = useMemo(() => {
+    const ids = sortedBenchDetails[0]?.meta.scenario_ids;
+    return Array.isArray(ids) ? (ids as string[]) : [];
+  }, [sortedBenchDetails]);
+
   const chartRows = useMemo(
-    () => buildChartRowsFromBenchState(rows, detailAggregate),
-    [rows, detailAggregate],
+    () => buildChartRowsFromBenchState(rows, detailAggregate, benchScenarioOrder),
+    [rows, detailAggregate, benchScenarioOrder],
   );
 
   const chartModelIds = useMemo(() => {
@@ -374,7 +385,11 @@ export function StatsPage() {
         ) : chartRows.length > 0 && filteredChartRows.length === 0 ? (
           <p className="py-8 text-center text-sm text-[var(--muted)]">{m.stats.selectAtLeastOneVisible}</p>
         ) : filteredChartRows.length > 0 ? (
-          <BenchCharts chartRows={filteredChartRows} onBarPayload={(row) => openFromChartRow(row)} />
+          <BenchCharts
+            chartRows={filteredChartRows}
+            onBarPayload={(row) => openFromChartRow(row)}
+            benchScenarioOrder={benchScenarioOrder}
+          />
         ) : detailLoading ? (
           <p className="py-8 text-center text-sm text-[var(--muted)]">{m.stats.chartLoading}</p>
         ) : (
@@ -385,7 +400,12 @@ export function StatsPage() {
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
         <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">{m.stats.resultsTableTitle}</h2>
         {rows.length > 0 ? (
-          <ResultsTable rows={rows} onRowClick={(r) => openDrawerForRow(r)} />
+          <ResultsTable
+            rows={rows}
+            benchModelOrder={benchModelOrder}
+            benchScenarioOrder={benchScenarioOrder}
+            onRowClick={(r) => openDrawerForRow(r)}
+          />
         ) : (
           <p className="text-sm text-[var(--muted)]">{m.stats.noResults}</p>
         )}

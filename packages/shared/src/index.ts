@@ -11,6 +11,7 @@ export {
   PUBLIC_SCENARIO_IDS,
   STRESS_WORKLOAD_IDS,
   VISION_SCENARIO_IDS,
+  compareScenarioBenchOrder,
   defaultMaxTokensForVisionScenario,
   defaultMaxTokensForWorkload,
   expectedScriptForWorkload,
