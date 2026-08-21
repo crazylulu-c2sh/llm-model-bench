@@ -157,6 +157,13 @@ thinkingIntent `off` 시 — 최상위 `reasoning_effort`는 `"none"`(Ollama가 
 | enable_thinking | 템플릿이 직접 분기 (`is false` 경로 존재) |
 | preserve_thinking | 미지정 시 `true` |
 
+### qwen3.8 실측 (LM Studio · Qwen3.8-27B · 5개 런: bf16 · q4_k_xl · q8_k_xl · unsloth q8_0 + 초기 런)
+
+- **템플릿 렌더 실패 0건** — **템플릿 오버라이드를 적용하지 않은 스톡 상태**에서의 측정입니다. 도구 시나리오의 Anthropic `messages` 라우트 — gemma-4·nemotron이 깨지는 바로 그 경로 — 도 정상 렌더됐고, 하드 실패(`stream_completed=false`)도 0건. 즉 패치해서 고쳐진 게 아니라 **애초에 [템플릿 교체](docs/chat-template-override.md)가 필요 없습니다.**
+- **실행 시간이 깁니다.** `reasoning_effort: low` + `max_tokens: 262144`에서 `chat_completions` 단일 시나리오가 최장 **약 15분(894초)**, 런 전체 115~175분이었습니다. 짧게 돌려야 하면 UI `max_tokens`를 낮추세요.
+- **agent_loop 시나리오가 일관되게 실패합니다** — `agent_loop_chain_v1`은 `stall`, `agent_loop_budget_v1`·`agent_loop_mock_v1`은 `budget_exhausted`로 3/3 재현. 비결정적 흔들림이 아닙니다.
+- 참고: `messages` 라우트의 `reasoning_chars`가 0인 것은 Qwen3.8 고유 현상이 아니라 **모든 모델 공통**(라우트 차원 특성)입니다.
+
 > **max_tokens 주의**: 위 권장값은 모델카드 그대로(사고 262144 / 최종 응답 131072)입니다. 실제 요청 `max_tokens`는 사용자 값·프로파일 값·비전 floor 중 **최댓값**이 쓰이므로, 컨텍스트를 짧게 띄운 백엔드(vLLM `--max-model-len` 등)에서는 UI `max_tokens`로 명시해 낮추세요. llama.cpp·LM Studio는 대개 컨텍스트에 맞춰 클램프합니다.
 
 | preset | temperature | top_p | top_k | min_p | presence_penalty | repetition_penalty |

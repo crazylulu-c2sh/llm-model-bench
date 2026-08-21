@@ -123,8 +123,19 @@ export const en: ProfileDocContent = {
           Check the diff with <code className="font-mono text-xs">--dry-run</code>, then apply → UNLOAD·RELOAD the model.
         </li>
         <li>
+          <strong className="text-[var(--foreground)]">Overriding the template per engine</strong> — LM Studio: My Models → ⚙️ →{" "}
+          <code className="font-mono text-xs">Prompt Template</code> (Jinja); llama.cpp:{" "}
+          <code className="font-mono text-xs">--jinja --chat-template-file</code>; vLLM:{" "}
+          <code className="font-mono text-xs">--chat-template</code>. <strong className="text-[var(--foreground)]">Ollama alone
+          uses Go templates, not Jinja</strong>, so a Jinja template from another engine will not work there. Procedure,
+          verification and rollback: <code className="font-mono text-xs">docs/chat-template-override.md</code>. Changing the
+          template changes the prompt the model sees and breaks stock-model comparability, so override{" "}
+          <strong className="text-[var(--foreground)]">only when you have an observed failure</strong>.
+        </li>
+        <li>
           Detailed docs: <code className="font-mono text-xs">docs/lmstudio-engine-protocol.md</code> (engine protocol regression),{" "}
-          <code className="font-mono text-xs">docs/lmstudio-jinja-template-crashes.md</code> (Jinja crash) — repo root
+          <code className="font-mono text-xs">docs/lmstudio-jinja-template-crashes.md</code> (Jinja crash),{" "}
+          <code className="font-mono text-xs">docs/chat-template-override.md</code> (per-engine override) — repo root
         </li>
         <li>
           <code className="font-mono text-xs">stripThinkingBlocks</code>·<code className="font-mono text-xs">enable_thinking</code> are
@@ -335,6 +346,16 @@ export const en: ProfileDocContent = {
         <code className="font-mono text-xs">max_tokens</code> field.
       </li>,
       <li key="multimodal">The 27B natively accepts image and video input, so vision scenarios work as-is.</li>,
+      <li key="measured">
+        <strong className="text-[var(--foreground)]">Measured</strong> (LM Studio · 27B · 5 runs, stock template with no
+        override applied) — render failures: <strong className="text-[var(--foreground)]">zero</strong>, so no template
+        override is needed. But even at{" "}
+        <code className="font-mono text-xs">effort=low</code> a single{" "}
+        <code className="font-mono text-xs">chat_completions</code> scenario took up to ~15 minutes and a full run
+        115–175 minutes, and the agent_loop scenarios reproduce{" "}
+        <code className="font-mono text-xs">stall</code> / <code className="font-mono text-xs">budget_exhausted</code> 3/3.
+        Lower the UI <code className="font-mono text-xs">max_tokens</code> for shorter runs.
+      </li>,
     ],
     nemotron3: [
       <li key="enable_thinking">
