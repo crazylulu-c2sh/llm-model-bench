@@ -21,6 +21,7 @@ import { makeBenchRunMeta, runBench, type BenchRequest } from "../bench-runner.j
 import { detectProvider } from "../detect.js";
 import { registerMonitorRoutes } from "../monitor-routes.js";
 import { runStress, type StressRequest } from "../stress-runner.js";
+import { pauseRunControl, resumeRunControl } from "../run-control.js";
 import { registerCatalogRoutes } from "../catalog-routes.js";
 import { buildOpenApiSpec } from "../openapi/build-spec.js";
 import { renderDocsHtml } from "../openapi/docs-html.js";
@@ -402,6 +403,12 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       async start(controller) {
         const push = (ev: StreamEvent) =>
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+        // 일시정지 중에는 수 분간 이벤트가 없을 수 있다 — 리버스 프록시/브라우저의 idle-read
+        // 타임아웃으로 연결이 끊기지 않도록 SSE 주석 줄로 주기적 keepalive를 보낸다.
+        // `:`로 시작하는 줄은 `consumeSseJsonLines`가 `data:` 줄만 파싱하므로 무시된다.
+        const keepalive = setInterval(() => {
+          controller.enqueue(encoder.encode(": ping\n\n"));
+        }, 15_000);
         let persister: Persister = noopPersister;
         try {
           const dbMod = await import("../db/database.js");
@@ -430,6 +437,7 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
             message: String(e),
           });
         } finally {
+          clearInterval(keepalive);
           if (started) persister.finalize();
           controller.close();
         }
@@ -444,6 +452,16 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
         Connection: "keep-alive",
       },
     });
+  });
+
+  app.post(`${prefix}/bench/:runId/pause`, (c) => {
+    const ok = pauseRunControl(c.req.param("runId"));
+    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: "not_found" }, 404);
+  });
+
+  app.post(`${prefix}/bench/:runId/resume`, (c) => {
+    const ok = resumeRunControl(c.req.param("runId"));
+    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: "not_found" }, 404);
   });
 
   app.post(`${prefix}/stress/stream`, async (c) => {

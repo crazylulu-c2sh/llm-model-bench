@@ -131,6 +131,10 @@ export const bench: Messages["bench"] = {
   runSelected: "Bench selected models",
   runSelectedAria: "Run bench on selected models",
   selectScenarioTitle: "Select at least one scenario to run",
+  pauseBtn: "Pause",
+  pauseBtnAria: "Pause the running bench",
+  resumeBtn: "Resume",
+  resumeBtnAria: "Resume the paused bench",
 
   // Bench run confirm dialog
   confirmRun: "Run bench",
@@ -227,6 +231,8 @@ export const bench: Messages["bench"] = {
   waitPhaseBetween: "between-iter",
   eventContentionWaiting: (where, reason, gpu, elapsedMs) => `waiting · ${where} · ${reason}${gpu} (${elapsedMs}ms)`,
   eventContentionResumed: (waitedMs) => `resumed · after ${waitedMs}ms wait`,
+  eventRunPaused: "⏸ paused",
+  eventRunResumed: "▶ resumed",
   eventIterationDiscarded: (cur, max, scenarioId, reason) =>
     `contention discard · re-measure ${cur}/${max} · ${scenarioId} · ${reason}`,
   guardIneffective: " · guard ineffective (no signal)",

@@ -134,6 +134,12 @@ export class BenchRunPersistence {
       case "run_finished":
         this.logLine(`run_finished ${ev.run_id}`);
         break;
+      case "run_paused":
+        this.logLine(`run_paused ${ev.scenario_id ?? "?"} ${ev.api_route ?? "?"}`);
+        break;
+      case "run_resumed":
+        this.logLine(`run_resumed ${ev.scenario_id ?? "?"} ${ev.api_route ?? "?"}`);
+        break;
       default:
         break;
     }

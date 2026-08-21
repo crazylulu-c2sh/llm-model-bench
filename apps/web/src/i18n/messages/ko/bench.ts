@@ -125,6 +125,10 @@ export const bench = {
   runSelected: "선택 모델 벤치",
   runSelectedAria: "선택 모델 벤치 실행",
   selectScenarioTitle: "실행할 시나리오를 1개 이상 선택하세요",
+  pauseBtn: "일시정지",
+  pauseBtnAria: "벤치 실행 일시정지",
+  resumeBtn: "재개",
+  resumeBtnAria: "일시정지된 벤치 재개",
 
   // 벤치 실행 확인 다이얼로그
   confirmRun: "벤치 실행",
@@ -221,6 +225,8 @@ export const bench = {
   eventContentionWaiting: (where: string, reason: string, gpu: string, elapsedMs: number) =>
     `대기 · ${where} · ${reason}${gpu} (${elapsedMs}ms)`,
   eventContentionResumed: (waitedMs: number) => `재개 · ${waitedMs}ms 대기 후`,
+  eventRunPaused: "⏸ 일시정지됨",
+  eventRunResumed: "▶ 재개됨",
   eventIterationDiscarded: (cur: number, max: number, scenarioId: string, reason: string) =>
     `오염 폐기 · 재측정 ${cur}/${max} · ${scenarioId} · ${reason}`,
   guardIneffective: " · 가드 비실효(신호 없음)",

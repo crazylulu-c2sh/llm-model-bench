@@ -131,6 +131,10 @@ export const bench: Messages["bench"] = {
   runSelected: "選択モデルをベンチ",
   runSelectedAria: "選択モデルのベンチを実行",
   selectScenarioTitle: "実行するシナリオを 1 つ以上選択してください",
+  pauseBtn: "一時停止",
+  pauseBtnAria: "実行中のベンチを一時停止",
+  resumeBtn: "再開",
+  resumeBtnAria: "一時停止したベンチを再開",
 
   // ベンチ実行確認ダイアログ
   confirmRun: "ベンチ実行",
@@ -227,6 +231,8 @@ export const bench: Messages["bench"] = {
   waitPhaseBetween: "反復間",
   eventContentionWaiting: (where, reason, gpu, elapsedMs) => `待機 · ${where} · ${reason}${gpu} (${elapsedMs}ms)`,
   eventContentionResumed: (waitedMs) => `再開 · ${waitedMs}ms 待機後`,
+  eventRunPaused: "⏸ 一時停止しました",
+  eventRunResumed: "▶ 再開しました",
   eventIterationDiscarded: (cur, max, scenarioId, reason) =>
     `競合破棄 · 再測定 ${cur}/${max} · ${scenarioId} · ${reason}`,
   guardIneffective: " · ガード無効(信号なし)",

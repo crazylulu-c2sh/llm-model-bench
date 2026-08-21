@@ -482,6 +482,18 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     scenario_id: z.string().optional(),
     api_route: z.enum(["chat_completions", "messages"]).optional(),
   }),
+  /** 사용자가 `/bench/:runId/pause`를 호출해 런이 일시정지됨. */
+  z.object({
+    type: z.literal("run_paused"),
+    scenario_id: z.string().optional(),
+    api_route: z.enum(["chat_completions", "messages"]).optional(),
+  }),
+  /** 사용자가 `/bench/:runId/resume`을 호출해 일시정지가 풀리고 진행 재개. */
+  z.object({
+    type: z.literal("run_resumed"),
+    scenario_id: z.string().optional(),
+    api_route: z.enum(["chat_completions", "messages"]).optional(),
+  }),
   /** 오염 가드: 측정 런이 경합으로 오염되어 폐기(재측정 여부 포함). */
   z.object({
     type: z.literal("iteration_discarded"),

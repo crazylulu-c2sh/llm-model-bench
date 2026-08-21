@@ -3,6 +3,7 @@ import { DEFAULT_SCENARIO_IDS } from "@llm-bench/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeBenchRunMeta, normalizeScenarioIdsForBench, runBench, type BenchRequest } from "./bench-runner.js";
 import { _resetStreamUsageCacheForTests } from "./openai-fetch.js";
+import { _resetRunControlRegistryForTests, pauseRunControl, resumeRunControl } from "./run-control.js";
 import type { ScenarioId } from "./scenarios.js";
 
 function jsonResponse(obj: unknown, status = 200) {
@@ -220,6 +221,47 @@ describe("runBench LM Studio autoUnloadAfterBench", () => {
     }
 
     expect(postUnloadCount).toBe(1);
+  });
+});
+
+describe("runBench pause/resume", () => {
+  afterEach(() => {
+    _resetRunControlRegistryForTests();
+  });
+
+  it("emits run_paused at the next iteration checkpoint and run_resumed once resumeRunControl is called", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) return sseChatOk();
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    const gen = runBench(baseBenchRequest({ skipModelLoad: true }), lmStudioDetect(), { fetchImpl });
+
+    const started = await gen.next();
+    expect(started.value?.type).toBe("run_started");
+    const runId = (started.value as { run_id: string }).run_id;
+
+    expect(pauseRunControl(runId)).toBe(true);
+
+    const modelLoaded = await gen.next();
+    expect(modelLoaded.value?.type).toBe("model_loaded");
+
+    // 제너레이터가 `run_paused`를 yield한 시점엔 아직 waitWhileRunPaused를 호출하지 않았으므로,
+    // 여기서 즉시 resumeRunControl을 호출해도 race 없이 정상적으로 바로 재개된다.
+    const paused = await gen.next();
+    expect(paused.value?.type).toBe("run_paused");
+    expect(resumeRunControl(runId)).toBe(true);
+
+    const resumed = await gen.next();
+    expect(resumed.value?.type).toBe("run_resumed");
+
+    const remaining: string[] = [];
+    for (let next = await gen.next(); !next.done; next = await gen.next()) {
+      remaining.push(next.value.type);
+    }
+    expect(remaining).toContain("run_finished");
+    expect(remaining).not.toContain("run_paused");
   });
 });
 

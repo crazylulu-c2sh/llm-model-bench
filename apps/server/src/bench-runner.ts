@@ -82,6 +82,12 @@ import {
   executeBenchTool,
   resolvePublicAssetsOrigin,
 } from "./tooling/bench-tools.js";
+import {
+  isRunPaused,
+  registerRunControl,
+  unregisterRunControl,
+  waitWhileRunPaused,
+} from "./run-control.js";
 
 export type BenchRequest = {
   baseUrl: string;
@@ -529,6 +535,7 @@ export async function* runBench(
   let contentionAbortReason: string | undefined;
 
   const rid = runId();
+  registerRunControl(rid);
   const assetOrigin = resolvePublicAssetsOrigin(input);
   const meta = makeBenchRunMeta(input, detect, rid, {
     profileMaxTokensOverride: input.profileMaxTokens ?? null,
@@ -545,6 +552,7 @@ export async function* runBench(
       message:
         "Neither /v1/chat/completions nor /v1/messages appears available for this base URL.",
     };
+    unregisterRunControl(rid);
     return;
   }
 
@@ -571,6 +579,7 @@ export async function* runBench(
         message: `skipped: ${fit.event.reason}`,
       };
       yield { type: "run_finished", run_id: rid };
+      unregisterRunControl(rid);
       return;
     }
     if (fit.action === "unload_other_models") {
@@ -637,6 +646,7 @@ export async function* runBench(
           code: "load_failed",
           message: `LM Studio load failed: ${load.status} ${load.body}`,
         };
+        unregisterRunControl(rid);
         return;
       }
       modelLoadedByThisBench = true;
@@ -697,6 +707,7 @@ export async function* runBench(
         gpu_signal_available: gpuSignalAvailable,
         abort_reason: code,
       };
+      unregisterRunControl(rid);
       return;
     }
   }
@@ -755,6 +766,11 @@ export async function* runBench(
         let i = 0;
         let contentionRetries = 0;
         while (i < totalIterations) {
+          if (isRunPaused(rid)) {
+            yield { type: "run_paused", scenario_id: scenarioId, api_route };
+            await waitWhileRunPaused(rid);
+            yield { type: "run_resumed", scenario_id: scenarioId, api_route };
+          }
           const isWarmup = i < meta.warmup_runs;
           const ref = calendarReferenceAt(new Date());
           const visionThisRun = isVisionScenario(scenarioId);
@@ -1659,6 +1675,7 @@ export async function* runBench(
 
     yield { type: "run_finished", run_id: rid };
   } finally {
+    unregisterRunControl(rid);
     if (
       input.provider === "lm_studio" &&
       !input.skipModelLoad &&
