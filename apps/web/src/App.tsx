@@ -3,6 +3,7 @@ import {
   DEFAULT_SCENARIO_IDS,
   PUBLIC_SCENARIO_IDS,
   VISION_SCENARIO_IDS,
+  cleanModelDisplayName,
   getScenarioBenchMeta,
   inferLlmProfileFamily,
   isAgentScenario,
@@ -59,6 +60,7 @@ import { Scoreboard } from "./components/Scoreboard";
 import {
   BenchProgressPanel,
   type BenchCurrent,
+  type BenchEta,
   type BenchStepKind,
   type BenchStepLine,
 } from "./components/BenchProgressPanel";
@@ -82,7 +84,15 @@ const ScenariosDocPage = lazy(() => import("./ScenariosDocPage").then((m) => ({ 
 import { StatsPage } from "./StatsPage";
 import { StressPage } from "./StressPage";
 import { StressStatsPage } from "./StressStatsPage";
-import { formatTimeWithMs } from "./lib/time-format";
+import {
+  blendUnitMs,
+  buildBaseModelTimeIndex,
+  buildScenarioTimeIndex,
+  defaultIterMultiplier,
+  estimateModelMs,
+  resolveScenarioUnit,
+} from "./lib/bench-estimate";
+import { formatDurationMs, formatTimeWithMs } from "./lib/time-format";
 import { useTheme } from "./useTheme";
 
 type DetectModel = DetectResult["models"][number];
@@ -150,6 +160,21 @@ function consumeSseJsonLines(
       }
     }
   })();
+}
+
+type LatestByModelFetchResult =
+  | { ok: true; data: LatestByModelResponse }
+  | { ok: false; status: number };
+
+/** `GET /api/runs/latest-by-model` 공용 호출 — 모델 비교(loadCompareFromServer)와 벤치 예상 시간(requestBench)이 공유. */
+async function fetchLatestByModel(baseUrl: string, modelIds: string[]): Promise<LatestByModelFetchResult> {
+  const u = new URL("/api/runs/latest-by-model", window.location.origin);
+  u.searchParams.set("baseUrl", baseUrl);
+  u.searchParams.set("modelIds", modelIds.join(","));
+  const res = await fetch(u.toString());
+  if (!res.ok) return { ok: false, status: res.status };
+  const data = (await res.json()) as LatestByModelResponse;
+  return { ok: true, data };
 }
 
 /** 성능 측정 모드의 고정 출력 한도(토큰) — 처리량 비교 재현성을 위해 모든 모델 동일. */
@@ -362,6 +387,18 @@ export function App() {
   const [benchCurrent, setBenchCurrent] = useState<BenchCurrent | null>(null);
   /** 이번 벤치 런에서 `scenario_start`가 있었던 시나리오 id */
   const [touchedScenarioIds, setTouchedScenarioIds] = useState<string[]>([]);
+  /** 실행 전 예상 시간 계산용 — 확인 다이얼로그를 열 때 조회(백엔드 변경 없이 기존 API 재사용). */
+  const [preRunEstimateRaw, setPreRunEstimateRaw] = useState<LatestByModelResponse | null>(null);
+  /** requestBench가 취소·재호출됐을 때 먼저 시작한 요청이 나중에 도착해 최신 결과를 덮어쓰지 않도록 하는 순번. */
+  const preRunEstimateRequestIdRef = useRef(0);
+  /** 이번 런에서 (model,scenario,api) 단위별로 실측된 total_ms 누적 — 라이브 ETA 블렌딩용. */
+  const [liveObserved, setLiveObserved] = useState<Map<string, { sum: number; n: number }>>(new Map());
+  /** 오염 가드 대기 중이면 true — ETA 수치는 그대로 두고 "대기 중" 문구로만 전환. */
+  const [etaPaused, setEtaPaused] = useState(false);
+  /** 진행 중인 런의 실제 warmup/measured 횟수 — 과거 데이터가 전혀 없는 시나리오의 반복 횟수 추정에 사용.
+   *  runBench 클로저의 streamMeta와 같은 run_started.meta에서 오지만, benchEta useMemo(컴포넌트 스코프)가
+   *  읽어야 하므로 별도 state 대신 ref로 노출 — 리렌더 유발 없이 최신 값만 보이면 충분. */
+  const activeRunMetaRef = useRef<{ warmupRuns: number; measuredRuns: number } | null>(null);
 
   // 영속 저장 (debounce 350ms). `/stress` 등 다른 라우트에서는 게이트로 차단해
   // App의 stale state가 stress 페이지의 공유 키 변경(baseUrl/apiKey 등)을 되돌리는 회귀 방지.
@@ -562,6 +599,60 @@ export function App() {
     }
     return result;
   }, [running, rows, benchQueueDraft, visibleSelectedScenarioIds, activeBenchApiRoutes]);
+
+  // 벤치 예상 실행 시간: 정확 일치용 1차 인덱스 + 같은 베이스 모델의 다른 양자화 폴백용 2차 인덱스.
+  const preRunExactIndex = useMemo(() => buildScenarioTimeIndex(preRunEstimateRaw), [preRunEstimateRaw]);
+  const preRunBaseIndex = useMemo(() => buildBaseModelTimeIndex(preRunEstimateRaw), [preRunEstimateRaw]);
+
+  /** 확인 다이얼로그의 모델별 예상 소요 시간. 과거 데이터(정확 일치·양자화 폴백) 전무면 해당 모델은 맵에서 빠짐(=숨김). */
+  const preRunEstimates = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof estimateModelMs>>();
+    for (const m of benchQueueDraft) {
+      const est = estimateModelMs(
+        m.id,
+        visibleSelectedScenarioIds,
+        activeBenchApiRoutes,
+        preRunExactIndex,
+        preRunBaseIndex,
+      );
+      if (est) map.set(m.id, est);
+    }
+    return map;
+  }, [benchQueueDraft, visibleSelectedScenarioIds, activeBenchApiRoutes, preRunExactIndex, preRunBaseIndex]);
+
+  const preRunQueueTotal = useMemo(() => {
+    let ms = 0;
+    let covered = 0;
+    for (const m of benchQueueDraft) {
+      const est = preRunEstimates.get(m.id);
+      if (est) {
+        ms += est.ms;
+        covered += 1;
+      }
+    }
+    return { ms, covered, total: benchQueueDraft.length };
+  }, [benchQueueDraft, preRunEstimates]);
+
+  /** 실행 중 남은 시간(ETA). 시나리오 완료 시점마다 갱신되는 계단식 값 — 과거+실측 데이터가 전혀 없으면 null(=숨김). */
+  const benchEta = useMemo((): BenchEta | undefined => {
+    if (!running) return undefined;
+    if (pendingSkeletonRows.length === 0) return { remainingMs: 0, paused: false };
+    const warmupRuns = activeRunMetaRef.current?.warmupRuns ?? 1;
+    const measuredRuns = activeRunMetaRef.current?.measuredRuns ?? 3;
+    let remainingMs = 0;
+    let anyKnown = false;
+    for (const unit of pendingSkeletonRows) {
+      const resolved = resolveScenarioUnit(unit.model_id, unit.scenario, unit.api, preRunExactIndex, preRunBaseIndex);
+      const observed = liveObserved.get(unit.rowKey);
+      const blended = blendUnitMs(resolved?.avgMs ?? null, observed?.sum ?? 0, observed?.n ?? 0);
+      if (blended == null) continue;
+      anyKnown = true;
+      const iterMultiplier = resolved?.iterMultiplier ?? defaultIterMultiplier(unit.scenario, warmupRuns, measuredRuns);
+      const remainingIters = Math.max(0, iterMultiplier - (observed?.n ?? 0));
+      remainingMs += blended * remainingIters;
+    }
+    return { remainingMs: anyKnown ? remainingMs : null, paused: etaPaused };
+  }, [running, pendingSkeletonRows, liveObserved, preRunExactIndex, preRunBaseIndex, etaPaused]);
 
   const profileHintByModelId = useMemo(() => {
     if (!detect) return {} as Record<string, { family: LlmProfileFamily; preset: SamplingPresetName }>;
@@ -803,15 +894,12 @@ export function App() {
     }
     setCompareLoading(true);
     try {
-      const u = new URL("/api/runs/latest-by-model", window.location.origin);
-      u.searchParams.set("baseUrl", detect.baseUrl);
-      u.searchParams.set("modelIds", modelIds.join(","));
-      const res = await fetch(u.toString());
-      if (!res.ok) {
-        toast.error(msg().bench.compareApiError(res.status));
+      const result = await fetchLatestByModel(detect.baseUrl, modelIds);
+      if (!result.ok) {
+        toast.error(msg().bench.compareApiError(result.status));
         return;
       }
-      const data = (await res.json()) as LatestByModelResponse;
+      const data = result.data;
       if (data.sqlite_available === false) {
         toast.warning(msg().bench.sqliteUnavailableCompare);
         setCompareSeries(null);
@@ -1054,6 +1142,9 @@ export function App() {
     setBenchStepLines([]);
     setBenchCurrent(null);
     setTouchedScenarioIds([]);
+    setLiveObserved(new Map());
+    setEtaPaused(false);
+    activeRunMetaRef.current = null;
     let anyHttpFail = false;
     let streamErrorCount = 0;
     let streamIncomplete = false;
@@ -1118,6 +1209,7 @@ export function App() {
             const ridShort = ev.run_id.length > 28 ? `${ev.run_id.slice(0, 28)}…` : ev.run_id;
             pushBenchLine("info", msg().bench.eventRunStart(ridShort));
             setBenchCurrent({ modelId: m.id });
+            activeRunMetaRef.current = { warmupRuns: ev.meta?.warmup_runs ?? 1, measuredRuns: ev.meta?.measured_runs ?? 3 };
           }
           if (ev.type === "preflight_memory_fit") {
             // #81: 후보 로드 전 메모리-핏 예측 결과. skip이면 조용히 사라지지 않게 명확히 표시.
@@ -1193,6 +1285,21 @@ export function App() {
             });
             setTouchedScenarioIds((prev) => (prev.includes(p.sid) ? prev : [...prev, p.sid]));
             pushBenchLine("info", msg().bench.eventScenarioStart(p.sid, p.api, iterLabel));
+            setEtaPaused(false);
+          }
+          if (ev.type === "scenario_end") {
+            // 라이브 ETA 블렌딩용 실측치 누적(워밍업·측정 반복 모두) — pendingSkeletonRows와 같은 rowKey로 매칭.
+            const api = ev.api_route ?? lastScenarioStart?.api;
+            const totalMs = ev.metrics.total_ms;
+            if (api && typeof totalMs === "number" && totalMs > 0) {
+              const rowKey = scenarioRowKey(ev.scenario_id, api, m.id);
+              setLiveObserved((prev) => {
+                const next = new Map(prev);
+                const cur = next.get(rowKey) ?? { sum: 0, n: 0 };
+                next.set(rowKey, { sum: cur.sum + totalMs, n: cur.n + 1 });
+                return next;
+              });
+            }
           }
           if (ev.type === "run_finished") {
             sawRunFinished = true;
@@ -1209,9 +1316,11 @@ export function App() {
               "warn",
               msg().bench.eventContentionWaiting(where, ev.waiting_reason, gpu, ev.elapsed_ms),
             );
+            setEtaPaused(true);
           }
           if (ev.type === "contention_resumed") {
             pushBenchLine("ok", msg().bench.eventContentionResumed(ev.waited_ms));
+            setEtaPaused(false);
           }
           if (ev.type === "iteration_discarded") {
             // 폐기된 부분 출력 미리보기 초기화 + 다음 scenario_start를 재측정으로 표시.
@@ -1331,6 +1440,26 @@ export function App() {
     }
     setBenchQueueDraft([...models]);
     setBenchConfirmOpen(true);
+    setPreRunEstimateRaw(null);
+    const requestId = ++preRunEstimateRequestIdRef.current;
+    void (async () => {
+      // 예상 소요 시간 조회 — 큐 모델뿐 아니라 같은 베이스 모델의 다른 양자화 변형도 함께 요청해
+      // 정확 일치 기록이 없을 때 폴백 근거로 쓴다. 실패해도 조용히 숨김(보조 정보이므로 토스트 없음).
+      try {
+        const baseNames = new Set(models.map((m) => cleanModelDisplayName(m.id)));
+        const siblingIds = detect.models
+          .filter((dm: DetectModel) => baseNames.has(cleanModelDisplayName(dm.id)))
+          .map((dm: DetectModel) => dm.id);
+        const modelIds = [...new Set([...models.map((m) => m.id), ...siblingIds])];
+        const result = await fetchLatestByModel(detect.baseUrl, modelIds);
+        // 취소 후 재호출된 경우 먼저 시작한 요청이 나중에 도착해 최신 결과를 덮어쓰지 않도록 순번 확인.
+        if (preRunEstimateRequestIdRef.current !== requestId) return;
+        if (!result.ok || result.data.sqlite_available === false) return;
+        setPreRunEstimateRaw(result.data);
+      } catch {
+        // 예상 시간은 보조 정보 — 조회 실패는 무시(숨김 상태 유지)
+      }
+    })();
   }, [detect, orderedSelectedModels, visibleSelectedScenarioIds.length]);
 
   const handleConfirmBench = useCallback(() => {
@@ -1403,14 +1532,38 @@ export function App() {
               {detect.provider === "lm_studio" ? msg().bench.confirmLmStudioLoadNote : ""}
             </p>
             <p className="mt-1 text-xs text-[var(--muted)]">{msg().bench.confirmReorderHint}</p>
+            {preRunQueueTotal.covered > 0 ? (
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                {msg().bench.estimatedTotalLabel(
+                  formatDurationMs(preRunQueueTotal.ms),
+                  preRunQueueTotal.covered,
+                  preRunQueueTotal.total,
+                )}
+              </p>
+            ) : null}
             <ol className="mt-2 max-h-48 list-decimal space-y-1.5 overflow-y-auto overscroll-contain pl-5 text-[var(--foreground)]">
-              {benchQueueDraft.map((m, i) => (
+              {benchQueueDraft.map((m, i) => {
+                const estimate = preRunEstimates.get(m.id);
+                const fallbackQuant = estimate?.usedFallbackFor.find((u) => u.quant != null)?.quant ?? null;
+                return (
                 <li key={m.id} className="font-mono text-xs">
                   <div className="flex items-center gap-2">
                     <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate">{m.id}</span>
+                      <span className="flex items-center gap-1.5 truncate">
+                        {m.id}
+                        {estimate ? (
+                          <span className="shrink-0 font-sans text-[var(--muted)]">~{formatDurationMs(estimate.ms)}</span>
+                        ) : null}
+                      </span>
                       {m.label && m.label !== m.id ? (
                         <span className="truncate font-sans text-[10px] text-[var(--muted)]">{m.label}</span>
+                      ) : null}
+                      {estimate && estimate.usedFallbackFor.length > 0 ? (
+                        <span className="truncate font-sans text-[10px] text-[var(--muted)]">
+                          {fallbackQuant
+                            ? msg().bench.estimatedFromOtherQuant(fallbackQuant)
+                            : msg().bench.estimatedFromOtherQuant("?")}
+                        </span>
                       ) : null}
                     </span>
                     <span className="flex shrink-0 gap-1">
@@ -1441,7 +1594,8 @@ export function App() {
                     </span>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ol>
             <ul className="mt-2 space-y-1 text-xs">
               {unloadOtherModels && detect.provider === "lm_studio" ? (
@@ -2126,6 +2280,7 @@ export function App() {
           current={benchCurrent}
           lines={benchStepLines}
           progress={running ? benchProgress : undefined}
+          eta={benchEta}
           benchAction={
             <button
               type="button"

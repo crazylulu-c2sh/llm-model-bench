@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useLayoutEffect, useRef } from "react";
 import { Activity, Loader2 } from "lucide-react";
 import { useI18n, type Messages } from "../i18n";
-import { formatTimeWithMs } from "../lib/time-format";
+import { formatDurationMs, formatTimeWithMs } from "../lib/time-format";
 
 export type BenchStepKind = "info" | "ok" | "err" | "warn";
 
@@ -18,6 +18,9 @@ export type BenchCurrent = {
 };
 
 export type BenchProgressStats = { completed: number; total: number; pct: number };
+
+/** `remainingMs === null`이면 아직 근거가 없다는 뜻 — 렌더 자체를 생략(추정치를 지어내지 않음). */
+export type BenchEta = { remainingMs: number | null; paused: boolean };
 
 function apiShort(api: string): string {
   if (api === "chat_completions") return "chat";
@@ -67,6 +70,7 @@ export function BenchProgressPanel({
   current,
   lines,
   progress,
+  eta,
   benchAction,
   className,
 }: {
@@ -74,6 +78,7 @@ export function BenchProgressPanel({
   current: BenchCurrent | null;
   lines: BenchStepLine[];
   progress?: BenchProgressStats;
+  eta?: BenchEta;
   benchAction?: ReactNode;
   /** 부모에서 벤치 라이브 테두리 등 유틸 클래스 주입 */
   className?: string;
@@ -131,6 +136,12 @@ export function BenchProgressPanel({
               style={{ width: `${progress.pct}%` }}
             />
           </div>
+        </div>
+      ) : null}
+
+      {eta && (eta.paused || eta.remainingMs != null) ? (
+        <div className="mb-3 text-xs text-[var(--muted)]" role="status">
+          {eta.paused ? m.bench.etaWaiting : m.bench.etaRemaining(formatDurationMs(eta.remainingMs ?? 0))}
         </div>
       ) : null}
 

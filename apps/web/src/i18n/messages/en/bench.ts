@@ -144,6 +144,8 @@ export const bench: Messages["bench"] = {
   confirmAutoUnloadOn:
     "Only target models loaded in this bench are auto-unloaded when it finishes (already-loaded models are kept).",
   confirmLoadTtl: (seconds, via) => `Applying model load TTL ${seconds}s (${via}).`,
+  estimatedFromOtherQuant: (quant) => `Based on another quant (${quant})`,
+  estimatedTotalLabel: (text, covered, total) => `Estimated total ~${text} · history for ${covered}/${total}`,
 
   // Metric charts
   metricsChartHeading: "Metric charts",
@@ -203,6 +205,8 @@ export const bench: Messages["bench"] = {
   progressHeading: "Bench run steps",
   progressRate: "Progress",
   progressRateValue: (pct, completed, total) => `Progress ${pct}% · ${completed}/${total}`,
+  etaRemaining: (text) => `~${text} remaining`,
+  etaWaiting: "Waiting…",
   eventLogHeading: "Event log",
   eventLogAria: "Bench stream event log",
   eventLogEmpty: "Waiting for events…",

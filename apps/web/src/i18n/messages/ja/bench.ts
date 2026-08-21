@@ -144,6 +144,8 @@ export const bench: Messages["bench"] = {
   confirmAutoUnloadOn:
     "今回のベンチでロードした対象モデルのみ、終了時に自動アンロードします(すでにロード済みのモデルは維持)。",
   confirmLoadTtl: (seconds, via) => `モデルロード TTL ${seconds}秒を適用します(${via})。`,
+  estimatedFromOtherQuant: (quant) => `別の量子化(${quant})の記録に基づく`,
+  estimatedTotalLabel: (text, covered, total) => `予想合計 ~${text} · 履歴あり ${covered}/${total}`,
 
   // メトリクスチャート
   metricsChartHeading: "メトリクスチャート",
@@ -203,6 +205,8 @@ export const bench: Messages["bench"] = {
   progressHeading: "ベンチ実行ステップ",
   progressRate: "進行率",
   progressRateValue: (pct, completed, total) => `進行率 ${pct}% · ${completed}/${total}`,
+  etaRemaining: (text) => `~${text} 残り`,
+  etaWaiting: "待機中…",
   eventLogHeading: "イベントログ",
   eventLogAria: "ベンチストリームのイベントログ",
   eventLogEmpty: "イベント受信待ち…",
