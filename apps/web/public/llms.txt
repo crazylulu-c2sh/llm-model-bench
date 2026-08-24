@@ -1,0 +1,43 @@
+# LLM Model Bench
+
+> Local LLM (LM Studio / Ollama / OpenAI-compatible) benchmark UI and API. Measures TTFT/TPS/quality across models via streaming `POST /v1/chat/completions` and `POST /v1/messages` (Anthropic-compatible).
+
+For AI agents: use the versioned surface at `/api/v1/*` (legacy `/api/*` exists only for the web UI). Read the OpenAPI spec before calling anything — don't guess paths or params.
+
+## API
+
+- [OpenAPI 3.1 spec](/api/v1/openapi.json) — machine-readable schema for every endpoint, generated from the server's Zod schemas.
+- [API reference (HTML, offline-capable)](/api/v1/docs)
+- `GET /api/v1/scoreboard?baseUrl=&modelIds=&task=coding|vision|tools|structured|chat|agent` — server-side model ranking by quality/speed for a task. Use this to answer "which model is best at X".
+- `GET /api/v1/compare?runA=&runB=` (or `?modelA=&modelB=&baseUrl=`) — regression diff between two runs/models (TTFT/TPS/quality deltas + `regression` flags).
+- `GET /api/v1/runs` / `GET /api/v1/runs/:runId` — stored benchmark run list/detail.
+- `GET /api/v1/stats/model-latest` — latest finished run summary per model.
+- `GET /api/v1/scenarios?set=public|default|vision|agent|custom|all` — scenario catalog.
+- `POST /api/v1/detect` — detect provider + available models at a base URL. Call this before running a benchmark.
+- `POST /api/v1/bench/stream` — run a benchmark (SSE stream).
+- Auth (opt-in, off by default): `Authorization: Bearer <key>` or `x-api-key: <key>`, only if the deployment sets `BENCH_API_KEYS`.
+
+## MCP
+
+A ready-made MCP server (`@llm-bench/mcp`) proxies this API as 10 tools: `detect_provider`, `run_bench`, `run_stress`, `compare_models`, `compare_runs`, `list_runs`, `get_run`, `list_scenarios`, `list_capabilities`, `monitor_snapshot`, `health`. Recommended order: `detect_provider` first, then `run_bench`.
+
+It is a **separate process**, usually not reachable at this web origin:
+
+- stdio (spawned by a desktop client, e.g. Claude Desktop / Claude Code `.mcp.json`):
+  ```jsonc
+  { "mcpServers": { "llm-bench": {
+    "command": "node", "args": ["/path/to/llm-model-bench/apps/mcp/dist/index.js"],
+    "env": { "MCP_TRANSPORT": "stdio", "BENCH_API_URL": "http://127.0.0.1:20080" }
+  } } }
+  ```
+- streamable-HTTP (remote, only if the operator started it — default port 20090, path `/mcp`):
+  ```jsonc
+  { "mcpServers": { "llm-bench": {
+    "type": "http", "url": "http://<mcp-host>:20090/mcp",
+    "headers": { "Authorization": "Bearer <MCP_HTTP_TOKEN if set>" }
+  } } }
+  ```
+
+## More
+
+- [Repository](https://github.com/crazylulu-c2sh/llm-model-bench) — full README (Korean), deployment notes, source.
