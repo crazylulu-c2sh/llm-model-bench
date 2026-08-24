@@ -29,6 +29,7 @@ describe("detectProvider", () => {
               key: "m1",
               type: "llm",
               display_name: "M1",
+              publisher: "unsloth",
               size_bytes: 4_000_000_000,
               params_string: "7B",
               loaded_instances: [],
@@ -41,11 +42,34 @@ describe("detectProvider", () => {
     const r = await detectProvider("http://localhost:1234", { fetchImpl });
     expect(r.provider).toBe("lm_studio");
     expect(r.models[0]?.id).toBe("m1");
+    expect(r.models[0]?.publisher).toBe("unsloth");
     expect(r.models[0]?.size_bytes).toBe(4_000_000_000);
     expect(r.models[0]?.params_string).toBe("7B");
     expect(r.capabilities.openaiChat).toBe(true);
     expect(r.capabilities.anthropicMessages).toBe(true);
     expect(r.reachability?.state).toBe("ok");
+  });
+
+  it("falls back to org/ prefix when LM Studio omits publisher", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({
+          models: [
+            {
+              key: "qwen/qwen3.8-27b",
+              type: "llm",
+              display_name: "Qwen3.8 27B",
+              loaded_instances: [],
+            },
+          ],
+        });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:1234", { fetchImpl });
+    expect(r.provider).toBe("lm_studio");
+    expect(r.models[0]?.publisher).toBe("qwen");
   });
 
   it("normalizes trailing /v1 on base URL and still detects LM Studio", async () => {

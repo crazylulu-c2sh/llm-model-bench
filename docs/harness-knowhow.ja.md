@@ -79,9 +79,9 @@ for await (const ev of runBench(req, detect)) {
 
 `detectProvider()` は各リストエンドポイントを順に試し、最初に成功した時点で返します。すべての試行は診断用に `steps[]` に追記されます。3 つすべてが外れた場合は `provider: "manual"` にフォールバックします。
 
-- `${base}/api/v1/models` → `provider: "lm_studio"`（`{ models: [{ key, type, display_name, ... }] }` を期待）
-- `${base}/api/tags` → `provider: "ollama"`（`{ models: [{ name, model, size }] }` を期待）
-- `${base}/v1/models` → `provider: "openai_compatible"`（`{ data: [{ id }] }` を期待）
+- `${base}/api/v1/models` → `provider: "lm_studio"`（`{ models: [{ key, type, display_name, publisher, ... }] }` を期待。`publisher` は DetectResult に通し、無い場合は id の `org/` 接頭にフォールバック）
+- `${base}/api/tags` → `provider: "ollama"`（`{ models: [{ name, model, size }] }` を期待。publisher は id の `org/` 接頭のみ）
+- `${base}/v1/models` → `provider: "openai_compatible"`（`{ data: [{ id }] }` を期待。publisher は id の `org/` 接頭のみ）
 - いずれも一致しない → `provider: "manual"`（`models: []` と、算出された `reachability` 状態（`ok` | `partial` | `unreachable`））
 
 `base` はまず `normalizeBaseUrl()` で正規化され、スキームがなければ `http://` を前置し、末尾の OpenAI 形式の `/v1` サフィックスを（`stripOpenAiStyleV1Suffix()` で）取り除きます。これによりハーネスは一貫して `base + /v1/...` を組み立てられます。

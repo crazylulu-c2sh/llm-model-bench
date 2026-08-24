@@ -13,6 +13,7 @@ export const bench: Messages["bench"] = {
   },
   sortLabels: {
     id: "model id",
+    publisher: "publisher",
     label: "label",
     params_string: "size",
     size_bytes: "disk",
@@ -258,6 +259,7 @@ export const bench: Messages["bench"] = {
   selectModelAria: (id) => `Select ${id}`,
   colParams: "Size",
   colDisk: "Disk",
+  colPublisher: "Publisher",
   modelFilterPlaceholder: "Search model id·label (e.g. mtp)",
   modelFilterAria: "Model filter",
   clearFilter: "Clear filter",

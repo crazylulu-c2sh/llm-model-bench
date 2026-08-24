@@ -88,6 +88,19 @@ export function cleanModelDisplayName(modelId: string): string {
   return original.replace(HOST_PREFIX, "");
 }
 
+/**
+ * 모델 id의 `org/` 접두에서 게시자 문자열을 뽑는다.
+ * `hf.co/`·`huggingface.co/` 호스트만 벗긴 뒤 첫 `/` 앞 세그먼트.
+ * `/`가 없거나 세그먼트가 비면 undefined (LM Studio API `publisher` 폴백용).
+ */
+export function parseModelPublisherFromId(modelId: string): string | undefined {
+  const s = modelId.trim().replace(HOST_PREFIX, "");
+  const slash = s.indexOf("/");
+  if (slash <= 0) return undefined;
+  const org = s.slice(0, slash).trim();
+  return org || undefined;
+}
+
 /** 양자화/정밀도 태그만 추출(칩 표시용). 없으면 null. 크기 태그(:0.5b 등)는 null. */
 export function parseModelQuant(modelId: string): string | null {
   const s = modelId.trim();

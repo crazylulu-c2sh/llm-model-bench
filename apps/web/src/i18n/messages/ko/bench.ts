@@ -14,6 +14,7 @@ const errors: Record<string, string> = {
 // 모델 표 정렬 상태 라벨 — 컬럼 id로 조회(임의 문자열 인덱싱).
 const sortLabels: Record<string, string> = {
   id: "모델 id",
+  publisher: "게시자",
   label: "label",
   params_string: "규모",
   size_bytes: "디스크",
@@ -253,6 +254,7 @@ export const bench = {
   selectModelAria: (id: string) => `${id} 선택`,
   colParams: "규모",
   colDisk: "디스크",
+  colPublisher: "게시자",
   modelFilterPlaceholder: "모델 id·label 검색 (예: mtp)",
   modelFilterAria: "모델 필터",
   clearFilter: "필터 지우기",

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   cleanModelDisplayName,
   inferModelVendor,
+  parseModelPublisherFromId,
   parseModelQuant,
   type VendorKey,
 } from "./model-vendor";
@@ -70,6 +71,21 @@ describe("cleanModelDisplayName", () => {
   ];
   it.each(cases)("%s → %s", (id, expected) => {
     expect(cleanModelDisplayName(id)).toBe(expected);
+  });
+});
+
+describe("parseModelPublisherFromId", () => {
+  const cases: Array<[string, string | undefined]> = [
+    ["qwen/qwen3.8-27b", "qwen"],
+    ["qwen3.8-27b@q4_0", undefined],
+    ["hf.co/org/model", "org"],
+    ["huggingface.co/unsloth/gemma-4", "unsloth"],
+    ["unsloth/gemma-4-e4b-it", "unsloth"],
+    ["", undefined],
+    ["/", undefined],
+  ];
+  it.each(cases)("%s → %s", (id, expected) => {
+    expect(parseModelPublisherFromId(id)).toBe(expected);
   });
 });
 
