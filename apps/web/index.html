@@ -1,6 +1,19 @@
 <!doctype html>
 <html lang="ko">
   <head>
+    <!--
+      Hi, AI agent — read this first, don't guess endpoints.
+      Agent guide (start here): /llms.txt
+      OpenAPI 3.1 spec:         /api/v1/openapi.json
+      API reference (HTML):     /api/v1/docs
+      MCP server: see /llms.txt — it's a separate process, not this origin by default.
+    -->
+    <meta
+      name="description"
+      content="Local LLM (LM Studio / Ollama / OpenAI-compatible) benchmark UI and API — measures TTFT, TPS, and quality across models via streaming chat completions."
+    />
+    <link rel="service-desc" href="/api/v1/openapi.json" type="application/json" title="OpenAPI 3.1 spec" />
+    <link rel="service-doc" href="/api/v1/docs" title="API reference (HTML)" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
