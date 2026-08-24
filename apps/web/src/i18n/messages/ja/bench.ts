@@ -13,6 +13,7 @@ export const bench: Messages["bench"] = {
   },
   sortLabels: {
     id: "モデル id",
+    publisher: "配信元",
     label: "label",
     params_string: "規模",
     size_bytes: "ディスク",
@@ -258,6 +259,7 @@ export const bench: Messages["bench"] = {
   selectModelAria: (id) => `${id} を選択`,
   colParams: "規模",
   colDisk: "ディスク",
+  colPublisher: "配信元",
   modelFilterPlaceholder: "モデル id·label を検索 (例: mtp)",
   modelFilterAria: "モデルフィルター",
   clearFilter: "フィルターをクリア",

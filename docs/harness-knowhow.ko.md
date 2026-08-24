@@ -79,9 +79,9 @@ for await (const ev of runBench(req, detect)) {
 
 `detectProvider()`는 각 목록 엔드포인트를 순서대로 시도하고 첫 성공에서 반환합니다. 진단을 위해 모든 시도가 `steps[]`에 덧붙여집니다. 셋 다 실패하면 `provider: "manual"`로 폴백합니다.
 
-- `${base}/api/v1/models` → `provider: "lm_studio"` (`{ models: [{ key, type, display_name, ... }] }` 기대)
-- `${base}/api/tags` → `provider: "ollama"` (`{ models: [{ name, model, size }] }` 기대)
-- `${base}/v1/models` → `provider: "openai_compatible"` (`{ data: [{ id }] }` 기대)
+- `${base}/api/v1/models` → `provider: "lm_studio"` (`{ models: [{ key, type, display_name, publisher, ... }] }` 기대; `publisher`는 DetectResult로 통과, 없으면 id의 `org/` 접두 폴백)
+- `${base}/api/tags` → `provider: "ollama"` (`{ models: [{ name, model, size }] }` 기대; publisher는 id의 `org/` 접두만)
+- `${base}/v1/models` → `provider: "openai_compatible"` (`{ data: [{ id }] }` 기대; publisher는 id의 `org/` 접두만)
 - 매칭 없음 → `models: []`인 `provider: "manual"`과 계산된 `reachability` 상태(`ok` | `partial` | `unreachable`)
 
 `base`는 먼저 `normalizeBaseUrl()`로 정규화됩니다. 이 함수는 스킴이 없으면 `http://`를 앞에 붙이고, 후행 OpenAI 스타일 `/v1` 접미사를 (`stripOpenAiStyleV1Suffix()`로) 벗겨내어 하네스가 `base + /v1/...`을 일관되게 조합할 수 있게 합니다.

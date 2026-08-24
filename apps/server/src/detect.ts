@@ -1,6 +1,18 @@
-import type { DetectResult, DetectStep, ProviderKind, Reachability } from "@llm-bench/shared";
+import {
+  parseModelPublisherFromId,
+  type DetectResult,
+  type DetectStep,
+  type ProviderKind,
+  type Reachability,
+} from "@llm-bench/shared";
 
 export type FetchLike = typeof fetch;
+
+/** API `publisher` 우선, 없으면 id의 `org/` 접두. 둘 다 없으면 undefined. */
+function resolvePublisher(modelId: string, apiPublisher?: string | null): string | undefined {
+  if (typeof apiPublisher === "string" && apiPublisher.trim()) return apiPublisher.trim();
+  return parseModelPublisherFromId(modelId);
+}
 
 const LIST_STEP_NAMES = ["lm_studio_list", "ollama_tags", "openai_models"] as const;
 
@@ -116,6 +128,7 @@ export async function detectProvider(
                   key: string;
                   type?: string;
                   display_name?: string;
+                  publisher?: string | null;
                   size_bytes?: number;
                   params_string?: string | null;
                 },
@@ -125,6 +138,7 @@ export async function detectProvider(
               id: m.key,
               label: m.display_name ?? m.key,
               kind: m.type,
+              publisher: resolvePublisher(m.key, m.publisher),
               size_bytes: typeof m.size_bytes === "number" && m.size_bytes > 0 ? m.size_bytes : undefined,
               params_string:
                 typeof m.params_string === "string" && m.params_string.trim()
@@ -141,6 +155,10 @@ export async function detectProvider(
                     id: first.key,
                     label: first.display_name,
                     kind: first.type,
+                    publisher: resolvePublisher(
+                      first.key,
+                      (first as { publisher?: string | null }).publisher,
+                    ),
                     size_bytes:
                       typeof (first as { size_bytes?: number }).size_bytes === "number"
                         ? (first as { size_bytes: number }).size_bytes
@@ -188,9 +206,11 @@ export async function detectProvider(
       if (Array.isArray(j.models)) {
         const models = j.models.map((m) => {
           const row = m as { name?: string; model?: string; size?: number };
+          const id = row.name ?? row.model ?? "unknown";
           return {
-            id: row.name ?? row.model ?? "unknown",
+            id,
             label: row.name ?? row.model,
+            publisher: resolvePublisher(id),
             size_bytes: typeof row.size === "number" && row.size > 0 ? row.size : undefined,
           };
         });
@@ -221,6 +241,7 @@ export async function detectProvider(
           return {
             id: row.id,
             label: row.id,
+            publisher: resolvePublisher(row.id),
             size_bytes: typeof row.size === "number" && row.size > 0 ? row.size : undefined,
           };
         });

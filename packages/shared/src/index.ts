@@ -220,6 +220,7 @@ export { ProviderKindSchema, providerSupportsLoadTtl, type ProviderKind } from "
 export {
   inferModelVendor,
   cleanModelDisplayName,
+  parseModelPublisherFromId,
   parseModelQuant,
   isSizeTag,
   type VendorKey,
@@ -266,6 +267,8 @@ export const DetectResultSchema = z.object({
       id: z.string(),
       label: z.string().optional(),
       kind: z.string().optional(),
+      /** 게시자 (예: unsloth) — LM Studio `publisher` 또는 id의 `org/` 접두 */
+      publisher: z.string().optional(),
       /** 디스크/가중치 용량 등 (바이트) — LM Studio·Ollama 등에서 제공 시 */
       size_bytes: z.number().optional(),
       /** 파라미터 규모 힌트 (예: 7B) — LM Studio `params_string` 등 */

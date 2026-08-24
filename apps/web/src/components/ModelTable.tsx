@@ -169,7 +169,11 @@ export function ModelTable({
   const [filterText, setFilterText] = useState("");
   const q = filterText.trim().toLowerCase();
   const matchesQuery = useCallback(
-    (m: ModelRow) => !q || m.id.toLowerCase().includes(q) || (m.label?.toLowerCase().includes(q) ?? false),
+    (m: ModelRow) =>
+      !q ||
+      m.id.toLowerCase().includes(q) ||
+      (m.label?.toLowerCase().includes(q) ?? false) ||
+      (m.publisher?.toLowerCase().includes(q) ?? false),
     [q],
   );
   // 모델 목록(=새 감지)이 바뀌면 필터를 초기화해 stale 필터가 새 목록을 가리지 않게 함.
@@ -235,6 +239,28 @@ export function ModelTable({
             className="text-xs"
           />
         ),
+        sortingFn: "alphanumeric",
+      }),
+      columnHelper.accessor((row) => row.publisher?.trim() ?? "", {
+        id: "publisher",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            {msg().bench.colPublisher}
+            {sortDirIcon(column)}
+          </button>
+        ),
+        cell: ({ row }) => {
+          const p = row.original.publisher?.trim();
+          return (
+            <span className="whitespace-nowrap text-xs text-[var(--muted)]" title={p || undefined}>
+              {p || "—"}
+            </span>
+          );
+        },
         sortingFn: "alphanumeric",
       }),
       columnHelper.accessor("label", {

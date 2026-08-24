@@ -79,9 +79,9 @@ A single benchmark harness can target many locally-hosted or remote LLM servers 
 
 `detectProvider()` tries each list endpoint in order and returns on the first success; every attempt is appended to `steps[]` for diagnostics. If all three miss, it falls back to `provider: "manual"`.
 
-- `${base}/api/v1/models` → `provider: "lm_studio"` (expects `{ models: [{ key, type, display_name, ... }] }`)
-- `${base}/api/tags` → `provider: "ollama"` (expects `{ models: [{ name, model, size }] }`)
-- `${base}/v1/models` → `provider: "openai_compatible"` (expects `{ data: [{ id }] }`)
+- `${base}/api/v1/models` → `provider: "lm_studio"` (expects `{ models: [{ key, type, display_name, publisher, ... }] }`; `publisher` is forwarded into DetectResult, falling back to the `org/` prefix of the id when absent)
+- `${base}/api/tags` → `provider: "ollama"` (expects `{ models: [{ name, model, size }] }`; publisher from the id's `org/` prefix only)
+- `${base}/v1/models` → `provider: "openai_compatible"` (expects `{ data: [{ id }] }`; publisher from the id's `org/` prefix only)
 - none matched → `provider: "manual"` with `models: []` and a computed `reachability` state (`ok` | `partial` | `unreachable`)
 
 `base` is normalized first by `normalizeBaseUrl()`, which prepends `http://` if missing and strips a trailing OpenAI-style `/v1` suffix (via `stripOpenAiStyleV1Suffix()`) so the harness can consistently compose `base + /v1/...`.
