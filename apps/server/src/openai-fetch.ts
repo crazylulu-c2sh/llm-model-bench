@@ -5,18 +5,16 @@
  *   3) 재시도 발생 시 해당 base_url을 글로벌 캐시에 기록해 같은 프로세스에서는 다시 시도하지 않는다.
  */
 
+import { baseUrlCacheKey } from "./http-shared.js";
+
 const baseUrlsRejectingStreamOptions = new Set<string>();
 
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, "").toLowerCase();
-}
-
 export function shouldIncludeStreamUsage(baseUrl: string): boolean {
-  return !baseUrlsRejectingStreamOptions.has(normalizeBaseUrl(baseUrl));
+  return !baseUrlsRejectingStreamOptions.has(baseUrlCacheKey(baseUrl));
 }
 
 export function markBaseUrlAsRejectingStreamUsage(baseUrl: string): void {
-  baseUrlsRejectingStreamOptions.add(normalizeBaseUrl(baseUrl));
+  baseUrlsRejectingStreamOptions.add(baseUrlCacheKey(baseUrl));
 }
 
 /** 테스트 용 — 캐시 초기화. */

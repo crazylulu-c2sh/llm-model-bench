@@ -1,5 +1,6 @@
 import type { LoadTtlStatus } from "@llm-bench/shared";
 import type { FetchLike } from "./detect.js";
+import { baseUrlCacheKey } from "./http-shared.js";
 
 function headers(apiKey?: string): HeadersInit {
   const h: Record<string, string> = { "content-type": "application/json" };
@@ -188,10 +189,6 @@ export async function lmStudioLoad(
  */
 const baseUrlsRejectingJitTtl = new Set<string>();
 
-function normalizeBaseUrlForTtl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, "").toLowerCase();
-}
-
 export function _resetLmStudioJitTtlCacheForTests(): void {
   baseUrlsRejectingJitTtl.clear();
 }
@@ -245,7 +242,7 @@ export async function lmStudioJitTtlPrime(
   const fetchImpl = opts.fetchImpl ?? fetch;
   const root = apiRoot(baseUrl);
   const url = `${root}/v1/chat/completions`;
-  const key = normalizeBaseUrlForTtl(baseUrl);
+  const key = baseUrlCacheKey(baseUrl);
   const seconds = Math.floor(opts.ttlSeconds);
   const withTtl =
     !baseUrlsRejectingJitTtl.has(key) && Number.isFinite(seconds) && seconds > 0;
@@ -295,6 +292,96 @@ export async function lmStudioJitTtlPrime(
     return { ...retry, ttl_status: "rejected" };
   }
   return { ...r, ttl_status: "not_applied" };
+}
+
+/** `model_loaded` 이벤트의 `lm_studio_prepare` 라벨 — 이 런이 모델을 어떻게 준비했는지. */
+export type LmStudioPrepareLabel =
+  | "loaded"
+  | "already_in_memory"
+  | "load_skipped_by_request"
+  | "jit_load_with_ttl";
+
+export type LmStudioPrepareResult = {
+  prepare: LmStudioPrepareLabel;
+  /** TTL을 요청한 런에서만 채워진다. 미요청 런은 undefined(이벤트에서 필드 생략). */
+  ttlStatus?: LoadTtlStatus;
+  /** 이 런이 모델을 올렸는지 — 종료 시 auto-unload 판단용. */
+  loadedByThisRun: boolean;
+  /** 로드 자체가 실패. 호출자가 load_failed를 내고 중단한다. */
+  error?: { status: number; body: string };
+};
+
+/**
+ * 런 시작 전 LM Studio 모델 준비 — 상주 확인 → (필요 시) 언로드 후 JIT prime 또는 명시적 load.
+ *
+ * bench/stress 두 러너가 같은 상태 기계를 각자 구현하고 있었고, 그래서 같은 입력에 서로 다른
+ * 라벨을 보고하는 드리프트가 생겼다. 판단을 여기 한 곳에 둔다.
+ *
+ * `skipModelLoad`면 **아무 요청도 보내지 않는다**. prime은 실제 chat completion이라 JIT 로드를
+ * 일으키는데, 그건 "LM 로드/언로드를 하지 말라"는 요청의 정반대다. 게다가 호출자의 메모리
+ * 프리플라이트·상주 모델 회수가 모두 `!skipModelLoad` 게이트 안이라, 이 경로로 모델을 올리면
+ * 적합성 검사 없이 올라간다.
+ */
+export async function prepareLmStudioForRun(opts: {
+  baseUrl: string;
+  modelId: string;
+  skipModelLoad: boolean;
+  /** 유한·양수일 때만 TTL 경로를 탄다. 호출자가 이미 정규화해서 넘긴다. */
+  ttlSeconds?: number;
+  fetchImpl?: FetchLike;
+  apiKey?: string;
+  signal?: AbortSignal;
+}): Promise<LmStudioPrepareResult> {
+  const { baseUrl, modelId, skipModelLoad, ttlSeconds, fetchImpl, apiKey, signal } = opts;
+  const wantsTtl = ttlSeconds != null;
+
+  if (skipModelLoad) {
+    return {
+      prepare: "load_skipped_by_request",
+      loadedByThisRun: false,
+      ...(wantsTtl ? { ttlStatus: "not_applied" as const } : {}),
+    };
+  }
+
+  const loaded = await lmStudioIsModelLoaded(baseUrl, modelId, { fetchImpl, apiKey });
+  if (loaded.ok && loaded.loaded) {
+    // Idle TTL은 JIT 로드 시점에만 설정할 수 있다. 이미 상주 중이면 걸 방법이 없으므로
+    // (모델을 내렸다 올리는 건 사용자가 요청하지 않은 상태 변경) 조용히 넘어가지 말고
+    // 미적용을 보고한다 — 그래야 UI 경고가 실제로 뜬다.
+    return {
+      prepare: "already_in_memory",
+      loadedByThisRun: false,
+      ...(wantsTtl ? { ttlStatus: "not_applied" as const } : {}),
+    };
+  }
+
+  await lmStudioUnload(baseUrl, modelId, { fetchImpl, apiKey });
+
+  if (!wantsTtl) {
+    const load = await lmStudioLoad(baseUrl, modelId, { fetchImpl, apiKey });
+    if (!load.ok) return { prepare: "loaded", loadedByThisRun: false, error: load };
+    return { prepare: "loaded", loadedByThisRun: true };
+  }
+
+  // Idle TTL은 명시적 load가 아닌 JIT 로딩(첫 추론 요청) 페이로드에만 적용된다.
+  // 최소 prime(max_tokens=1 + 본문 ttl)으로 JIT 로드를 트리거한다 — ollama preload와 같은 패턴.
+  const primed = await lmStudioJitTtlPrime(baseUrl, modelId, {
+    fetchImpl,
+    apiKey,
+    ttlSeconds,
+    signal,
+  });
+  if (primed.ok) {
+    return { prepare: "jit_load_with_ttl", loadedByThisRun: true, ttlStatus: primed.ttl_status };
+  }
+
+  // prime 실패(네트워크 등) — 명시적 load로 폴백해 로드 자체는 보장한다.
+  // 명시적 load는 ttl 미지원이므로 TTL은 확실히 걸리지 않았고, 라벨도 JIT가 아니다.
+  const load = await lmStudioLoad(baseUrl, modelId, { fetchImpl, apiKey });
+  if (!load.ok) {
+    return { prepare: "loaded", loadedByThisRun: false, ttlStatus: "not_applied", error: load };
+  }
+  return { prepare: "loaded", loadedByThisRun: true, ttlStatus: "not_applied" };
 }
 
 /**

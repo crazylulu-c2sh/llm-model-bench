@@ -252,7 +252,7 @@ export function StatsModelTable({
         ),
         cell: (info) => (
           <span
-            className="whitespace-nowrap text-xs text-[var(--muted)]"
+            className="block max-w-[12rem] truncate text-xs text-[var(--muted)]"
             title={info.getValue() || undefined}
           >
             {info.getValue() || "—"}
