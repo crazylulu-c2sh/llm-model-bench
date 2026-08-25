@@ -5,6 +5,7 @@ import {
   lmStudioJitTtlPrime,
   lmStudioLoad,
   lmStudioUnload,
+  looksLikeLmStudioTtlRejection,
 } from "./lmstudio.js";
 
 function jsonResponse(obj: unknown, status = 200) {
@@ -190,6 +191,95 @@ describe("lmStudioJitTtlPrime", () => {
     expect(bodies[0]).toHaveProperty("ttl", 60);
   });
 
+  // 러너의 "prime 실패 → 명시적 load 폴백" 경로는 ok:false로 돌아와야만 도달한다.
+  // 던지면 그 경로가 죽고, 예외가 async generator 밖으로 빠져나가며 unregisterRunControl도 건너뛴다.
+  it("never throws on network failure — returns ok:false like ollamaKeepAliveLoad", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError("fetch failed: ECONNREFUSED");
+    });
+    const r = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe(0);
+    expect(r.ttl_applied).toBe(false);
+    expect(r.body).toContain("ECONNREFUSED");
+  });
+
+  it("passes an abort signal to fetch and surfaces aborts as ok:false", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.signal?.aborted) throw new DOMException("aborted", "AbortError");
+      return jsonResponse({ choices: [] });
+    });
+    const r = await lmStudioJitTtlPrime("http://localhost:1234", "m", {
+      fetchImpl,
+      ttlSeconds: 60,
+      signal: ac.signal,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe(0);
+  });
+
+  it("always attaches a signal even when the caller passes none (self timeout)", async () => {
+    let seenSignal: AbortSignal | null | undefined;
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenSignal = init?.signal;
+      return jsonResponse({ choices: [] });
+    });
+    await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
+    expect(seenSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("does not poison the cache on a 400 that merely contains the letters 'ttl'", async () => {
+    const bodies: unknown[] = [];
+    let calls = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) {
+        bodies.push(init?.body ? JSON.parse(String(init.body)) : null);
+        calls += 1;
+        // 앞단 프록시의 스로틀링 — "throttled" 안에 ttl이 들어 있다.
+        if (calls === 1) return jsonResponse({ error: "request throttled, retry later" }, 400);
+        return jsonResponse({ choices: [] });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
+    // ttl 거절이 아니므로 무-ttl 재시도도, 캐시 등록도 없어야 한다.
+    expect(r.ok).toBe(false);
+    expect(bodies).toHaveLength(1);
+
+    // 같은 base URL의 다음 prime은 여전히 ttl을 실어 보내야 한다(영구 비활성화 금지).
+    const r2 = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
+    expect(r2.ttl_applied).toBe(true);
+    expect(bodies[1]).toHaveProperty("ttl", 60);
+  });
+
+  it("does not poison the cache when a 400 echoes the request body containing ttl", async () => {
+    const bodies: unknown[] = [];
+    let calls = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) {
+        bodies.push(init?.body ? JSON.parse(String(init.body)) : null);
+        calls += 1;
+        // ttl과 무관한 400인데 응답이 요청 JSON을 그대로 되비춘다.
+        if (calls === 1) {
+          return jsonResponse(
+            { error: "unknown model 'm'", request: { model: "m", max_tokens: 1, ttl: 60 } },
+            400,
+          );
+        }
+        return jsonResponse({ choices: [] });
+      }
+      return jsonResponse({}, 404);
+    });
+    await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
+    expect(bodies).toHaveLength(1);
+    const r2 = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
+    expect(r2.ttl_applied).toBe(true);
+  });
+
   it("sends no ttl when ttlSeconds is non-positive/invalid", async () => {
     const bodies: unknown[] = [];
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -281,5 +371,35 @@ describe("lmStudioUnload", () => {
     const r = await lmStudioUnload("http://localhost:1234", "dup", { fetchImpl });
     expect(r.ok).toBe(true);
     expect(bodies).toEqual([{ instance_id: "i1" }, { instance_id: "i2" }]);
+  });
+});
+
+describe("looksLikeLmStudioTtlRejection", () => {
+  it("accepts genuine ttl field rejections in common phrasings", () => {
+    for (const body of [
+      '{"error":"unknown field ttl, expected model"}',
+      '{"error":{"message":"Unexpected field \'ttl\'"}}',
+      '{"error":"ttl is not supported by this build"}',
+      '{"error":"invalid parameter: ttl"}',
+    ]) {
+      expect(looksLikeLmStudioTtlRejection(400, body)).toBe(true);
+    }
+  });
+
+  it("rejects bodies where 'ttl' appears without a nearby rejection word", () => {
+    for (const body of [
+      // "throttled" 안의 ttl — 경계 없는 매칭이면 여기서 오탐이 났다.
+      '{"error":"request throttled, retry later"}',
+      // 무관한 400이 요청 JSON을 에코 — ttl은 있지만 거절 대상이 아니다.
+      '{"error":"unknown model \'m\'","request":{"model":"m","max_tokens":1,"ttl":60}}',
+      '{"error":"context length exceeded"}',
+    ]) {
+      expect(looksLikeLmStudioTtlRejection(400, body)).toBe(false);
+    }
+  });
+
+  it("only considers 400/422", () => {
+    expect(looksLikeLmStudioTtlRejection(500, '{"error":"unknown field ttl"}')).toBe(false);
+    expect(looksLikeLmStudioTtlRejection(422, '{"error":"unknown field ttl"}')).toBe(true);
   });
 });

@@ -195,10 +195,30 @@ export function _resetLmStudioJitTtlCacheForTests(): void {
   baseUrlsRejectingJitTtl.clear();
 }
 
-/** 400/422 본문이 `ttl` 필드 거절을 시사하면 true (휴리스틱 — openai-fetch의 stream_options 패턴과 동일). */
+/** 로드 대기 여유 — LM Studio의 콜드 JIT 로드는 대형 모델에서 수 분이 걸릴 수 있다. */
+const LMS_JIT_PRIME_TIMEOUT_MS = 600_000;
+
+/**
+ * `ttl` 낱말과 필드 거절을 시사하는 낱말이 **서로 가까이** 있을 때만 true.
+ *
+ * 단순히 본문에 `ttl`이 있는지만 보면 오탐이 난다 — 앞단 프록시의 `"request throttled"`가
+ * 경계 없는 `ttl`에 걸리고, 400 응답이 요청 JSON을 그대로 에코하면 `"ttl":300`이 걸린다.
+ * 오탐 한 번이면 그 base URL은 프로세스 수명 내내 TTL 비활성이 되므로(재시작 전엔 복구 불가)
+ * 놓치는 쪽(= 매번 재시도 비용)이 훨씬 싸다.
+ *
+ * openai-fetch의 `stream_options` 패턴이 안전했던 건 그쪽이 고유 토큰을 봤기 때문이고,
+ * `ttl`은 그렇지 않아 근접 조건을 추가로 요구한다.
+ */
+const TTL_REJECTION_WORD = "(?:unknown|unrecognized|unexpected|invalid|unsupported|not\\s+(?:allowed|permitted|supported))";
+const TTL_REJECTION_RE = new RegExp(
+  `\\bttl\\b[^.\\n]{0,40}?\\b${TTL_REJECTION_WORD}\\b|\\b${TTL_REJECTION_WORD}\\b[^.\\n]{0,40}?\\bttl\\b`,
+  "i",
+);
+
+/** 400/422 본문이 `ttl` 필드 거절을 시사하면 true (휴리스틱). */
 export function looksLikeLmStudioTtlRejection(status: number, body: string): boolean {
   if (status !== 400 && status !== 422) return false;
-  return /ttl|unknown\s*(field|parameter|argument|property)/i.test(body);
+  return TTL_REJECTION_RE.test(body);
 }
 
 /**
@@ -215,7 +235,7 @@ export function looksLikeLmStudioTtlRejection(status: number, body: string): boo
 export async function lmStudioJitTtlPrime(
   baseUrl: string,
   modelKey: string,
-  opts: { fetchImpl?: FetchLike; apiKey?: string; ttlSeconds: number },
+  opts: { fetchImpl?: FetchLike; apiKey?: string; ttlSeconds: number; signal?: AbortSignal },
 ): Promise<{ ok: boolean; status: number; body: string; ttl_applied: boolean }> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const root = apiRoot(baseUrl);
@@ -235,20 +255,32 @@ export async function lmStudioJitTtlPrime(
       stream: false,
       ...(ttl != null ? { ttl } : {}),
     });
-    const r = await fetchImpl(url, {
-      method: "POST",
-      headers: headers(opts.apiKey),
-      body,
-    });
-    const t = await r.text();
-    return { ok: r.ok, status: r.status, body: t.slice(0, 2000) };
+    // 러너의 취소 신호 + 자체 타임아웃. 둘 중 먼저 발화하는 쪽이 요청을 끊는다.
+    // (재시도는 각자 새 예산을 받는다.)
+    const timeout = AbortSignal.timeout(LMS_JIT_PRIME_TIMEOUT_MS);
+    const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
+    try {
+      const r = await fetchImpl(url, {
+        method: "POST",
+        headers: headers(opts.apiKey),
+        body,
+        signal,
+      });
+      const t = await r.text();
+      return { ok: r.ok, status: r.status, body: t.slice(0, 2000) };
+    } catch (e) {
+      // ollamaKeepAliveLoad와 동일한 never-throws 계약. 던지면 호출자의 "prime 실패 → 명시적
+      // load 폴백" 경로가 도달 불가가 되고, 예외가 async generator 밖으로 빠져나가면서
+      // unregisterRunControl이 실행되지 않아 run-control 레지스트리가 샌다.
+      return { ok: false, status: 0, body: String(e).slice(0, 500) };
+    }
   };
 
   if (!withTtl) {
     const r = await attempt(undefined);
     return { ...r, ttl_applied: false };
   }
-  let r = await attempt(seconds);
+  const r = await attempt(seconds);
   if (r.ok) return { ...r, ttl_applied: true };
   if (looksLikeLmStudioTtlRejection(r.status, r.body)) {
     baseUrlsRejectingJitTtl.add(key);
