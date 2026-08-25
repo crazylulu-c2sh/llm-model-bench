@@ -226,6 +226,8 @@ export {
   type VendorKey,
 } from "./model-vendor";
 
+export { isBenchExcludedModelArtifact } from "./model-list-filter";
+
 export {
   PARAM_TIER_THRESHOLDS_B,
   extractParamsBillionsFromModelId,

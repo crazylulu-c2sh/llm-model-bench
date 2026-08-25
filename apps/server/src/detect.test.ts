@@ -50,6 +50,54 @@ describe("detectProvider", () => {
     expect(r.reachability?.state).toBe("ok");
   });
 
+  it("filters imatrix / MTP draft / mmproj artifacts from LM Studio list", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({
+          models: [
+            {
+              key: "qwen3.8-27b@?",
+              type: "llm",
+              display_name: "Imatrix Unsloth",
+              loaded_instances: [],
+            },
+            {
+              key: "qwen3.8-27b@q4_0",
+              type: "llm",
+              display_name: "Mtp Qwen3.8 27B",
+              loaded_instances: [],
+            },
+            {
+              key: "mmproj-F16",
+              type: "llm",
+              display_name: "mmproj F16",
+              loaded_instances: [],
+            },
+            {
+              key: "qwen3.8-27b@iq1_s",
+              type: "llm",
+              display_name: "Qwen3.8 27B UD",
+              loaded_instances: [],
+            },
+            {
+              key: "qwen3.6-35b-a3b-mtp@q4_k_m",
+              type: "llm",
+              display_name: "Qwen3.6 35B A3B UD",
+              loaded_instances: [],
+            },
+          ],
+        });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:1234", { fetchImpl });
+    expect(r.models.map((m) => m.id)).toEqual([
+      "qwen3.8-27b@iq1_s",
+      "qwen3.6-35b-a3b-mtp@q4_k_m",
+    ]);
+  });
+
   it("falls back to org/ prefix when LM Studio omits publisher", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestUrl(input);

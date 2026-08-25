@@ -1,4 +1,5 @@
 import {
+  isBenchExcludedModelArtifact,
   parseModelPublisherFromId,
   type DetectResult,
   type DetectStep,
@@ -134,6 +135,7 @@ export async function detectProvider(
                 },
             )
             .filter((m) => m.key && (m.type === "llm" || !m.type))
+            .filter((m) => !isBenchExcludedModelArtifact(m.key, m.display_name))
             .map((m) => ({
               id: m.key,
               label: m.display_name ?? m.key,
@@ -150,26 +152,29 @@ export async function detectProvider(
             baseUrl,
             models: models.length
               ? models
-              : [
-                  {
-                    id: first.key,
-                    label: first.display_name,
-                    kind: first.type,
-                    publisher: resolvePublisher(
-                      first.key,
-                      (first as { publisher?: string | null }).publisher,
-                    ),
-                    size_bytes:
-                      typeof (first as { size_bytes?: number }).size_bytes === "number"
-                        ? (first as { size_bytes: number }).size_bytes
-                        : undefined,
-                    params_string:
-                      typeof (first as { params_string?: string | null }).params_string === "string" &&
-                      (first as { params_string: string }).params_string.trim()
-                        ? (first as { params_string: string }).params_string.trim()
-                        : undefined,
-                  },
-                ],
+              : !isBenchExcludedModelArtifact(first.key, first.display_name)
+                ? [
+                    {
+                      id: first.key,
+                      label: first.display_name,
+                      kind: first.type,
+                      publisher: resolvePublisher(
+                        first.key,
+                        (first as { publisher?: string | null }).publisher,
+                      ),
+                      size_bytes:
+                        typeof (first as { size_bytes?: number }).size_bytes === "number"
+                          ? (first as { size_bytes: number }).size_bytes
+                          : undefined,
+                      params_string:
+                        typeof (first as { params_string?: string | null }).params_string ===
+                          "string" &&
+                        (first as { params_string: string }).params_string.trim()
+                          ? (first as { params_string: string }).params_string.trim()
+                          : undefined,
+                    },
+                  ]
+                : [],
             steps,
             capabilities: LM_STUDIO_COMPAT_CAPS,
             reachability: reachOk,
@@ -204,16 +209,18 @@ export async function detectProvider(
     if (r.ok) {
       const j = (await r.json()) as { models?: { name: string; model?: string }[] };
       if (Array.isArray(j.models)) {
-        const models = j.models.map((m) => {
-          const row = m as { name?: string; model?: string; size?: number };
-          const id = row.name ?? row.model ?? "unknown";
-          return {
-            id,
-            label: row.name ?? row.model,
-            publisher: resolvePublisher(id),
-            size_bytes: typeof row.size === "number" && row.size > 0 ? row.size : undefined,
-          };
-        });
+        const models = j.models
+          .map((m) => {
+            const row = m as { name?: string; model?: string; size?: number };
+            const id = row.name ?? row.model ?? "unknown";
+            return {
+              id,
+              label: row.name ?? row.model,
+              publisher: resolvePublisher(id),
+              size_bytes: typeof row.size === "number" && row.size > 0 ? row.size : undefined,
+            };
+          })
+          .filter((m) => !isBenchExcludedModelArtifact(m.id, m.label));
         return {
           provider: "ollama",
           baseUrl,
@@ -236,15 +243,17 @@ export async function detectProvider(
       const j = (await r.json()) as { data?: { id: string }[] };
       const arr = j.data;
       if (Array.isArray(arr) && arr.length > 0) {
-        const models = arr.map((m) => {
-          const row = m as { id: string; size?: number };
-          return {
-            id: row.id,
-            label: row.id,
-            publisher: resolvePublisher(row.id),
-            size_bytes: typeof row.size === "number" && row.size > 0 ? row.size : undefined,
-          };
-        });
+        const models = arr
+          .map((m) => {
+            const row = m as { id: string; size?: number };
+            return {
+              id: row.id,
+              label: row.id,
+              publisher: resolvePublisher(row.id),
+              size_bytes: typeof row.size === "number" && row.size > 0 ? row.size : undefined,
+            };
+          })
+          .filter((m) => !isBenchExcludedModelArtifact(m.id, m.label));
         const caps = await probeCapabilities(fetchImpl, baseUrl, opts.apiKey);
         return {
           provider: "openai_compatible",
