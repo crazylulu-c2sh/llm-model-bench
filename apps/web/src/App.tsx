@@ -8,18 +8,20 @@ import {
   inferLlmProfileFamily,
   isAgentScenario,
   isVisionScenario,
+  normalizeBaseUrl,
   outputTokensFromRun,
   providerSupportsLoadTtl,
   resolveBenchApiRoutes,
   resolveBenchProfile,
 } from "@llm-bench/shared";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { toast, Toaster } from "sonner";
 import type { SortingState } from "@tanstack/react-table";
 import {
   Activity,
   AlertTriangle,
+  Bookmark,
   Bot,
   CheckSquare,
   ChevronDown,
@@ -76,6 +78,7 @@ import {
   saveUiSnapshot,
   type Qwen38ReasoningEffort,
 } from "./persisted-settings";
+import { useBaseUrlNames } from "./lib/base-url-names";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
 const ProfileDocPage = lazy(() => import("./ProfileDocPage").then((m) => ({ default: m.ProfileDocPage })));
 import { ProviderMonitorPage } from "./ProviderMonitorPage";
@@ -221,6 +224,14 @@ export function App() {
   }, [pathname, m]);
   const [boot] = useState(() => readInitialUiState());
   const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
+  // 저장된 Base URL 별칭 — 벤치 탭에서 이름으로 대상 시스템을 골라 Base URL을 채운다.
+  const { namedBaseUrls } = useBaseUrlNames();
+  const baseUrlQuickPickId = useId();
+  // 현재 입력값이 저장된 별칭 중 하나면 그 항목을 선택 상태로 비춘다(아니면 '직접 입력').
+  const baseUrlQuickPickValue = useMemo(() => {
+    const key = normalizeBaseUrl(baseUrl.trim());
+    return namedBaseUrls.some((b) => b.baseUrl === key) ? key : "";
+  }, [baseUrl, namedBaseUrls]);
   const [apiKey, setApiKey] = useState(boot.apiKey);
   const [persistApiKeyToDisk, setPersistApiKeyToDisk] = useState(boot.persistApiKeyToDisk);
   const [unloadOtherModels, setUnloadOtherModels] = useState(boot.unloadOtherModels);
@@ -1833,6 +1844,33 @@ export function App() {
               />
             </label>
           </div>
+          {namedBaseUrls.length > 0 ? (
+            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+              <label
+                htmlFor={baseUrlQuickPickId}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--muted)]"
+              >
+                <Bookmark className="size-3.5 shrink-0" aria-hidden />
+                {msg().baseUrlNames.quickPickLabel}
+              </label>
+              <select
+                id={baseUrlQuickPickId}
+                value={baseUrlQuickPickValue}
+                onChange={(e) => {
+                  // '직접 입력'(빈 값)은 되돌릴 대상이 없으므로 아무것도 하지 않는다.
+                  if (e.target.value) setBaseUrl(e.target.value);
+                }}
+                className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 font-mono text-xs md:max-w-md"
+              >
+                <option value="">{msg().baseUrlNames.quickPickCustom}</option>
+                {namedBaseUrls.map((b) => (
+                  <option key={b.baseUrl} value={b.baseUrl}>
+                    {msg().baseUrlNames.quickPickOption(b.name, b.baseUrl, b.note)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]">
             <input
               type="checkbox"

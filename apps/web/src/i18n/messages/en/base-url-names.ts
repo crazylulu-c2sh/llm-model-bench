@@ -11,4 +11,8 @@ export const baseUrlNames = {
   renameAria: (url: string) => `Set or change the name for ${url}`,
   toastNamed: (name: string) => `Saved as "${name}"`,
   toastCleared: "Base URL name removed",
+  quickPickLabel: "Saved Base URLs",
+  quickPickCustom: "Custom entry",
+  quickPickOption: (name: string, url: string, note?: string) =>
+    note ? `${name} (${note}) · ${url}` : `${name} · ${url}`,
 };

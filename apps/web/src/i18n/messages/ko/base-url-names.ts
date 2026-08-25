@@ -11,4 +11,8 @@ export const baseUrlNames = {
   renameAria: (url: string) => `${url} 이름 붙이거나 바꾸기`,
   toastNamed: (name: string) => `"${name}"(으)로 저장했습니다`,
   toastCleared: "Base URL 이름을 지웠습니다",
+  quickPickLabel: "저장된 Base URL",
+  quickPickCustom: "직접 입력",
+  quickPickOption: (name: string, url: string, note?: string) =>
+    note ? `${name} (${note}) · ${url}` : `${name} · ${url}`,
 };

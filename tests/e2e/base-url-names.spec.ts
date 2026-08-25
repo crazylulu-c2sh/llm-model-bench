@@ -132,3 +132,27 @@ test.describe("/stats Base URL 별칭", () => {
     await expect(page.getByText(/· 1개 표시/)).toBeVisible();
   });
 });
+
+test("모델 벤치: 저장된 별칭으로 Base URL을 빠르게 고른다", async ({ page }) => {
+  await mockApi(page, [{ base_url: BASE_URL_2, name: "DGX Spark", note: "GB200 128GB" }]);
+  await page.goto("/");
+
+  const input = page.locator('input[inputmode="url"]');
+  await expect(input).not.toHaveValue(BASE_URL_2);
+
+  const picker = page.getByLabel("저장된 Base URL");
+  await expect(picker).toBeVisible();
+  await picker.selectOption(BASE_URL_2);
+
+  await expect(input).toHaveValue(BASE_URL_2);
+  // 입력값이 저장된 별칭과 일치하면 셀렉트도 그 항목을 비춘다.
+  await expect(picker).toHaveValue(BASE_URL_2);
+});
+
+test("모델 벤치: 저장된 별칭이 없으면 빠른 선택을 렌더하지 않는다", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/");
+
+  await expect(page.locator('input[inputmode="url"]')).toBeVisible();
+  await expect(page.getByLabel("저장된 Base URL")).toHaveCount(0);
+});
