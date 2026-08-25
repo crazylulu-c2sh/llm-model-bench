@@ -1,3 +1,4 @@
+import type { LoadTtlStatus } from "@llm-bench/shared";
 import type { FetchLike } from "./detect.js";
 
 function headers(apiKey?: string): HeadersInit {
@@ -230,13 +231,17 @@ export function looksLikeLmStudioTtlRejection(status: number, body: string): boo
  * ollama keep_alive preload와 동일한 패턴(응답은 폐기). 매 추론 요청마다 idle 타이머가 리셋되고,
  * TTL 만료 시 LM Studio가 모델을 자동 언로드한다.
  *
- * 구버전이 `ttl`을 400/422로 거절하면 무-ttl 재시도 후 base URL별 캐싱(`ttl_applied: false`).
+ * 구버전이 `ttl`을 400/422로 거절하면 무-ttl 재시도 후 base URL별 캐싱(`ttl_status: "rejected"`).
+ *
+ * 2xx는 적용을 **증명하지 않는다** — OpenAI 호환 서버는 모르는 body 필드를 거절이 아니라 조용히
+ * 무시하는 게 일반적이라, 그런 빌드는 200을 주면서 `ttl`을 버린다. 그래서 성공 응답은
+ * `"unknown"`으로 보고한다(거짓 성공 금지).
  */
 export async function lmStudioJitTtlPrime(
   baseUrl: string,
   modelKey: string,
   opts: { fetchImpl?: FetchLike; apiKey?: string; ttlSeconds: number; signal?: AbortSignal },
-): Promise<{ ok: boolean; status: number; body: string; ttl_applied: boolean }> {
+): Promise<{ ok: boolean; status: number; body: string; ttl_status: LoadTtlStatus }> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const root = apiRoot(baseUrl);
   const url = `${root}/v1/chat/completions`;
@@ -277,17 +282,19 @@ export async function lmStudioJitTtlPrime(
   };
 
   if (!withTtl) {
+    // ttl을 아예 싣지 않는다(이 base URL의 캐시된 거절, 또는 비양수/비유한 ttl).
     const r = await attempt(undefined);
-    return { ...r, ttl_applied: false };
+    return { ...r, ttl_status: "not_applied" };
   }
   const r = await attempt(seconds);
-  if (r.ok) return { ...r, ttl_applied: true };
+  // 2xx는 "서버가 ttl을 읽었다"를 뜻하지 않는다 — 조용히 버렸을 수 있다.
+  if (r.ok) return { ...r, ttl_status: "unknown" };
   if (looksLikeLmStudioTtlRejection(r.status, r.body)) {
     baseUrlsRejectingJitTtl.add(key);
     const retry = await attempt(undefined);
-    return { ...retry, ttl_applied: false };
+    return { ...retry, ttl_status: "rejected" };
   }
-  return { ...r, ttl_applied: false };
+  return { ...r, ttl_status: "not_applied" };
 }
 
 /**

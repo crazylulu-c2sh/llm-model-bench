@@ -120,7 +120,8 @@ describe("lmStudioJitTtlPrime", () => {
       ttlSeconds: 300,
     });
     expect(r.ok).toBe(true);
-    expect(r.ttl_applied).toBe(true);
+    // 2xx는 적용을 증명하지 않는다 — 조용히 무시하는 서버가 흔하다.
+    expect(r.ttl_status).toBe("unknown");
     expect(sent).toEqual({
       model: "my-model",
       messages: [{ role: "user", content: "." }],
@@ -130,7 +131,7 @@ describe("lmStudioJitTtlPrime", () => {
     });
   });
 
-  it("retries without ttl when the server rejects it (400 unknown field) and reports ttl_applied=false", async () => {
+  it("retries without ttl when the server rejects it (400 unknown field) and reports ttl_status=rejected", async () => {
     const bodies: unknown[] = [];
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
@@ -147,7 +148,7 @@ describe("lmStudioJitTtlPrime", () => {
       ttlSeconds: 300,
     });
     expect(r.ok).toBe(true);
-    expect(r.ttl_applied).toBe(false);
+    expect(r.ttl_status).toBe("rejected");
     expect(bodies).toEqual([
       { model: "my-model", messages: [{ role: "user", content: "." }], max_tokens: 1, stream: false, ttl: 300 },
       { model: "my-model", messages: [{ role: "user", content: "." }], max_tokens: 1, stream: false },
@@ -186,7 +187,7 @@ describe("lmStudioJitTtlPrime", () => {
     const r = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
     expect(r.ok).toBe(false);
     expect(r.status).toBe(500);
-    expect(r.ttl_applied).toBe(false);
+    expect(r.ttl_status).toBe("not_applied");
     expect(bodies).toHaveLength(1);
     expect(bodies[0]).toHaveProperty("ttl", 60);
   });
@@ -200,7 +201,7 @@ describe("lmStudioJitTtlPrime", () => {
     const r = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
     expect(r.ok).toBe(false);
     expect(r.status).toBe(0);
-    expect(r.ttl_applied).toBe(false);
+    expect(r.ttl_status).toBe("not_applied");
     expect(r.body).toContain("ECONNREFUSED");
   });
 
@@ -251,7 +252,7 @@ describe("lmStudioJitTtlPrime", () => {
 
     // 같은 base URL의 다음 prime은 여전히 ttl을 실어 보내야 한다(영구 비활성화 금지).
     const r2 = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
-    expect(r2.ttl_applied).toBe(true);
+    expect(r2.ttl_status).toBe("unknown");
     expect(bodies[1]).toHaveProperty("ttl", 60);
   });
 
@@ -277,7 +278,7 @@ describe("lmStudioJitTtlPrime", () => {
     await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
     expect(bodies).toHaveLength(1);
     const r2 = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
-    expect(r2.ttl_applied).toBe(true);
+    expect(r2.ttl_status).toBe("unknown");
   });
 
   it("sends no ttl when ttlSeconds is non-positive/invalid", async () => {
@@ -292,8 +293,8 @@ describe("lmStudioJitTtlPrime", () => {
     });
     const r1 = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 0 });
     const r2 = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: -5 });
-    expect(r1.ttl_applied).toBe(false);
-    expect(r2.ttl_applied).toBe(false);
+    expect(r1.ttl_status).toBe("not_applied");
+    expect(r2.ttl_status).toBe("not_applied");
     for (const b of bodies) {
       expect(b && !("ttl" in (b as object))).toBe(true);
     }

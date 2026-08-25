@@ -82,9 +82,18 @@ export const bench = {
   loadTtlHintB: ", Ollama는 네이티브 ",
   loadTtlHintC: "로 적용됩니다. Ollama는 추론(",
   loadTtlHintD: ")이 keep_alive를 기본 5분으로 리셋하므로 벤치 종료 후 지정 TTL을 다시 적용합니다.",
-  /** LM Studio가 ttl 필드를 거부(구버전)하거나 prime 요청 실패로 TTL이 실제로 걸리지 않은 경우. */
+  /** TTL을 아예 싣지 못한 경우(명시적 load 폴백 등). */
   loadTtlNotApplied: (modelId: string) =>
-    `${modelId}: 로드 TTL 미적용 — LM Studio가 ttl 필드를 거부했거나 prime 요청 실패(유휴 자동 언로드 없음)`,
+    `${modelId}: 로드 TTL 미적용 — TTL을 실을 수 없었습니다(유휴 자동 언로드 없음)`,
+  /** 이미 상주 중이라 TTL을 걸 수 없었던 경우 — LM Studio Idle TTL은 JIT 로드 시점에만 설정된다. */
+  loadTtlNotAppliedResident: (modelId: string) =>
+    `${modelId}: 로드 TTL 미적용 — 모델이 이미 상주 중입니다. LM Studio는 JIT 로드 시점에만 TTL을 걸 수 있어, 적용하려면 먼저 언로드해야 합니다`,
+  /** 서버가 ttl 필드를 400/422로 거절한 경우(구버전). */
+  loadTtlRejected: (modelId: string) =>
+    `${modelId}: 로드 TTL 거부됨 — 서버가 ttl 필드를 거절해 TTL 없이 진행했습니다(유휴 자동 언로드 없음)`,
+  /** ttl을 보냈고 2xx를 받았지만 적용을 확인할 수 없는 경우. */
+  loadTtlUnknown: (modelId: string) =>
+    `${modelId}: 로드 TTL 적용 여부 확인 불가 — 요청은 성공했지만 OpenAI 호환 서버는 모르는 필드를 조용히 무시할 수 있습니다`,
 
   notApplied: "미적용",
   contentionGuardTitle: "다른 추론(같은/다른 모델)이 실행 중이면 시작 전 대기하고, 벤치 중 감지되면 오염된 측정 런만 폐기 후 재측정합니다.",
@@ -149,7 +158,8 @@ export const bench = {
   moveDownAria: (modelId: string) => `${modelId} 아래로 이동`,
   confirmUnloadOthersOn: "벤치 대상 외 모델 언로드가 켜져 있습니다(감지 목록 기준).",
   confirmAutoUnloadOn: "이번 벤치에서 로드한 대상 모델만 끝날 때 자동 언로드합니다(이미 로드된 모델은 유지).",
-  confirmLoadTtl: (seconds: number, via: string) => `모델 로드 TTL ${seconds}초를 적용합니다(${via}).`,
+  confirmLoadTtl: (seconds: number, via: string) =>
+    `모델 로드 TTL ${seconds}초를 적용합니다(${via}). 모델이 이미 상주 중이면 적용되지 않을 수 있습니다.`,
   estimatedFromOtherQuant: (quant: string) => `다른 양자화(${quant}) 기록 기준`,
   estimatedTotalLabel: (text: string, covered: number, total: number) =>
     `예상 총 소요 ~${text} · 이력 있음 ${covered}/${total}개`,

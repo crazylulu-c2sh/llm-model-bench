@@ -29,6 +29,7 @@ import {
 } from "./persisted-settings";
 
 import { useI18n, msg } from "./i18n";
+import { loadTtlNotice } from "./lib/load-ttl-message";
 
 type DetectModel = DetectResult["models"][number];
 
@@ -384,6 +385,14 @@ export function StressPage() {
             setStages(ev.stages);
             setRunStatus("finished");
             setStageStartedAt(null);
+            break;
+          }
+          // 서버는 model_loaded를 정상 emit하지만 이 switch에 케이스가 없어 그대로 버려졌다 —
+          // 벤치 페이지에는 뜨는 TTL 경고가 스트레스에서는 침묵했다.
+          case "model_loaded": {
+            const notice = loadTtlNotice(msg(), ev.model_id, ev.load_ttl_status, ev.lm_studio_prepare);
+            if (notice?.level === "warn") toast.warning(notice.text);
+            else if (notice) toast(notice.text);
             break;
           }
           case "error": {

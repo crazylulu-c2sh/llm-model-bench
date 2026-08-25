@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProviderKindSchema } from "./provider-kind";
+import { LoadTtlStatusSchema, ProviderKindSchema } from "./provider-kind";
 // 아래 요청 바디 스키마에서 로컬로 사용(재-export만으론 로컬 바인딩이 안 생김).
 import { STRESS_WORKLOAD_IDS as STRESS_WORKLOAD_IDS_LOCAL, type StressWorkloadId as StressWorkloadIdLocal } from "./scenarios-preview";
 import { StressRampConfigSchema as StressRampConfigSchemaLocal } from "./stress";
@@ -215,7 +215,13 @@ export const SamplingParamsSchema = z.object({
   repetition_penalty: z.number().optional(),
 });
 
-export { ProviderKindSchema, providerSupportsLoadTtl, type ProviderKind } from "./provider-kind";
+export {
+  LoadTtlStatusSchema,
+  ProviderKindSchema,
+  providerSupportsLoadTtl,
+  type LoadTtlStatus,
+  type ProviderKind,
+} from "./provider-kind";
 
 export {
   inferModelVendor,
@@ -396,8 +402,8 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     lm_studio_prepare: z
       .enum(["loaded", "already_in_memory", "load_skipped_by_request", "jit_load_with_ttl"])
       .optional(),
-    /** 로드 TTL 실제 적용 여부 — LM Studio JIT prime이 ttl을 거부(구버전)하거나 실패하면 false. */
-    load_ttl_applied: z.boolean().optional(),
+    /** 로드 TTL 적용 상태 — {@link LoadTtlStatus}. TTL을 요청하지 않은 런에서는 생략된다. */
+    load_ttl_status: LoadTtlStatusSchema.optional(),
   }),
   z.object({
     type: z.literal("model_unloaded"),

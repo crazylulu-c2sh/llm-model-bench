@@ -84,9 +84,18 @@ export const bench: Messages["bench"] = {
   loadTtlHintC: " で適用されます。Ollama は推論(",
   loadTtlHintD:
     ")が keep_alive をデフォルトの 5 分にリセットするため、ベンチ終了後に指定 TTL を再適用します。",
-  /** LM Studio が ttl フィールドを拒否(旧バージョン)または prime リクエスト失敗で TTL が実際には設定されない場合。 */
+  /** ttl をそもそも送れなかった場合(明示的 load へのフォールバックなど)。 */
   loadTtlNotApplied: (modelId: string) =>
-    `${modelId}: ロードTTL未適用 — LM Studio が ttl を拒否、または prime リクエスト失敗(アイドル自動アンロードなし)`,
+    `${modelId}: ロードTTL未適用 — ttl を送信できませんでした(アイドル自動アンロードなし)`,
+  /** すでに常駐中で TTL を設定できなかった場合 — LM Studio の Idle TTL は JIT ロード時のみ設定可能。 */
+  loadTtlNotAppliedResident: (modelId: string) =>
+    `${modelId}: ロードTTL未適用 — モデルがすでに常駐中です。LM Studio は JIT ロード時のみ TTL を設定できるため、適用するには先にアンロードが必要です`,
+  /** サーバーが ttl フィールドを 400/422 で拒否した場合(旧バージョン)。 */
+  loadTtlRejected: (modelId: string) =>
+    `${modelId}: ロードTTL拒否 — サーバーが ttl フィールドを拒否したため TTL なしで続行しました(アイドル自動アンロードなし)`,
+  /** ttl を送信して 2xx を受け取ったが、適用を確認できない場合。 */
+  loadTtlUnknown: (modelId: string) =>
+    `${modelId}: ロードTTLの適用可否を確認できません — リクエストは成功しましたが、OpenAI 互換サーバーは未知のフィールドを黙って無視することがあります`,
 
   notApplied: "未適用",
   contentionGuardTitle:
@@ -154,7 +163,8 @@ export const bench: Messages["bench"] = {
   confirmUnloadOthersOn: "ベンチ対象以外のモデルのアンロードがオンです(検出一覧基準)。",
   confirmAutoUnloadOn:
     "今回のベンチでロードした対象モデルのみ、終了時に自動アンロードします(すでにロード済みのモデルは維持)。",
-  confirmLoadTtl: (seconds, via) => `モデルロード TTL ${seconds}秒を適用します(${via})。`,
+  confirmLoadTtl: (seconds, via) =>
+    `モデルロード TTL ${seconds}秒を適用します(${via})。モデルがすでに常駐中の場合は適用されないことがあります。`,
   estimatedFromOtherQuant: (quant) => `別の量子化(${quant})の記録に基づく`,
   estimatedTotalLabel: (text, covered, total) => `予想合計 ~${text} · 履歴あり ${covered}/${total}`,
 

@@ -79,6 +79,7 @@ import {
   type Qwen38ReasoningEffort,
 } from "./persisted-settings";
 import { useBaseUrlNames } from "./lib/base-url-names";
+import { loadTtlNotice } from "./lib/load-ttl-message";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
 const ProfileDocPage = lazy(() => import("./ProfileDocPage").then((m) => ({ default: m.ProfileDocPage })));
 import { ProviderMonitorPage } from "./ProviderMonitorPage";
@@ -1208,9 +1209,8 @@ export function App() {
       }
       if (ev.type === "model_loaded") {
         pushBenchLine("info", msg().bench.eventModelLoaded(ev.model_id));
-        if (ev.load_ttl_applied === false) {
-          pushBenchLine("warn", msg().bench.loadTtlNotApplied(ev.model_id));
-        }
+        const ttlNotice = loadTtlNotice(msg(), ev.model_id, ev.load_ttl_status, ev.lm_studio_prepare);
+        if (ttlNotice) pushBenchLine(ttlNotice.level, ttlNotice.text);
         setBenchCurrent({ modelId: ev.model_id });
       }
       if (ev.type === "model_unloaded") {

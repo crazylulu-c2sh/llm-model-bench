@@ -345,31 +345,116 @@ describe("runBench LM Studio load TTL (JIT prime)", () => {
     const events = await collect(fetchImpl);
     const loadedEv = events.find((e) => e.type === "model_loaded");
     expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.lm_studio_prepare).toBe("jit_load_with_ttl");
-    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_applied).toBe(true);
+    // 2xx는 적용을 증명하지 않는다 — 모르는 필드를 조용히 무시하는 서버가 흔하다.
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_status).toBe("unknown");
     expect(explicitLoads()).toBe(0);
     expect(primeBodies[0]).toMatchObject({ model: MODEL_ID, max_tokens: 1, stream: false, ttl: 300 });
     expect(events.some((e) => e.type === "run_finished")).toBe(true);
   });
 
-  it("falls back to explicit load when prime fails (500)", async () => {
+  it("falls back to explicit load when prime fails (500) and does not claim a JIT ttl load", async () => {
     const { fetchImpl, explicitLoads } = lmFetch("fail_500");
     const events = await collect(fetchImpl);
     expect(explicitLoads()).toBe(1);
     const loadedEv = events.find((e) => e.type === "model_loaded");
-    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_applied).toBe(false);
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_status).toBe("not_applied");
+    // 폴백으로 올렸으므로 JIT-TTL 라벨을 붙이면 안 된다(평범한 REST load였다).
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.lm_studio_prepare).toBe("loaded");
     expect(events.some((e) => e.type === "run_finished")).toBe(true);
   });
 
-  it("reports load_ttl_applied=false when the server rejects ttl (400 unknown field)", async () => {
+  it("reports load_ttl_status=rejected when the server rejects ttl (400 unknown field)", async () => {
     const { fetchImpl, primeBodies } = lmFetch("reject_ttl");
     const events = await collect(fetchImpl);
     const loadedEv = events.find((e) => e.type === "model_loaded");
-    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_applied).toBe(false);
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_status).toBe("rejected");
     // ttl 포함 1회 → 거부 → 무-ttl 재시도 1회
     expect(primeBodies).toHaveLength(2);
     expect(primeBodies[0]).toHaveProperty("ttl", 300);
     expect(primeBodies[1]).not.toHaveProperty("ttl");
     expect(events.some((e) => e.type === "run_finished")).toBe(true);
+  });
+
+  // 아래 두 분기는 기존 mock이 항상 "미로드"를 돌려주고 skipModelLoad를 세팅하지 않아
+  // 한 번도 실행되지 않았다.
+
+  it("already resident: reports the ttl as not applied instead of staying silent", async () => {
+    // Idle TTL은 JIT 로드 시점에만 설정 가능하다. 상주 중이면 걸 방법이 없는데, 필드를
+    // 생략해 버리면 UI의 `=== "not_applied"` 경고가 영영 뜨지 않는다.
+    let explicitLoads = 0;
+    let primes = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [{ id: "i1" }] }] });
+      }
+      if (url.endsWith("/api/v1/models/load")) {
+        explicitLoads += 1;
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        const b = init?.body ? JSON.parse(String(init.body)) : null;
+        if (b && b.stream === false) {
+          primes += 1;
+          return jsonResponse({ choices: [] });
+        }
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    const events = await collect(fetchImpl);
+    const loadedEv = events.find((e) => e.type === "model_loaded");
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.lm_studio_prepare).toBe("already_in_memory");
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_status).toBe("not_applied");
+    // 상주 모델을 내렸다 올리는 건 요청하지 않은 상태 변경 — 하지 않는다.
+    expect(primes).toBe(0);
+    expect(explicitLoads).toBe(0);
+  });
+
+  it("skipModelLoad: never primes (priming would JIT-load the model it was told not to touch)", async () => {
+    let primes = 0;
+    let explicitLoads = 0;
+    let unloads = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [] }] });
+      }
+      if (url.endsWith("/api/v1/models/unload")) {
+        unloads += 1;
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/api/v1/models/load")) {
+        explicitLoads += 1;
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        const b = init?.body ? JSON.parse(String(init.body)) : null;
+        if (b && b.stream === false) {
+          primes += 1;
+          return jsonResponse({ choices: [] });
+        }
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    const events: StreamEvent[] = [];
+    for await (const ev of runBench(
+      baseBenchRequest({ loadTtlSeconds: 300, skipModelLoad: true }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      events.push(ev);
+    }
+    // prime은 실제 추론 요청이라 JIT 로드를 일으킨다 — skipModelLoad의 정반대다.
+    // 게다가 메모리 프리플라이트·unloadOtherModels가 !skipModelLoad 게이트 안이라
+    // 이 경로로 올리면 적합성 검사 없이 올라간다.
+    expect(primes).toBe(0);
+    expect(explicitLoads).toBe(0);
+    expect(unloads).toBe(0);
+    const loadedEv = events.find((e) => e.type === "model_loaded");
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.lm_studio_prepare).toBe("load_skipped_by_request");
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_status).toBe("not_applied");
   });
 });
 
