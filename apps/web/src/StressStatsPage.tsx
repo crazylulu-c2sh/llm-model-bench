@@ -1,4 +1,9 @@
-import { expectedScriptForWorkload, type StressRunDetailResponse, type StressRunsListResponse } from "@llm-bench/shared";
+import {
+  expectedScriptForWorkload,
+  parseModelPublisherFromId,
+  type StressRunDetailResponse,
+  type StressRunsListResponse,
+} from "@llm-bench/shared";
 import { Download, Loader2, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +23,11 @@ import { useI18n, msg } from "./i18n";
 
 // suppress unused warning in some build configs
 void _CSV_BOM;
+
+/** 게시자(조직): meta_json에 없으면(기존 런) model_id의 org 접두 파생. */
+function runPublisher(it: { publisher?: string; model_id: string }): string {
+  return it.publisher?.trim() || parseModelPublisherFromId(it.model_id) || "";
+}
 
 type AppliedFilters = {
   workload_id: string;
@@ -320,6 +330,7 @@ export function StressStatsPage() {
               <thead className="border-b border-[var(--border)] text-[var(--muted)]">
                 <tr>
                   <th className="px-2 py-1">{m.stress.stats.field.model}</th>
+                  <th className="px-2 py-1">{m.stress.stats.field.publisher}</th>
                   <th className="px-2 py-1">{m.stress.stats.field.provider}</th>
                   <th className="px-2 py-1">{m.stress.stats.field.workload}</th>
                   <th className="px-2 py-1">Base URL</th>
@@ -352,6 +363,14 @@ export function StressStatsPage() {
                       <td className="px-2 py-1 font-mono">
                         <span className="block max-w-[18ch] truncate" title={it.model_id}>
                           {it.model_id}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1">
+                        <span
+                          className="block max-w-[14ch] truncate text-[var(--muted)]"
+                          title={runPublisher(it) || undefined}
+                        >
+                          {runPublisher(it) || "—"}
                         </span>
                       </td>
                       <td className="px-2 py-1 font-mono">{it.provider}</td>

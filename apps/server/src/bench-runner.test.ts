@@ -114,6 +114,31 @@ describe("makeBenchRunMeta default scenarioIds", () => {
   });
 });
 
+describe("makeBenchRunMeta publisher", () => {
+  it("prefers detect API publisher over model_id prefix", () => {
+    const meta = makeBenchRunMeta(
+      baseBenchRequest({ modelId: "org-a/model-x" }),
+      { ...lmStudioDetect(), models: [{ id: "org-a/model-x", publisher: "Org A" }] },
+      "run_pub_1",
+    );
+    expect(meta.publisher).toBe("Org A");
+  });
+
+  it("falls back to model_id org prefix when detect has no publisher", () => {
+    const meta = makeBenchRunMeta(
+      baseBenchRequest({ modelId: "org-b/model-y" }),
+      lmStudioDetect(),
+      "run_pub_2",
+    );
+    expect(meta.publisher).toBe("org-b");
+  });
+
+  it("omits publisher when neither source has one", () => {
+    const meta = makeBenchRunMeta(baseBenchRequest(), lmStudioDetect(), "run_pub_3");
+    expect(meta.publisher).toBeUndefined();
+  });
+});
+
 describe("normalizeScenarioIdsForBench", () => {
   it("moves translate_nist_fips197_pdf_tools to the end while preserving other order", () => {
     const input: ScenarioId[] = [

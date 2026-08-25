@@ -19,6 +19,7 @@ import {
   getScenarioSystemPromptPreview,
   getScenarioUserPromptPreview,
   isStressWorkloadId,
+  parseModelPublisherFromId,
   providerSupportsLoadTtl,
   resolveBenchProfile,
   type LlmProfileFamily,
@@ -144,6 +145,10 @@ export function makeStressRunMeta(
     base_url: detect.baseUrl.replace(/\/+$/, ""),
     provider: input.provider,
     model_id: input.modelId,
+    // 게시자(조직): bench meta와 동일 의미 — detect API publisher ?? model_id 접두.
+    publisher:
+      detect.models.find((m) => m.id === input.modelId)?.publisher?.trim() ||
+      parseModelPublisherFromId(input.modelId),
     api_route: route,
     workload_id: input.workloadId,
     max_tokens: input.maxTokens ?? defaultMaxTokensForWorkload(input.workloadId),

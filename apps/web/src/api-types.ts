@@ -118,6 +118,8 @@ export type RunSummary = {
 export type StatsModelLatestItem = {
   run_id: string;
   model_id: string;
+  /** 모델 게시자(조직) — meta_json에 없으면(기존 런) model_id 접두 파생. */
+  publisher?: string;
   base_url: string;
   provider: string;
   finished_at: string;

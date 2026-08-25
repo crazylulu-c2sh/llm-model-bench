@@ -189,6 +189,7 @@ export const stress: Messages["stress"] = {
       "⚠ This is a live run — risk of data corruption if it is running concurrently at /stress.",
     field: {
       model: "Model",
+      publisher: "Publisher",
       provider: "Provider",
       workload: "Workload",
       status: "Status",
