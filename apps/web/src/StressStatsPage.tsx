@@ -4,10 +4,12 @@ import {
   type StressRunDetailResponse,
   type StressRunsListResponse,
 } from "@llm-bench/shared";
-import { Download, Loader2, Trash2 } from "lucide-react";
+import { Download, Loader2, PenLine, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { BaseUrlNameModal } from "./components/BaseUrlNameModal";
+import { BaseUrlValue } from "./components/BaseUrlValue";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { StressResultTable } from "./components/StressResultTable";
 import { StressTpsChart } from "./components/StressTpsChart";
@@ -19,6 +21,7 @@ import {
 } from "./lib/stress-export";
 import { workloadLabel } from "./lib/stress-labels";
 import { formatIsoLocal } from "./lib/time-format";
+import { useBaseUrlNames } from "./lib/base-url-names";
 import { useI18n, msg } from "./i18n";
 
 // suppress unused warning in some build configs
@@ -88,6 +91,28 @@ export function StressStatsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [deletePending, setDeletePending] = useState(false);
+
+  // Base URL alias (name + device/spec memo) — run list·detail header display and cell edit.
+  const { aliasFor, save: saveAlias } = useBaseUrlNames();
+  const [renameTarget, setRenameTarget] = useState<string | null>(null);
+  const [savingAlias, setSavingAlias] = useState(false);
+
+  const submitAlias = useCallback(
+    async (name: string, note: string) => {
+      if (!renameTarget) return;
+      setSavingAlias(true);
+      try {
+        await saveAlias(renameTarget, name, note);
+        toast.success(name ? msg().baseUrlNames.toastNamed(name) : msg().baseUrlNames.toastCleared);
+        setRenameTarget(null);
+      } catch (e) {
+        toast.error(String(e));
+      } finally {
+        setSavingAlias(false);
+      }
+    },
+    [renameTarget, saveAlias],
+  );
 
   const listAbortRef = useRef<AbortController | null>(null);
   const detailAbortRef = useRef<AbortController | null>(null);
@@ -216,6 +241,11 @@ export function StressStatsPage() {
     if (!detail) return "latin" as const;
     return expectedScriptForWorkload(detail.meta.workload_id);
   }, [detail]);
+
+  const detailAlias = useMemo(
+    () => (detail ? aliasFor(detail.meta.base_url) : undefined),
+    [detail, aliasFor],
+  );
 
   const rampSummary = useMemo(() => {
     if (!detail) return "";
@@ -375,9 +405,21 @@ export function StressStatsPage() {
                       </td>
                       <td className="px-2 py-1 font-mono">{it.provider}</td>
                       <td className="px-2 py-1">{workloadLabel(m, it.workload_id)}</td>
-                      <td className="px-2 py-1 font-mono">
-                        <span className="block max-w-[24ch] truncate" title={it.base_url}>
-                          {it.base_url}
+                      <td className="px-2 py-1">
+                        <span className="flex items-start gap-1 font-mono">
+                          <BaseUrlValue baseUrl={it.base_url} alias={aliasFor(it.base_url)} />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenameTarget(it.base_url);
+                            }}
+                            aria-label={m.baseUrlNames.renameAria(it.base_url)}
+                            title={m.baseUrlNames.renameAria(it.base_url)}
+                            className="rounded p-0.5 text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+                          >
+                            <PenLine className="size-3" aria-hidden />
+                          </button>
                         </span>
                       </td>
                       <td className="px-2 py-1">
@@ -442,7 +484,21 @@ export function StressStatsPage() {
               <div><span className="text-[var(--muted)]">model</span> <span className="font-mono">{detail.meta.model_id}</span></div>
               <div><span className="text-[var(--muted)]">provider</span> <span className="font-mono">{detail.meta.provider}</span></div>
               <div><span className="text-[var(--muted)]">workload</span> {workloadLabel(m, detail.meta.workload_id)}</div>
-              <div><span className="text-[var(--muted)]">base_url</span> <span className="font-mono">{detail.meta.base_url}</span></div>
+              <div className="flex flex-wrap items-baseline gap-1.5">
+                <span className="text-[var(--muted)]">base_url</span>
+                <span className="break-all font-mono" title={detail.meta.base_url}>{detail.meta.base_url}</span>
+                {detailAlias ? (
+                  <span
+                    className="rounded border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-xs"
+                    title={detailAlias.note || undefined}
+                  >
+                    {detailAlias.name}
+                    {detailAlias.note ? (
+                      <span className="text-[var(--muted)]"> · {detailAlias.note}</span>
+                    ) : null}
+                  </span>
+                ) : null}
+              </div>
               <div><span className="text-[var(--muted)]">{m.stress.stats.field.status}</span> <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${statusBadgeClass(detail.meta.status)}`}>{detail.meta.status}</span></div>
               <div><span className="text-[var(--muted)]">{m.stress.stats.field.started}</span> <span className="font-mono">{formatIsoLocal(detail.meta.created_at)}</span></div>
               <div><span className="text-[var(--muted)]">{m.stress.stats.field.finished}</span> <span className="font-mono">{formatIsoLocal(detail.meta.finished_at)}</span></div>
@@ -494,6 +550,17 @@ export function StressStatsPage() {
         )}
       </section>
 
+      <BaseUrlNameModal
+        open={renameTarget != null}
+        baseUrl={renameTarget ?? ""}
+        initialName={renameTarget ? (aliasFor(renameTarget)?.name ?? "") : ""}
+        initialNote={renameTarget ? (aliasFor(renameTarget)?.note ?? "") : ""}
+        busy={savingAlias}
+        onClose={() => {
+          if (!savingAlias) setRenameTarget(null);
+        }}
+        onSubmit={submitAlias}
+      />
       <ConfirmDialog
         open={confirmId != null}
         title={m.stress.stats.confirmTitle}
