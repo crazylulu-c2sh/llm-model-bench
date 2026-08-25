@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ReasoningEffort, ResolvedBenchProfile } from "./llm-profiles";
+import type { LoadTtlStatus } from "./provider-kind";
 import type { StressWorkloadId } from "./scenarios-preview";
 
 export type StressProviderKind = "lm_studio" | "ollama" | "openai_compatible" | "manual";
@@ -98,8 +99,8 @@ export type StressStreamEvent =
         | "already_in_memory"
         | "load_skipped_by_request"
         | "jit_load_with_ttl";
-      /** 로드 TTL 실제 적용 여부 — LM Studio JIT prime이 ttl을 거부(구버전)하거나 실패하면 false. */
-      load_ttl_applied?: boolean;
+      /** 로드 TTL 적용 상태 — LoadTtlStatus. TTL을 요청하지 않은 런에서는 생략된다. */
+      load_ttl_status?: LoadTtlStatus;
     }
   | { type: "model_unloaded"; model_id: string; phase: "after_bench"; ok: boolean; status?: number }
   | {

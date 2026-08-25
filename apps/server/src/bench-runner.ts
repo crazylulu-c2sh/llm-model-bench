@@ -19,6 +19,7 @@ import {
   isVisionScenario,
   normalizeScenarioIdsForBench,
   parseModelPublisherFromId,
+  type LoadTtlStatus,
   providerSupportsLoadTtl,
   resolveBenchApiRoutes,
   rubricToScore,
@@ -629,7 +630,9 @@ export async function* runBench(
       : undefined;
 
   let modelLoadedByThisBench = false;
-  let lmStudioTtlApplied: boolean | undefined;
+  let lmStudioTtlStatus: LoadTtlStatus | undefined;
+  // prime이 실패해 명시적 load로 올린 경우 — 라벨을 jit_load_with_ttl로 붙이면 안 된다.
+  let primeFellBackToLoad = false;
   if (input.provider === "lm_studio" && !input.skipModelLoad) {
     const loaded = await lmStudioIsModelLoaded(base, input.modelId, {
       fetchImpl,
@@ -637,12 +640,15 @@ export async function* runBench(
     });
     if (loaded.ok && loaded.loaded) {
       /* already in memory — do not load or auto-unload at end */
+      // LM Studio Idle TTL은 JIT 로드 시점에만 설정할 수 있다. 이미 상주 중이면 걸 방법이
+      // 없으므로(모델을 내렸다 올리는 건 사용자가 요청하지 않은 상태 변경) 조용히 넘어가지
+      // 말고 미적용을 보고한다 — 그래야 UI 경고가 실제로 뜬다.
+      if (loadTtlSeconds != null) lmStudioTtlStatus = "not_applied";
     } else {
       await lmStudioUnload(base, input.modelId, {
         fetchImpl,
         apiKey: input.apiKey,
       });
-      let ttlApplied = false;
       if (loadTtlSeconds != null) {
         // LM Studio Idle TTL은 명시적 load가 아닌 JIT 로딩(첫 추론 요청) 페이로드에만 적용된다.
         // 최소 prime(max_tokens=1 + 본문 ttl)으로 JIT 로드 트리거 — ollama keep_alive preload와 동일 패턴.
@@ -650,11 +656,13 @@ export async function* runBench(
           fetchImpl,
           apiKey: input.apiKey,
           ttlSeconds: loadTtlSeconds,
+          signal: cancelSignal,
         });
         if (primed.ok) {
-          ttlApplied = primed.ttl_applied;
+          lmStudioTtlStatus = primed.ttl_status;
         } else {
           // prime 실패(네트워크 등) — 명시적 load로 폴백해 로드 자체는 보장한다.
+          // 명시적 load는 ttl을 지원하지 않으므로 TTL은 확실히 걸리지 않았다.
           const load = await lmStudioLoad(base, input.modelId, {
             fetchImpl,
             apiKey: input.apiKey,
@@ -669,6 +677,8 @@ export async function* runBench(
             unregisterRunControl(rid);
             return;
           }
+          primeFellBackToLoad = true;
+          lmStudioTtlStatus = "not_applied";
         }
       } else {
         const load = await lmStudioLoad(base, input.modelId, {
@@ -687,28 +697,13 @@ export async function* runBench(
         }
       }
       modelLoadedByThisBench = true;
-      if (loadTtlSeconds != null) lmStudioTtlApplied = ttlApplied;
     }
   } else if (input.provider === "lm_studio" && input.skipModelLoad && loadTtlSeconds != null) {
-    // skipModelLoad + TTL: 상태 변경 없이 read-only 확인. 미로드면 prime으로 JIT 로드(TTL 적용).
-    const loaded = await lmStudioIsModelLoaded(base, input.modelId, {
-      fetchImpl,
-      apiKey: input.apiKey,
-    });
-    if (!(loaded.ok && loaded.loaded)) {
-      const primed = await lmStudioJitTtlPrime(base, input.modelId, {
-        fetchImpl,
-        apiKey: input.apiKey,
-        ttlSeconds: loadTtlSeconds,
-      });
-      if (primed.ok) {
-        modelLoadedByThisBench = true;
-        lmStudioTtlApplied = primed.ttl_applied;
-      } else {
-        // skipModelLoad이므로 폴백 로드도 하지 않는다 — 요청대로 상태를 건드리지 않는다.
-        lmStudioTtlApplied = false;
-      }
-    }
+    // skipModelLoad는 "LM 로드/언로드를 하지 말라"는 요청이다. prime은 실제 추론 요청이라
+    // JIT 로드를 **일으키므로** 여기서는 하지 않는다. 게다가 메모리 프리플라이트와
+    // unloadOtherModels가 둘 다 `!skipModelLoad` 게이트 안에 있어, 이 경로로 모델을 올리면
+    // 적합성 검사도 상주 모델 회수도 없이 올라간다.
+    lmStudioTtlStatus = "not_applied";
   } else if (input.provider === "ollama" && loadTtlSeconds != null) {
     // Ollama: 명시적 load 단계가 없으므로 네이티브 /api/generate(빈 prompt)로 preload +
     // keep_alive TTL 적용. skipModelLoad와 무관하게 동작한다(웹은 ollama에 skipModelLoad=true를 보냄).
@@ -726,10 +721,12 @@ export async function* runBench(
     | "jit_load_with_ttl"
     | undefined;
   if (input.provider === "lm_studio") {
-    if (modelLoadedByThisBench && loadTtlSeconds != null) lmStudioPrepare = "jit_load_with_ttl";
-    else if (input.skipModelLoad) lmStudioPrepare = "load_skipped_by_request";
-    else if (modelLoadedByThisBench) lmStudioPrepare = "loaded";
-    else lmStudioPrepare = "already_in_memory";
+    // 순서 주의: skipModelLoad가 최우선이어야 stress-runner와 라벨이 일치한다.
+    if (input.skipModelLoad) lmStudioPrepare = "load_skipped_by_request";
+    else if (modelLoadedByThisBench) {
+      lmStudioPrepare =
+        loadTtlSeconds != null && !primeFellBackToLoad ? "jit_load_with_ttl" : "loaded";
+    } else lmStudioPrepare = "already_in_memory";
   }
 
   yield {
@@ -737,7 +734,7 @@ export async function* runBench(
     model_id: input.modelId,
     provider: input.provider,
     ...(lmStudioPrepare != null ? { lm_studio_prepare: lmStudioPrepare } : {}),
-    ...(lmStudioTtlApplied !== undefined ? { load_ttl_applied: lmStudioTtlApplied } : {}),
+    ...(lmStudioTtlStatus !== undefined ? { load_ttl_status: lmStudioTtlStatus } : {}),
   };
 
   // STEP 1: 사전 대기 게이트 — 다른 추론이 실행 중이면 유휴까지 대기. 타임아웃/예산 초과면

@@ -287,9 +287,82 @@ describe("runStress LM Studio load TTL (JIT prime)", () => {
 
     const loadedEv = events.find((e) => e.type === "model_loaded");
     expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.lm_studio_prepare).toBe("jit_load_with_ttl");
-    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_applied).toBe(true);
+    // 2xx는 적용을 증명하지 않는다.
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_status).toBe("unknown");
     expect(explicitLoads).toBe(0);
     expect(primeBodies[0]).toMatchObject({ model: MODEL_ID, max_tokens: 1, stream: false, ttl: 300 });
     expect(events.some((e) => e.type === "run_finished")).toBe(true);
+  });
+
+  /** LM Studio 준비 경로만 관심 — 모델 상주 여부를 파라미터로 받는다. */
+  const runLmStudioPrepare = async (opts: { resident: boolean; skipModelLoad?: boolean }) => {
+    const MODEL_ID = "lm-model";
+    let explicitLoads = 0;
+    let primes = 0;
+    let unloads = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({
+          models: [{ key: MODEL_ID, loaded_instances: opts.resident ? [{ id: "i1" }] : [] }],
+        });
+      }
+      if (url.endsWith("/api/v1/models/unload")) {
+        unloads += 1;
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/api/v1/models/load")) {
+        explicitLoads += 1;
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        const b = init?.body ? JSON.parse(String(init.body)) : null;
+        if (b && b.stream === false) {
+          primes += 1;
+          return jsonResponse({ choices: [] });
+        }
+        return sseChatStreamingResponse({ contentChunks: ["ok"], usageCompletionTokens: 2 });
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    }) as unknown as typeof fetch;
+
+    const events: StressStreamEvent[] = [];
+    for await (const ev of runStress(
+      baseStressRequest({
+        provider: "lm_studio",
+        modelId: MODEL_ID,
+        loadTtlSeconds: 300,
+        ...(opts.skipModelLoad ? { skipModelLoad: true } : {}),
+      }),
+      lmStudioDetect(MODEL_ID),
+      { fetchImpl, tickIntervalMs: 5_000, maxRequestsPerWorker: 1 },
+    )) {
+      events.push(ev);
+    }
+    const ev = events.find((e) => e.type === "model_loaded");
+    const loaded = ev && ev.type === "model_loaded" ? ev : null;
+    return { prepare: loaded?.lm_studio_prepare, ttl: loaded?.load_ttl_status, primes, explicitLoads, unloads };
+  };
+
+  it("already resident: reports the ttl as not applied and leaves the model alone", async () => {
+    const r = await runLmStudioPrepare({ resident: true });
+    expect(r.prepare).toBe("already_in_memory");
+    expect(r.ttl).toBe("not_applied");
+    expect(r.primes).toBe(0);
+    expect(r.explicitLoads).toBe(0);
+    expect(r.unloads).toBe(0);
+  });
+
+  it("skipModelLoad: never primes and matches bench-runner's label", async () => {
+    // 같은 입력(skipModelLoad + ttl)에 bench는 load_skipped_by_request, stress는
+    // already_in_memory를 보고해 두 러너가 갈렸었다. 이제 둘 다 전자로 통일된다.
+    for (const resident of [true, false]) {
+      const r = await runLmStudioPrepare({ resident, skipModelLoad: true });
+      expect(r.prepare).toBe("load_skipped_by_request");
+      expect(r.ttl).toBe("not_applied");
+      expect(r.primes).toBe(0);
+      expect(r.explicitLoads).toBe(0);
+      expect(r.unloads).toBe(0);
+    }
   });
 });

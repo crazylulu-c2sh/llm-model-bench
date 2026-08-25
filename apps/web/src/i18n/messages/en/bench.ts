@@ -84,9 +84,18 @@ export const bench: Messages["bench"] = {
   loadTtlHintC: ". Since Ollama inference (",
   loadTtlHintD:
     ") resets keep_alive to the default 5 minutes, the given TTL is re-applied after the bench finishes.",
-  /** When LM Studio rejects the ttl field (older versions) or the prime request fails, so no TTL was actually set. */
+  /** When the ttl could not be sent at all (e.g. fell back to an explicit load). */
   loadTtlNotApplied: (modelId: string) =>
-    `${modelId}: load TTL not applied — LM Studio rejected the ttl field or the prime request failed (no idle auto-unload)`,
+    `${modelId}: load TTL not applied — the ttl could not be sent (no idle auto-unload)`,
+  /** Already resident — LM Studio only sets Idle TTL at JIT-load time. */
+  loadTtlNotAppliedResident: (modelId: string) =>
+    `${modelId}: load TTL not applied — the model is already resident. LM Studio can only set a TTL at JIT-load time, so it must be unloaded first`,
+  /** The server rejected the ttl field with 400/422 (older builds). */
+  loadTtlRejected: (modelId: string) =>
+    `${modelId}: load TTL rejected — the server refused the ttl field, so the run continued without it (no idle auto-unload)`,
+  /** ttl was sent and accepted with 2xx, but acceptance does not prove it took effect. */
+  loadTtlUnknown: (modelId: string) =>
+    `${modelId}: load TTL could not be confirmed — the request succeeded, but OpenAI-compatible servers may silently ignore unknown fields`,
 
   notApplied: "Not applied",
   contentionGuardTitle:
@@ -154,7 +163,8 @@ export const bench: Messages["bench"] = {
   confirmUnloadOthersOn: "Unloading models other than the bench target is on (based on the detected list).",
   confirmAutoUnloadOn:
     "Only target models loaded in this bench are auto-unloaded when it finishes (already-loaded models are kept).",
-  confirmLoadTtl: (seconds, via) => `Applying model load TTL ${seconds}s (${via}).`,
+  confirmLoadTtl: (seconds, via) =>
+    `Applying model load TTL ${seconds}s (${via}). It may not apply if the model is already resident.`,
   estimatedFromOtherQuant: (quant) => `Based on another quant (${quant})`,
   estimatedTotalLabel: (text, covered, total) => `Estimated total ~${text} · history for ${covered}/${total}`,
 
