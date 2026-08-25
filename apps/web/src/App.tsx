@@ -1197,6 +1197,9 @@ export function App() {
       }
       if (ev.type === "model_loaded") {
         pushBenchLine("info", msg().bench.eventModelLoaded(ev.model_id));
+        if (ev.load_ttl_applied === false) {
+          pushBenchLine("warn", msg().bench.loadTtlNotApplied(ev.model_id));
+        }
         setBenchCurrent({ modelId: ev.model_id });
       }
       if (ev.type === "model_unloaded") {
@@ -1770,7 +1773,7 @@ export function App() {
                 <li>
                   {msg().bench.confirmLoadTtl(
                     loadTtlSecondsNum,
-                    detect.provider === "lm_studio" ? "LM Studio load ttl" : "Ollama keep_alive",
+                    detect.provider === "lm_studio" ? "LM Studio JIT ttl" : "Ollama keep_alive",
                   )}
                 </li>
               ) : null}

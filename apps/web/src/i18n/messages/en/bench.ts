@@ -76,14 +76,18 @@ export const bench: Messages["bench"] = {
   memFitOptionLog: "Predict only (log)",
   memFitOptionSkip: "Skip if it doesn't fit",
   loadTtlTitle:
-    "Applies a load TTL (sec) to auto-unload after idle. Applied as LM Studio load ttl and Ollama keep_alive.",
+    "Applies a load TTL (sec) to auto-unload after idle. Applied via LM Studio JIT loading (first inference request) and Ollama keep_alive.",
   loadTtlLabel: "Model load TTL (sec) — LM Studio · Ollama",
   loadTtlHintA:
-    "Keeps the model resident only for the given time (sec) and auto-unloads after idle. Leave empty to disable (existing behavior). LM Studio uses load ",
+    "Keeps the model resident only for the given time (sec) and auto-unloads after idle. Leave empty to disable (existing behavior). LM Studio uses the JIT-load (first inference request) payload field ",
   loadTtlHintB: ", Ollama uses native ",
   loadTtlHintC: ". Since Ollama inference (",
   loadTtlHintD:
     ") resets keep_alive to the default 5 minutes, the given TTL is re-applied after the bench finishes.",
+  /** When LM Studio rejects the ttl field (older versions) or the prime request fails, so no TTL was actually set. */
+  loadTtlNotApplied: (modelId: string) =>
+    `${modelId}: load TTL not applied — LM Studio rejected the ttl field or the prime request failed (no idle auto-unload)`,
+
   notApplied: "Not applied",
   contentionGuardTitle:
     "If other inference (same/other model) is running, it waits before starting; if detected mid-bench, it discards only the contaminated measured runs and re-measures.",

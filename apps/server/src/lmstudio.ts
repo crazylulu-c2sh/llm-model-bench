@@ -155,21 +155,19 @@ export async function lmStudioIsModelLoaded(
 
 /**
  * LM Studio REST load — tries common paths; body uses model key from List API.
- * `ttlSeconds`(>0) 지정 시 payload에 `ttl`(초)을 실어 idle 후 자동 언로드(자동-이빅트)를 건다.
+ * 명시적 load는 `ttl`을 **지원하지 않는다**(공식 문서: Idle TTL은 JIT 로딩에만 적용,
+ * https://lmstudio.ai/docs/developer/core/ttl-and-auto-evict). `ttl`을 실으면 구버전이
+ * 400/422로 거부해 로드 자체가 실패한다. TTL이 필요하면 {@link lmStudioJitTtlPrime}을 사용하라.
  */
 export async function lmStudioLoad(
   baseUrl: string,
   modelKey: string,
-  opts: { fetchImpl?: FetchLike; apiKey?: string; ttlSeconds?: number } = {},
+  opts: { fetchImpl?: FetchLike; apiKey?: string } = {},
 ): Promise<{ ok: boolean; status: number; body: string }> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const root = apiRoot(baseUrl);
   const candidates = [`${root}/api/v1/models/load`, `${root}/api/v0/models/load`];
-  const ttl =
-    typeof opts.ttlSeconds === "number" && Number.isFinite(opts.ttlSeconds) && opts.ttlSeconds > 0
-      ? Math.floor(opts.ttlSeconds)
-      : undefined;
-  const body = JSON.stringify(ttl != null ? { model: modelKey, ttl } : { model: modelKey });
+  const body = JSON.stringify({ model: modelKey });
   for (const url of candidates) {
     const r = await fetchImpl(url, {
       method: "POST",
@@ -180,6 +178,84 @@ export async function lmStudioLoad(
     if (r.status !== 404) return { ok: r.ok, status: r.status, body: t.slice(0, 2000) };
   }
   return { ok: false, status: 404, body: "no load endpoint" };
+}
+
+/**
+ * base URL별 "JIT ttl 거부" 캐시 — Idle TTL 미지원 구버전 LM Studio가 chat 페이로드의 `ttl` 필드를
+ * 400/422로 거절하는 경우, 같은 프로세스에서는 이후 prime부터 무-ttl로 바로 보낸다.
+ * (openai-fetch.ts의 baseUrlsRejectingStreamOptions 패턴과 동일)
+ */
+const baseUrlsRejectingJitTtl = new Set<string>();
+
+function normalizeBaseUrlForTtl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "").toLowerCase();
+}
+
+export function _resetLmStudioJitTtlCacheForTests(): void {
+  baseUrlsRejectingJitTtl.clear();
+}
+
+/** 400/422 본문이 `ttl` 필드 거절을 시사하면 true (휴리스틱 — openai-fetch의 stream_options 패턴과 동일). */
+export function looksLikeLmStudioTtlRejection(status: number, body: string): boolean {
+  if (status !== 400 && status !== 422) return false;
+  return /ttl|unknown\s*(field|parameter|argument|property)/i.test(body);
+}
+
+/**
+ * LM Studio Idle TTL — JIT 로딩 트리거용 최소 prime 요청.
+ *
+ * 공식 문서(https://lmstudio.ai/docs/developer/core/ttl-and-auto-evict): `ttl`(초)은 명시적 load가 아닌
+ * **JIT 로딩**(모델 미로드 상태에서 도착한 첫 추론 요청) 페이로드로만 적용된다. 따라서 모델이 로드되지
+ * 않은 상태라면 이 최소 chat completion(`max_tokens: 1`, 본문 `ttl`)으로 JIT 로드를 트리거한다 —
+ * ollama keep_alive preload와 동일한 패턴(응답은 폐기). 매 추론 요청마다 idle 타이머가 리셋되고,
+ * TTL 만료 시 LM Studio가 모델을 자동 언로드한다.
+ *
+ * 구버전이 `ttl`을 400/422로 거절하면 무-ttl 재시도 후 base URL별 캐싱(`ttl_applied: false`).
+ */
+export async function lmStudioJitTtlPrime(
+  baseUrl: string,
+  modelKey: string,
+  opts: { fetchImpl?: FetchLike; apiKey?: string; ttlSeconds: number },
+): Promise<{ ok: boolean; status: number; body: string; ttl_applied: boolean }> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const root = apiRoot(baseUrl);
+  const url = `${root}/v1/chat/completions`;
+  const key = normalizeBaseUrlForTtl(baseUrl);
+  const seconds = Math.floor(opts.ttlSeconds);
+  const withTtl =
+    !baseUrlsRejectingJitTtl.has(key) && Number.isFinite(seconds) && seconds > 0;
+
+  const attempt = async (
+    ttl: number | undefined,
+  ): Promise<{ ok: boolean; status: number; body: string }> => {
+    const body = JSON.stringify({
+      model: modelKey,
+      messages: [{ role: "user", content: "." }],
+      max_tokens: 1,
+      stream: false,
+      ...(ttl != null ? { ttl } : {}),
+    });
+    const r = await fetchImpl(url, {
+      method: "POST",
+      headers: headers(opts.apiKey),
+      body,
+    });
+    const t = await r.text();
+    return { ok: r.ok, status: r.status, body: t.slice(0, 2000) };
+  };
+
+  if (!withTtl) {
+    const r = await attempt(undefined);
+    return { ...r, ttl_applied: false };
+  }
+  let r = await attempt(seconds);
+  if (r.ok) return { ...r, ttl_applied: true };
+  if (looksLikeLmStudioTtlRejection(r.status, r.body)) {
+    baseUrlsRejectingJitTtl.add(key);
+    const retry = await attempt(undefined);
+    return { ...retry, ttl_applied: false };
+  }
+  return { ...r, ttl_applied: false };
 }
 
 /**

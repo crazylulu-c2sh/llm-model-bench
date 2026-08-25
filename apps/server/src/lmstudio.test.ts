@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
-import { lmStudioIsModelLoaded, lmStudioLoad, lmStudioUnload } from "./lmstudio.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  _resetLmStudioJitTtlCacheForTests,
+  lmStudioIsModelLoaded,
+  lmStudioJitTtlPrime,
+  lmStudioLoad,
+  lmStudioUnload,
+} from "./lmstudio.js";
 
 function jsonResponse(obj: unknown, status = 200) {
   return Promise.resolve(
@@ -64,7 +70,7 @@ describe("lmStudioIsModelLoaded", () => {
 });
 
 describe("lmStudioLoad", () => {
-  it("sends only { model } when no ttl", async () => {
+  it("sends only { model } in load body (ttl 옵션 없음)", async () => {
     let sent: unknown = null;
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
@@ -79,7 +85,7 @@ describe("lmStudioLoad", () => {
     expect(sent).toEqual({ model: "my-model" });
   });
 
-  it("includes ttl (seconds) in load body when ttlSeconds > 0", async () => {
+  it("never sends ttl in load body (명시적 load는 ttl 미지원 — 구버전이 400으로 거부)", async () => {
     let sent: unknown = null;
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
@@ -89,24 +95,118 @@ describe("lmStudioLoad", () => {
       }
       return jsonResponse({}, 404);
     });
-    const r = await lmStudioLoad("http://localhost:1234", "my-model", { fetchImpl, ttlSeconds: 300 });
+    const r = await lmStudioLoad("http://localhost:1234", "my-model", { fetchImpl });
     expect(r.ok).toBe(true);
-    expect(sent).toEqual({ model: "my-model", ttl: 300 });
+    expect(sent).toEqual({ model: "my-model" });
   });
+});
 
-  it("ignores non-positive/invalid ttl", async () => {
-    const bodies: unknown[] = [];
+describe("lmStudioJitTtlPrime", () => {
+  beforeEach(() => _resetLmStudioJitTtlCacheForTests());
+
+  it("sends a minimal chat completion with ttl (seconds) to trigger JIT load", async () => {
+    let sent: unknown = null;
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
-      if (url.endsWith("/api/v1/models/load")) {
-        bodies.push(init?.body ? JSON.parse(String(init.body)) : null);
-        return jsonResponse({ ok: true });
+      if (url.endsWith("/v1/chat/completions")) {
+        sent = init?.body ? JSON.parse(String(init.body)) : null;
+        return jsonResponse({ choices: [{ message: { content: "x" } }] });
       }
       return jsonResponse({}, 404);
     });
-    await lmStudioLoad("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 0 });
-    await lmStudioLoad("http://localhost:1234", "m", { fetchImpl, ttlSeconds: -5 });
-    expect(bodies).toEqual([{ model: "m" }, { model: "m" }]);
+    const r = await lmStudioJitTtlPrime("http://localhost:1234", "my-model", {
+      fetchImpl,
+      ttlSeconds: 300,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.ttl_applied).toBe(true);
+    expect(sent).toEqual({
+      model: "my-model",
+      messages: [{ role: "user", content: "." }],
+      max_tokens: 1,
+      stream: false,
+      ttl: 300,
+    });
+  });
+
+  it("retries without ttl when the server rejects it (400 unknown field) and reports ttl_applied=false", async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) {
+        const b = init?.body ? JSON.parse(String(init.body)) : null;
+        bodies.push(b);
+        if (b && "ttl" in b) return jsonResponse({ error: "unknown field ttl, expected model" }, 400);
+        return jsonResponse({ choices: [] });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await lmStudioJitTtlPrime("http://localhost:1234", "my-model", {
+      fetchImpl,
+      ttlSeconds: 300,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.ttl_applied).toBe(false);
+    expect(bodies).toEqual([
+      { model: "my-model", messages: [{ role: "user", content: "." }], max_tokens: 1, stream: false, ttl: 300 },
+      { model: "my-model", messages: [{ role: "user", content: "." }], max_tokens: 1, stream: false },
+    ]);
+  });
+
+  it("caches the rejection per base URL — subsequent primes send no ttl on first attempt", async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) {
+        const b = init?.body ? JSON.parse(String(init.body)) : null;
+        bodies.push(b);
+        if (b && "ttl" in b) return jsonResponse({ error: "unknown field ttl" }, 400);
+        return jsonResponse({ choices: [] });
+      }
+      return jsonResponse({}, 404);
+    });
+    await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
+    // trailing slash — 정규화 후 동일한 base URL로 캐시 적중
+    await lmStudioJitTtlPrime("http://localhost:1234/", "m", { fetchImpl, ttlSeconds: 60 });
+    expect(bodies).toHaveLength(3);
+    expect(bodies[2]).not.toHaveProperty("ttl");
+  });
+
+  it("does not retry on non-ttl errors (e.g. 500)", async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) {
+        bodies.push(init?.body ? JSON.parse(String(init.body)) : null);
+        return jsonResponse({ error: "boom" }, 500);
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 60 });
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe(500);
+    expect(r.ttl_applied).toBe(false);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toHaveProperty("ttl", 60);
+  });
+
+  it("sends no ttl when ttlSeconds is non-positive/invalid", async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) {
+        bodies.push(init?.body ? JSON.parse(String(init.body)) : null);
+        return jsonResponse({ choices: [] });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r1 = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: 0 });
+    const r2 = await lmStudioJitTtlPrime("http://localhost:1234", "m", { fetchImpl, ttlSeconds: -5 });
+    expect(r1.ttl_applied).toBe(false);
+    expect(r2.ttl_applied).toBe(false);
+    for (const b of bodies) {
+      expect(b && !("ttl" in (b as object))).toBe(true);
+    }
   });
 });
 

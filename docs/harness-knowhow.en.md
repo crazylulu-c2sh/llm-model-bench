@@ -137,7 +137,7 @@ export function resolveBenchApiRoutes(
 - `api_route === "chat_completions"` → POST `${base}/v1/chat/completions` via `openAiChatPostWithUsage()`, consume with `consumeOpenAiChatStream()`
 - `api_route === "messages"` → POST `${base}/v1/messages` with header `anthropic-version: 2023-06-01`, consume with `consumeAnthropicMessagesStream()`
 
-Provider-specific lifecycle (model load/unload TTL) is gated separately on `ProviderKind`, not on capability: `providerSupportsLoadTtl()` (`packages/shared/src/provider-kind.ts`) returns `true` only for `lm_studio` (load payload `ttl`) and `ollama` (`keep_alive`), so `runBench()` applies TTL handling for exactly those two while leaving the shared route-dispatch path identical across all providers.
+Provider-specific lifecycle (model load/unload TTL) is gated separately on `ProviderKind`, not on capability: `providerSupportsLoadTtl()` (`packages/shared/src/provider-kind.ts`) returns `true` only for `lm_studio` (JIT-load payload `ttl`) and `ollama` (`keep_alive`), so `runBench()` applies TTL handling for exactly those two while leaving the shared route-dispatch path identical across all providers.
 
 ## 3. Streaming metrics extraction
 
@@ -293,17 +293,17 @@ Note `required_bytes` in the emitted event is the **raw** `size_bytes` (pre-over
 
 ## 5. Provider load/unload & TTL
 
-**Reference.** Local model backends differ in *how* you tell them to hold a model in memory for a bounded window, so the harness gates this behind a single capability check, `providerSupportsLoadTtl(kind)`, and applies the TTL per-provider. LM Studio accepts a `ttl` (in **seconds**) directly on its load call, giving idle auto-eviction. Ollama uses `keep_alive`, but with a sharp caveat: its OpenAI-compatible `/v1/chat/completions` endpoint — the one the benchmark actually drives inference through — **ignores `keep_alive` and silently resets the model's lifetime to the default 5 minutes on every request** ([ollama#11458](https://github.com/ollama/ollama/issues/11458)). The reusable workaround is to apply the desired TTL out-of-band via Ollama's *native* API twice: once as a preload before the run, and once again after the run to re-assert the intended keep-alive.[^lms-rest][^ollama-api] Because the two backends differ in how you specify "how long to hold the model in memory", the harness determines support with the single `providerSupportsLoadTtl()` check and branches per provider for the actual application. The key gotcha is that Ollama's `/v1/chat/completions` ignores `keep_alive` and resets the lifetime to the default 5 minutes on every request; this is worked around via the native `/api/generate` with a **preload + post-bench re-apply**. The `openai_compatible` and `manual` providers have no TTL concept, so any value is ignored.
+**Reference.** Local model backends differ in *how* you tell them to hold a model in memory for a bounded window, so the harness gates this behind a single capability check, `providerSupportsLoadTtl(kind)`, and applies the TTL per-provider. LM Studio's Idle TTL applies only to the payload of *JIT loading* — the first inference request that arrives while the model is not loaded — via a `ttl` (**seconds**) field, not to explicit loads (`lms load`, REST `/api/v1/models/load`). So the harness triggers JIT loading with a minimal prime chat completion (`max_tokens: 1`, body carries `ttl`) to set the TTL; every subsequent inference request resets the idle timer, and LM Studio auto-evicts the model when the TTL expires. Ollama uses `keep_alive`, but with a sharp caveat: its OpenAI-compatible `/v1/chat/completions` endpoint — the one the benchmark actually drives inference through — **ignores `keep_alive` and silently resets the model's lifetime to the default 5 minutes on every request** ([ollama#11458](https://github.com/ollama/ollama/issues/11458)). The reusable workaround is to apply the desired TTL out-of-band via Ollama's *native* API twice: once as a preload before the run, and once again after the run to re-assert the intended keep-alive.[^lms-rest][^ollama-api] Because the two backends differ in how you specify "how long to hold the model in memory", the harness determines support with the single `providerSupportsLoadTtl()` check and branches per provider for the actual application. The key gotcha is that Ollama's `/v1/chat/completions` ignores `keep_alive` and resets the lifetime to the default 5 minutes on every request; this is worked around via the native `/api/generate` with a **preload + post-bench re-apply**. The `openai_compatible` and `manual` providers have no TTL concept, so any value is ignored.
 
 - **Capability gate** (`packages/shared/src/provider-kind.ts`): `providerSupportsLoadTtl(p)` returns `true` only for `"lm_studio"` and `"ollama"`. Callers short-circuit all TTL logic when it returns `false`.
-- **LM Studio** (`apps/server/src/lmstudio.ts`): `lmStudioLoad(baseUrl, modelKey, { ttlSeconds })` posts `{ model, ttl }` to `/api/v1/models/load` (falling back to `/api/v0/...`). `ttl` is only included when `ttlSeconds` is finite and `> 0`, and is floored to an integer second count. This is a native LM Studio field, so no re-apply dance is needed.
+- **LM Studio** (`apps/server/src/lmstudio.ts`): the explicit `lmStudioLoad(baseUrl, modelKey)` posts `{ model }` only — older versions reject a `ttl` in the load body with 400/422 and fail the whole load, so no TTL goes on the load payload. The TTL is set by `lmStudioJitTtlPrime(baseUrl, modelKey, { ttlSeconds })`, which sends a prime request `{ model, messages: [{role:"user",content:"."}], max_tokens: 1, stream: false, ttl }` to `/v1/chat/completions` to trigger JIT loading (the response is discarded); `ttl` is floored to integer seconds. If an older version rejects the `ttl` field with 400/422 ("unknown field"), it retries once without `ttl`, caches the rejection per base URL, and reports `load_ttl_applied: false`; if the prime fails for a non-TTL reason, it falls back to the explicit load so loading itself still succeeds.
 - **Ollama** (`apps/server/src/ollama.ts`): `ollamaKeepAliveLoad(baseUrl, model, { ttlSeconds })` posts to the **native** `/api/generate` with an empty prompt (`prompt: ""`, `stream: false`) so the model loads into memory without generating (response `done_reason: "load"`). The TTL is sent as `keep_alive: "<seconds>s"` — an explicit Go duration string — to avoid numeric-vs-duration ambiguity.
 - **The `/v1` reset workaround** (see `apps/server/src/bench-runner.ts`): the exact same `ollamaKeepAliveLoad` call is reused (1) as a preload *before* inference and (2) *after* the benchmark completes, because the intervening `/v1/chat/completions` calls will have reset the model back to the 5-minute default. The after-bench re-apply is best-effort.
 - **Best-effort semantics**: `ollamaKeepAliveLoad` never throws — network/upstream failures return `{ ok: false, status: 0, body }` — so a flaky keep-alive can't abort a run. It uses a generous 120s timeout (`OLLAMA_LOAD_TIMEOUT_MS`) since a cold load of a large model can take tens of seconds.
 
 | Provider | Function | Endpoint | TTL field / shape |
 | --- | --- | --- | --- |
-| `lm_studio` | `lmStudioLoad` | `POST /api/v1/models/load` | `{ model, ttl }` — `ttl` in **integer seconds**, omitted unless `> 0` |
+| `lm_studio` | `lmStudioJitTtlPrime` (fallback `lmStudioLoad`) | prime: `POST /v1/chat/completions`; fallback: `POST /api/v1/models/load` | prime body `ttl` — **integer seconds**; explicit load takes no ttl (older versions 400) |
 | `ollama` | `ollamaKeepAliveLoad` | `POST /api/generate` (native) | `{ model, prompt: "", stream: false, keep_alive: "<sec>s" }` |
 | `openai_compatible`, `manual` | — | — | unsupported; TTL ignored |
 
@@ -328,8 +328,8 @@ export async function ollamaKeepAliveLoad(
 ```
 
 ```json
-// Ollama native /api/generate load body — loads without generating
-{ "model": "llama3.1:8b", "prompt": "", "stream": false, "keep_alive": "1800s" }
+// LM Studio JIT prime body — triggers JIT load and applies Idle TTL (response discarded)
+{ "model": "qwen3-8b", "messages": [{ "role": "user", "content": "." }], "max_tokens": 1, "stream": false, "ttl": 1800 }
 ```
 
 **Reusable takeaway for other projects:** when a backend exposes both a native API and an OpenAI-compat shim, don't assume lifetime/keep-alive hints on the compat endpoint are respected. Isolate the "hold the model resident" concern into one idempotent, best-effort function, gate it behind a provider-capability predicate, and bracket the actual workload with it (preload before, re-assert after) so the effective TTL is what you intended rather than the shim's silent default.
@@ -776,7 +776,7 @@ Terms used across this document, grouped by the section that explains them in de
 | `ProviderKind` | `lm_studio` / `ollama` / `openai_compatible` / `manual` — the detected backend kind. |
 | capability | `{ openaiChat, anthropicMessages }` — which wire routes a server supports. |
 | API route | `chat_completions` (OpenAI) or `messages` (Anthropic). |
-| TTL / `keep_alive` | Bounded model residency — LM Studio load `ttl` (seconds) vs Ollama `keep_alive`. |
+| TTL / `keep_alive` | Bounded model residency — LM Studio JIT-prime `ttl` (seconds) vs Ollama `keep_alive`. |
 | preload | A native-API call that loads a model before measuring. |
 | resident instance | A model already loaded in the backend (`lmStudioResidentInstances`). |
 | memory-fit preflight | Predicts RAM fit before load to avoid OOM (`FitPolicy`). |
@@ -829,7 +829,7 @@ External sources are cited as footnotes at the exact spots they back up in the b
 [^mcp-spec]: [Model Context Protocol — Specification](https://modelcontextprotocol.io/specification) — Tool and transport spec exposed by the MCP server (`apps/mcp`).
 [^oai-compat]: [LM Studio — OpenAI-compatible Chat Completions](https://lmstudio.ai/docs/developer/openai-compat/chat-completions) — `/v1/chat/completions` SSE delta (`choices[].delta`) format. (OpenAI's official docs block bot access, so this verifiable compatible spec is used instead.)
 [^anthropic-stream]: [Anthropic — Messages streaming](https://docs.anthropic.com/en/api/messages-streaming) — `/v1/messages` SSE event (`content_block_delta` / `thinking_delta` / `message_delta`) format.
-[^lms-rest]: [LM Studio — REST API](https://lmstudio.ai/docs/developer/rest) — Model load/unload and specifying `ttl` (seconds) at load time.
+[^lms-rest]: [LM Studio — TTL and Auto-Evict](https://lmstudio.ai/docs/developer/core/ttl-and-auto-evict) — Idle TTL applies only to JIT loading (first inference request payload `ttl`, seconds); explicit loads do not support it.
 [^ollama-api]: [Ollama — API](https://docs.ollama.com/api) — Setting model residency time via `keep_alive` (native `/api/generate` / `/api/chat`).
 [^vllm-metrics]: [vLLM — Production metrics](https://docs.vllm.ai/en/latest/usage/metrics.html) — `vllm:num_requests_running` / `num_requests_waiting` gauges.
 [^llamacpp-server]: [llama.cpp — server](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) — `/metrics` Prometheus exposition (request-processing gauges).

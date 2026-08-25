@@ -76,14 +76,18 @@ export const bench: Messages["bench"] = {
   memFitOptionLog: "予測のみ(ログ)",
   memFitOptionSkip: "合わなければスキップ",
   loadTtlTitle:
-    "ロード時に TTL(秒)を適用し、アイドル後に自動アンロードします。LM Studio は load ttl、Ollama は keep_alive で適用されます。",
+    "ロード時に TTL(秒)を適用し、アイドル後に自動アンロードします。LM Studio は JIT ロード(最初の推論リクエスト)、Ollama は keep_alive で適用されます。",
   loadTtlLabel: "モデルロード TTL(秒) — LM Studio · Ollama",
   loadTtlHintA:
-    "ロード時に指定した時間(秒)だけモデルを常駐させ、アイドル後に自動アンロードします。空にすると未適用(従来動作)。LM Studio は load ",
+    "ロード時に指定した時間(秒)だけモデルを常駐させ、アイドル後に自動アンロードします。空にすると未適用(従来動作)。LM Studio は JIT ロード(最初の推論リクエスト)のペイロードの ",
   loadTtlHintB: "、Ollama はネイティブの ",
   loadTtlHintC: " で適用されます。Ollama は推論(",
   loadTtlHintD:
     ")が keep_alive をデフォルトの 5 分にリセットするため、ベンチ終了後に指定 TTL を再適用します。",
+  /** LM Studio が ttl フィールドを拒否(旧バージョン)または prime リクエスト失敗で TTL が実際には設定されない場合。 */
+  loadTtlNotApplied: (modelId: string) =>
+    `${modelId}: ロードTTL未適用 — LM Studio が ttl を拒否、または prime リクエスト失敗(アイドル自動アンロードなし)`,
+
   notApplied: "未適用",
   contentionGuardTitle:
     "他の推論(同一/別モデル)が実行中なら開始前に待機し、ベンチ中に検出したら汚染された測定ランのみ破棄して再測定します。",

@@ -55,7 +55,7 @@ export interface StressRunMeta {
   unload_other_models?: boolean;
   auto_unload_after_bench?: boolean;
   skip_model_load?: boolean;
-  /** 로드 시 적용한 TTL(초). LM Studio는 load `ttl`, Ollama는 `keep_alive`. */
+  /** 로드 시 적용한 TTL(초). LM Studio는 JIT prime 요청의 `ttl`(명시적 load 미지원), Ollama는 `keep_alive`. */
   load_ttl_seconds?: number;
   created_at: string;
 }
@@ -88,7 +88,17 @@ export interface StressStageResult {
 
 export type StressStreamEvent =
   | { type: "run_started"; run_id: string; meta: StressRunMeta }
-  | { type: "model_loaded"; model_id: string; lm_studio_prepare?: "loaded" | "already_in_memory" | "load_skipped_by_request" }
+  | {
+      type: "model_loaded";
+      model_id: string;
+      lm_studio_prepare?:
+        | "loaded"
+        | "already_in_memory"
+        | "load_skipped_by_request"
+        | "jit_load_with_ttl";
+      /** 로드 TTL 실제 적용 여부 — LM Studio JIT prime이 ttl을 거부(구버전)하거나 실패하면 false. */
+      load_ttl_applied?: boolean;
+    }
   | { type: "model_unloaded"; model_id: string; phase: "after_bench"; ok: boolean; status?: number }
   | {
       type: "stress_stage_started";
