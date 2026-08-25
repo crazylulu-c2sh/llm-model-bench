@@ -80,24 +80,42 @@ beforeEach(() => {
 });
 
 describe("makeStressRunMeta publisher", () => {
+  // bench-runner.test.ts와 동일 이유 — 미끼를 앞에 두어 목록 첫 항목을 집는 구현을 걸러낸다.
+  const DECOY = { id: "decoy-org/decoy-model", publisher: "Decoy Org" };
+  const detectWith = (
+    modelId: string,
+    ...models: Array<{ id: string; publisher?: string }>
+  ): DetectResult => ({ ...lmStudioDetect(modelId), models: [DECOY, ...models] });
+
   it("prefers detect API publisher over model_id prefix", () => {
     const meta = makeStressRunMeta(
       baseStressRequest({ modelId: "org-d/model-w" }),
-      { ...lmStudioDetect("org-d/model-w"), models: [{ id: "org-d/model-w", publisher: "Org D" }] },
+      detectWith("org-d/model-w", { id: "org-d/model-w", publisher: "Org D" }),
       "run_spub_2",
       null,
     );
     expect(meta.publisher).toBe("Org D");
   });
 
-  it("falls back to model_id org prefix when detect has no publisher", () => {
+  it("falls back to model_id org prefix when detect entry has no publisher", () => {
     const meta = makeStressRunMeta(
       baseStressRequest({ modelId: "org-c/model-z" }),
-      lmStudioDetect("org-c/model-z"),
+      detectWith("org-c/model-z", { id: "org-c/model-z" }),
       "run_spub_1",
       null,
     );
     expect(meta.publisher).toBe("org-c");
+  });
+
+  // bench 쪽에만 있던 대칭 케이스 — 두 소스 모두 publisher가 없으면 필드 자체가 없어야 한다.
+  it("omits publisher when neither source has one", () => {
+    const meta = makeStressRunMeta(
+      baseStressRequest({ modelId: "m1" }),
+      detectWith("m1", { id: "m1" }),
+      "run_spub_3",
+      null,
+    );
+    expect(meta.publisher).toBeUndefined();
   });
 });
 

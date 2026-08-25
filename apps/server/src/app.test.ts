@@ -10,6 +10,7 @@ import { makeBenchRunMeta } from "./bench-runner.js";
 import {
   finishRun,
   insertRun,
+  insertStressRun,
   listRecentRuns,
   tryOpenProdBenchDatabase,
   upsertScenarioAggregate,
@@ -883,5 +884,98 @@ describe("base-url-names (Base URL alias)", () => {
       .split(",")
       .map((s) => s.trim().toUpperCase());
     expect(allowed).toContain("PUT");
+  });
+});
+
+describe("publisher exposure (#151)", () => {
+  // 두 엔드포인트의 매핑과 레거시 폴백은 PR #151의 간판 주장인데 어느 계층에서도 검증되지 않았다.
+  // 매핑 줄을 지우거나 `||` 순서를 뒤집어도 전부 통과하던 상태를 여기서 막는다.
+  const BASE = "http://127.0.0.1:9151";
+
+  /** detect publisher와 model_id의 org 접두를 일부러 다르게 둬서 어느 쪽이 쓰였는지 구분한다. */
+  function benchDetect(modelId: string, publisher?: string): DetectResult {
+    return {
+      provider: "openai_compatible",
+      baseUrl: BASE,
+      models: [{ id: modelId, ...(publisher ? { publisher } : {}) }],
+      steps: [],
+      capabilities: { openaiChat: true, anthropicMessages: false },
+    };
+  }
+
+  function insertFinishedBenchRun(runId: string, modelId: string, opts: { legacy?: boolean; publisher?: string } = {}) {
+    const db = tryOpenProdBenchDatabase();
+    expect(db).not.toBeNull();
+    const full = makeBenchRunMeta(
+      { baseUrl: BASE, provider: "openai_compatible", modelId, skipModelLoad: true },
+      benchDetect(modelId, opts.publisher),
+      runId,
+    );
+    // 레거시 런 = #151 이전에 기록돼 meta_json에 publisher 키가 아예 없는 런.
+    const { publisher: _dropped, ...withoutPublisher } = full;
+    const meta = opts.legacy ? withoutPublisher : full;
+    insertRun(db!, {
+      run_id: runId,
+      created_at: full.created_at,
+      base_url: BASE,
+      provider: full.provider,
+      model_id: modelId,
+      meta,
+      status: "running",
+    });
+    finishRun(db!, runId, "ok");
+  }
+
+  it("GET /stats/model-latest: 신규 런은 meta_json.publisher, 레거시 런은 id 접두 폴백", async () => {
+    insertFinishedBenchRun("pub_new_1", "prefix-org/model-n", { publisher: "Detect Org" });
+    insertFinishedBenchRun("pub_legacy_1", "legacy-org/model-l", { legacy: true });
+    insertFinishedBenchRun("pub_none_1", "bare-model-no-org", { legacy: true });
+
+    const r = await req("/api/stats/model-latest");
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { items: Array<{ model_id: string; publisher?: string }> };
+    const by = (id: string) => j.items.find((it) => it.model_id === id);
+
+    // 저장된 publisher가 id 접두("prefix-org")보다 우선해야 한다 — `||` 순서를 뒤집으면 깨진다.
+    expect(by("prefix-org/model-n")?.publisher).toBe("Detect Org");
+    // meta_json에 publisher가 없는 기존 런은 id 접두에서 파생.
+    expect(by("legacy-org/model-l")?.publisher).toBe("legacy-org");
+    // 둘 다 없으면 필드를 내보내지 않는다(빈 문자열 아님).
+    expect(by("bare-model-no-org")?.publisher).toBeUndefined();
+  });
+
+  it("GET /stress/runs: 신규 런은 meta_json.publisher, 레거시 런은 id 접두 폴백", async () => {
+    const db = tryOpenProdBenchDatabase();
+    expect(db).not.toBeNull();
+    const seedStress = (runId: string, modelId: string, publisher?: string) => {
+      insertStressRun(db!, {
+        run_id: runId,
+        created_at: new Date(2026, 5, 1, 12, 0, 0).toISOString(),
+        base_url: BASE,
+        provider: "lm_studio",
+        model_id: modelId,
+        workload_id: "stress_ping",
+        meta_json: JSON.stringify({
+          run_id: runId,
+          base_url: BASE,
+          model_id: modelId,
+          workload_id: "stress_ping",
+          ...(publisher ? { publisher } : {}),
+        }),
+        status: "ok",
+      });
+    };
+    seedStress("spub_new_1", "prefix-org/model-s", "Detect Org S");
+    seedStress("spub_legacy_1", "legacy-org/model-t");
+    seedStress("spub_none_1", "bare-stress-model");
+
+    const r = await req(`/api/stress/runs?base_url=${encodeURIComponent(BASE)}&limit=50`);
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { items: Array<{ model_id: string; publisher?: string }> };
+    const by = (id: string) => j.items.find((it) => it.model_id === id);
+
+    expect(by("prefix-org/model-s")?.publisher).toBe("Detect Org S");
+    expect(by("legacy-org/model-t")?.publisher).toBe("legacy-org");
+    expect(by("bare-stress-model")?.publisher).toBeUndefined();
   });
 });
