@@ -10,6 +10,7 @@ import type {
   StressStreamEvent,
 } from "@llm-bench/shared";
 import {
+  BaseUrlNameInputSchema,
   BenchStreamBodySchema,
   DetectBodySchema,
   StressStreamBodySchema,
@@ -110,6 +111,60 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[llm-bench-server] /api/stats/model-latest DB 로드 실패:", msg);
       return c.json({ items: [], sqlite_available: false, sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG });
+    }
+  });
+
+  // Base URL 별칭(벤치 대상 시스템 이름): 목록 + upsert/clear.
+  // 키는 trailing slash 제거된 정규화 base_url; 빈 이름 = 별칭 제거(원본 URL 사용).
+  app.get(`${prefix}/base-url-names`, async (c) => {
+    try {
+      const dbMod = await import("../db/database.js");
+      const db = dbMod.tryOpenProdBenchDatabase();
+      if (!db) {
+        return c.json({
+          items: [],
+          sqlite_available: false,
+          sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG,
+        });
+      }
+      return c.json({ items: dbMod.listBaseUrlNames(db), sqlite_available: true });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[llm-bench-server] /api/base-url-names DB 로드 실패:", msg);
+      return c.json({ items: [], sqlite_available: false, sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG });
+    }
+  });
+
+  app.put(`${prefix}/base-url-names`, async (c) => {
+    const parsed = BaseUrlNameInputSchema.safeParse(await c.req.json().catch(() => ({}) ));
+    if (!parsed.success) {
+      return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    }
+    try {
+      const dbMod = await import("../db/database.js");
+      const db = dbMod.tryOpenProdBenchDatabase();
+      if (!db) {
+        return c.json(
+          { ok: false, persisted: false, sqlite_available: false, sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG },
+          503,
+        );
+      }
+      const baseUrl = normBaseUrl(parsed.data.base_url);
+      dbMod.upsertBaseUrlName(db, baseUrl, parsed.data.name || null, parsed.data.note ?? "");
+      return c.json({
+        ok: true,
+        base_url: baseUrl,
+        name: parsed.data.name.trim() || null,
+        note: (parsed.data.note ?? "").trim() || undefined,
+      });
+    } catch (e) {
+      // 쓰기 실패(SQLITE_BUSY·디스크 풀·읽기 전용 DB 등)도 다른 DB 라우트와 같은 형태로 응답한다.
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[llm-bench-server] /api/base-url-names 저장 실패:", msg);
+      return c.json(
+        { ok: false, persisted: false, sqlite_available: false, sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG },
+        503,
+      );
     }
   });
 

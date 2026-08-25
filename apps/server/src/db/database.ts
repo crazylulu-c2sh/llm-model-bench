@@ -157,6 +157,13 @@ function migrate(db: DatabaseSync): void {
       created_at TEXT NOT NULL,
       updated_at TEXT
     );
+    CREATE TABLE IF NOT EXISTS base_url_names (
+      base_url TEXT PRIMARY KEY,
+      name     TEXT NOT NULL,
+      note     TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
   const scenarioCols = db.prepare(`PRAGMA table_info(bench_scenarios)`).all() as Array<{ name: string }>;
   if (!scenarioCols.some((c) => c.name === "prompt_system_preview")) {
@@ -175,6 +182,10 @@ function migrate(db: DatabaseSync): void {
   if (currentVersion < 3) {
     // #83: custom_scenarios 테이블 도입.
     db.prepare(`INSERT INTO schema_migrations (version) VALUES (3)`).run();
+  }
+  if (currentVersion < 4) {
+    // base_url_names: 벤치 대상 시스템(Base URL) 별칭. 통계·스트레스 표에 이름 표시용.
+    db.prepare(`INSERT INTO schema_migrations (version) VALUES (4)`).run();
   }
 }
 
@@ -660,4 +671,43 @@ export function listLatestFinishedRunSummaries(db: DatabaseSync): LatestFinished
        ORDER BY model_id, base_url`,
     )
     .all() as LatestFinishedRunSummary[];
+}
+
+// ─── Base URL 별칭(벤치 대상 시스템 이름 붙이기) ──────────────────────────────
+export type BaseUrlNameRow = {
+  /** 정규화된 base_url(trailing slash 제거 — 서버/웹 공통 `normalizeBaseUrl`). */
+  base_url: string;
+  name: string;
+  /** 기기/스펙 메모(예: "M4 Pro Mac mini 64GB · RTX 4060"). 없으면 "". */
+  note: string;
+};
+
+/** 전체 별칭(base_url 정렬). 키는 trailing slash 제거된 canonical form. */
+export function listBaseUrlNames(db: DatabaseSync): BaseUrlNameRow[] {
+  return db
+    .prepare(`SELECT base_url, name, note FROM base_url_names ORDER BY base_url`)
+    .all() as BaseUrlNameRow[];
+}
+
+/** 별칭 upsert — `name`이 null·빈 문자열이면 행 삭제(이름 없음으로 복귀). `note`는 전역 대체. */
+export function upsertBaseUrlName(
+  db: DatabaseSync,
+  baseUrl: string,
+  name: string | null,
+  note?: string,
+  nowIso?: string,
+): void {
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) {
+    db.prepare(`DELETE FROM base_url_names WHERE base_url = ?`).run(baseUrl);
+    return;
+  }
+  const trimmedNote = (note ?? "").trim();
+  const now = nowIso ?? new Date().toISOString();
+  db.prepare(
+    `INSERT INTO base_url_names (base_url, name, note, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(base_url) DO UPDATE SET name = excluded.name,
+       note = excluded.note, updated_at = excluded.updated_at`,
+  ).run(baseUrl, trimmed, trimmedNote, now, now);
 }

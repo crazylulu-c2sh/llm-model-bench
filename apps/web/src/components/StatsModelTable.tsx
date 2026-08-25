@@ -1,5 +1,10 @@
 import type { StatsModelLatestItem } from "../api-types";
-import { parseModelPublisherFromId, type ScenarioCategory } from "@llm-bench/shared";
+import {
+  compareStringsPinned,
+  normalizeBaseUrl,
+  parseModelPublisherFromId,
+  type ScenarioCategory,
+} from "@llm-bench/shared";
 import {
   createColumnHelper,
   flexRender,
@@ -10,8 +15,10 @@ import {
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Search, Square, X } from "lucide-react";
+import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, PenLine, Search, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { BaseUrlAlias } from "../lib/base-url-names";
+import { BaseUrlValue } from "./BaseUrlValue";
 import { ModelLabel } from "./ModelLabel";
 import { useI18n, type Messages } from "../i18n";
 
@@ -66,6 +73,8 @@ export function StatsModelTable({
   onSortingChange,
   onSortedRunIdsChange,
   canSelectRow,
+  aliasFor,
+  onRenameBaseUrl,
 }: {
   models: StatsModelLatestItem[];
   selected: Record<string, boolean>;
@@ -77,6 +86,10 @@ export function StatsModelTable({
   /** 현재 정렬 기준으로 표에 보이는 행의 run_id 순서(전체 행). */
   onSortedRunIdsChange?: (runIds: string[]) => void;
   canSelectRow: (row: StatsModelLatestItem) => boolean;
+  /** Base URL 별칭 조회(정규화 키). 미전달 시 원본 URL만 표시. */
+  aliasFor?: (url: string) => BaseUrlAlias | undefined;
+  /** 셀의 연필 버튼 → 해당 base_url 이름/메모 편집 요청(정규화된 URL 전달). */
+  onRenameBaseUrl?: (baseUrl: string) => void;
 }) {
   const { m: msgs } = useI18n();
   const data = useMemo(() => models.map((mm) => ({ ...mm })), [models]);
@@ -86,13 +99,20 @@ export function StatsModelTable({
   const [filterText, setFilterText] = useState("");
   const q = filterText.trim().toLowerCase();
   const matchesQuery = useCallback(
-    (m: StatsModelLatestItem) =>
-      !q ||
-      m.model_id.toLowerCase().includes(q) ||
-      itemPublisher(m).toLowerCase().includes(q) ||
-      m.base_url.toLowerCase().includes(q) ||
-      m.provider.toLowerCase().includes(q),
-    [q],
+    (m: StatsModelLatestItem) => {
+      if (!q) return true;
+      // 셀에 표시되는 별칭(이름·기기 메모)도 검색 대상 — 화면에 보이는 라벨로 찾을 수 있어야 한다.
+      const alias = aliasFor?.(m.base_url);
+      return (
+        m.model_id.toLowerCase().includes(q) ||
+        itemPublisher(m).toLowerCase().includes(q) ||
+        m.base_url.toLowerCase().includes(q) ||
+        m.provider.toLowerCase().includes(q) ||
+        (alias?.name ?? "").toLowerCase().includes(q) ||
+        (alias?.note ?? "").toLowerCase().includes(q)
+      );
+    },
+    [q, aliasFor],
   );
 
   // 카테고리 칩 필터 — 양성 선택(비어 있으면 전체). 다중 선택은 합집합(OR).
@@ -104,9 +124,22 @@ export function StatsModelTable({
       selectedCategories.size === 0 || (m.categories ?? []).some((c) => selectedCategories.has(c)),
     [selectedCategories],
   );
+
+  // Base URL 필터 — 정규화된(트레일 슬래시 제거) 값으로 비교. 비어 있으면 전체.
+  const [baseUrlFilter, setBaseUrlFilter] = useState("");
+  const matchesBaseUrl = useCallback(
+    (m: StatsModelLatestItem) => !baseUrlFilter || normalizeBaseUrl(m.base_url) === baseUrlFilter,
+    [baseUrlFilter],
+  );
+
+  // 실제로 존재하는 Base URL 목록 — 필터 드롭다운 옵션(정규화·정렬).
+  const baseUrlOptions = useMemo(() => {
+    return [...new Set(data.map((m) => normalizeBaseUrl(m.base_url)))].sort(compareStringsPinned);
+  }, [data]);
+
   const matchesFilters = useCallback(
-    (m: StatsModelLatestItem) => matchesQuery(m) && matchesCategory(m),
-    [matchesQuery, matchesCategory],
+    (m: StatsModelLatestItem) => matchesQuery(m) && matchesCategory(m) && matchesBaseUrl(m),
+    [matchesQuery, matchesCategory, matchesBaseUrl],
   );
   // 실제 존재하는 카테고리별 모델 수 — 칩 배지·렌더 대상 결정용.
   const categoryCounts = useMemo(() => {
@@ -131,6 +164,7 @@ export function StatsModelTable({
   useEffect(() => {
     setFilterText("");
     setSelectedCategories(new Set());
+    setBaseUrlFilter("");
   }, [models]);
   const visibleModels = useMemo(() => data.filter(matchesFilters), [data, matchesFilters]);
 
@@ -226,7 +260,7 @@ export function StatsModelTable({
         ),
         sortingFn: "alphanumeric",
       }),
-      columnHelper.accessor((row) => normalizeBaseUrlForCell(row.base_url), {
+      columnHelper.accessor((row) => normalizeBaseUrl(row.base_url), {
         id: "base_url",
         header: ({ column }) => (
           <button
@@ -238,7 +272,28 @@ export function StatsModelTable({
             {sortDirIcon(column)}
           </button>
         ),
-        cell: ({ row }) => <span className="max-w-[14rem] break-all font-mono text-[10px] text-[var(--muted)]">{row.original.base_url}</span>,
+        cell: ({ row }) => {
+          const url = normalizeBaseUrl(row.original.base_url);
+          return (
+            <span className="inline-flex max-w-[16rem] items-start gap-1">
+              <BaseUrlValue baseUrl={url} alias={aliasFor?.(row.original.base_url)} />
+              {onRenameBaseUrl ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRenameBaseUrl(url);
+                  }}
+                  aria-label={msgs.baseUrlNames.renameAria(url)}
+                  title={msgs.baseUrlNames.renameAria(url)}
+                  className="rounded p-0.5 text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+                >
+                  <PenLine className="size-3" aria-hidden />
+                </button>
+              ) : null}
+            </span>
+          );
+        },
         sortingFn: "alphanumeric",
       }),
       columnHelper.accessor("provider", {
@@ -301,7 +356,17 @@ export function StatsModelTable({
         sortingFn: "basic",
       }),
     ],
-    [allVisibleSelectableSelected, canSelectRow, handleSelectAllVisible, noVisibleSelectable, onToggle, selected, msgs],
+    [
+      aliasFor,
+      allVisibleSelectableSelected,
+      canSelectRow,
+      handleSelectAllVisible,
+      noVisibleSelectable,
+      onRenameBaseUrl,
+      onToggle,
+      selected,
+      msgs,
+    ],
   );
 
   const table = useReactTable({
@@ -372,30 +437,52 @@ export function StatsModelTable({
           </button>
         ) : null}
       </div>
-      <div className="relative">
-        <Search
-          className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--muted)]"
-          aria-hidden
-        />
-        <input
-          type="text"
-          value={filterText}
-          onChange={(e) => setFilterText(e.target.value)}
-          placeholder={msgs.stats.searchPlaceholder}
-          aria-label={msgs.stats.searchAria}
-          spellCheck={false}
-          className="w-full rounded border border-[var(--border)] bg-[var(--surface-2)] py-1.5 pl-7 pr-7 font-mono text-xs text-[var(--foreground)]"
-        />
-        {filterText ? (
-          <button
-            type="button"
-            aria-label={msgs.stats.clearFilter}
-            title={msgs.stats.clearFilter}
-            onClick={() => setFilterText("")}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--muted)] hover:text-[var(--foreground)]"
-          >
-            <X className="size-3.5" aria-hidden />
-          </button>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[14rem] flex-1">
+          <Search
+            className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--muted)]"
+            aria-hidden
+          />
+          <input
+            type="text"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder={msgs.stats.searchPlaceholder}
+            aria-label={msgs.stats.searchAria}
+            spellCheck={false}
+            className="w-full rounded border border-[var(--border)] bg-[var(--surface-2)] py-1.5 pl-7 pr-7 font-mono text-xs text-[var(--foreground)]"
+          />
+          {filterText ? (
+            <button
+              type="button"
+              aria-label={msgs.stats.clearFilter}
+              title={msgs.stats.clearFilter}
+              onClick={() => setFilterText("")}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--muted)] hover:text-[var(--foreground)]"
+            >
+              <X className="size-3.5" aria-hidden />
+            </button>
+          ) : null}
+        </div>
+        {baseUrlOptions.length > 1 ? (
+          <label className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--muted)]">
+            <span className="whitespace-nowrap">Base URL</span>
+            <select
+              value={baseUrlFilter}
+              onChange={(e) => setBaseUrlFilter(e.target.value)}
+              className="max-w-[16rem] rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs font-mono"
+            >
+              <option value="">{msgs.stats.all}</option>
+              {baseUrlOptions.map((b) => {
+                const a = aliasFor?.(b);
+                return (
+                  <option key={b} value={b}>
+                    {a ? `${a.name}${a.note ? ` (${a.note})` : ""}` : b}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
         ) : null}
       </div>
       <div className="max-h-64 overflow-auto rounded border border-[var(--border)]">
@@ -480,6 +567,8 @@ export function StatsModelTable({
                 }}
                 onKeyDown={(e) => {
                   if (!ok) return;
+                  // 셀 안의 버튼(연필 등)에서 올라온 키 입력은 그 버튼의 것이다 — 행이 가로채면 안 된다.
+                  if (e.target !== e.currentTarget) return;
                   if (e.key !== "Enter" && e.key !== " ") return;
                   e.preventDefault();
                   onToggle(row.original.run_id);
@@ -511,14 +600,12 @@ export function StatsModelTable({
                   .join("·"),
               )
             : null}
-          {q || selectedCategories.size > 0 ? msgs.stats.shownCount(visibleModels.length) : null}
+          {q || selectedCategories.size > 0 || baseUrlFilter
+            ? msgs.stats.shownCount(visibleModels.length)
+            : null}
           {someSelectableSelected && !allSelectableSelected ? msgs.stats.somePartial : null}
         </p>
       </div>
     </div>
   );
-}
-
-function normalizeBaseUrlForCell(url: string): string {
-  return url.replace(/\/+$/, "");
 }

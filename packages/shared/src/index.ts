@@ -627,6 +627,26 @@ const ReasoningEffortSchema = z
   .enum(["none", "minimal", "low", "medium", "high", "xhigh"])
   .optional();
 
+/**
+ * Base URL 별칭(벤치 대상 시스템 이름 붙이기).
+ * `name`이 빈 문자열이면 별칭 제거. `note`(기기/스펙 메모)는 name과 같이
+ * 전역 대체되는 upsert — 미전달 또는 공백이면 비고를 지운다.
+ */
+export const BaseUrlNameInputSchema = z.object({
+  base_url: z.string().trim().min(1).max(512),
+  name: z.string().trim().max(64),
+  note: z.string().trim().max(200).optional(),
+});
+export type BaseUrlNameInput = z.infer<typeof BaseUrlNameInputSchema>;
+
+/** GET /base-url-names 항목 — key는 trailing slash 제거된 canonical base_url. */
+export type BaseUrlNameItem = {
+  base_url: string;
+  name: string;
+  /** 기기/스펙 메모(예: "M4 Pro Mac mini 64GB · RTX 4060"). 없으면 "". */
+  note?: string;
+};
+
 export const DetectBodySchema = z.object({
   baseUrl: z.string().min(1),
   apiKey: z.string().optional(),

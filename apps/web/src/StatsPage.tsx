@@ -3,6 +3,7 @@ import { Activity, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { BenchRunDetailResponse, StatsModelLatestItem, StatsModelLatestResponse } from "./api-types";
+import { BaseUrlNameModal } from "./components/BaseUrlNameModal";
 import { BenchCharts } from "./components/BenchCharts";
 import { DEFAULT_STATS_MODEL_SORTING, StatsModelTable } from "./components/StatsModelTable";
 import { scenarioRowKey, type ChartRow } from "./components/chart-types";
@@ -12,6 +13,7 @@ import { ResultsTable } from "./components/ResultsTable";
 import { Scoreboard } from "./components/Scoreboard";
 import { ProviderKindSchema, type ProviderKind } from "@llm-bench/shared";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
+import { useBaseUrlNames } from "./lib/base-url-names";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
 import { compareModelIdAlphanumeric, compareModelKey, normalizeBaseUrl } from "./lib/model-sort";
 import { buildChartRowsFromBenchState, mergeBenchDetailsToState, type MetricsAgg } from "./stats/hydrateBenchUi";
@@ -38,6 +40,28 @@ export function StatsPage() {
   const [hlPreview, setHlPreview] = useState(false);
   const [statsListSorting, setStatsListSorting] = useState<SortingState>(() => DEFAULT_STATS_MODEL_SORTING);
   const [sortedRunIdsFromTable, setSortedRunIdsFromTable] = useState<string[]>([]);
+
+  // Base URL alias (name + device/spec memo) — displayed in the Base URL cell and filter of the saved-model table.
+  const { aliasFor, save: saveAlias } = useBaseUrlNames();
+  const [renameTarget, setRenameTarget] = useState<string | null>(null);
+  const [savingAlias, setSavingAlias] = useState(false);
+
+  const submitAlias = useCallback(
+    async (name: string, note: string) => {
+      if (!renameTarget) return;
+      setSavingAlias(true);
+      try {
+        await saveAlias(renameTarget, name, note);
+        toast.success(name ? msg().baseUrlNames.toastNamed(name) : msg().baseUrlNames.toastCleared);
+        setRenameTarget(null);
+      } catch (e) {
+        toast.error(String(e));
+      } finally {
+        setSavingAlias(false);
+      }
+    },
+    [renameTarget, saveAlias],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -340,6 +364,8 @@ export function StatsPage() {
               onSortingChange={setStatsListSorting}
               onSortedRunIdsChange={setSortedRunIdsFromTable}
               canSelectRow={canSelectStatsRow}
+              aliasFor={aliasFor}
+              onRenameBaseUrl={(url) => setRenameTarget(url)}
             />
           </>
         )}
@@ -419,6 +445,17 @@ export function StatsPage() {
           setDrawerOpen(false);
           setDrawerPayload(null);
         }}
+      />
+      <BaseUrlNameModal
+        open={renameTarget != null}
+        baseUrl={renameTarget ?? ""}
+        initialName={renameTarget ? (aliasFor(renameTarget)?.name ?? "") : ""}
+        initialNote={renameTarget ? (aliasFor(renameTarget)?.note ?? "") : ""}
+        busy={savingAlias}
+        onClose={() => {
+          if (!savingAlias) setRenameTarget(null);
+        }}
+        onSubmit={submitAlias}
       />
     </>
   );

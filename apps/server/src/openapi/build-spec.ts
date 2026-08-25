@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  BaseUrlNameInputSchema,
   BenchResultSchema,
   BenchRunMetaSchema,
   BenchStreamBodySchema,
@@ -330,6 +331,25 @@ export function buildOpenApiSpec(): object {
           responses: { "200": { description: "요약 목록" } },
         },
       },
+      "/base-url-names": {
+        get: {
+          tags: ["results"],
+          summary: "Base URL 별칭(이름 + 기기/스펙 메모) 목록",
+          responses: {
+            "200": { description: "{ items: [{ base_url, name, note }], sqlite_available }" },
+          },
+        },
+        put: {
+          tags: ["results"],
+          summary: "Base URL 별칭 저장 — 이름 빈 값=별칭 제거, 비고 공백=메모 없음(전역 대체)",
+          requestBody: { required: true, content: { "application/json": { schema: ref("BaseUrlNameInput") } } },
+          responses: {
+            "200": { description: "{ ok, base_url, name|null, note? }" },
+            "400": badRequest,
+            "503": { description: "sqlite_unavailable" },
+          },
+        },
+      },
       "/stress/runs": {
         get: {
           tags: ["results"],
@@ -471,6 +491,7 @@ export function buildOpenApiSpec(): object {
         StreamEvent: jsonSchema(StreamEventSchema),
         BenchResult: jsonSchema(BenchResultSchema),
         DetectBody: jsonSchema(DetectBodySchema),
+        BaseUrlNameInput: jsonSchema(BaseUrlNameInputSchema),
         BenchStreamBody: jsonSchema(BenchStreamBodySchema),
         StressStreamBody: jsonSchema(StressStreamBodySchema),
         ScenarioCatalogResponse: jsonSchema(ScenarioCatalogResponseSchema),

@@ -164,6 +164,8 @@ git fetch && git pull && pnpm ci && pnpm build && pm2 reload ecosystem.config.cj
 | GET | `/api/runs/:runId` | 단일 런 상세 |
 | GET | `/api/runs/latest-by-model` | baseUrl·modelIds별 최신 완료 런 |
 | GET | `/api/stats/model-latest` | 모델별 최신 완료 런 요약(통계 UI용) |
+| GET | `/api/base-url-names` | Base URL 별칭(이름 + 기기/스펙 메모) 전체 목록 |
+| PUT | `/api/base-url-names` | Base URL 별칭 upsert — 빈 이름이면 별칭 제거 |
 | POST | `/api/stress/stream` | 프로바이더 stress 벤치 실행, **SSE**로 stage·worker 이벤트 |
 | GET | `/api/stress/runs` | stress 런 목록(필터: `workload_id`/`status`/`model_id`/`base_url`, cursor: `before`+`before_id`, `limit`≤200) |
 | GET | `/api/stress/runs/:runId` | stress 런 상세(meta + stages) |

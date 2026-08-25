@@ -24,7 +24,7 @@ export function createApp(): Hono {
             .filter(Boolean)
         : "*",
       allowHeaders: ["Content-Type", "Authorization", "x-api-key"],
-      allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     }),
   );
 

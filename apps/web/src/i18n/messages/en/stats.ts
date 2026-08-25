@@ -48,7 +48,7 @@ export const stats: Messages["stats"] = {
   filterApply: "apply filter",
   categoryToggleTitle: (label: string, action: string) => `${action}: ${label}`,
   all: "All",
-  searchPlaceholder: "Search model id·publisher·Base URL·provider (e.g. gemma)",
+  searchPlaceholder: "Search model id·publisher·Base URL·alias·provider (e.g. gemma)",
   searchAria: "Saved models filter",
   clearFilter: "Clear filter",
   tableCaption: "Saved model stats",

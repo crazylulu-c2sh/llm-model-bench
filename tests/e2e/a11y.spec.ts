@@ -45,13 +45,15 @@ async function expectNoViolations(page: Page) {
 }
 
 const BASE_URL = "http://localhost:1234/v1";
+// 두 번째 Base URL — 통계 표의 Base URL 필터 드롭다운(2개 이상)과 별칭 표시까지 스캔 대상에 포함.
+const BASE_URL_2 = "http://other.example:8080/v1";
 const MODEL_COUNT = 3;
 const SCENARIO_COUNT = 12;
 
 const MODELS = Array.from({ length: MODEL_COUNT }, (_, i) => ({
   run_id: `run_${i}`,
   model_id: `bench-model-${i}`,
-  base_url: BASE_URL,
+  base_url: i === 2 ? BASE_URL_2 : BASE_URL,
   provider: "lm_studio",
   finished_at: "2026-07-09T10:00:00.000Z",
   created_at: "2026-07-09T09:00:00.000Z",
@@ -92,6 +94,18 @@ async function mockStatsApi(page: Page) {
   await page.route("**/api/stats/model-latest", (route: Route) =>
     route.fulfill({ json: { items: MODELS, sqlite_available: true } }),
   );
+  // Base URL 별칭(이름 + 기기/스펙) — 셀 표시·필터 옵션 라벨까지 axe 대상에 포함.
+  await page.route("**/api/base-url-names", (route: Route) =>
+    route.fulfill({
+      json: {
+        items: [
+          { base_url: BASE_URL, name: "Mock Host A", note: "RTX 4060 8GB" },
+          { base_url: BASE_URL_2, name: "Mock Host B" },
+        ],
+        sqlite_available: true,
+      },
+    }),
+  );
   await page.route("**/api/runs/**", (route: Route) => {
     const runId = decodeURIComponent(route.request().url().split("/api/runs/")[1]?.split("?")[0] ?? "");
     const model = MODELS.find((m) => m.run_id === runId);
@@ -125,6 +139,15 @@ test.describe("axe: 다크 테마(기본)", () => {
     await page.getByRole("button", { name: "표시된 선택 가능 항목 전체 선택" }).click();
     await page.getByRole("row", { name: /상세 열기/ }).first().click();
     await expect(page.getByRole("dialog", { name: "시나리오 상세" })).toBeVisible();
+    await expectNoViolations(page);
+  });
+
+  // Base URL 별칭(이름 + 기기/스펙) 편집 모달 열림 상태를 axe로 스캔.
+  test("axe: /stats Base URL 이름 붙이기 모달 열림 상태 WCAG 2.1 AA 위반 없음", async ({ page }) => {
+    await mockStatsApi(page);
+    await page.goto("/stats");
+    await page.getByRole("button", { name: /이름 붙이거나 바꾸기/ }).first().click();
+    await expect(page.getByRole("heading", { name: "Base URL에 이름 붙이기" })).toBeVisible();
     await expectNoViolations(page);
   });
 

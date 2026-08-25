@@ -786,3 +786,102 @@ describe("bench live reconnect (새로고침 복구)", () => {
     expect(r.status).toBe(404);
   });
 });
+
+describe("base-url-names (Base URL alias)", () => {
+  const putBody = (body: unknown) => ({
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  } satisfies RequestInit);
+
+  it("PUT stores with normalized key (trailing slash stripped); GET reflects it", async () => {
+    const put = await req(
+      "/api/base-url-names",
+      putBody({ base_url: "http://10.0.0.9:1234/v1/", name: "Lab Mac" }),
+    );
+    expect(put.status).toBe(200);
+    const putJson = (await put.json()) as { ok: boolean; base_url: string; name: string | null };
+    expect(putJson.ok).toBe(true);
+    expect(putJson.base_url).toBe("http://10.0.0.9:1234/v1");
+
+    const list = (await (await req("/api/base-url-names")).json()) as {
+      items: Array<{ base_url: string; name: string }>;
+    };
+    expect(list.items.some((it) => it.base_url === "http://10.0.0.9:1234/v1" && it.name === "Lab Mac")).toBe(
+      true,
+    );
+  });
+
+  it("PUT with empty name clears the alias", async () => {
+    const put = await req(
+      "/api/base-url-names",
+      putBody({ base_url: "http://10.0.0.9:1234/v1", name: "" }),
+    );
+    expect(put.status).toBe(200);
+    const putJson = (await put.json()) as { ok: boolean; name: string | null };
+    expect(putJson.name).toBe(null);
+
+    const list = (await (await req("/api/base-url-names")).json()) as {
+      items: Array<{ base_url: string }>;
+    };
+    expect(list.items.some((it) => it.base_url === "http://10.0.0.9:1234/v1")).toBe(false);
+  });
+
+  it("PUT replaces name+note wholesale; omitted note clears the previous one", async () => {
+    const put1 = await req(
+      "/api/base-url-names",
+      putBody({ base_url: "http://10.0.0.8:5678/v1", name: "DGX Spark", note: "GB200 · 128GB" }),
+    );
+    expect(put1.status).toBe(200);
+    let list = (await (await req("/api/base-url-names")).json()) as {
+      items: Array<{ base_url: string; name: string; note?: string }>;
+    };
+    expect(list.items.find((it) => it.base_url === "http://10.0.0.8:5678/v1")?.note).toBe("GB200 · 128GB");
+
+    // 재PUT 시 note 미전달 → 전역 대체로 비고만 지워지고 이름은 유지.
+    const put2 = await req(
+      "/api/base-url-names",
+      putBody({ base_url: "http://10.0.0.8:5678/v1", name: "DGX Spark" }),
+    );
+    expect(put2.status).toBe(200);
+    list = (await (await req("/api/base-url-names")).json()) as {
+      items: Array<{ base_url: string; name: string; note?: string }>;
+    };
+    const row = list.items.find((it) => it.base_url === "http://10.0.0.8:5678/v1");
+    expect(row?.name).toBe("DGX Spark");
+    expect(row?.note ?? "").toBe("");
+  });
+
+  it("invalid body → 400 with field detail", async () => {
+    const r = await req("/api/base-url-names", putBody({ base_url: "", name: "x" }));
+    expect(r.status).toBe(400);
+    const j = (await r.json()) as { error: string; detail?: unknown };
+    expect(j.error).toBe("invalid_body");
+    expect(j.detail).toBeTruthy();
+  });
+
+  it("served at both prefixes (/api ≡ /api/v1)", async () => {
+    const a = await req("/api/base-url-names");
+    const b = await req("/api/v1/base-url-names");
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+  });
+
+  // 다른 오리진에 웹을 올린 구성(BENCH_CORS_ORIGINS)에서 JSON PUT은 preflight를 탄다.
+  // allowMethods에 PUT이 없으면 저장이 브라우저 단계에서 전부 막힌다.
+  it("CORS preflight advertises PUT for the alias route", async () => {
+    const r = await req("/api/base-url-names", {
+      method: "OPTIONS",
+      headers: {
+        origin: "http://example.test",
+        "access-control-request-method": "PUT",
+        "access-control-request-headers": "content-type",
+      },
+    });
+    expect(r.status).toBeLessThan(400);
+    const allowed = (r.headers.get("access-control-allow-methods") ?? "")
+      .split(",")
+      .map((s) => s.trim().toUpperCase());
+    expect(allowed).toContain("PUT");
+  });
+});

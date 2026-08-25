@@ -1,5 +1,6 @@
 import type { Messages } from "../ko";
 import { common } from "./common";
+import { baseUrlNames } from "./base-url-names";
 import { header } from "./header";
 import { bench } from "./bench";
 import { results } from "./results";
@@ -11,6 +12,7 @@ import { docs } from "./docs";
 
 export const ja: Messages = {
   common,
+  baseUrlNames,
   header,
   bench,
   results,
