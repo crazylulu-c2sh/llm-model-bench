@@ -381,6 +381,8 @@ export function StressStatsPage() {
                       tabIndex={0}
                       onClick={() => setSelectedRunId(it.run_id)}
                       onKeyDown={(e) => {
+                        // 셀 안의 버튼(연필·삭제)에서 올라온 키 입력은 그 버튼의 것이다 — 행이 가로채면 안 된다.
+                        if (e.target !== e.currentTarget) return;
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
                           setSelectedRunId(it.run_id);

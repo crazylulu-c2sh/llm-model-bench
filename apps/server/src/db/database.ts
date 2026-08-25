@@ -165,11 +165,6 @@ function migrate(db: DatabaseSync): void {
       updated_at TEXT NOT NULL
     );
   `);
-  // v4가 이미 적용된 기존 로컬 DB는 base_url_names에 note 컬럼이 없다.
-  const baseUrlNameCols = db.prepare(`PRAGMA table_info(base_url_names)`).all() as Array<{ name: string }>;
-  if (!baseUrlNameCols.some((c) => c.name === "note")) {
-    db.exec(`ALTER TABLE base_url_names ADD COLUMN note TEXT NOT NULL DEFAULT ''`);
-  }
   const scenarioCols = db.prepare(`PRAGMA table_info(bench_scenarios)`).all() as Array<{ name: string }>;
   if (!scenarioCols.some((c) => c.name === "prompt_system_preview")) {
     db.exec(`ALTER TABLE bench_scenarios ADD COLUMN prompt_system_preview TEXT`);

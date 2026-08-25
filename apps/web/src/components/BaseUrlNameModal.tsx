@@ -33,31 +33,40 @@ export function BaseUrlNameModal({
   const panelRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  useScrollLock(open);
-  useFocusTrap(panelRef, open);
+  // 실제로 다이얼로그를 그리는 조건 — 스크롤 락·포커스 트랩·Esc 리스너가 모두 이 값을 따라야 한다.
+  // (`open`만 보면 baseUrl이 빈 문자열일 때 아무것도 안 보이는 채로 body 스크롤만 잠긴다.)
+  const visible = open && !!baseUrl;
+
+  useScrollLock(visible);
+  useFocusTrap(panelRef, visible);
 
   const [name, setName] = useState(initialName);
   const [note, setNote] = useState(initialNote);
 
+  // 초기값은 '열릴 때 한 번'만 읽는다. 값 자체를 의존성에 넣으면 별칭 목록 fetch가 늦게 도착할 때
+  // 입력 중인 내용을 덮어써 버린다.
+  const initialRef = useRef({ name: initialName, note: initialNote });
+  initialRef.current = { name: initialName, note: initialNote };
+
   // 대상(base_url)이 바뀌어 열릴 때 입력 초기화.
   useEffect(() => {
-    if (!open) return;
-    setName(initialName);
-    setNote(initialNote);
+    if (!visible) return;
+    setName(initialRef.current.name);
+    setNote(initialRef.current.note);
     const t = window.setTimeout(() => nameInputRef.current?.focus(), 0);
     return () => window.clearTimeout(t);
-  }, [open, initialName, initialNote]);
+  }, [visible, baseUrl]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!visible) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !busy) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, busy, onClose]);
+  }, [visible, busy, onClose]);
 
-  if (!open || !baseUrl) return null;
+  if (!visible) return null;
 
   const fieldClass =
     "rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)]";
@@ -83,9 +92,12 @@ export function BaseUrlNameModal({
         <h2 id={titleId} className="text-base font-semibold text-[var(--foreground)]">
           {m.baseUrlNames.title}
         </h2>
-        <p className="mt-3 break-all rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 font-mono text-xs text-[var(--muted)]" title={baseUrl}>
-          {baseUrl}
-        </p>
+        <div className="mt-3 grid gap-1">
+          <span className="text-xs text-[var(--muted)]">{m.baseUrlNames.urlLabel}</span>
+          <p className="break-all rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 font-mono text-xs text-[var(--muted)]" title={baseUrl}>
+            {baseUrl}
+          </p>
+        </div>
         <form
           className="mt-4 grid gap-3"
           onSubmit={(e) => {

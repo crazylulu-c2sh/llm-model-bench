@@ -140,22 +140,32 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
     if (!parsed.success) {
       return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     }
-    const dbMod = await import("../db/database.js");
-    const db = dbMod.tryOpenProdBenchDatabase();
-    if (!db) {
+    try {
+      const dbMod = await import("../db/database.js");
+      const db = dbMod.tryOpenProdBenchDatabase();
+      if (!db) {
+        return c.json(
+          { ok: false, persisted: false, sqlite_available: false, sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG },
+          503,
+        );
+      }
+      const baseUrl = normBaseUrl(parsed.data.base_url);
+      dbMod.upsertBaseUrlName(db, baseUrl, parsed.data.name || null, parsed.data.note ?? "");
+      return c.json({
+        ok: true,
+        base_url: baseUrl,
+        name: parsed.data.name.trim() || null,
+        note: (parsed.data.note ?? "").trim() || undefined,
+      });
+    } catch (e) {
+      // 쓰기 실패(SQLITE_BUSY·디스크 풀·읽기 전용 DB 등)도 다른 DB 라우트와 같은 형태로 응답한다.
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[llm-bench-server] /api/base-url-names 저장 실패:", msg);
       return c.json(
         { ok: false, persisted: false, sqlite_available: false, sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG },
         503,
       );
     }
-    const baseUrl = normBaseUrl(parsed.data.base_url);
-    dbMod.upsertBaseUrlName(db, baseUrl, parsed.data.name || null, parsed.data.note ?? "");
-    return c.json({
-      ok: true,
-      base_url: baseUrl,
-      name: parsed.data.name.trim() || null,
-      note: (parsed.data.note ?? "").trim() || undefined,
-    });
   });
 
   app.get(`${prefix}/runs/latest-by-model`, async (c) => {

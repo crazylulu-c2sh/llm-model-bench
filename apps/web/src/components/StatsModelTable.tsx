@@ -1,5 +1,10 @@
 import type { StatsModelLatestItem } from "../api-types";
-import { compareStringsPinned, parseModelPublisherFromId, type ScenarioCategory } from "@llm-bench/shared";
+import {
+  compareStringsPinned,
+  normalizeBaseUrl,
+  parseModelPublisherFromId,
+  type ScenarioCategory,
+} from "@llm-bench/shared";
 import {
   createColumnHelper,
   flexRender,
@@ -94,13 +99,20 @@ export function StatsModelTable({
   const [filterText, setFilterText] = useState("");
   const q = filterText.trim().toLowerCase();
   const matchesQuery = useCallback(
-    (m: StatsModelLatestItem) =>
-      !q ||
-      m.model_id.toLowerCase().includes(q) ||
-      itemPublisher(m).toLowerCase().includes(q) ||
-      m.base_url.toLowerCase().includes(q) ||
-      m.provider.toLowerCase().includes(q),
-    [q],
+    (m: StatsModelLatestItem) => {
+      if (!q) return true;
+      // 셀에 표시되는 별칭(이름·기기 메모)도 검색 대상 — 화면에 보이는 라벨로 찾을 수 있어야 한다.
+      const alias = aliasFor?.(m.base_url);
+      return (
+        m.model_id.toLowerCase().includes(q) ||
+        itemPublisher(m).toLowerCase().includes(q) ||
+        m.base_url.toLowerCase().includes(q) ||
+        m.provider.toLowerCase().includes(q) ||
+        (alias?.name ?? "").toLowerCase().includes(q) ||
+        (alias?.note ?? "").toLowerCase().includes(q)
+      );
+    },
+    [q, aliasFor],
   );
 
   // 카테고리 칩 필터 — 양성 선택(비어 있으면 전체). 다중 선택은 합집합(OR).
@@ -116,13 +128,13 @@ export function StatsModelTable({
   // Base URL 필터 — 정규화된(트레일 슬래시 제거) 값으로 비교. 비어 있으면 전체.
   const [baseUrlFilter, setBaseUrlFilter] = useState("");
   const matchesBaseUrl = useCallback(
-    (m: StatsModelLatestItem) => !baseUrlFilter || normalizeBaseUrlForCell(m.base_url) === baseUrlFilter,
+    (m: StatsModelLatestItem) => !baseUrlFilter || normalizeBaseUrl(m.base_url) === baseUrlFilter,
     [baseUrlFilter],
   );
 
   // 실제로 존재하는 Base URL 목록 — 필터 드롭다운 옵션(정규화·정렬).
   const baseUrlOptions = useMemo(() => {
-    return [...new Set(data.map((m) => normalizeBaseUrlForCell(m.base_url)))].sort(compareStringsPinned);
+    return [...new Set(data.map((m) => normalizeBaseUrl(m.base_url)))].sort(compareStringsPinned);
   }, [data]);
 
   const matchesFilters = useCallback(
@@ -248,7 +260,7 @@ export function StatsModelTable({
         ),
         sortingFn: "alphanumeric",
       }),
-      columnHelper.accessor((row) => normalizeBaseUrlForCell(row.base_url), {
+      columnHelper.accessor((row) => normalizeBaseUrl(row.base_url), {
         id: "base_url",
         header: ({ column }) => (
           <button
@@ -261,14 +273,17 @@ export function StatsModelTable({
           </button>
         ),
         cell: ({ row }) => {
-          const url = normalizeBaseUrlForCell(row.original.base_url);
+          const url = normalizeBaseUrl(row.original.base_url);
           return (
             <span className="inline-flex max-w-[16rem] items-start gap-1">
               <BaseUrlValue baseUrl={url} alias={aliasFor?.(row.original.base_url)} />
               {onRenameBaseUrl ? (
                 <button
                   type="button"
-                  onClick={() => onRenameBaseUrl(url)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRenameBaseUrl(url);
+                  }}
                   aria-label={msgs.baseUrlNames.renameAria(url)}
                   title={msgs.baseUrlNames.renameAria(url)}
                   className="rounded p-0.5 text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
@@ -341,7 +356,17 @@ export function StatsModelTable({
         sortingFn: "basic",
       }),
     ],
-    [allVisibleSelectableSelected, canSelectRow, handleSelectAllVisible, noVisibleSelectable, onToggle, selected, msgs],
+    [
+      aliasFor,
+      allVisibleSelectableSelected,
+      canSelectRow,
+      handleSelectAllVisible,
+      noVisibleSelectable,
+      onRenameBaseUrl,
+      onToggle,
+      selected,
+      msgs,
+    ],
   );
 
   const table = useReactTable({
@@ -542,6 +567,8 @@ export function StatsModelTable({
                 }}
                 onKeyDown={(e) => {
                   if (!ok) return;
+                  // 셀 안의 버튼(연필 등)에서 올라온 키 입력은 그 버튼의 것이다 — 행이 가로채면 안 된다.
+                  if (e.target !== e.currentTarget) return;
                   if (e.key !== "Enter" && e.key !== " ") return;
                   e.preventDefault();
                   onToggle(row.original.run_id);
@@ -573,14 +600,12 @@ export function StatsModelTable({
                   .join("·"),
               )
             : null}
-          {q || selectedCategories.size > 0 ? msgs.stats.shownCount(visibleModels.length) : null}
+          {q || selectedCategories.size > 0 || baseUrlFilter
+            ? msgs.stats.shownCount(visibleModels.length)
+            : null}
           {someSelectableSelected && !allSelectableSelected ? msgs.stats.somePartial : null}
         </p>
       </div>
     </div>
   );
-}
-
-function normalizeBaseUrlForCell(url: string): string {
-  return url.replace(/\/+$/, "");
 }

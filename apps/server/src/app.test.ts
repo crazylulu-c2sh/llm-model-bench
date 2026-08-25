@@ -866,4 +866,22 @@ describe("base-url-names (Base URL alias)", () => {
     expect(a.status).toBe(200);
     expect(b.status).toBe(200);
   });
+
+  // 다른 오리진에 웹을 올린 구성(BENCH_CORS_ORIGINS)에서 JSON PUT은 preflight를 탄다.
+  // allowMethods에 PUT이 없으면 저장이 브라우저 단계에서 전부 막힌다.
+  it("CORS preflight advertises PUT for the alias route", async () => {
+    const r = await req("/api/base-url-names", {
+      method: "OPTIONS",
+      headers: {
+        origin: "http://example.test",
+        "access-control-request-method": "PUT",
+        "access-control-request-headers": "content-type",
+      },
+    });
+    expect(r.status).toBeLessThan(400);
+    const allowed = (r.headers.get("access-control-allow-methods") ?? "")
+      .split(",")
+      .map((s) => s.trim().toUpperCase());
+    expect(allowed).toContain("PUT");
+  });
 });

@@ -48,7 +48,7 @@ export const stats: Messages["stats"] = {
   filterApply: "フィルター適用",
   categoryToggleTitle: (label: string, action: string) => `${label} ${action}`,
   all: "すべて",
-  searchPlaceholder: "モデル id・配信元・Base URL・provider を検索（例: gemma）",
+  searchPlaceholder: "モデル id・配信元・Base URL・別名・provider を検索（例: gemma）",
   searchAria: "保存済みモデルのフィルター",
   clearFilter: "フィルターをクリア",
   tableCaption: "保存済みモデルの統計",

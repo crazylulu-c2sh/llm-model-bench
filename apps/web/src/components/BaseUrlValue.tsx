@@ -2,13 +2,13 @@ import type { BaseUrlAlias } from "../lib/base-url-names";
 
 /**
  * Base URL 표시 — 별칭 있으면 1줄=이름(+기기/스펙 메모), 2줄=원본 URL(mono·truncate).
- * 별칭 없으면 기존과 동일하게 원본 URL만. title에 전체 값 제공.
+ * 별칭 없으면 기존과 동일하게 원본 URL만 한 줄로 클리핑(줄바꿈 금지 — 행 높이 유지). title에 전체 값 제공.
  */
 export function BaseUrlValue({ baseUrl, alias }: { baseUrl: string; alias?: BaseUrlAlias }) {
   const named = !!alias && alias.name.trim() !== "";
   if (!named) {
     return (
-      <span className="block max-w-[14rem] break-all font-mono text-[10px] text-[var(--muted)]" title={baseUrl}>
+      <span className="block max-w-[14rem] truncate font-mono text-[10px] text-[var(--muted)]" title={baseUrl}>
         {baseUrl}
       </span>
     );

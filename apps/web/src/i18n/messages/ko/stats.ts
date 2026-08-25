@@ -48,7 +48,7 @@ export const stats = {
   filterApply: "필터 적용",
   categoryToggleTitle: (label: string, action: string) => `${label} ${action}`,
   all: "전체",
-  searchPlaceholder: "모델 id·게시자·Base URL·provider 검색 (예: gemma)",
+  searchPlaceholder: "모델 id·게시자·Base URL·별칭·provider 검색 (예: gemma)",
   searchAria: "저장된 모델 필터",
   clearFilter: "필터 지우기",
   tableCaption: "저장된 모델 통계",
