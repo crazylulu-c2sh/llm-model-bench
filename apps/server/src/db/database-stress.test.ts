@@ -35,6 +35,8 @@ function seed(opts: {
   workload_id?: string;
   status?: StressRunStatus;
   stages?: number;
+  /** meta_json.publisher — 미지정이면 필드 자체를 넣지 않는다(레거시 런 재현). */
+  publisher?: string;
 }) {
   return (db: ReturnType<typeof openBenchDatabase>) => {
     const created_at = opts.created_at ?? new Date(2026, 0, 1, 12, 0, 0).toISOString();
@@ -48,7 +50,14 @@ function seed(opts: {
       provider: "lm_studio",
       model_id,
       workload_id,
-      meta_json: JSON.stringify({ ...META_BASE, run_id: opts.run_id, base_url, model_id, workload_id }),
+      meta_json: JSON.stringify({
+        ...META_BASE,
+        run_id: opts.run_id,
+        base_url,
+        model_id,
+        workload_id,
+        ...(opts.publisher != null ? { publisher: opts.publisher } : {}),
+      }),
       status: opts.status ?? "ok",
     });
     for (let i = 0; i < (opts.stages ?? 1); i++) {
@@ -149,6 +158,31 @@ describe("getStressRunMeta", () => {
     expect(row?.run_id).toBe("r1");
     expect(row?.meta_json).toContain("stress_ping");
     expect(getStressRunMeta(db, "missing")).toBeNull();
+  });
+
+  // StressRunMetaRow는 StressRunSummaryRow에서 `publisher: string | null`을 교집합으로 상속한다.
+  // SELECT가 그 컬럼을 안 뽑으면 타입은 string|null인데 런타임 값은 undefined가 되어,
+  // `=== null` 가드나 응답 전달이 타입상 불가능한 분기를 타게 된다.
+  it("projects meta_json.publisher so the row matches its declared type", () => {
+    const db = openBenchDatabase(":memory:");
+    seed({ run_id: "named", publisher: "Org S" })(db);
+    seed({ run_id: "legacy" })(db);
+    expect(getStressRunMeta(db, "named")?.publisher).toBe("Org S");
+    // 레거시 런(meta_json에 publisher 없음)은 undefined가 아니라 null이어야 한다.
+    expect(getStressRunMeta(db, "legacy")?.publisher).toBeNull();
+  });
+});
+
+describe("stress run publisher projection", () => {
+  it("listStressRunsFiltered exposes meta_json.publisher, null for legacy runs", () => {
+    const db = openBenchDatabase(":memory:");
+    seed({ run_id: "named", created_at: "2026-01-01T11:00:00.000Z", publisher: "Org S" })(db);
+    seed({ run_id: "legacy", created_at: "2026-01-01T10:00:00.000Z" })(db);
+
+    const rows = listStressRunsFiltered(db, { limit: 10 } as StressRunListOpts);
+    const byId = new Map(rows.map((r) => [r.run_id, r]));
+    expect(byId.get("named")?.publisher).toBe("Org S");
+    expect(byId.get("legacy")?.publisher).toBeNull();
   });
 });
 

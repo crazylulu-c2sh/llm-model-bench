@@ -369,6 +369,7 @@ export function getStressRunMeta(
   const r = db
     .prepare(
       `SELECT run_id, created_at, finished_at, base_url, provider, model_id, workload_id, status,
+              json_extract(meta_json, '$.publisher') AS publisher,
               meta_json, error_code, error_message
        FROM stress_runs WHERE run_id = ?`,
     )
