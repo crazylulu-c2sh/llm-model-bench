@@ -37,11 +37,11 @@ import {
 import { openAiChatPostWithUsage } from "./openai-fetch.js";
 import { detectScript } from "./scenarios.js";
 import {
-  lmStudioIsModelLoaded,
-  lmStudioJitTtlPrime,
-  lmStudioLoad,
   lmStudioUnload,
+  prepareLmStudioForRun,
+  type LmStudioPrepareLabel,
 } from "./lmstudio.js";
+import { resolvePublisher } from "./detect.js";
 import { ollamaKeepAliveLoad } from "./ollama.js";
 
 export type StressRequest = {
@@ -146,10 +146,11 @@ export function makeStressRunMeta(
     base_url: detect.baseUrl.replace(/\/+$/, ""),
     provider: input.provider,
     model_id: input.modelId,
-    // 게시자(조직): bench meta와 동일 의미 — detect API publisher ?? model_id 접두.
-    publisher:
-      detect.models.find((m) => m.id === input.modelId)?.publisher?.trim() ||
-      parseModelPublisherFromId(input.modelId),
+    // 게시자(조직): bench meta와 동일 의미 — 규칙은 detect.ts#resolvePublisher 하나뿐이다.
+    publisher: resolvePublisher(
+      input.modelId,
+      detect.models.find((m) => m.id === input.modelId)?.publisher,
+    ),
     api_route: route,
     workload_id: input.workloadId,
     max_tokens: input.maxTokens ?? defaultMaxTokensForWorkload(input.workloadId),
@@ -327,73 +328,28 @@ export async function* runStress(
     }
   }
   let lmStudioTtlStatus: LoadTtlStatus | undefined;
-  let lmStudioPrepare:
-    | "loaded"
-    | "already_in_memory"
-    | "load_skipped_by_request"
-    | "jit_load_with_ttl"
-    | undefined;
+  let lmStudioPrepare: LmStudioPrepareLabel | undefined;
   if (input.provider === "lm_studio") {
-    if (!meta.skip_model_load) {
-      const loaded = await lmStudioIsModelLoaded(base, input.modelId, {
-        fetchImpl,
-        apiKey: input.apiKey,
-      });
-      if (loaded.ok && loaded.loaded) {
-        lmStudioPrepare = "already_in_memory";
-        // Idle TTL은 JIT 로드 시점에만 설정 가능하다 — 상주 중이면 걸 방법이 없으므로
-        // 조용히 넘어가지 않고 미적용을 보고한다(bench-runner와 동일 정책).
-        if (meta.load_ttl_seconds != null) lmStudioTtlStatus = "not_applied";
-      } else {
-        await lmStudioUnload(base, input.modelId, { fetchImpl, apiKey: input.apiKey });
-        let primeFellBackToLoad = false;
-        if (meta.load_ttl_seconds != null) {
-          // LM Studio Idle TTL은 명시적 load가 아닌 JIT 로딩(첫 추론 요청) 페이로드에만 적용된다.
-          // 최소 prime(max_tokens=1 + 본문 ttl)으로 JIT 로드 트리거 — bench-runner와 동일 정책.
-          const primed = await lmStudioJitTtlPrime(base, input.modelId, {
-            fetchImpl,
-            apiKey: input.apiKey,
-            ttlSeconds: meta.load_ttl_seconds,
-            signal: externalSignal,
-          });
-          if (primed.ok) {
-            lmStudioTtlStatus = primed.ttl_status;
-          } else {
-            // prime 실패(네트워크 등) — 명시적 load로 폴백해 로드 자체는 보장한다.
-            // 명시적 load는 ttl 미지원이므로 TTL은 확실히 걸리지 않았다.
-            const load = await lmStudioLoad(base, input.modelId, { fetchImpl, apiKey: input.apiKey });
-            if (!load.ok) {
-              yield {
-                type: "error",
-                code: "load_failed",
-                message: `LM Studio load failed: ${load.status} ${load.body}`,
-              };
-              return;
-            }
-            primeFellBackToLoad = true;
-            lmStudioTtlStatus = "not_applied";
-          }
-        } else {
-          const load = await lmStudioLoad(base, input.modelId, { fetchImpl, apiKey: input.apiKey });
-          if (!load.ok) {
-            yield {
-              type: "error",
-              code: "load_failed",
-              message: `LM Studio load failed: ${load.status} ${load.body}`,
-            };
-            return;
-          }
-        }
-        lmStudioPrepare =
-          meta.load_ttl_seconds != null && !primeFellBackToLoad ? "jit_load_with_ttl" : "loaded";
-        modelLoadedByThisRun = true;
-      }
-    } else {
-      // skipModelLoad는 "LM 로드/언로드를 하지 말라"는 요청이다. prime은 실제 추론 요청이라
-      // JIT 로드를 일으키므로 하지 않는다 — bench-runner와 동일하게 라벨도 항상 이 값이다.
-      lmStudioPrepare = "load_skipped_by_request";
-      if (meta.load_ttl_seconds != null) lmStudioTtlStatus = "not_applied";
+    const prepared = await prepareLmStudioForRun({
+      baseUrl: base,
+      modelId: input.modelId,
+      skipModelLoad: !!meta.skip_model_load,
+      ttlSeconds: meta.load_ttl_seconds ?? undefined,
+      fetchImpl,
+      apiKey: input.apiKey,
+      signal: externalSignal,
+    });
+    if (prepared.error) {
+      yield {
+        type: "error",
+        code: "load_failed",
+        message: `LM Studio load failed: ${prepared.error.status} ${prepared.error.body}`,
+      };
+      return;
     }
+    modelLoadedByThisRun = prepared.loadedByThisRun;
+    lmStudioTtlStatus = prepared.ttlStatus;
+    lmStudioPrepare = prepared.prepare;
   } else if (input.provider === "ollama" && meta.load_ttl_seconds != null) {
     // Ollama: 네이티브 /api/generate(빈 prompt) preload + keep_alive TTL 적용(skipModelLoad 무관).
     await ollamaKeepAliveLoad(base, input.modelId, {

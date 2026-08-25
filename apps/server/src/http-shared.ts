@@ -8,3 +8,10 @@ export const SQLITE_PUBLIC_UNAVAILABLE_MSG =
 
 /** trailing slash 제거 — base_url 정규화(서버 전역 동일 규칙). */
 export const normBaseUrl = (u: string): string => u.replace(/\/+$/, "");
+
+/**
+ * 프로바이더 호환성 캐시(Set)의 키 — 같은 서버를 다른 키로 잡지 않도록 대소문자까지 접는다.
+ * openai-fetch의 stream_options 거부 캐시와 lmstudio의 JIT ttl 거부 캐시가 공유한다.
+ * (표시·저장용 정규화는 normBaseUrl. 이쪽은 키 전용이므로 규칙이 갈리면 안 된다.)
+ */
+export const baseUrlCacheKey = (u: string): string => normBaseUrl(u).toLowerCase();

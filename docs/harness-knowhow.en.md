@@ -328,6 +328,11 @@ export async function ollamaKeepAliveLoad(
 ```
 
 ```json
+// Ollama native /api/generate load body — loads without generating
+{ "model": "<model>", "prompt": "", "stream": false, "keep_alive": "1800s" }
+```
+
+```json
 // LM Studio JIT prime body — triggers JIT load and applies Idle TTL (response discarded)
 { "model": "qwen3-8b", "messages": [{ "role": "user", "content": "." }], "max_tokens": 1, "stream": false, "ttl": 1800 }
 ```

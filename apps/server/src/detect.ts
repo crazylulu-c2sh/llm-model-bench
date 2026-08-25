@@ -9,8 +9,11 @@ import {
 
 export type FetchLike = typeof fetch;
 
-/** API `publisher` 우선, 없으면 id의 `org/` 접두. 둘 다 없으면 undefined. */
-function resolvePublisher(modelId: string, apiPublisher?: string | null): string | undefined {
+/**
+ * API `publisher` 우선, 없으면 id의 `org/` 접두. 둘 다 없으면 undefined.
+ * detect 응답을 만들 때와 런 meta를 기록할 때가 같은 규칙을 써야 하므로 러너도 이걸 쓴다.
+ */
+export function resolvePublisher(modelId: string, apiPublisher?: string | null): string | undefined {
   if (typeof apiPublisher === "string" && apiPublisher.trim()) return apiPublisher.trim();
   return parseModelPublisherFromId(modelId);
 }
