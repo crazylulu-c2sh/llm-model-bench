@@ -62,6 +62,7 @@ import {
 } from "./scenarios.js";
 import {
   lmStudioIsModelLoaded,
+  lmStudioJitTtlPrime,
   lmStudioLoad,
   lmStudioUnload,
 } from "./lmstudio.js";
@@ -110,7 +111,7 @@ export type BenchRequest = {
   unloadOtherModels?: boolean;
   /** LM Studio: 이번 런이 lmStudioLoad로 대상을 올린 경우에만 종료 시 unload (베스트 에포트) */
   autoUnloadAfterBench?: boolean;
-  /** 로드 시 TTL(초). lm_studio는 load `ttl`, ollama는 `keep_alive`. 그 외 프로바이더는 무시. */
+  /** 로드 시 TTL(초). lm_studio는 JIT prime 요청의 `ttl`(명시적 load 미지원), ollama는 `keep_alive`. 그 외 프로바이더는 무시. */
   loadTtlSeconds?: number;
   /** #81: 메모리-핏 프리플라이트 정책(`skip` | `unload_other_models`; 미지정이면 예측만 로그 후 진행). */
   fitPolicy?: FitPolicy;
@@ -613,8 +614,8 @@ export async function* runBench(
     }
   }
 
-  // 로드 TTL(초) — 지원 백엔드(lm_studio·ollama)에서만 유효. lm_studio는 load `ttl`,
-  // ollama는 `keep_alive`(preload + 벤치 종료 후 재적용)로 적용된다.
+  // 로드 TTL(초) — 지원 백엔드(lm_studio·ollama)에서만 유효. lm_studio는 JIT prime 요청의 `ttl`
+  // (명시적 load는 ttl 미지원), ollama는 `keep_alive`(preload + 벤치 종료 후 재적용)로 적용된다.
   const loadTtlSeconds =
     providerSupportsLoadTtl(input.provider) &&
     typeof input.loadTtlSeconds === "number" &&
@@ -623,6 +624,7 @@ export async function* runBench(
       : undefined;
 
   let modelLoadedByThisBench = false;
+  let lmStudioTtlApplied: boolean | undefined;
   if (input.provider === "lm_studio" && !input.skipModelLoad) {
     const loaded = await lmStudioIsModelLoaded(base, input.modelId, {
       fetchImpl,
@@ -635,22 +637,72 @@ export async function* runBench(
         fetchImpl,
         apiKey: input.apiKey,
       });
-      const load = await lmStudioLoad(base, input.modelId, {
+      let ttlApplied = false;
+      if (loadTtlSeconds != null) {
+        // LM Studio Idle TTL은 명시적 load가 아닌 JIT 로딩(첫 추론 요청) 페이로드에만 적용된다.
+        // 최소 prime(max_tokens=1 + 본문 ttl)으로 JIT 로드 트리거 — ollama keep_alive preload와 동일 패턴.
+        const primed = await lmStudioJitTtlPrime(base, input.modelId, {
+          fetchImpl,
+          apiKey: input.apiKey,
+          ttlSeconds: loadTtlSeconds,
+        });
+        if (primed.ok) {
+          ttlApplied = primed.ttl_applied;
+        } else {
+          // prime 실패(네트워크 등) — 명시적 load로 폴백해 로드 자체는 보장한다.
+          const load = await lmStudioLoad(base, input.modelId, {
+            fetchImpl,
+            apiKey: input.apiKey,
+          });
+          if (!load.ok) {
+            yield {
+              type: "error",
+              layer: "orchestrator",
+              code: "load_failed",
+              message: `LM Studio load failed: ${load.status} ${load.body}`,
+            };
+            unregisterRunControl(rid);
+            return;
+          }
+        }
+      } else {
+        const load = await lmStudioLoad(base, input.modelId, {
+          fetchImpl,
+          apiKey: input.apiKey,
+        });
+        if (!load.ok) {
+          yield {
+            type: "error",
+            layer: "orchestrator",
+            code: "load_failed",
+            message: `LM Studio load failed: ${load.status} ${load.body}`,
+          };
+          unregisterRunControl(rid);
+          return;
+        }
+      }
+      modelLoadedByThisBench = true;
+      if (loadTtlSeconds != null) lmStudioTtlApplied = ttlApplied;
+    }
+  } else if (input.provider === "lm_studio" && input.skipModelLoad && loadTtlSeconds != null) {
+    // skipModelLoad + TTL: 상태 변경 없이 read-only 확인. 미로드면 prime으로 JIT 로드(TTL 적용).
+    const loaded = await lmStudioIsModelLoaded(base, input.modelId, {
+      fetchImpl,
+      apiKey: input.apiKey,
+    });
+    if (!(loaded.ok && loaded.loaded)) {
+      const primed = await lmStudioJitTtlPrime(base, input.modelId, {
         fetchImpl,
         apiKey: input.apiKey,
         ttlSeconds: loadTtlSeconds,
       });
-      if (!load.ok) {
-        yield {
-          type: "error",
-          layer: "orchestrator",
-          code: "load_failed",
-          message: `LM Studio load failed: ${load.status} ${load.body}`,
-        };
-        unregisterRunControl(rid);
-        return;
+      if (primed.ok) {
+        modelLoadedByThisBench = true;
+        lmStudioTtlApplied = primed.ttl_applied;
+      } else {
+        // skipModelLoad이므로 폴백 로드도 하지 않는다 — 요청대로 상태를 건드리지 않는다.
+        lmStudioTtlApplied = false;
       }
-      modelLoadedByThisBench = true;
     }
   } else if (input.provider === "ollama" && loadTtlSeconds != null) {
     // Ollama: 명시적 load 단계가 없으므로 네이티브 /api/generate(빈 prompt)로 preload +
@@ -666,9 +718,11 @@ export async function* runBench(
     | "loaded"
     | "already_in_memory"
     | "load_skipped_by_request"
+    | "jit_load_with_ttl"
     | undefined;
   if (input.provider === "lm_studio") {
-    if (input.skipModelLoad) lmStudioPrepare = "load_skipped_by_request";
+    if (modelLoadedByThisBench && loadTtlSeconds != null) lmStudioPrepare = "jit_load_with_ttl";
+    else if (input.skipModelLoad) lmStudioPrepare = "load_skipped_by_request";
     else if (modelLoadedByThisBench) lmStudioPrepare = "loaded";
     else lmStudioPrepare = "already_in_memory";
   }
@@ -678,6 +732,7 @@ export async function* runBench(
     model_id: input.modelId,
     provider: input.provider,
     ...(lmStudioPrepare != null ? { lm_studio_prepare: lmStudioPrepare } : {}),
+    ...(lmStudioTtlApplied !== undefined ? { load_ttl_applied: lmStudioTtlApplied } : {}),
   };
 
   // STEP 1: 사전 대기 게이트 — 다른 추론이 실행 중이면 유휴까지 대기. 타임아웃/예산 초과면

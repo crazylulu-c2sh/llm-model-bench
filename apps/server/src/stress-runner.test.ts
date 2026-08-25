@@ -1,6 +1,7 @@
 import type { DetectResult, StressStreamEvent } from "@llm-bench/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetStreamUsageCacheForTests } from "./openai-fetch.js";
+import { _resetLmStudioJitTtlCacheForTests } from "./lmstudio.js";
 import { runStress, type StressRequest } from "./stress-runner.js";
 
 function jsonResponse(obj: unknown, status = 200) {
@@ -49,6 +50,16 @@ function openaiDetect(): DetectResult {
 
 const MIN_DURATION = 200;
 
+function lmStudioDetect(modelId: string): DetectResult {
+  return {
+    provider: "lm_studio",
+    baseUrl: "http://test-stress",
+    models: [{ id: modelId }],
+    steps: [],
+    capabilities: { openaiChat: true, anthropicMessages: false },
+  };
+}
+
 function baseStressRequest(overrides: Partial<StressRequest> = {}): StressRequest {
   return {
     baseUrl: "http://test-stress",
@@ -63,7 +74,10 @@ function baseStressRequest(overrides: Partial<StressRequest> = {}): StressReques
   };
 }
 
-beforeEach(() => _resetStreamUsageCacheForTests());
+beforeEach(() => {
+  _resetStreamUsageCacheForTests();
+  _resetLmStudioJitTtlCacheForTests();
+});
 
 describe("runStress basic ramp", () => {
   it("emits run_started → stage_started → worker events → stage_finished → run_finished", async () => {
@@ -211,5 +225,49 @@ describe("runStress KO workload script_match", () => {
       expect(stage.result.script_match_rate).not.toBeNull();
       expect((stage.result.script_match_rate ?? 0) > 0.5).toBe(true);
     }
+  });
+});
+
+describe("runStress LM Studio load TTL (JIT prime)", () => {
+  it("primes JIT load with ttl instead of explicit load and reports jit_load_with_ttl", async () => {
+    const MODEL_ID = "lm-model";
+    let explicitLoads = 0;
+    const primeBodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [] }] });
+      }
+      if (url.endsWith("/api/v1/models/unload")) return jsonResponse({}, 200);
+      if (url.endsWith("/api/v1/models/load")) {
+        explicitLoads += 1;
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        const b = init?.body ? JSON.parse(String(init.body)) : null;
+        if (b && b.stream === false) {
+          primeBodies.push(b);
+          return jsonResponse({ choices: [] });
+        }
+        return sseChatStreamingResponse({ contentChunks: ["ok"], usageCompletionTokens: 2 });
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    }) as unknown as typeof fetch;
+
+    const events: StressStreamEvent[] = [];
+    for await (const ev of runStress(
+      baseStressRequest({ provider: "lm_studio", modelId: MODEL_ID, loadTtlSeconds: 300 }),
+      lmStudioDetect(MODEL_ID),
+      { fetchImpl, tickIntervalMs: 5_000, maxRequestsPerWorker: 1 },
+    )) {
+      events.push(ev);
+    }
+
+    const loadedEv = events.find((e) => e.type === "model_loaded");
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.lm_studio_prepare).toBe("jit_load_with_ttl");
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_applied).toBe(true);
+    expect(explicitLoads).toBe(0);
+    expect(primeBodies[0]).toMatchObject({ model: MODEL_ID, max_tokens: 1, stream: false, ttl: 300 });
+    expect(events.some((e) => e.type === "run_finished")).toBe(true);
   });
 });

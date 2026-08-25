@@ -74,12 +74,18 @@ export const bench = {
   memFitHintC: "는 raw 400 대신 사유를 기록하고 스킵합니다. 기본(예측만)은 그대로 진행합니다.",
   memFitOptionLog: "예측만(로그)",
   memFitOptionSkip: "안 맞으면 건너뛰기",
-  loadTtlTitle: "로드 시 TTL(초)을 적용해 유휴 후 자동 언로드합니다. LM Studio는 load ttl, Ollama는 keep_alive로 적용됩니다.",
+  loadTtlTitle:
+    "로드 시 TTL(초)을 적용해 유휴 후 자동 언로드합니다. LM Studio는 JIT 로딩(첫 추론 요청), Ollama는 keep_alive로 적용됩니다.",
   loadTtlLabel: "모델 로드 TTL(초) — LM Studio · Ollama",
-  loadTtlHintA: "로드 시 지정 시간(초) 동안만 모델을 상주시키고 유휴 후 자동 언로드합니다. 비우면 미적용(기존 동작). LM Studio는 load ",
+  loadTtlHintA:
+    "로드 시 지정 시간(초) 동안만 모델을 상주시키고 유휴 후 자동 언로드합니다. 비우면 미적용(기존 동작). LM Studio는 JIT 로딩(첫 추론 요청) 페이로드의 ",
   loadTtlHintB: ", Ollama는 네이티브 ",
   loadTtlHintC: "로 적용됩니다. Ollama는 추론(",
   loadTtlHintD: ")이 keep_alive를 기본 5분으로 리셋하므로 벤치 종료 후 지정 TTL을 다시 적용합니다.",
+  /** LM Studio가 ttl 필드를 거부(구버전)하거나 prime 요청 실패로 TTL이 실제로 걸리지 않은 경우. */
+  loadTtlNotApplied: (modelId: string) =>
+    `${modelId}: 로드 TTL 미적용 — LM Studio가 ttl 필드를 거부했거나 prime 요청 실패(유휴 자동 언로드 없음)`,
+
   notApplied: "미적용",
   contentionGuardTitle: "다른 추론(같은/다른 모델)이 실행 중이면 시작 전 대기하고, 벤치 중 감지되면 오염된 측정 런만 폐기 후 재측정합니다.",
   contentionGuardLabel: "오염 가드 (다른 추론 감지 시 대기·재측정)",

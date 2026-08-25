@@ -1,8 +1,9 @@
-import type { DetectResult } from "@llm-bench/shared";
+import type { DetectResult, StreamEvent } from "@llm-bench/shared";
 import { DEFAULT_SCENARIO_IDS } from "@llm-bench/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeBenchRunMeta, normalizeScenarioIdsForBench, runBench, type BenchRequest } from "./bench-runner.js";
 import { _resetStreamUsageCacheForTests } from "./openai-fetch.js";
+import { _resetLmStudioJitTtlCacheForTests } from "./lmstudio.js";
 import {
   _resetRunControlRegistryForTests,
   cancelRunControl,
@@ -246,6 +247,82 @@ describe("runBench LM Studio autoUnloadAfterBench", () => {
     }
 
     expect(postUnloadCount).toBe(1);
+  });
+});
+
+describe("runBench LM Studio load TTL (JIT prime)", () => {
+  beforeEach(() => _resetLmStudioJitTtlCacheForTests());
+
+  /** LM Studio 미로드 상태 + prime 동작(ok/reject_ttl/fail_500)을 모킹한 fetch. */
+  const lmFetch = (prime: "ok" | "reject_ttl" | "fail_500") => {
+    let explicitLoads = 0;
+    const primeBodies: unknown[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [] }] });
+      }
+      if (url.endsWith("/api/v1/models/unload")) return jsonResponse({}, 200);
+      if (url.endsWith("/api/v1/models/load")) {
+        explicitLoads += 1;
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        const b = init?.body ? JSON.parse(String(init.body)) : null;
+        if (b && b.stream === false) {
+          // prime 요청(max_tokens=1, 비스트림)
+          primeBodies.push(b);
+          if (prime === "reject_ttl" && "ttl" in b) return jsonResponse({ error: "unknown field ttl" }, 400);
+          if (prime === "fail_500") return jsonResponse({ error: "boom" }, 500);
+          return jsonResponse({ choices: [] });
+        }
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    return { fetchImpl, explicitLoads: () => explicitLoads, primeBodies };
+  };
+
+  const collect = async (
+    fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  ): Promise<StreamEvent[]> => {
+    const events: StreamEvent[] = [];
+    for await (const ev of runBench(baseBenchRequest({ loadTtlSeconds: 300 }), lmStudioDetect(), { fetchImpl })) {
+      events.push(ev);
+    }
+    return events;
+  };
+
+  it("primes JIT load with ttl instead of explicit load", async () => {
+    const { fetchImpl, explicitLoads, primeBodies } = lmFetch("ok");
+    const events = await collect(fetchImpl);
+    const loadedEv = events.find((e) => e.type === "model_loaded");
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.lm_studio_prepare).toBe("jit_load_with_ttl");
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_applied).toBe(true);
+    expect(explicitLoads()).toBe(0);
+    expect(primeBodies[0]).toMatchObject({ model: MODEL_ID, max_tokens: 1, stream: false, ttl: 300 });
+    expect(events.some((e) => e.type === "run_finished")).toBe(true);
+  });
+
+  it("falls back to explicit load when prime fails (500)", async () => {
+    const { fetchImpl, explicitLoads } = lmFetch("fail_500");
+    const events = await collect(fetchImpl);
+    expect(explicitLoads()).toBe(1);
+    const loadedEv = events.find((e) => e.type === "model_loaded");
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_applied).toBe(false);
+    expect(events.some((e) => e.type === "run_finished")).toBe(true);
+  });
+
+  it("reports load_ttl_applied=false when the server rejects ttl (400 unknown field)", async () => {
+    const { fetchImpl, primeBodies } = lmFetch("reject_ttl");
+    const events = await collect(fetchImpl);
+    const loadedEv = events.find((e) => e.type === "model_loaded");
+    expect(loadedEv && loadedEv.type === "model_loaded" && loadedEv.load_ttl_applied).toBe(false);
+    // ttl 포함 1회 → 거부 → 무-ttl 재시도 1회
+    expect(primeBodies).toHaveLength(2);
+    expect(primeBodies[0]).toHaveProperty("ttl", 300);
+    expect(primeBodies[1]).not.toHaveProperty("ttl");
+    expect(events.some((e) => e.type === "run_finished")).toBe(true);
   });
 });
 

@@ -343,7 +343,7 @@ export const BenchRunMetaSchema = z.object({
   unload_other_models: z.boolean().optional(),
   /** LM Studio: 이번 런이 모델을 로드한 경우에만 끝날 때 unload 시도 여부 */
   auto_unload_after_bench: z.boolean().optional(),
-  /** 로드 시 적용한 TTL(초). LM Studio는 load `ttl`, Ollama는 `keep_alive`. 지원 백엔드에서만 채워짐. */
+  /** 로드 시 적용한 TTL(초). LM Studio는 JIT prime 요청의 `ttl`(명시적 load 미지원), Ollama는 `keep_alive`. 지원 백엔드에서만 채워짐. */
   load_ttl_seconds: z.number().int().positive().optional(),
   /** Vite 등에서 서빙하는 public 자산 베이스 (예: http://127.0.0.1:21104) — nist.fips.197.pdf URL 허용용 */
   public_assets_origin: z.string().optional(),
@@ -388,10 +388,12 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     type: z.literal("model_loaded"),
     model_id: z.string(),
     provider: ProviderKindSchema,
-    /** LM Studio 전용: 실제 POST load 여부 / 이미 메모리 / skipModelLoad */
+    /** LM Studio 전용: 실제 POST load 여부 / 이미 메모리 / skipModelLoad / JIT prime(TTL) */
     lm_studio_prepare: z
-      .enum(["loaded", "already_in_memory", "load_skipped_by_request"])
+      .enum(["loaded", "already_in_memory", "load_skipped_by_request", "jit_load_with_ttl"])
       .optional(),
+    /** 로드 TTL 실제 적용 여부 — LM Studio JIT prime이 ttl을 거부(구버전)하거나 실패하면 false. */
+    load_ttl_applied: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("model_unloaded"),

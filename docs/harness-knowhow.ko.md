@@ -137,7 +137,7 @@ export function resolveBenchApiRoutes(
 - `api_route === "chat_completions"` → `openAiChatPostWithUsage()`로 `${base}/v1/chat/completions`에 POST하고 `consumeOpenAiChatStream()`으로 소비
 - `api_route === "messages"` → 헤더 `anthropic-version: 2023-06-01`과 함께 `${base}/v1/messages`에 POST하고 `consumeAnthropicMessagesStream()`으로 소비
 
-프로바이더별 수명주기(모델 로드/언로드 TTL)는 capability가 아니라 `ProviderKind`로 따로 게이팅됩니다. `providerSupportsLoadTtl()`(`packages/shared/src/provider-kind.ts`)은 `lm_studio`(로드 페이로드 `ttl`)와 `ollama`(`keep_alive`)에 대해서만 `true`를 반환하므로, `runBench()`는 정확히 그 두 프로바이더에만 TTL 처리를 적용하고 공유 라우트 디스패치 경로는 모든 프로바이더에서 동일하게 둡니다.
+프로바이더별 수명주기(모델 로드/언로드 TTL)는 capability가 아니라 `ProviderKind`로 따로 게이팅됩니다. `providerSupportsLoadTtl()`(`packages/shared/src/provider-kind.ts`)은 `lm_studio`(JIT 로딩 페이로드 `ttl`)와 `ollama`(`keep_alive`)에 대해서만 `true`를 반환하므로, `runBench()`는 정확히 그 두 프로바이더에만 TTL 처리를 적용하고 공유 라우트 디스패치 경로는 모든 프로바이더에서 동일하게 둡니다.
 
 ## 3. 스트리밍 메트릭 추출
 
@@ -293,17 +293,17 @@ const fitsAfterUnload  = requiredWithOverhead <= free + residentRam - FIT_SAFETY
 
 ## 5. 프로바이더 로드·언로드와 TTL
 
-로컬 모델 백엔드는 모델을 정해진 시간 동안 메모리에 붙잡아 두라고 지시하는 *방식*이 서로 다릅니다. 그래서 하네스는 이를 단일 능력 검사 `providerSupportsLoadTtl(kind)` 뒤로 게이팅하고 TTL을 프로바이더별로 적용합니다. LM Studio는 로드 호출에 `ttl`(**초 단위**)을 직접 받아 유휴 시 자동 축출(auto-eviction)을 제공합니다. Ollama는 `keep_alive`를 쓰지만 날카로운 함정이 있습니다: 벤치마크가 실제로 추론을 구동하는 OpenAI 호환 `/v1/chat/completions` 엔드포인트가 **`keep_alive`를 무시하고 요청마다 모델 수명을 기본값 5분으로 조용히 리셋**합니다([ollama#11458](https://github.com/ollama/ollama/issues/11458)). 재사용 가능한 우회책은 원하는 TTL을 Ollama의 *네이티브* API로 대역 외(out-of-band)에서 두 번 적용하는 것입니다: 한 번은 런 전 preload로, 다시 한 번은 런 후에 의도한 keep-alive를 재확정합니다.[^lms-rest][^ollama-api] 두 백엔드는 "모델을 메모리에 얼마나 붙잡아 둘지"를 지정하는 방식이 다르므로, 하네스는 `providerSupportsLoadTtl()` 하나로 지원 여부를 판별하고 실제 적용은 프로바이더별로 분기합니다. 핵심 함정은 Ollama의 `/v1/chat/completions`가 `keep_alive`를 무시하고 요청마다 기본 5분으로 리셋한다는 점이며, 이를 네이티브 `/api/generate`로 **preload + 벤치 종료 후 재적용**하여 우회합니다. `openai_compatible`·`manual` 프로바이더는 TTL 개념이 없어 값이 있어도 무시됩니다.
+로컬 모델 백엔드는 모델을 정해진 시간 동안 메모리에 붙잡아 두라고 지시하는 *방식*이 서로 다릅니다. 그래서 하네스는 이를 단일 능력 검사 `providerSupportsLoadTtl(kind)` 뒤로 게이팅하고 TTL을 프로바이더별로 적용합니다. LM Studio의 Idle TTL은 명시적 load(`lms load`, REST `/api/v1/models/load`)가 아니라 **JIT 로딩** — 모델이 미로드 상태에서 도착한 첫 추론 요청 — 페이로드의 `ttl`(**초 단위**) 필드로만 적용됩니다. 그래서 하네스는 최소 prime chat completion(`max_tokens: 1`, 본문에 `ttl`)으로 JIT 로드를 트리거해 TTL을 걸고, 이후 매 추론 요청마다 idle 타이머가 리셋되어 TTL 만료 시 LM Studio가 모델을 자동 축출(auto-evict)합니다. Ollama는 `keep_alive`를 쓰지만 날카로운 함정이 있습니다: 벤치마크가 실제로 추론을 구동하는 OpenAI 호환 `/v1/chat/completions` 엔드포인트가 **`keep_alive`를 무시하고 요청마다 모델 수명을 기본값 5분으로 조용히 리셋**합니다([ollama#11458](https://github.com/ollama/ollama/issues/11458)). 재사용 가능한 우회책은 원하는 TTL을 Ollama의 *네이티브* API로 대역 외(out-of-band)에서 두 번 적용하는 것입니다: 한 번은 런 전 preload로, 다시 한 번은 런 후에 의도한 keep-alive를 재확정합니다.[^lms-rest][^ollama-api] 두 백엔드는 "모델을 메모리에 얼마나 붙잡아 둘지"를 지정하는 방식이 다르므로, 하네스는 `providerSupportsLoadTtl()` 하나로 지원 여부를 판별하고 실제 적용은 프로바이더별로 분기합니다. 핵심 함정은 Ollama의 `/v1/chat/completions`가 `keep_alive`를 무시하고 요청마다 기본 5분으로 리셋한다는 점이며, 이를 네이티브 `/api/generate`로 **preload + 벤치 종료 후 재적용**하여 우회합니다. `openai_compatible`·`manual` 프로바이더는 TTL 개념이 없어 값이 있어도 무시됩니다.
 
 - **능력 게이트(Capability gate)** (`packages/shared/src/provider-kind.ts`): `providerSupportsLoadTtl(p)`는 `"lm_studio"`와 `"ollama"`에 대해서만 `true`를 반환합니다. `false`이면 호출자는 모든 TTL 로직을 건너뜁니다.
-- **LM Studio** (`apps/server/src/lmstudio.ts`): `lmStudioLoad(baseUrl, modelKey, { ttlSeconds })`는 `/api/v1/models/load`(실패 시 `/api/v0/...`로 폴백)에 `{ model, ttl }`을 POST합니다. `ttl`은 `ttlSeconds`가 유한하고 `> 0`일 때만 포함되며 정수 초로 내림 처리됩니다. 이는 LM Studio 네이티브 필드이므로 재적용 절차가 필요 없습니다.
+- **LM Studio** (`apps/server/src/lmstudio.ts`): 명시적 `lmStudioLoad(baseUrl, modelKey)`는 `{ model }`만 POST합니다 — 구버전이 load 페이로드의 `ttl`을 400/422로 거부해 로드 자체가 실패하므로 TTL은 load에 실지 않습니다. TTL은 `lmStudioJitTtlPrime(baseUrl, modelKey, { ttlSeconds })`가 `/v1/chat/completions`에 `{ model, messages: [{role:"user",content:"."}], max_tokens: 1, stream: false, ttl }` prime 요청을 보내 JIT 로드를 트리거하며(응답은 폐기), `ttl`은 정수 초로 내림 처리됩니다. 구버전이 `ttl` 필드를 400/422("unknown field")로 거절하면 무-ttl 재시도 후 base URL별 캐싱하고(`load_ttl_applied: false` 보고), prime이 ttl 외 사유로 실패하면 명시적 load로 폴백해 로드 자체는 보장합니다.
 - **Ollama** (`apps/server/src/ollama.ts`): `ollamaKeepAliveLoad(baseUrl, model, { ttlSeconds })`는 **네이티브** `/api/generate`에 빈 프롬프트(`prompt: ""`, `stream: false`)로 POST하여, 생성 없이 모델만 메모리에 적재합니다(응답 `done_reason: "load"`). TTL은 숫자 vs 기간 문자열의 모호성을 피하려고 명시적 Go duration 문자열인 `keep_alive: "<seconds>s"` 형태로 보냅니다.
 - **`/v1` 리셋 우회책** (`apps/server/src/bench-runner.ts` 참고): 동일한 `ollamaKeepAliveLoad` 호출을 (1) 추론 *전* preload로, (2) 벤치마크 완료 *후*에 재사용합니다. 그 사이의 `/v1/chat/completions` 호출들이 모델을 다시 기본 5분으로 리셋했을 것이기 때문입니다. 벤치 후 재적용은 best-effort입니다.
 - **Best-effort 시맨틱스**: `ollamaKeepAliveLoad`는 절대 throw하지 않습니다 — 네트워크/업스트림 실패 시 `{ ok: false, status: 0, body }`를 반환하므로 불안정한 keep-alive가 런을 중단시킬 수 없습니다. 큰 모델의 콜드 로드는 수십 초가 걸릴 수 있으므로 넉넉한 120초 타임아웃(`OLLAMA_LOAD_TIMEOUT_MS`)을 씁니다.
 
 | 프로바이더 | 함수 | 엔드포인트 | TTL 필드 / 형태 |
 | --- | --- | --- | --- |
-| `lm_studio` | `lmStudioLoad` | `POST /api/v1/models/load` | `{ model, ttl }` — `ttl`은 **정수 초**, `> 0`이 아니면 생략 |
+| `lm_studio` | `lmStudioJitTtlPrime`(폴백 `lmStudioLoad`) | prime: `POST /v1/chat/completions`, 폴백: `POST /api/v1/models/load` | prime 본문 `ttl` — **정수 초**; 명시적 load는 ttl 미지원(구버전 400) |
 | `ollama` | `ollamaKeepAliveLoad` | `POST /api/generate` (네이티브) | `{ model, prompt: "", stream: false, keep_alive: "<sec>s" }` |
 | `openai_compatible`, `manual` | — | — | 미지원; TTL 무시 |
 
@@ -328,8 +328,8 @@ export async function ollamaKeepAliveLoad(
 ```
 
 ```json
-// Ollama native /api/generate load body — loads without generating
-{ "model": "llama3.1:8b", "prompt": "", "stream": false, "keep_alive": "1800s" }
+// LM Studio JIT prime body — triggers JIT load and applies Idle TTL (response discarded)
+{ "model": "qwen3-8b", "messages": [{ "role": "user", "content": "." }], "max_tokens": 1, "stream": false, "ttl": 1800 }
 ```
 
 **다른 프로젝트를 위한 재사용 포인트:** 백엔드가 네이티브 API와 OpenAI 호환 shim을 함께 노출한다면, 호환 엔드포인트에서 수명/keep-alive 힌트가 존중되리라 가정하지 마세요. "모델을 상주시킨다"는 관심사를 하나의 멱등(idempotent)·best-effort 함수로 격리하고, 프로바이더 능력 술어(predicate) 뒤로 게이팅한 뒤, 실제 워크로드를 그 함수로 감싸십시오(전에 preload, 후에 재확정). 그래야 실효 TTL이 shim의 조용한 기본값이 아니라 여러분이 의도한 값이 됩니다.
@@ -776,7 +776,7 @@ export const CompareThresholdsSchema = z.object({
 | `ProviderKind` | `lm_studio` / `ollama` / `openai_compatible` / `manual` — 감지된 백엔드 종류. |
 | capability | `{ openaiChat, anthropicMessages }` — 서버가 지원하는 와이어 라우트. |
 | API route | `chat_completions`(OpenAI) 또는 `messages`(Anthropic). |
-| TTL / `keep_alive` | 제한된 모델 상주 시간 — LM Studio 로드 `ttl`(초) vs Ollama `keep_alive`. |
+| TTL / `keep_alive` | 제한된 모델 상주 시간 — LM Studio JIT prime `ttl`(초) vs Ollama `keep_alive`. |
 | preload | 측정 전에 모델을 적재하는 네이티브 API 호출. |
 | resident instance | 백엔드에 이미 로드된 모델(`lmStudioResidentInstances`). |
 | memory-fit preflight | OOM을 피하려고 로드 전에 RAM 적합성을 예측(`FitPolicy`). |
@@ -829,7 +829,7 @@ export const CompareThresholdsSchema = z.object({
 [^mcp-spec]: [Model Context Protocol — Specification](https://modelcontextprotocol.io/specification) — MCP 서버(`apps/mcp`)가 노출하는 도구·트랜스포트 규격.
 [^oai-compat]: [LM Studio — OpenAI-compatible Chat Completions](https://lmstudio.ai/docs/developer/openai-compat/chat-completions) — `/v1/chat/completions` SSE 델타(`choices[].delta`) 형식. (OpenAI 공식 문서는 봇 접근을 차단하므로 검증 가능한 호환 스펙으로 대체.)
 [^anthropic-stream]: [Anthropic — Messages streaming](https://docs.anthropic.com/en/api/messages-streaming) — `/v1/messages` SSE 이벤트(`content_block_delta`·`thinking_delta`·`message_delta`) 형식.
-[^lms-rest]: [LM Studio — REST API](https://lmstudio.ai/docs/developer/rest) — 모델 load/unload 및 로드 시 `ttl`(초) 지정.
+[^lms-rest]: [LM Studio — TTL and Auto-Evict](https://lmstudio.ai/docs/developer/core/ttl-and-auto-evict) — Idle TTL은 JIT 로딩(첫 추론 요청 페이로드의 `ttl`, 초)으로만 적용; 명시적 load는 미지원.
 [^ollama-api]: [Ollama — API](https://docs.ollama.com/api) — `keep_alive`로 모델 상주 시간 지정(네이티브 `/api/generate`·`/api/chat`).
 [^vllm-metrics]: [vLLM — Production metrics](https://docs.vllm.ai/en/latest/usage/metrics.html) — `vllm:num_requests_running` / `num_requests_waiting` 게이지.
 [^llamacpp-server]: [llama.cpp — server](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) — `/metrics` Prometheus 노출(요청 처리 게이지).
