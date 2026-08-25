@@ -2,7 +2,7 @@ import type { DetectResult, StressStreamEvent } from "@llm-bench/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetStreamUsageCacheForTests } from "./openai-fetch.js";
 import { _resetLmStudioJitTtlCacheForTests } from "./lmstudio.js";
-import { runStress, type StressRequest } from "./stress-runner.js";
+import { makeStressRunMeta, runStress, type StressRequest } from "./stress-runner.js";
 
 function jsonResponse(obj: unknown, status = 200) {
   return new Response(JSON.stringify(obj), {
@@ -77,6 +77,28 @@ function baseStressRequest(overrides: Partial<StressRequest> = {}): StressReques
 beforeEach(() => {
   _resetStreamUsageCacheForTests();
   _resetLmStudioJitTtlCacheForTests();
+});
+
+describe("makeStressRunMeta publisher", () => {
+  it("prefers detect API publisher over model_id prefix", () => {
+    const meta = makeStressRunMeta(
+      baseStressRequest({ modelId: "org-d/model-w" }),
+      { ...lmStudioDetect("org-d/model-w"), models: [{ id: "org-d/model-w", publisher: "Org D" }] },
+      "run_spub_2",
+      null,
+    );
+    expect(meta.publisher).toBe("Org D");
+  });
+
+  it("falls back to model_id org prefix when detect has no publisher", () => {
+    const meta = makeStressRunMeta(
+      baseStressRequest({ modelId: "org-c/model-z" }),
+      lmStudioDetect("org-c/model-z"),
+      "run_spub_1",
+      null,
+    );
+    expect(meta.publisher).toBe("org-c");
+  });
 });
 
 describe("runStress basic ramp", () => {

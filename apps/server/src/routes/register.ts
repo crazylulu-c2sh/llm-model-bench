@@ -14,6 +14,7 @@ import {
   DetectBodySchema,
   StressStreamBodySchema,
   leakMetricsFromBenchDetails,
+  parseModelPublisherFromId,
   scenarioCategory,
   type ScenarioCategory,
 } from "@llm-bench/shared";
@@ -91,6 +92,8 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
         return {
           run_id: r.run_id,
           model_id: r.model_id,
+          // 게시자(조직): 신규 런은 meta_json.publisher, 기존 런은 model_id의 org 접두 파생.
+          publisher: r.publisher?.trim() || parseModelPublisherFromId(r.model_id) || undefined,
           base_url: normBaseUrl(r.base_url),
           provider: r.provider,
           finished_at: r.finished_at,
@@ -236,7 +239,12 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       });
       const has_more = rows.length > limit;
       if (has_more) rows.pop();
-      const items = rows.map((r) => ({ ...r, base_url: normBaseUrl(r.base_url) }));
+      const items = rows.map((r) => ({
+        ...r,
+        base_url: normBaseUrl(r.base_url),
+        // 게시자(조직): 신규 런은 meta_json.publisher, 기존 런은 model_id의 org 접두 파생.
+        publisher: r.publisher?.trim() || parseModelPublisherFromId(r.model_id) || undefined,
+      }));
       const fo = dbMod.getStressFilterOptions(db);
       const filter_options = {
         workload_ids: fo.workload_ids,

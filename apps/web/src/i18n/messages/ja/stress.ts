@@ -187,6 +187,7 @@ export const stress: Messages["stress"] = {
       "⚠ ライブ実行中のランです — /stressで同時に実行中の場合、データ破損の恐れがあります。",
     field: {
       model: "モデル",
+      publisher: "配信元",
       provider: "プロバイダー",
       workload: "ワークロード",
       status: "ステータス",

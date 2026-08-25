@@ -290,6 +290,8 @@ export type StressRunSummaryRow = {
   base_url: string;
   provider: string;
   model_id: string;
+  /** meta_json.publisher — 기존 런은 null. */
+  publisher: string | null;
   workload_id: string;
   status: string;
 };
@@ -334,7 +336,8 @@ export function listStressRunsFiltered(
     params.before_run_id = opts.before_run_id ?? "";
   }
   params.limit = Math.min(Math.max(opts.limit, 1), 200);
-  const sql = `SELECT run_id, created_at, finished_at, base_url, provider, model_id, workload_id, status
+  const sql = `SELECT run_id, created_at, finished_at, base_url, provider, model_id,
+              json_extract(meta_json, '$.publisher') AS publisher, workload_id, status
                FROM stress_runs
                ${where.length ? "WHERE " + where.join(" AND ") : ""}
                ORDER BY datetime(created_at) DESC, run_id DESC
@@ -618,6 +621,8 @@ export type LatestFinishedRunSummary = {
   base_url: string;
   provider: string;
   model_id: string;
+  /** meta_json.publisher (detect API publisher ?? id 접두) — 기존 런은 null. */
+  publisher: string | null;
   status: string;
   /** 집계 JSON에 측정 런이 1개 이상 있는 시나리오 행 수 — 0이면 차트·표에 쓸 데이터 없음 */
   scenario_count: number;
@@ -628,7 +633,7 @@ export type LatestFinishedRunSummary = {
 export function listLatestFinishedRunSummaries(db: DatabaseSync): LatestFinishedRunSummary[] {
   return db
     .prepare(
-      `SELECT ranked.run_id, ranked.created_at, ranked.finished_at, ranked.base_url, ranked.provider, ranked.model_id, ranked.status,
+      `SELECT ranked.run_id, ranked.created_at, ranked.finished_at, ranked.base_url, ranked.provider, ranked.model_id, ranked.publisher, ranked.status,
          (
            SELECT COUNT(*)
            FROM bench_scenarios s
@@ -643,6 +648,7 @@ export function listLatestFinishedRunSummaries(db: DatabaseSync): LatestFinished
          ) AS measured_scenario_ids
        FROM (
          SELECT run_id, created_at, finished_at, base_url, provider, model_id, status,
+           json_extract(meta_json, '$.publisher') AS publisher,
            ROW_NUMBER() OVER (
              PARTITION BY model_id, base_url
              ORDER BY datetime(finished_at) DESC, datetime(created_at) DESC, rowid DESC

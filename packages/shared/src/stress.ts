@@ -36,6 +36,8 @@ export interface StressRunMeta {
   base_url: string;
   provider: StressProviderKind;
   model_id: string;
+  /** 모델 게시자(조직) — bench meta와 동일 의미(detect API publisher ?? model_id 접두). */
+  publisher?: string;
   api_route: StressApiRoute;
   workload_id: StressWorkloadId;
   max_tokens: number;
@@ -177,6 +179,8 @@ export type StressRunListItem = {
   base_url: string;
   provider: string;
   model_id: string;
+  /** 모델 게시자(조직) — meta_json에 없으면(기존 런) model_id 접두 파생. */
+  publisher?: string;
   workload_id: string;
   status: StressRunStatus;
 };

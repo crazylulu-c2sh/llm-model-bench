@@ -57,6 +57,26 @@ describe("listLatestFinishedRunSummaries", () => {
     expect(rows[0]?.scenario_count).toBe(0);
   });
 
+  it("exposes meta_json.publisher for runs saved with publisher", () => {
+    const db = openBenchDatabase(":memory:");
+    const dPub: DetectResult = { ...detect, models: [{ id: "org/mx", publisher: "Org" }] };
+    const meta = makeBenchRunMeta(req("org/mx"), dPub, "run_pub");
+    insertRun(db, {
+      run_id: meta.run_id,
+      created_at: meta.created_at,
+      base_url: meta.base_url.replace(/\/+$/, ""),
+      provider: meta.provider,
+      model_id: meta.model_id,
+      meta: meta,
+      status: "running",
+    });
+    finishRun(db, meta.run_id, "ok");
+
+    const rows = listLatestFinishedRunSummaries(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.publisher).toBe("Org");
+  });
+
   it("keeps separate rows for same model_id on different base_url", () => {
     const db = openBenchDatabase(":memory:");
     const d2: DetectResult = { ...detect, baseUrl: "http://other:9000/" };

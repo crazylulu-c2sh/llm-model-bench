@@ -18,6 +18,7 @@ import {
   isRegisteredScenario,
   isVisionScenario,
   normalizeScenarioIdsForBench,
+  parseModelPublisherFromId,
   providerSupportsLoadTtl,
   resolveBenchApiRoutes,
   rubricToScore,
@@ -220,6 +221,10 @@ export function makeBenchRunMeta(
     base_url: base,
     provider: input.provider,
     model_id: input.modelId,
+    // 게시자(조직): detect API publisher 재사용, 없으면 model_id의 org 접두 파생 — 통계·저장된 모델 표 표시용.
+    publisher:
+      detect.models.find((m) => m.id === input.modelId)?.publisher?.trim() ||
+      parseModelPublisherFromId(input.modelId),
     api_routes: routes,
     scenario_ids: scenarioIds,
     // #105: docs/grounding corpus 를 가상 개체로 재작성 + agent 채점을 결정론으로 전환.

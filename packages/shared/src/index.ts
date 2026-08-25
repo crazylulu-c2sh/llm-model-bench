@@ -300,6 +300,8 @@ export const BenchRunMetaSchema = z.object({
   base_url: z.string(),
   provider: ProviderKindSchema,
   model_id: z.string(),
+  /** 모델 게시자(조직) — detect API publisher ?? model_id 접두. 통계·저장된 모델 표 표시용. */
+  publisher: z.string().optional(),
   api_routes: z.array(z.enum(["chat_completions", "messages"])),
   scenario_ids: z.array(z.string()),
   scenario_bundle_version: z.string(),

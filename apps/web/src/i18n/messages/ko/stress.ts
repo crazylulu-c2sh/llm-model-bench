@@ -201,6 +201,7 @@ export const stress = {
       "⚠ 라이브 실행 중인 런입니다 — /stress에서 동시에 실행 중이면 데이터 손상 위험.",
     field: {
       model: "모델",
+      publisher: "게시자",
       provider: "프로바이더",
       workload: "워크로드",
       status: "상태",

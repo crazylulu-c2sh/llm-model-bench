@@ -1,5 +1,5 @@
 import type { StatsModelLatestItem } from "../api-types";
-import type { ScenarioCategory } from "@llm-bench/shared";
+import { parseModelPublisherFromId, type ScenarioCategory } from "@llm-bench/shared";
 import {
   createColumnHelper,
   flexRender,
@@ -38,6 +38,11 @@ function sortDirIcon(column: Column<StatsModelLatestItem, unknown>) {
   if (s === "asc") return <ArrowUp className="size-3.5 shrink-0 opacity-90" aria-hidden />;
   if (s === "desc") return <ArrowDown className="size-3.5 shrink-0 opacity-90" aria-hidden />;
   return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
+}
+
+// 게시자(조직): 서버가 meta_json에서 내려주면 그 값, 없으면 model_id의 org 접두 파생.
+function itemPublisher(item: StatsModelLatestItem): string {
+  return item.publisher?.trim() || parseModelPublisherFromId(item.model_id) || "";
 }
 
 // 정렬 라벨·문구는 i18n 카탈로그(m.stats)로 이전.
@@ -84,6 +89,7 @@ export function StatsModelTable({
     (m: StatsModelLatestItem) =>
       !q ||
       m.model_id.toLowerCase().includes(q) ||
+      itemPublisher(m).toLowerCase().includes(q) ||
       m.base_url.toLowerCase().includes(q) ||
       m.provider.toLowerCase().includes(q),
     [q],
@@ -196,6 +202,28 @@ export function StatsModelTable({
           </button>
         ),
         cell: (info) => <ModelLabel modelId={info.getValue()} showQuant size={14} className="text-xs" />,
+        sortingFn: "alphanumeric",
+      }),
+      columnHelper.accessor((row) => itemPublisher(row), {
+        id: "publisher",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            {msgs.stats.colPublisher}
+            {sortDirIcon(column)}
+          </button>
+        ),
+        cell: (info) => (
+          <span
+            className="whitespace-nowrap text-xs text-[var(--muted)]"
+            title={info.getValue() || undefined}
+          >
+            {info.getValue() || "—"}
+          </span>
+        ),
         sortingFn: "alphanumeric",
       }),
       columnHelper.accessor((row) => normalizeBaseUrlForCell(row.base_url), {
