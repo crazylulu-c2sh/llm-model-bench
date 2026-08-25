@@ -2,6 +2,11 @@ name: CI
 
 on:
   pull_request:
+    # 기본 types는 [opened, synchronize, reopened]뿐이라, base가 main으로 **재타깃**될 때
+    # (스택 PR의 부모가 머지돼 GitHub이 자동 재타깃하는 경우 포함) 워크플로가 아예 안 걸린다.
+    # 재타깃은 `edited`로 온다(`base_changed`라는 activity type은 존재하지 않는다).
+    # types에 없는 값을 적으면 오류 없이 조용히 무시되니 주의.
+    types: [opened, synchronize, reopened, edited]
     branches: [main]
   push:
     branches: [main]
@@ -19,6 +24,11 @@ permissions:
 jobs:
   build-check:
     name: typecheck · build · test · e2e
+    # `edited`는 제목·본문 수정에도 발생한다. base가 실제로 바뀐 재타깃일 때만 실행한다.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.action != 'edited'
+      || github.event.changes.base != null
     runs-on: ubuntu-latest
     timeout-minutes: 25 # 첫 실행(playwright --with-deps apt + e2e webServer 180s + retries) 여유
     steps:
@@ -70,6 +80,11 @@ jobs:
 
   docker:
     name: docker build (api · web)
+    # `edited`는 제목·본문 수정에도 발생한다. base가 실제로 바뀐 재타깃일 때만 실행한다.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.action != 'edited'
+      || github.event.changes.base != null
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
