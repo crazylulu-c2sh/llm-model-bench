@@ -53,6 +53,8 @@ const SCENARIO_COUNT = 12;
 const MODELS = Array.from({ length: MODEL_COUNT }, (_, i) => ({
   run_id: `run_${i}`,
   model_id: `bench-model-${i}`,
+  // Publisher 열이 "—"가 아닌 실제 텍스트로 렌더돼야 axe가 그 셀을 스캔한다.
+  publisher: `Mock Publisher ${i}`,
   base_url: i === 2 ? BASE_URL_2 : BASE_URL,
   provider: "lm_studio",
   finished_at: "2026-07-09T10:00:00.000Z",
@@ -113,6 +115,37 @@ async function mockStatsApi(page: Page) {
   });
 }
 
+const STRESS_RUNS = Array.from({ length: 3 }, (_, i) => ({
+  run_id: `srun_${i}`,
+  created_at: "2026-07-09T09:00:00.000Z",
+  finished_at: "2026-07-09T10:00:00.000Z",
+  base_url: BASE_URL,
+  provider: "lm_studio",
+  model_id: `stress-model-${i}`,
+  publisher: `Mock Stress Publisher ${i}`,
+  workload_id: "stress_ping",
+  status: "ok" as const,
+}));
+
+/** /provider-stats 런 목록 — 목킹하지 않으면 빈 표라 Publisher 열이 어느 스캔에도 안 잡힌다. */
+async function mockStressRunsApi(page: Page) {
+  await page.route("**/api/stress/runs?**", (route: Route) =>
+    route.fulfill({
+      json: {
+        items: STRESS_RUNS,
+        filter_options: {
+          workload_ids: ["stress_ping"],
+          statuses: ["ok"],
+          model_ids: STRESS_RUNS.map((r) => r.model_id),
+          base_urls: [BASE_URL],
+        },
+        has_more: false,
+        sqlite_available: true,
+      },
+    }),
+  );
+}
+
 test.describe("axe: 다크 테마(기본)", () => {
   test.use({ colorScheme: "dark" });
 
@@ -123,6 +156,13 @@ test.describe("axe: 다크 테마(기본)", () => {
       await expectNoViolations(page);
     });
   }
+
+  test("axe: /provider-stats 데이터 채운 상태 WCAG 2.1 AA 위반 없음", async ({ page }) => {
+    await mockStressRunsApi(page);
+    await page.goto("/provider-stats");
+    await expect(page.getByRole("cell", { name: "Mock Stress Publisher 0" })).toBeVisible();
+    await expectNoViolations(page);
+  });
 
   test("axe: /stats 데이터 채운 상태 WCAG 2.1 AA 위반 없음", async ({ page }) => {
     await mockStatsApi(page);

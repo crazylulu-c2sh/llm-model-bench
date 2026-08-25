@@ -115,26 +115,48 @@ describe("makeBenchRunMeta default scenarioIds", () => {
 });
 
 describe("makeBenchRunMeta publisher", () => {
+  // 운영의 detect.models는 대상 모델 하나가 아니라 서버가 가진 전체 목록이다.
+  // 픽스처가 1개짜리면 "대상을 찾아서"와 "목록 첫 항목을 집어서"를 구분하지 못하므로,
+  // 모든 케이스에서 publisher를 가진 미끼를 앞에 두고 대상은 뒤에 배치한다.
+  const DECOY = { id: "decoy-org/decoy-model", publisher: "Decoy Org" };
+  const detectWith = (...models: Array<{ id: string; publisher?: string }>): DetectResult => ({
+    ...lmStudioDetect(),
+    models: [DECOY, ...models],
+  });
+
   it("prefers detect API publisher over model_id prefix", () => {
     const meta = makeBenchRunMeta(
       baseBenchRequest({ modelId: "org-a/model-x" }),
-      { ...lmStudioDetect(), models: [{ id: "org-a/model-x", publisher: "Org A" }] },
+      detectWith({ id: "org-a/model-x", publisher: "Org A" }),
       "run_pub_1",
     );
     expect(meta.publisher).toBe("Org A");
   });
 
-  it("falls back to model_id org prefix when detect has no publisher", () => {
+  it("falls back to model_id org prefix when detect entry has no publisher", () => {
     const meta = makeBenchRunMeta(
       baseBenchRequest({ modelId: "org-b/model-y" }),
-      lmStudioDetect(),
+      detectWith({ id: "org-b/model-y" }),
       "run_pub_2",
     );
     expect(meta.publisher).toBe("org-b");
   });
 
+  it("falls back to model_id org prefix when the model is absent from detect", () => {
+    const meta = makeBenchRunMeta(
+      baseBenchRequest({ modelId: "org-b/model-y" }),
+      detectWith(),
+      "run_pub_2b",
+    );
+    expect(meta.publisher).toBe("org-b");
+  });
+
   it("omits publisher when neither source has one", () => {
-    const meta = makeBenchRunMeta(baseBenchRequest(), lmStudioDetect(), "run_pub_3");
+    const meta = makeBenchRunMeta(
+      baseBenchRequest(),
+      detectWith({ id: MODEL_ID }),
+      "run_pub_3",
+    );
     expect(meta.publisher).toBeUndefined();
   });
 });
