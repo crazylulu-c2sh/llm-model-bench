@@ -69,6 +69,8 @@ import {
 } from "./components/BenchProgressPanel";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
 import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
+import { classifyModelOutcome, resolveQueueItems, type QueueModelStatus } from "./lib/bench-steps";
+import { QueueStatusChips } from "./components/QueueStatusChips";
 import { AppHeader, pageTitleForPath } from "./components/AppHeader";
 import { useI18n, msg } from "./i18n";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -172,6 +174,7 @@ function consumeSseJsonLines(
 type BenchStreamState = {
   sawRunFinished: boolean;
   cancelledByUser: boolean;
+  skippedByPreflight: boolean;
   streamMeta: BenchRunMeta | null;
   lastScenarioStart: { sid: string; api: string } | null;
   iterInScenario: number;
@@ -182,6 +185,7 @@ function makeBenchStreamState(): BenchStreamState {
   return {
     sawRunFinished: false,
     cancelledByUser: false,
+    skippedByPreflight: false,
     streamMeta: null,
     lastScenarioStart: null,
     iterInScenario: 0,
@@ -406,6 +410,8 @@ export function App() {
   const [modelTableSorting, setModelTableSorting] = useState<SortingState>(() => DEFAULT_MODEL_TABLE_SORTING);
   const [modelOrderIds, setModelOrderIds] = useState<string[]>([]);
   const [benchQueueDraft, setBenchQueueDraft] = useState<DetectModel[]>([]);
+  /** 큐 칩용 모델별 실행 결과. 런 전체 누적값(anyHttpFail 등)과 달리 모델 단위로 모은다. */
+  const [benchModelStatus, setBenchModelStatus] = useState<Record<string, QueueModelStatus>>({});
   const [detailAggregate, setDetailAggregate] = useState<Record<string, MetricsAgg>>({});
   /** 라이브 SSE `scenario_start.system_prompt` */
   const [liveSystemPromptByRowKey, setLiveSystemPromptByRowKey] = useState<Record<string, string>>({});
@@ -612,6 +618,20 @@ export function App() {
     }
     return out;
   }, [detect, modelOrderIds, selected]);
+
+  /** 큐 칩 소스 2단 — 실행 전에는 선택 모델을 미리, 실행 중/직후에는 큐+모델별 상태를 쓴다. */
+  const benchQueueItems = useMemo(
+    () =>
+      resolveQueueItems({
+        running,
+        paused: benchPaused,
+        queuedIds: benchQueueDraft.map((m) => m.id),
+        statusById: benchModelStatus,
+        selectedIds: orderedSelectedModels.map((m) => m.id),
+        currentModelId: benchCurrent?.modelId ?? null,
+      }),
+    [running, benchPaused, benchQueueDraft, benchModelStatus, orderedSelectedModels, benchCurrent],
+  );
 
   const activeBenchApiRoutes = useMemo(
     () =>
@@ -1196,6 +1216,7 @@ export function App() {
         const gb = (b: number | null) => (b != null ? `${(b / 1024 ** 3).toFixed(1)}GB` : "?");
         const detail = msg().bench.eventMemFitDetail(gb(ev.required_bytes), gb(ev.free_bytes));
         if (ev.action === "skip") {
+          state.skippedByPreflight = true;
           pushBenchLine("err", msg().bench.eventMemSkip(ev.model_id, detail));
           appendLog(`preflight skip ${ev.model_id}: ${ev.reason}`);
           toast.warning(`${ev.model_id}: ${ev.reason}`);
@@ -1436,12 +1457,20 @@ export function App() {
     let streamErrorCount = 0;
     let streamIncomplete = false;
     let wasCancelled = false;
-    for (const m of models) {
+    setBenchModelStatus(Object.fromEntries(models.map((m) => [m.id, "pending" as QueueModelStatus])));
+    for (let mi = 0; mi < models.length; mi += 1) {
+      const m = models[mi];
       appendLog(`bench start model=${m.id}`);
       setBenchCurrent({ modelId: m.id });
       setBenchRunId(null);
       setBenchPaused(false);
+      setBenchModelStatus((prev) => ({ ...prev, [m.id]: "running" }));
       const state = makeBenchStreamState();
+      // 런 전체 누적값과 별개로 이 모델 한 건의 결과를 모은다 — 시나리오 1개 오류로 모델 전체를
+      // 실패로 찍거나, 앞 모델의 오류가 뒤 모델에 옮아붙지 않게.
+      let modelHttpFailed = false;
+      let modelThrew = false;
+      let modelErrorCount = 0;
       try {
         const r = await fetch("/api/bench/stream", {
           method: "POST",
@@ -1474,26 +1503,48 @@ export function App() {
         });
         if (!r.ok || !r.body) {
           anyHttpFail = true;
+          modelHttpFailed = true;
           appendLog(`bench http error ${r.status}`);
           pushBenchLine("err", `HTTP ${r.status} · ${m.id}`);
-          continue;
-        }
-        await consumeSseJsonLines(r.body, (ev) =>
-          handleBenchStreamEvent(ev, m.id, state, () => {
-            streamErrorCount += 1;
-          }),
-        );
-        if (!state.sawRunFinished) {
-          streamIncomplete = true;
-          appendLog(msg().bench.logBenchIncomplete(m.id));
+        } else {
+          await consumeSseJsonLines(r.body, (ev) =>
+            handleBenchStreamEvent(ev, m.id, state, () => {
+              streamErrorCount += 1;
+              modelErrorCount += 1;
+            }),
+          );
+          if (!state.sawRunFinished) {
+            streamIncomplete = true;
+            appendLog(msg().bench.logBenchIncomplete(m.id));
+          }
         }
       } catch (e) {
         anyHttpFail = true;
+        modelThrew = true;
         appendLog(String(e));
         pushBenchLine("err", msg().bench.eventRequestFailed(m.id, String(e).slice(0, 200)));
       }
+      setBenchModelStatus((prev) => ({
+        ...prev,
+        [m.id]: classifyModelOutcome({
+          httpFailed: modelHttpFailed,
+          threw: modelThrew,
+          sawRunFinished: state.sawRunFinished,
+          cancelled: state.cancelledByUser,
+          skippedByPreflight: state.skippedByPreflight,
+          scenarioErrorCount: modelErrorCount,
+        }),
+      }));
       if (state.cancelledByUser) {
         wasCancelled = true;
+        // 큐에 남은 모델은 아예 실행되지 않았으므로 대기가 아니라 중지됨으로 표시한다.
+        const skipped = models.slice(mi + 1).map((x) => x.id);
+        if (skipped.length > 0) {
+          setBenchModelStatus((prev) => ({
+            ...prev,
+            ...Object.fromEntries(skipped.map((id) => [id, "cancelled" as QueueModelStatus])),
+          }));
+        }
         break; // 큐에 남은 나머지 모델로 넘어가지 않고 전체 정지.
       }
     }
@@ -1534,6 +1585,8 @@ export function App() {
       const state = makeBenchStreamState();
       let anyHttpFail = false;
       let streamErrorCount = 0;
+      // 재연결에는 큐가 없으므로 칩도 이 모델 한 개다. 비워두면 재접속 직후 큐 상태 표시가 사라진다.
+      setBenchModelStatus({ [modelId]: "running" });
       try {
         const r = await fetch(`/api/bench/${runId}/reconnect`);
         if (!r.ok || !r.body) {
@@ -1550,6 +1603,16 @@ export function App() {
         anyHttpFail = true;
         appendLog(String(e));
       }
+      setBenchModelStatus({
+        [modelId]: classifyModelOutcome({
+          httpFailed: anyHttpFail,
+          threw: false,
+          sawRunFinished: state.sawRunFinished,
+          cancelled: state.cancelledByUser,
+          skippedByPreflight: state.skippedByPreflight,
+          scenarioErrorCount: streamErrorCount,
+        }),
+      });
       setRunning(false);
       setBenchRunId(null);
       setBenchPaused(false);
@@ -2484,6 +2547,7 @@ export function App() {
           lines={benchStepLines}
           progress={running ? benchProgress : undefined}
           eta={benchEta}
+          queueChips={<QueueStatusChips items={benchQueueItems} />}
           benchAction={
             <>
               <button

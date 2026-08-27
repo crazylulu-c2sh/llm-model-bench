@@ -72,6 +72,7 @@ export function BenchProgressPanel({
   progress,
   eta,
   benchAction,
+  queueChips,
   className,
 }: {
   running: boolean;
@@ -80,6 +81,8 @@ export function BenchProgressPanel({
   progress?: BenchProgressStats;
   eta?: BenchEta;
   benchAction?: ReactNode;
+  /** 큐의 모델별 상태 칩. 실행 제어 버튼과 같은 층에 두어 어느 모델이 도는지 항상 보이게 한다. */
+  queueChips?: ReactNode;
   /** 부모에서 벤치 라이브 테두리 등 유틸 클래스 주입 */
   className?: string;
 }) {
@@ -110,6 +113,8 @@ export function BenchProgressPanel({
         </h2>
         {benchAction ? <div className="flex shrink-0 flex-wrap items-center gap-2">{benchAction}</div> : null}
       </div>
+
+      {queueChips ? <div className="mb-3">{queueChips}</div> : null}
 
       <div className="mb-3 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-xs text-[var(--foreground)]">
         {summary}
