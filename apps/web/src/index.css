@@ -356,4 +356,7 @@ textarea {
    문서상 우리 번들 CSS보다 뒤에 오므로, 동일 특이도((0,2,0))로는 밀린다. */
 :root [data-sonner-toaster][data-sonner-theme="light"] {
   --error-text: var(--danger);
+  /* 성공 토스트도 같은 문제 — 기본값 #008a2e on #ecfdf3 = 4.25:1(axe 실측).
+     --accent-2(라이트 #116329)로 덮으면 7:1 이상이 된다. 벤치 완료 토스트가 이 경로다. */
+  --success-text: var(--accent-2);
 }
