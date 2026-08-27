@@ -11,13 +11,15 @@ import { collapseQueue, type QueueItem, type QueueModelStatus } from "../lib/ben
  * 색만으로 상태를 전달하지 않도록 상태마다 다른 형태의 아이콘을 쓰고, 각 칩에 sr-only 상태 텍스트를 붙인다.
  */
 
+// danger·warning 계열은 15% 틴트 위에서 4.5:1을 못 넘긴다(index-css-contrast.test.ts) —
+// 틴트 대신 --surface 바탕에 실색 테두리로 구분한다.
 const CHIP_CLASS: Record<QueueModelStatus, string> = {
   pending: "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]",
   running: "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent-2)]",
-  paused: "border-[var(--warning)] bg-[var(--warning)]/15 text-[var(--warning)]",
+  paused: "border-[var(--warning)] bg-[var(--surface)] text-[var(--warning)]",
   done: "border-[var(--accent-2)] bg-[var(--accent-2)]/15 text-[var(--accent-2)]",
-  "done-with-errors": "border-[var(--warning)] bg-[var(--warning)]/15 text-[var(--warning)]",
-  failed: "border-[var(--danger)] bg-[var(--danger)]/15 text-[var(--danger)]",
+  "done-with-errors": "border-[var(--warning)] bg-[var(--surface)] text-[var(--warning)]",
+  failed: "border-[var(--danger)] bg-[var(--surface)] text-[var(--danger)]",
   cancelled: "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]",
 };
 
