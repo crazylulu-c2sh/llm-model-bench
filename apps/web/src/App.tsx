@@ -683,7 +683,8 @@ export function App() {
 
   const stepDoneInput: StepDoneInput = useMemo(
     () => ({
-      detected: detect != null,
+      connectionUsable:
+        detect != null && detect.reachability?.state !== "unreachable" && detect.models.length > 0,
       selectedScenarioCount: visibleSelectedScenarioIds.length,
       selectedModelCount: orderedSelectedModels.length,
       running,

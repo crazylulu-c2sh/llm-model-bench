@@ -77,7 +77,12 @@ export function toggleStepOverride(
 // ---------------------------------------------------------------- 배지 상태
 
 export type StepDoneInput = {
-  detected: boolean;
+  /**
+   * 감지에 성공했고 실제로 벤치에 쓸 모델이 있는지.
+   * `detect != null`만 보면 프로바이더에 닿지 못해 모델 0개로 돌아온 경우에도 완료 체크가 켜져
+   * "연결됨"과 "모델이 없으니 다시 감지하세요"가 한 화면에서 서로 반박한다.
+   */
+  connectionUsable: boolean;
   selectedScenarioCount: number;
   selectedModelCount: number;
   running: boolean;
@@ -88,7 +93,7 @@ export type StepDoneInput = {
 export function isStepDone(step: StepNumber, input: StepDoneInput): boolean {
   switch (step) {
     case 1:
-      return input.detected;
+      return input.connectionUsable;
     case 2:
       return input.selectedScenarioCount > 0;
     case 3:

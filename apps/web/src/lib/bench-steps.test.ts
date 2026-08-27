@@ -108,7 +108,7 @@ describe("isStepOpen / toggleStepOverride — 헤더 클릭 의미론", () => {
 
 describe("resolveStepStatus — 배지", () => {
   const done = (over: Partial<StepDoneInput> = {}): StepDoneInput => ({
-    detected: true,
+    connectionUsable: true,
     selectedScenarioCount: 8,
     selectedModelCount: 3,
     running: false,
@@ -123,6 +123,10 @@ describe("resolveStepStatus — 배지", () => {
   test("완료 술어는 activeStep과 독립적이다", () => {
     expect(resolveStepStatus(1, 4, done())).toBe("done");
     expect(resolveStepStatus(2, 4, done({ selectedScenarioCount: 0 }))).toBe("pending");
+  });
+
+  test("프로바이더에 닿지 못해 모델이 0개면 연결 단계는 완료가 아니다", () => {
+    expect(resolveStepStatus(1, 4, done({ connectionUsable: false }))).toBe("pending");
   });
 
   test("설정(3단계)은 완료 개념이 없다", () => {
