@@ -293,4 +293,27 @@ export const bench: Messages["bench"] = {
   enlarge: "Enlarge",
   passFailCriteria: "Pass / fail criteria",
   noDescription: "No description registered.",
+  // ── Six-step accordion (StepSection / QueueStatusChips) ─────────────────────
+  wizard: {
+    step1Title: "Connect",
+    step2Title: "Scenarios",
+    step3Title: "Settings",
+    step4Title: "Models",
+    step5Title: "Run / progress",
+    step6Title: "Results",
+    stepNumberAria: (n) => `Step ${n}`,
+    stepDoneAria: "done",
+    queueStatus: {
+      pending: "queued",
+      running: "running",
+      paused: "paused",
+      done: "done",
+      doneWithErrors: "partial errors",
+      failed: "failed",
+      cancelled: "cancelled",
+    },
+    queueMore: (n) => `+${n} more`,
+    queueMoreAria: (n) => `${n} more model${n === 1 ? "" : "s"} not shown`,
+    queueListAria: "Run queue status",
+  },
 };

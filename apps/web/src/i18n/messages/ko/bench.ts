@@ -290,4 +290,27 @@ export const bench = {
   enlarge: "확대",
   passFailCriteria: "합격 / 불합격 기준",
   noDescription: "등록된 설명이 없습니다.",
+  // ── 6단계 아코디언 (StepSection / QueueStatusChips) ──────────────────────────
+  wizard: {
+    step1Title: "연결",
+    step2Title: "시나리오 선택",
+    step3Title: "설정",
+    step4Title: "모델 선택",
+    step5Title: "실행 / 진행상황",
+    step6Title: "결과",
+    stepNumberAria: (n: number) => `${n}단계`,
+    stepDoneAria: "완료",
+    queueStatus: {
+      pending: "대기",
+      running: "진행 중",
+      paused: "일시정지",
+      done: "완료",
+      doneWithErrors: "부분 오류",
+      failed: "실패",
+      cancelled: "중지됨",
+    },
+    queueMore: (n: number) => `외 ${n}개`,
+    queueMoreAria: (n: number) => `표시하지 않은 모델 ${n}개`,
+    queueListAria: "실행 큐 상태",
+  },
 };

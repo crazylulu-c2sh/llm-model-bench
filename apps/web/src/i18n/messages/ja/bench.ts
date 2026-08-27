@@ -293,4 +293,27 @@ export const bench: Messages["bench"] = {
   enlarge: "拡大",
   passFailCriteria: "合格 / 不合格 の基準",
   noDescription: "登録された説明がありません。",
+  // ── 6ステップアコーディオン (StepSection / QueueStatusChips) ────────────────
+  wizard: {
+    step1Title: "接続",
+    step2Title: "シナリオ選択",
+    step3Title: "設定",
+    step4Title: "モデル選択",
+    step5Title: "実行 / 進捗",
+    step6Title: "結果",
+    stepNumberAria: (n) => `ステップ${n}`,
+    stepDoneAria: "完了",
+    queueStatus: {
+      pending: "待機",
+      running: "実行中",
+      paused: "一時停止",
+      done: "完了",
+      doneWithErrors: "一部エラー",
+      failed: "失敗",
+      cancelled: "中止",
+    },
+    queueMore: (n) => `他 ${n}件`,
+    queueMoreAria: (n) => `未表示のモデル ${n}件`,
+    queueListAria: "実行キューの状態",
+  },
 };
