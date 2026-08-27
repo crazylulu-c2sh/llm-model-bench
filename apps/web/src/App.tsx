@@ -21,6 +21,7 @@ import type { SortingState } from "@tanstack/react-table";
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
   Bookmark,
   Bot,
   CheckSquare,
@@ -28,6 +29,7 @@ import {
   ChevronUp,
   Download,
   Eye,
+  FlaskConical,
   History,
   KeyRound,
   Link2,
@@ -36,6 +38,7 @@ import {
   Monitor,
   Pause,
   Play,
+  Settings2,
   Square,
 } from "lucide-react";
 import type {
@@ -69,6 +72,22 @@ import {
 } from "./components/BenchProgressPanel";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
 import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
+import {
+  classifyModelOutcome,
+  isStepOpen,
+  overrideAfterRunEnd,
+  resolveActiveStep,
+  resolveQueueItems,
+  resolveStepStatus,
+  shouldResetOverride,
+  toggleStepOverride,
+  type QueueModelStatus,
+  type StepDoneInput,
+  type StepNumber,
+  type StepOverride,
+} from "./lib/bench-steps";
+import { QueueStatusChips } from "./components/QueueStatusChips";
+import { StepSection } from "./components/StepSection";
 import { AppHeader, pageTitleForPath } from "./components/AppHeader";
 import { useI18n, msg } from "./i18n";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -173,6 +192,7 @@ function consumeSseJsonLines(
 type BenchStreamState = {
   sawRunFinished: boolean;
   cancelledByUser: boolean;
+  skippedByPreflight: boolean;
   streamMeta: BenchRunMeta | null;
   lastScenarioStart: { sid: string; api: string } | null;
   iterInScenario: number;
@@ -183,6 +203,7 @@ function makeBenchStreamState(): BenchStreamState {
   return {
     sawRunFinished: false,
     cancelledByUser: false,
+    skippedByPreflight: false,
     streamMeta: null,
     lastScenarioStart: null,
     iterInScenario: 0,
@@ -245,7 +266,6 @@ export function App() {
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
   })();
   const [selectedScenarioIds, setSelectedScenarioIds] = useState<string[]>(boot.selectedScenarioIds);
-  const [scenarioPickerOpen, setScenarioPickerOpen] = useState(boot.scenarioPickerOpen);
   // #79/#83: 서버에 등록된 동적 시나리오(멀티턴 agent_loop + 사용자 커스텀). 마운트 시 1회 페치.
   const [dynamicScenarios, setDynamicScenarios] = useState<
     Array<{ id: string; source: string; isAgentLoop: boolean; maxTurns: number | null }>
@@ -333,7 +353,9 @@ export function App() {
   );
   const [presetOverride, setPresetOverride] = useState<SamplingPresetName | "">(boot.presetOverride);
   const [samplingOverridesText, setSamplingOverridesText] = useState(boot.samplingOverridesText);
-  const [profileAdvancedOpen, setProfileAdvancedOpen] = useState(boot.profileAdvancedOpen);
+  // 저장값을 복원하지 않는다: 이 토글이 감싸는 범위가 샘플링 2개에서 모델 로드·메모리·오염 가드까지
+  // 넓어져서, 예전에 true를 저장한 사용자가 첫 진입부터 훨씬 큰 묶음을 펼친 채로 보게 된다.
+  const [profileAdvancedOpen, setProfileAdvancedOpen] = useState(false);
   const profileDetailsRef = useRef<HTMLDetailsElement>(null);
   const parseSamplingOverridesJson = useCallback((raw: string): Record<string, number> | null => {
     const t = raw.trim();
@@ -407,6 +429,8 @@ export function App() {
   const [modelTableSorting, setModelTableSorting] = useState<SortingState>(() => DEFAULT_MODEL_TABLE_SORTING);
   const [modelOrderIds, setModelOrderIds] = useState<string[]>([]);
   const [benchQueueDraft, setBenchQueueDraft] = useState<DetectModel[]>([]);
+  /** 큐 칩용 모델별 실행 결과. 런 전체 누적값(anyHttpFail 등)과 달리 모델 단위로 모은다. */
+  const [benchModelStatus, setBenchModelStatus] = useState<Record<string, QueueModelStatus>>({});
   const [detailAggregate, setDetailAggregate] = useState<Record<string, MetricsAgg>>({});
   /** 라이브 SSE `scenario_start.system_prompt` */
   const [liveSystemPromptByRowKey, setLiveSystemPromptByRowKey] = useState<Record<string, string>>({});
@@ -467,7 +491,6 @@ export function App() {
         samplingOverridesText,
         profileAdvancedOpen,
         selectedScenarioIds,
-        scenarioPickerOpen,
         benchmarkThroughputMode,
         contentionGuardEnabled,
         contentionPreBenchTimeoutSec,
@@ -496,7 +519,6 @@ export function App() {
     samplingOverridesText,
     profileAdvancedOpen,
     selectedScenarioIds,
-    scenarioPickerOpen,
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
@@ -524,7 +546,6 @@ export function App() {
     samplingOverridesText,
     profileAdvancedOpen,
     selectedScenarioIds,
-    scenarioPickerOpen,
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
@@ -550,7 +571,6 @@ export function App() {
     samplingOverridesText,
     profileAdvancedOpen,
     selectedScenarioIds,
-    scenarioPickerOpen,
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
@@ -613,6 +633,83 @@ export function App() {
     }
     return out;
   }, [detect, modelOrderIds, selected]);
+
+  /** 큐 칩 소스 2단 — 실행 전에는 선택 모델을 미리, 실행 중/직후에는 큐+모델별 상태를 쓴다. */
+  const benchQueueItems = useMemo(
+    () =>
+      resolveQueueItems({
+        running,
+        paused: benchPaused,
+        queuedIds: benchQueueDraft.map((m) => m.id),
+        statusById: benchModelStatus,
+        selectedIds: orderedSelectedModels.map((m) => m.id),
+        currentModelId: benchCurrent?.modelId ?? null,
+      }),
+    [running, benchPaused, benchQueueDraft, benchModelStatus, orderedSelectedModels, benchCurrent],
+  );
+
+  // ── 6단계 아코디언 ──────────────────────────────────────────────────────────
+  const [activeStep, setActiveStep] = useState<StepNumber>(1);
+  const [stepOverride, setStepOverride] = useState<StepOverride>(null);
+  const activeStepRef = useRef<StepNumber | null>(null);
+
+  /** 국면 전이는 시스템 이벤트에서만 일어난다 — 체크박스 토글 같은 사용자 입력으로는 단계가 바뀌지 않는다. */
+  useEffect(() => {
+    const prev = activeStepRef.current;
+    const next = resolveActiveStep(
+      { detected: detect != null, detecting, running, resultCount: rows.length },
+      prev,
+    );
+    if (prev === next) return;
+    activeStepRef.current = next;
+    setActiveStep(next);
+    if (shouldResetOverride(prev, next)) {
+      // 실행이 끝났는데 결과가 하나도 없으면 실패 원인이 접힌 로그에 숨는다 — 5단계를 고정해 연다.
+      setStepOverride(prev === 5 ? overrideAfterRunEnd(rows.length) : null);
+    }
+    if (next === 5 && prev !== null) {
+      // 접힘이 반영된 뒤(레이아웃 확정 후) 진행 단계로 이동한다.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const reduce =
+            typeof window !== "undefined" &&
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          document
+            .getElementById("bench-step-5")
+            ?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+        }),
+      );
+    }
+  }, [detect, detecting, running, rows.length]);
+
+  const stepDoneInput: StepDoneInput = useMemo(
+    () => ({
+      connectionUsable:
+        detect != null && detect.reachability?.state !== "unreachable" && detect.models.length > 0,
+      selectedScenarioCount: visibleSelectedScenarioIds.length,
+      selectedModelCount: orderedSelectedModels.length,
+      running,
+      resultCount: rows.length,
+    }),
+    [detect, visibleSelectedScenarioIds.length, orderedSelectedModels.length, running, rows.length],
+  );
+
+  const stepProps = useCallback(
+    (step: StepNumber) => ({
+      id: `bench-step-${step}`,
+      step,
+      open: isStepOpen(step, stepOverride, activeStep),
+      status: resolveStepStatus(step, activeStep, stepDoneInput),
+      onToggle: () => setStepOverride((cur) => toggleStepOverride(step, cur, activeStep)),
+    }),
+    [stepOverride, activeStep, stepDoneInput],
+  );
+
+  /** 1단계 접힘 요약 — 별칭이 붙어 있으면 URL 대신 별칭을 쓴다. */
+  const baseUrlDisplayLabel = useMemo(() => {
+    const current = detect?.baseUrl ?? baseUrl;
+    return namedBaseUrls.find((b) => b.baseUrl === current)?.name ?? current;
+  }, [detect, baseUrl, namedBaseUrls]);
 
   const activeBenchApiRoutes = useMemo(
     () =>
@@ -1122,7 +1219,6 @@ export function App() {
         samplingOverridesText,
         profileAdvancedOpen,
         selectedScenarioIds,
-        scenarioPickerOpen,
         benchmarkThroughputMode,
         contentionGuardEnabled,
         contentionPreBenchTimeoutSec,
@@ -1197,6 +1293,7 @@ export function App() {
         const gb = (b: number | null) => (b != null ? `${(b / 1024 ** 3).toFixed(1)}GB` : "?");
         const detail = msg().bench.eventMemFitDetail(gb(ev.required_bytes), gb(ev.free_bytes));
         if (ev.action === "skip") {
+          state.skippedByPreflight = true;
           pushBenchLine("err", msg().bench.eventMemSkip(ev.model_id, detail));
           appendLog(`preflight skip ${ev.model_id}: ${ev.reason}`);
           toast.warning(`${ev.model_id}: ${ev.reason}`);
@@ -1436,12 +1533,20 @@ export function App() {
     let streamErrorCount = 0;
     let streamIncomplete = false;
     let wasCancelled = false;
-    for (const m of models) {
+    setBenchModelStatus(Object.fromEntries(models.map((m) => [m.id, "pending" as QueueModelStatus])));
+    for (let mi = 0; mi < models.length; mi += 1) {
+      const m = models[mi];
       appendLog(`bench start model=${m.id}`);
       setBenchCurrent({ modelId: m.id });
       setBenchRunId(null);
       setBenchPaused(false);
+      setBenchModelStatus((prev) => ({ ...prev, [m.id]: "running" }));
       const state = makeBenchStreamState();
+      // 런 전체 누적값과 별개로 이 모델 한 건의 결과를 모은다 — 시나리오 1개 오류로 모델 전체를
+      // 실패로 찍거나, 앞 모델의 오류가 뒤 모델에 옮아붙지 않게.
+      let modelHttpFailed = false;
+      let modelThrew = false;
+      let modelErrorCount = 0;
       try {
         const r = await fetch("/api/bench/stream", {
           method: "POST",
@@ -1474,26 +1579,48 @@ export function App() {
         });
         if (!r.ok || !r.body) {
           anyHttpFail = true;
+          modelHttpFailed = true;
           appendLog(`bench http error ${r.status}`);
           pushBenchLine("err", `HTTP ${r.status} · ${m.id}`);
-          continue;
-        }
-        await consumeSseJsonLines(r.body, (ev) =>
-          handleBenchStreamEvent(ev, m.id, state, () => {
-            streamErrorCount += 1;
-          }),
-        );
-        if (!state.sawRunFinished) {
-          streamIncomplete = true;
-          appendLog(msg().bench.logBenchIncomplete(m.id));
+        } else {
+          await consumeSseJsonLines(r.body, (ev) =>
+            handleBenchStreamEvent(ev, m.id, state, () => {
+              streamErrorCount += 1;
+              modelErrorCount += 1;
+            }),
+          );
+          if (!state.sawRunFinished) {
+            streamIncomplete = true;
+            appendLog(msg().bench.logBenchIncomplete(m.id));
+          }
         }
       } catch (e) {
         anyHttpFail = true;
+        modelThrew = true;
         appendLog(String(e));
         pushBenchLine("err", msg().bench.eventRequestFailed(m.id, String(e).slice(0, 200)));
       }
+      setBenchModelStatus((prev) => ({
+        ...prev,
+        [m.id]: classifyModelOutcome({
+          httpFailed: modelHttpFailed,
+          threw: modelThrew,
+          sawRunFinished: state.sawRunFinished,
+          cancelled: state.cancelledByUser,
+          skippedByPreflight: state.skippedByPreflight,
+          scenarioErrorCount: modelErrorCount,
+        }),
+      }));
       if (state.cancelledByUser) {
         wasCancelled = true;
+        // 큐에 남은 모델은 아예 실행되지 않았으므로 대기가 아니라 중지됨으로 표시한다.
+        const skipped = models.slice(mi + 1).map((x) => x.id);
+        if (skipped.length > 0) {
+          setBenchModelStatus((prev) => ({
+            ...prev,
+            ...Object.fromEntries(skipped.map((id) => [id, "cancelled" as QueueModelStatus])),
+          }));
+        }
         break; // 큐에 남은 나머지 모델로 넘어가지 않고 전체 정지.
       }
     }
@@ -1534,6 +1661,8 @@ export function App() {
       const state = makeBenchStreamState();
       let anyHttpFail = false;
       let streamErrorCount = 0;
+      // 재연결에는 큐가 없으므로 칩도 이 모델 한 개다. 비워두면 재접속 직후 큐 상태 표시가 사라진다.
+      setBenchModelStatus({ [modelId]: "running" });
       try {
         const r = await fetch(`/api/bench/${runId}/reconnect`);
         if (!r.ok || !r.body) {
@@ -1550,6 +1679,16 @@ export function App() {
         anyHttpFail = true;
         appendLog(String(e));
       }
+      setBenchModelStatus({
+        [modelId]: classifyModelOutcome({
+          httpFailed: anyHttpFail,
+          threw: false,
+          sawRunFinished: state.sawRunFinished,
+          cancelled: state.cancelledByUser,
+          skippedByPreflight: state.skippedByPreflight,
+          scenarioErrorCount: streamErrorCount,
+        }),
+      });
       setRunning(false);
       setBenchRunId(null);
       setBenchPaused(false);
@@ -1666,10 +1805,15 @@ export function App() {
     activeBenchApiRoutes.length,
     rows.length,
   ]);
-  const benchLiveSoft = "bench-live-panel--soft";
-  const benchMetricsPanelsClass = running && rows.length > 0 ? benchLiveSoft : "";
-  const benchPreviewPanelClass = running && preview.length > 0 ? benchLiveSoft : "";
-  const benchProgressClass = running ? benchLiveSoft : "";
+  /** 헤더 칩 행 꼬리의 진행률·ETA. 진행률 바는 AppHeader 하나만 두고 수치는 여기로 모은다 —
+   *  같은 값을 role="progressbar" 두 개로 노출하면 스크린리더가 두 번 읽는다. */
+  const benchProgressTail = (() => {
+    if (!running || benchProgress.total === 0) return null;
+    const parts = [`${benchProgress.completed}/${benchProgress.total}`, `${benchProgress.pct}%`];
+    if (benchEta?.paused) parts.push(msg().bench.etaWaiting);
+    else if (benchEta?.remainingMs != null) parts.push(msg().bench.etaRemaining(formatDurationMs(benchEta.remainingMs)));
+    return parts.join(" · ");
+  })();
   const benchStartReady = !running && !!detect && visibleSelectedScenarioIds.length > 0;
   const benchStartEmphasis = benchStartReady || running;
   const samplingOverridesInvalid =
@@ -1812,7 +1956,12 @@ export function App() {
             path="/"
             element={
               <>
-        <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
+        <StepSection
+          {...stepProps(1)}
+          title={msg().bench.wizard.step1Title}
+          icon={Link2}
+          summary={detect ? msg().bench.wizard.step1Summary(baseUrlDisplayLabel, detect.models.length) : msg().bench.wizard.step1NotConnected}
+        >
           <div className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1 text-sm">
               <span className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
@@ -1890,13 +2039,25 @@ export function App() {
               </span>
             </span>
           </label>
-          <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
-            <button
-              type="button"
-              onClick={() => setScenarioPickerOpen((v) => !v)}
-              className="flex w-full items-center justify-between gap-2 text-left"
-              aria-expanded={scenarioPickerOpen}
+          {detect ? <ProviderSummary detect={detect} /> : null}
+        </StepSection>
+
+        <StepSection
+          {...stepProps(2)}
+          title={msg().bench.wizard.step2Title}
+          icon={FlaskConical}
+          summary={msg().bench.wizard.step2Summary(visibleSelectedScenarioIds.length, PUBLIC_SCENARIO_IDS.length + dynamicScenarios.length)}
+          headerActions={
+            <NavLink
+              to={running && benchCurrent?.scenario ? `/scenarios#${benchCurrent.scenario}` : "/scenarios"}
+              className="shrink-0 text-xs text-[var(--accent-2)] no-underline hover:underline"
             >
+              {msg().bench.scenarioDetailDocLink}
+            </NavLink>
+          }
+        >
+          <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
+            <div className="flex w-full items-center justify-between gap-2 text-left">
               <span className="font-medium text-[var(--foreground)]">
                 {msg().bench.runScenariosLabel}{" "}
                 <span className={visibleSelectedScenarioIds.length === 0 ? "text-[var(--danger)]" : "text-[var(--muted)]"}>
@@ -1929,16 +2090,14 @@ export function App() {
                     {msg().bench.categoryAgent} {selectedAgentCount}/{agentScenarioIds.length}
                   </span>
                 ) : null}
-                <span className="text-[var(--muted)]" aria-hidden>{scenarioPickerOpen ? "▴" : "▾"}</span>
               </span>
-            </button>
-            {visibleSelectedScenarioIds.length === 0 && !scenarioPickerOpen ? (
+            </div>
+            {visibleSelectedScenarioIds.length === 0 ? (
               <p className="mt-2 text-xs text-[var(--danger)]">
                 {msg().bench.scenarioRequiredHint}
               </p>
             ) : null}
-            {scenarioPickerOpen ? (
-              <div className="mt-2 space-y-3">
+            <div className="mt-2 space-y-3">
                 <div className="flex flex-wrap gap-2 text-xs">
                   {(() => {
                     const allDefaultSelected = DEFAULT_SCENARIO_IDS.every(id => selectedScenarioIds.includes(id));
@@ -2109,153 +2268,26 @@ export function App() {
                   </div>
                 ) : null}
               </div>
-            ) : null}
           </div>
-          <label
-            className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-            title={detect?.provider === "lm_studio" ? msg().bench.unloadOthersTitleLmStudio : msg().bench.onlyLmStudio}
-          >
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={unloadOtherModels}
-              disabled={detect?.provider !== "lm_studio"}
-              onChange={(e) => setUnloadOtherModels(e.target.checked)}
-            />
-            <span>
-              <span className="font-medium text-[var(--foreground)]">{msg().bench.unloadOthersLabel}</span>
-              <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
-                <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
-                {msg().bench.unloadOthersHint}
-                {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
-              </span>
-            </span>
-          </label>
-          <label
-            className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-            title={detect?.provider === "lm_studio" ? msg().bench.autoUnloadTitleLmStudio : msg().bench.onlyLmStudio}
-          >
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={autoUnloadAfterBench}
-              disabled={detect?.provider !== "lm_studio"}
-              onChange={(e) => setAutoUnloadAfterBench(e.target.checked)}
-            />
-            <span>
-              <span className="font-medium text-[var(--foreground)]">{msg().bench.autoUnloadLabel}</span>
-              <span className="mt-0.5 block text-xs leading-snug">
-                {msg().bench.autoUnloadHint}
-                {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
-              </span>
-            </span>
-          </label>
-          <div
-            className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
-            title={msg().bench.memFitTitle}
-          >
-            <span className="mt-1 flex-1">
-              <span id="fit-policy-label" className="font-medium text-[var(--foreground)]">{msg().bench.memFitLabel}</span>
-              <span className="mt-0.5 block text-xs leading-snug">
-                {msg().bench.memFitHintA}<b>{msg().bench.memFitUnload}</b>{msg().bench.memFitHintB}<b>{msg().bench.memFitSkip}</b>{msg().bench.memFitHintC}
-                {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
-              </span>
-            </span>
-            <select
-              className="mt-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
-              value={fitPolicy}
-              disabled={detect?.provider !== "lm_studio"}
-              aria-labelledby="fit-policy-label"
-              onChange={(e) => setFitPolicy(e.target.value as "" | "skip" | "unload_other_models")}
-            >
-              <option value="">{msg().bench.memFitOptionLog}</option>
-              <option value="unload_other_models">{msg().bench.memFitUnload}</option>
-              <option value="skip">{msg().bench.memFitOptionSkip}</option>
-            </select>
-          </div>
-          <div
-            className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
-            title={msg().bench.loadTtlTitle}
-          >
-            <span className="mt-1 flex-1">
-              <span id="load-ttl-label" className="font-medium text-[var(--foreground)]">{msg().bench.loadTtlLabel}</span>
-              <span className="mt-0.5 block text-xs leading-snug">
-                {msg().bench.loadTtlHintA}<code>ttl</code>{msg().bench.loadTtlHintB}<code>keep_alive</code>{msg().bench.loadTtlHintC}<code>/v1</code>{msg().bench.loadTtlHintD}
-                {detect && !providerSupportsLoadTtl(detect.provider) ? msg().bench.inactiveOnCurrentProvider : ""}
-              </span>
-            </span>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              placeholder={msg().bench.notApplied}
-              className="mt-1 w-24 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
-              value={loadTtlSeconds}
-              disabled={!detect || !providerSupportsLoadTtl(detect.provider)}
-              aria-labelledby="load-ttl-label"
-              onChange={(e) => setLoadTtlSeconds(e.target.value)}
-            />
-          </div>
-          <label
-            className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-            title={msg().bench.contentionGuardTitle}
-          >
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={contentionGuardEnabled}
-              onChange={(e) => setContentionGuardEnabled(e.target.checked)}
-            />
-            <span>
-              <span className="font-medium text-[var(--foreground)]">{msg().bench.contentionGuardLabel}</span>
-              <span className="mt-0.5 block text-xs leading-snug">
-                {msg().bench.contentionGuardHint}
-              </span>
-            </span>
-          </label>
-          {contentionGuardEnabled ? (
-            <div className="mt-2 ml-6 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
-              <label className="flex items-center gap-1.5">
-                {msg().bench.preBenchTimeoutLabel}
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  className="w-20 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
-                  value={contentionPreBenchTimeoutSec}
-                  onChange={(e) => setContentionPreBenchTimeoutSec(e.target.value)}
-                />
-              </label>
-              <label className="flex items-center gap-1.5">
-                {msg().bench.retriesPerRunLabel}
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  max={5}
-                  className="w-16 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
-                  value={contentionMaxRetries}
-                  onChange={(e) => setContentionMaxRetries(e.target.value)}
-                />
-              </label>
-            </div>
-          ) : null}
-          {detect ? <ProviderSummary detect={detect} /> : null}
-        </section>
+          <ScenarioGuideCards
+            currentScenario={running ? benchCurrent?.scenario : null}
+            running={running}
+            touchedScenarioIds={touchedScenarioIds}
+            headingLevel={3}
+          />
+        </StepSection>
 
-        <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
-          <h2 className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
-            <span className="inline-flex items-center gap-2">
-              <Monitor className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-              {msg().bench.modelSelectHeading}
-            </span>
-            <NavLink
-              to="/profile"
-              className="shrink-0 text-xs font-normal text-[var(--accent-2)] no-underline hover:underline"
-            >
+        <StepSection
+          {...stepProps(3)}
+          title={msg().bench.wizard.step3Title}
+          icon={Settings2}
+          summary={`${profileId} · thinking ${benchmarkThroughputMode ? "off" : thinkingIntent} · max ${benchmarkThroughputMode ? BENCH_THROUGHPUT_MAX_TOKENS : profileMaxTokens || msg().bench.wizard.step3MaxDefault}`}
+          headerActions={
+            <NavLink to="/profile" className="shrink-0 text-xs text-[var(--accent-2)] no-underline hover:underline">
               {msg().bench.profileDetailLink}
             </NavLink>
-          </h2>
+          }
+        >
           <div className="mb-3 grid grid-cols-1 gap-2 rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
             <label className="grid min-w-0 gap-1">
               <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.profile}</span>
@@ -2357,21 +2389,6 @@ export function App() {
                 placeholder={msg().bench.maxTokensPlaceholder}
               />
             </label>
-            {profileId === "auto" || profileId === "qwen36" || profileId === "qwen38" ? (
-              <label className="flex min-w-0 cursor-pointer items-start gap-2 text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 shrink-0"
-                  checked={preserveThinking}
-                  disabled={profileId !== "auto" && profileId !== "qwen36" && profileId !== "qwen38"}
-                  onChange={(e) => setPreserveThinking(e.target.checked)}
-                />
-                <span className="min-w-0">
-                  <span className="font-medium text-[var(--foreground)]">Qwen3.6/3.8: preserve_thinking</span>
-                  <span className="mt-0.5 block leading-snug">{msg().bench.preserveThinkingHint}</span>
-                </span>
-              </label>
-            ) : null}
             <details
               ref={profileDetailsRef}
               className="sm:col-span-2 lg:col-span-3"
@@ -2380,6 +2397,150 @@ export function App() {
             >
               <summary className="cursor-pointer text-xs font-medium text-[var(--foreground)]">{msg().bench.advancedSummary}</summary>
               <div className="mt-2 grid gap-2">
+                  {profileId === "auto" || profileId === "qwen36" || profileId === "qwen38" ? (
+                    <label className="flex min-w-0 cursor-pointer items-start gap-2 text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 shrink-0"
+                        checked={preserveThinking}
+                        disabled={profileId !== "auto" && profileId !== "qwen36" && profileId !== "qwen38"}
+                        onChange={(e) => setPreserveThinking(e.target.checked)}
+                      />
+                      <span className="min-w-0">
+                        <span className="font-medium text-[var(--foreground)]">Qwen3.6/3.8: preserve_thinking</span>
+                        <span className="mt-0.5 block leading-snug">{msg().bench.preserveThinkingHint}</span>
+                      </span>
+                    </label>
+                  ) : null}
+                <label
+                  className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
+                  title={detect?.provider === "lm_studio" ? msg().bench.unloadOthersTitleLmStudio : msg().bench.onlyLmStudio}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={unloadOtherModels}
+                    disabled={detect?.provider !== "lm_studio"}
+                    onChange={(e) => setUnloadOtherModels(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium text-[var(--foreground)]">{msg().bench.unloadOthersLabel}</span>
+                    <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
+                      <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
+                      {msg().bench.unloadOthersHint}
+                      {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
+                    </span>
+                  </span>
+                </label>
+                <label
+                  className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
+                  title={detect?.provider === "lm_studio" ? msg().bench.autoUnloadTitleLmStudio : msg().bench.onlyLmStudio}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={autoUnloadAfterBench}
+                    disabled={detect?.provider !== "lm_studio"}
+                    onChange={(e) => setAutoUnloadAfterBench(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium text-[var(--foreground)]">{msg().bench.autoUnloadLabel}</span>
+                    <span className="mt-0.5 block text-xs leading-snug">
+                      {msg().bench.autoUnloadHint}
+                      {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
+                    </span>
+                  </span>
+                </label>
+                <div
+                  className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
+                  title={msg().bench.memFitTitle}
+                >
+                  <span className="mt-1 flex-1">
+                    <span id="fit-policy-label" className="font-medium text-[var(--foreground)]">{msg().bench.memFitLabel}</span>
+                    <span className="mt-0.5 block text-xs leading-snug">
+                      {msg().bench.memFitHintA}<b>{msg().bench.memFitUnload}</b>{msg().bench.memFitHintB}<b>{msg().bench.memFitSkip}</b>{msg().bench.memFitHintC}
+                      {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
+                    </span>
+                  </span>
+                  <select
+                    className="mt-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
+                    value={fitPolicy}
+                    disabled={detect?.provider !== "lm_studio"}
+                    aria-labelledby="fit-policy-label"
+                    onChange={(e) => setFitPolicy(e.target.value as "" | "skip" | "unload_other_models")}
+                  >
+                    <option value="">{msg().bench.memFitOptionLog}</option>
+                    <option value="unload_other_models">{msg().bench.memFitUnload}</option>
+                    <option value="skip">{msg().bench.memFitOptionSkip}</option>
+                  </select>
+                </div>
+                <div
+                  className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
+                  title={msg().bench.loadTtlTitle}
+                >
+                  <span className="mt-1 flex-1">
+                    <span id="load-ttl-label" className="font-medium text-[var(--foreground)]">{msg().bench.loadTtlLabel}</span>
+                    <span className="mt-0.5 block text-xs leading-snug">
+                      {msg().bench.loadTtlHintA}<code>ttl</code>{msg().bench.loadTtlHintB}<code>keep_alive</code>{msg().bench.loadTtlHintC}<code>/v1</code>{msg().bench.loadTtlHintD}
+                      {detect && !providerSupportsLoadTtl(detect.provider) ? msg().bench.inactiveOnCurrentProvider : ""}
+                    </span>
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    placeholder={msg().bench.notApplied}
+                    className="mt-1 w-24 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
+                    value={loadTtlSeconds}
+                    disabled={!detect || !providerSupportsLoadTtl(detect.provider)}
+                    aria-labelledby="load-ttl-label"
+                    onChange={(e) => setLoadTtlSeconds(e.target.value)}
+                  />
+                </div>
+                <label
+                  className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
+                  title={msg().bench.contentionGuardTitle}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={contentionGuardEnabled}
+                    onChange={(e) => setContentionGuardEnabled(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium text-[var(--foreground)]">{msg().bench.contentionGuardLabel}</span>
+                    <span className="mt-0.5 block text-xs leading-snug">
+                      {msg().bench.contentionGuardHint}
+                    </span>
+                  </span>
+                </label>
+                {contentionGuardEnabled ? (
+                  <div className="mt-2 ml-6 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
+                    <label className="flex items-center gap-1.5">
+                      {msg().bench.preBenchTimeoutLabel}
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        className="w-20 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
+                        value={contentionPreBenchTimeoutSec}
+                        onChange={(e) => setContentionPreBenchTimeoutSec(e.target.value)}
+                      />
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      {msg().bench.retriesPerRunLabel}
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        max={5}
+                        className="w-16 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
+                        value={contentionMaxRetries}
+                        onChange={(e) => setContentionMaxRetries(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                ) : null}
                 <label className="grid gap-1">
                   <span className="text-xs text-[var(--muted)]">{msg().bench.presetOverrideLabel}</span>
                   <select
@@ -2415,6 +2576,14 @@ export function App() {
               </div>
             </details>
           </div>
+        </StepSection>
+
+        <StepSection
+          {...stepProps(4)}
+          title={msg().bench.wizard.step4Title}
+          icon={Monitor}
+          summary={msg().bench.wizard.step4Summary(orderedSelectedModels.length, detect?.models.length ?? 0)}
+        >
           {detecting ? (
             <p className="flex items-center justify-center gap-2 py-10 text-sm text-[var(--muted)]">
               <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
@@ -2455,299 +2624,295 @@ export function App() {
               {detectButton}
             </div>
           )}
-        </section>
+        </StepSection>
 
-        <div className="space-y-2">
-          <div className="flex justify-end">
-            <NavLink
-              to={
-                running && benchCurrent?.scenario
-                  ? `/scenarios#${benchCurrent.scenario}`
-                  : "/scenarios"
-              }
-              className="text-xs text-[var(--accent-2)] no-underline hover:underline"
-            >
-              {msg().bench.scenarioDetailDocLink}
-            </NavLink>
-          </div>
-          <ScenarioGuideCards
-            currentScenario={running ? benchCurrent?.scenario : null}
-            running={running}
-            touchedScenarioIds={touchedScenarioIds}
-          />
-        </div>
 
-        <BenchProgressPanel
-          className={benchProgressClass}
-          running={running}
-          current={benchCurrent}
-          lines={benchStepLines}
-          progress={running ? benchProgress : undefined}
-          eta={benchEta}
-          benchAction={
-            <>
-              <button
-                type="button"
-                className={[
-                  "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold shadow-sm disabled:opacity-50",
-                  benchStartEmphasis
-                    ? "bg-[var(--accent)] text-white"
-                    : "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]",
-                ].join(" ")}
-                onClick={requestBench}
-                disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
-                aria-busy={running}
-                aria-label={msg().bench.runSelectedAria}
-                title={visibleSelectedScenarioIds.length === 0 ? msg().bench.selectScenarioTitle : undefined}
-              >
-                {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Play className="size-4" aria-hidden />}
-                {msg().bench.runSelected}
-              </button>
-              {running ? (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm disabled:opacity-50"
-                  onClick={toggleBenchPause}
-                  disabled={!benchRunId}
-                  aria-label={benchPaused ? msg().bench.resumeBtnAria : msg().bench.pauseBtnAria}
-                >
-                  {benchPaused ? <Play className="size-4" aria-hidden /> : <Pause className="size-4" aria-hidden />}
-                  {benchPaused ? msg().bench.resumeBtn : msg().bench.pauseBtn}
-                </button>
-              ) : null}
-              {running ? (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-md bg-[var(--danger)] px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
-                  onClick={stopBench}
-                  disabled={!benchRunId}
-                  aria-label={msg().bench.stopBtnAria}
-                >
-                  <Square className="size-4" aria-hidden />
-                  {msg().bench.stopBtn}
-                </button>
-              ) : null}
-            </>
-          }
-        />
-
-        <Scoreboard
-          rows={rows}
-          detailAggregate={detailAggregate}
-          loading={running}
-          benchModelOrder={benchQueueDraft.map((m) => m.id)}
-          providerByModel={providerByModel}
-        />
-
-        <section
-          className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchMetricsPanelsClass].filter(Boolean).join(" ")}
-        >
-          <h2 className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
-            <Activity className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-            {msg().bench.metricsChartHeading}
-          </h2>
-          <div className="mb-4 flex flex-wrap items-center gap-4 text-sm">
-            <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
-              <input
-                type="radio"
-                name="chartView"
-                checked={chartView === "live"}
-                onChange={() => setChartView("live")}
-              />
-              {msg().bench.thisSession}
-            </label>
-            <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
-              <input
-                type="radio"
-                name="chartView"
-                checked={chartView === "compare"}
-                onChange={() => setChartView("compare")}
-              />
-              {msg().bench.compareStoredLast}
-            </label>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium shadow-sm disabled:opacity-50"
-              disabled={compareLoading || !detect || running}
-              onClick={() => void loadCompareFromServer()}
-            >
-              {compareLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-              {msg().bench.loadCompare}
-            </button>
-            {chartView === "compare" && (!compareSeries || compareSeries.length < 2) ? (
-              <span className="text-xs text-[var(--muted)]">{msg().bench.compareHint}</span>
-            ) : null}
-          </div>
-          {chartModelIds.length > 0 ? (
-            <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
-              <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.chartModels}</span>
-              {chartModelIds.map((id) => {
-                const label = detect?.models.find((m: DetectModel) => m.id === id)?.label ?? id;
-                return (
-                  <label
-                    key={id}
-                    className="inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={chartModelFilter[id] !== false}
-                      onChange={() =>
-                        setChartModelFilter((prev) => ({
-                          ...prev,
-                          [id]: !(prev[id] !== false),
-                        }))
-                      }
-                    />
-                    <span className="truncate font-mono" title={id}>
-                      {label}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          ) : null}
-          {chartView === "compare" && compareSeries && compareSeries.length >= 2 ? (
-            filteredCompareSeries && filteredCompareSeries.length >= 2 ? (
-              <BenchCharts
-                chartRows={[]}
-                compareSeries={filteredCompareSeries}
-                onCompareCell={(scenario, api, modelId) => openCompareCell(scenario, api, modelId)}
-                benchScenarioOrder={compareScenarioOrder}
-              />
-            ) : (
-              <p className="py-8 text-center text-sm text-[var(--muted)]">
-                {msg().bench.compareSelectTwo}
-              </p>
-            )
-          ) : chartRows.length > 0 && filteredChartRows.length === 0 ? (
-            <p className="py-8 text-center text-sm text-[var(--muted)]">{msg().bench.selectModelToShow}</p>
-          ) : (
-            <BenchCharts
-              chartRows={filteredChartRows}
-              onBarPayload={(row) => openFromChartRow(row)}
-              benchScenarioOrder={benchScenarioOrder}
-            />
-          )}
-        </section>
-
-        <section
-          className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchMetricsPanelsClass].filter(Boolean).join(" ")}
-        >
-          <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">{msg().bench.resultsTableHeading}</h2>
-          <ResultsTable
-            rows={rows}
-            benchModelOrder={benchQueueDraft.map((m) => m.id)}
-            benchScenarioOrder={benchScenarioOrder}
-            pendingRows={pendingSkeletonRows}
-            maxRows={visibleSelectedScenarioIds.length * Math.max(activeBenchApiRoutes.length, 1)}
-            onRowClick={(r) => openDrawerForRow(r)}
-          />
-        </section>
-
-        <section className="grid gap-6 lg:grid-cols-2">
-          <div
-            className={["min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchPreviewPanelClass].filter(Boolean).join(
-              " ",
-            )}
-          >
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
-              <h2 className="text-sm font-semibold text-[var(--foreground)]">{msg().bench.tokenPreview}</h2>
-              <HighlightToggle on={hlPreview} onChange={setHlPreview} />
-            </div>
-            <JsonCodeBlock
-              code={preview || "—"}
-              language="markdown"
-              enabled={hlPreview}
-              maxHeight={280}
-              stickToBottom={running}
-            />
-          </div>
-          <div className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
-              <h2 className="text-sm font-semibold text-[var(--foreground)]">{msg().bench.logHeading}</h2>
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs disabled:opacity-50"
-                  disabled={serverRunsLoading}
-                  onClick={() => {
-                    if (serverRunsPanelOpen && !serverRunsLoading) {
-                      setServerRunsPanelOpen(false);
-                      return;
-                    }
-                    if (serverRuns.length > 0 && !serverRunsLoading) {
-                      setServerRunsPanelOpen(true);
-                      return;
-                    }
-                    void refreshServerRuns();
-                  }}
-                  aria-label={
-                    serverRunsPanelOpen && serverRuns.length > 0
-                      ? msg().bench.collapseServerRuns
-                      : msg().bench.loadServerRuns
-                  }
-                >
-                  {serverRunsLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <History className="size-3.5" aria-hidden />}
-                  {serverRunsPanelOpen && serverRuns.length > 0 ? msg().bench.collapseList : msg().bench.serverRunsList}
-                </button>
-                <HighlightToggle on={hlLog} onChange={setHlLog} />
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs disabled:opacity-50"
-                  disabled={!rows.length}
-                  onClick={() => {
-                    const blob = new Blob(
-                      [JSON.stringify({ rows, detailAggregate, baseUrl, provider: detect?.provider }, null, 2)],
-                      {
-                      type: "application/json",
-                    });
-                    const a = document.createElement("a");
-                    a.href = URL.createObjectURL(blob);
-                    a.download = "bench-export.json";
-                    a.click();
-                    URL.revokeObjectURL(a.href);
-                  }}
-                  aria-label={msg().bench.downloadLastJsonAria}
-                >
-                  <Download className="size-3.5" aria-hidden />
-                  {msg().bench.downloadLastJson}
-                </button>
+        <StepSection
+          {...stepProps(5)}
+          title={msg().bench.wizard.step5Title}
+          icon={Activity}
+          live={running}
+          headerStrip={
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <QueueStatusChips items={benchQueueItems} />
+                {benchProgressTail ? (
+                  <span role="status" className="font-mono text-[11px] tabular-nums text-[var(--muted)]">
+                    {benchProgressTail}
+                  </span>
+                ) : null}
               </div>
-            </div>
-            <JsonCodeBlock code={logText || "—"} language="markdown" enabled={hlLog} maxHeight={224} />
-            {serverRuns.length > 0 && serverRunsPanelOpen ? (
-              <div className="mt-4 border-t border-[var(--border)] pt-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                    {msg().bench.sqliteStoredRuns}
-                  </h3>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <>
                   <button
                     type="button"
-                    className="shrink-0 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-2)]"
-                    onClick={() => setServerRunsPanelOpen(false)}
+                    className={[
+                      "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold shadow-sm disabled:opacity-50",
+                      benchStartEmphasis
+                        ? "bg-[var(--accent)] text-white"
+                        : "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]",
+                    ].join(" ")}
+                    onClick={requestBench}
+                    disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
+                    aria-busy={running}
+                    aria-label={msg().bench.runSelectedAria}
+                    title={visibleSelectedScenarioIds.length === 0 ? msg().bench.selectScenarioTitle : undefined}
                   >
-                    {msg().bench.closeList}
+                    {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Play className="size-4" aria-hidden />}
+                    {msg().bench.runSelected}
+                  </button>
+                  {running ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm disabled:opacity-50"
+                      onClick={toggleBenchPause}
+                      disabled={!benchRunId}
+                      aria-label={benchPaused ? msg().bench.resumeBtnAria : msg().bench.pauseBtnAria}
+                    >
+                      {benchPaused ? <Play className="size-4" aria-hidden /> : <Pause className="size-4" aria-hidden />}
+                      {benchPaused ? msg().bench.resumeBtn : msg().bench.pauseBtn}
+                    </button>
+                  ) : null}
+                  {running ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-md bg-[var(--danger)] px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+                      onClick={stopBench}
+                      disabled={!benchRunId}
+                      aria-label={msg().bench.stopBtnAria}
+                    >
+                      <Square className="size-4" aria-hidden />
+                      {msg().bench.stopBtn}
+                    </button>
+                  ) : null}
+                </>
+              </div>
+            </div>
+          }
+        >
+          <BenchProgressPanel running={running} current={benchCurrent} lines={benchStepLines} />
+          <section className="grid gap-6 lg:grid-cols-2">
+            <div
+              className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4"
+            >
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
+                <h3 className="text-sm font-semibold text-[var(--foreground)]">{msg().bench.tokenPreview}</h3>
+                <HighlightToggle on={hlPreview} onChange={setHlPreview} />
+              </div>
+              <JsonCodeBlock
+                code={preview || "—"}
+                language="markdown"
+                enabled={hlPreview}
+                maxHeight={280}
+                stickToBottom={running}
+              />
+            </div>
+            <div className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
+                <h3 className="text-sm font-semibold text-[var(--foreground)]">{msg().bench.logHeading}</h3>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs disabled:opacity-50"
+                    disabled={serverRunsLoading}
+                    onClick={() => {
+                      if (serverRunsPanelOpen && !serverRunsLoading) {
+                        setServerRunsPanelOpen(false);
+                        return;
+                      }
+                      if (serverRuns.length > 0 && !serverRunsLoading) {
+                        setServerRunsPanelOpen(true);
+                        return;
+                      }
+                      void refreshServerRuns();
+                    }}
+                    aria-label={
+                      serverRunsPanelOpen && serverRuns.length > 0
+                        ? msg().bench.collapseServerRuns
+                        : msg().bench.loadServerRuns
+                    }
+                  >
+                    {serverRunsLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <History className="size-3.5" aria-hidden />}
+                    {serverRunsPanelOpen && serverRuns.length > 0 ? msg().bench.collapseList : msg().bench.serverRunsList}
+                  </button>
+                  <HighlightToggle on={hlLog} onChange={setHlLog} />
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs disabled:opacity-50"
+                    disabled={!rows.length}
+                    onClick={() => {
+                      const blob = new Blob(
+                        [JSON.stringify({ rows, detailAggregate, baseUrl, provider: detect?.provider }, null, 2)],
+                        {
+                        type: "application/json",
+                      });
+                      const a = document.createElement("a");
+                      a.href = URL.createObjectURL(blob);
+                      a.download = "bench-export.json";
+                      a.click();
+                      URL.revokeObjectURL(a.href);
+                    }}
+                    aria-label={msg().bench.downloadLastJsonAria}
+                  >
+                    <Download className="size-3.5" aria-hidden />
+                    {msg().bench.downloadLastJson}
                   </button>
                 </div>
-                <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs break-all">
-                  {serverRuns.map((run) => (
-                    <li key={run.run_id}>
-                      <button
-                        type="button"
-                        className="w-full rounded px-2 py-1 text-left hover:bg-[var(--surface)]"
-                        onClick={() => void openServerRunDetail(run.run_id)}
-                      >
-                        <span className="text-[var(--muted)]">{run.created_at.slice(0, 19)}</span>{" "}
-                        <span className="text-[var(--foreground)]">{run.model_id}</span>{" "}
-                        <span className="text-[var(--muted)]">{run.status}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+              </div>
+              <JsonCodeBlock code={logText || "—"} language="markdown" enabled={hlLog} maxHeight={224} />
+              {serverRuns.length > 0 && serverRunsPanelOpen ? (
+                <div className="mt-4 border-t border-[var(--border)] pt-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                      {msg().bench.sqliteStoredRuns}
+                    </h3>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-2)]"
+                      onClick={() => setServerRunsPanelOpen(false)}
+                    >
+                      {msg().bench.closeList}
+                    </button>
+                  </div>
+                  <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs break-all">
+                    {serverRuns.map((run) => (
+                      <li key={run.run_id}>
+                        <button
+                          type="button"
+                          className="w-full rounded px-2 py-1 text-left hover:bg-[var(--surface)]"
+                          onClick={() => void openServerRunDetail(run.run_id)}
+                        >
+                          <span className="text-[var(--muted)]">{run.created_at.slice(0, 19)}</span>{" "}
+                          <span className="text-[var(--foreground)]">{run.model_id}</span>{" "}
+                          <span className="text-[var(--muted)]">{run.status}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        </StepSection>
+
+        <StepSection
+          {...stepProps(6)}
+          title={msg().bench.wizard.step6Title}
+          icon={BarChart3}
+          summary={rows.length > 0 ? msg().bench.wizard.step6Summary(benchQueueDraft.length, rows.length) : msg().bench.wizard.step6Empty}
+        >
+          <Scoreboard
+            rows={rows}
+            detailAggregate={detailAggregate}
+            loading={running}
+            benchModelOrder={benchQueueDraft.map((m) => m.id)}
+            providerByModel={providerByModel}
+            headingLevel={3}
+          />
+          <section
+            className={"rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4"}
+          >
+            <h3 className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
+              <Activity className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
+              {msg().bench.metricsChartHeading}
+            </h3>
+            <div className="mb-4 flex flex-wrap items-center gap-4 text-sm">
+              <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
+                <input
+                  type="radio"
+                  name="chartView"
+                  checked={chartView === "live"}
+                  onChange={() => setChartView("live")}
+                />
+                {msg().bench.thisSession}
+              </label>
+              <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
+                <input
+                  type="radio"
+                  name="chartView"
+                  checked={chartView === "compare"}
+                  onChange={() => setChartView("compare")}
+                />
+                {msg().bench.compareStoredLast}
+              </label>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium shadow-sm disabled:opacity-50"
+                disabled={compareLoading || !detect || running}
+                onClick={() => void loadCompareFromServer()}
+              >
+                {compareLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+                {msg().bench.loadCompare}
+              </button>
+              {chartView === "compare" && (!compareSeries || compareSeries.length < 2) ? (
+                <span className="text-xs text-[var(--muted)]">{msg().bench.compareHint}</span>
+              ) : null}
+            </div>
+            {chartModelIds.length > 0 ? (
+              <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
+                <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.chartModels}</span>
+                {chartModelIds.map((id) => {
+                  const label = detect?.models.find((m: DetectModel) => m.id === id)?.label ?? id;
+                  return (
+                    <label
+                      key={id}
+                      className="inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={chartModelFilter[id] !== false}
+                        onChange={() =>
+                          setChartModelFilter((prev) => ({
+                            ...prev,
+                            [id]: !(prev[id] !== false),
+                          }))
+                        }
+                      />
+                      <span className="truncate font-mono" title={id}>
+                        {label}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             ) : null}
-          </div>
-        </section>
+            {chartView === "compare" && compareSeries && compareSeries.length >= 2 ? (
+              filteredCompareSeries && filteredCompareSeries.length >= 2 ? (
+                <BenchCharts
+                  chartRows={[]}
+                  compareSeries={filteredCompareSeries}
+                  onCompareCell={(scenario, api, modelId) => openCompareCell(scenario, api, modelId)}
+                  benchScenarioOrder={compareScenarioOrder}
+                />
+              ) : (
+                <p className="py-8 text-center text-sm text-[var(--muted)]">
+                  {msg().bench.compareSelectTwo}
+                </p>
+              )
+            ) : chartRows.length > 0 && filteredChartRows.length === 0 ? (
+              <p className="py-8 text-center text-sm text-[var(--muted)]">{msg().bench.selectModelToShow}</p>
+            ) : (
+              <BenchCharts
+                chartRows={filteredChartRows}
+                onBarPayload={(row) => openFromChartRow(row)}
+                benchScenarioOrder={benchScenarioOrder}
+              />
+            )}
+          </section>
+          <section
+            className={"rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4"}
+          >
+            <h3 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">{msg().bench.resultsTableHeading}</h3>
+            <ResultsTable
+              rows={rows}
+              benchModelOrder={benchQueueDraft.map((m) => m.id)}
+              benchScenarioOrder={benchScenarioOrder}
+              pendingRows={pendingSkeletonRows}
+              maxRows={visibleSelectedScenarioIds.length * Math.max(activeBenchApiRoutes.length, 1)}
+              onRowClick={(r) => openDrawerForRow(r)}
+            />
+          </section>
+        </StepSection>
               </>
             }
           />

@@ -84,6 +84,20 @@ const TINT_BADGES: ReadonlyArray<readonly [string, string, number]> = [
   ["--muted", "--muted", 0.15],
 ];
 
+/**
+ * 큐 상태 칩(QueueStatusChips)·단계 배지(StepSection)에서 실제로 쓰는 틴트 조합.
+ * 칩은 카드(--surface-2) 안에도 놓이므로 두 바탕 모두에서 확인한다.
+ * danger·warning 계열은 15% 틴트 위에서 4.5:1을 넘기지 못해(라이트 --warning 3.77,
+ * --surface-2 위 --danger 4.35) 틴트 없이 --surface 바탕 + 실색 테두리로 간다.
+ */
+const CHIP_TINTS: ReadonlyArray<readonly [string, string, number]> = [
+  ["--accent-2", "--accent", 0.15],
+  ["--accent-2", "--accent-2", 0.15],
+];
+
+/** 채운 배경 위의 흰 글자 조합 — StepSection의 현재 단계 배지. */
+const SOLID_ON_WHITE: readonly string[] = ["--accent"];
+
 describe("index.css 색 토큰 대비 (KWCAG 5.4.3)", () => {
   for (const [themeName, vars] of Object.entries(THEMES)) {
     describe(`${themeName} 테마`, () => {
@@ -120,6 +134,27 @@ describe("index.css 색 토큰 대비 (KWCAG 5.4.3)", () => {
           expect(
             contrastRatio(vars[fg], badgeBg),
             `${fg} on ${tint} ${Math.round(alpha * 100)}% over --surface`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+      });
+
+      it("큐 상태 칩 틴트: 텍스트 on 틴트 ≥ 4.5 (두 바탕 모두)", () => {
+        for (const [fg, tint, alpha] of CHIP_TINTS) {
+          for (const base of SURFACES) {
+            const chipBg = compositeOver(vars[tint], vars[base], alpha);
+            expect(
+              contrastRatio(vars[fg], chipBg),
+              `${fg} on ${tint} ${Math.round(alpha * 100)}% over ${base}`,
+            ).toBeGreaterThanOrEqual(4.5);
+          }
+        }
+      });
+
+      it("채운 배지: #ffffff on 실색 배경 ≥ 4.5", () => {
+        for (const token of SOLID_ON_WHITE) {
+          expect(
+            contrastRatio("#ffffff", vars[token]),
+            `#ffffff on ${token}`,
           ).toBeGreaterThanOrEqual(4.5);
         }
       });

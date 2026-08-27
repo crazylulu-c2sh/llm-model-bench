@@ -54,6 +54,7 @@ const PrefsSchema = z
     samplingOverridesJson: z.string().optional(),
     profileAdvancedOpen: z.boolean().optional(),
     selectedScenarioIds: z.array(z.string()).optional(),
+    /** 더는 읽지 않음 — 단계 아코디언이 접힘을 대신한다. 예전 저장값 파싱을 위해 남겨 둔다. */
     scenarioPickerOpen: z.boolean().optional(),
     benchmarkThroughputMode: z.boolean().optional(),
     contentionGuardEnabled: z.boolean().optional(),
@@ -152,7 +153,6 @@ export function readInitialUiState() {
       samplingOverridesText: "",
       profileAdvancedOpen: false,
       selectedScenarioIds: [...DEFAULT_SCENARIO_IDS] as string[],
-      scenarioPickerOpen: true,
       benchmarkThroughputMode: false,
       contentionGuardEnabled: true,
       contentionPreBenchTimeoutSec: "120",
@@ -184,7 +184,6 @@ export function readInitialUiState() {
     samplingOverridesText: p.samplingOverridesJson ?? "",
     profileAdvancedOpen: p.profileAdvancedOpen ?? false,
     selectedScenarioIds: sanitizeSelectedScenarioIds(p.selectedScenarioIds),
-    scenarioPickerOpen: p.scenarioPickerOpen ?? true,
     benchmarkThroughputMode: p.benchmarkThroughputMode ?? false,
     contentionGuardEnabled: p.contentionGuardEnabled ?? true,
     contentionPreBenchTimeoutSec:
@@ -214,7 +213,6 @@ export type SaveUiSnapshot = {
   samplingOverridesText: string;
   profileAdvancedOpen: boolean;
   selectedScenarioIds: string[];
-  scenarioPickerOpen: boolean;
   benchmarkThroughputMode: boolean;
   contentionGuardEnabled: boolean;
   contentionPreBenchTimeoutSec: string;
@@ -255,7 +253,6 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
     samplingOverridesJson: s.samplingOverridesText.trim() ? s.samplingOverridesText : undefined,
     profileAdvancedOpen: s.profileAdvancedOpen,
     selectedScenarioIds: sanitizeSelectedScenarioIds(s.selectedScenarioIds),
-    scenarioPickerOpen: s.scenarioPickerOpen,
     benchmarkThroughputMode: s.benchmarkThroughputMode,
     contentionGuardEnabled: s.contentionGuardEnabled,
     contentionPreBenchTimeoutMs: (() => {
