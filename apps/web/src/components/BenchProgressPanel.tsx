@@ -1,8 +1,6 @@
-import type { ReactNode } from "react";
 import { useLayoutEffect, useRef } from "react";
-import { Activity, Loader2 } from "lucide-react";
 import { useI18n, type Messages } from "../i18n";
-import { formatDurationMs, formatTimeWithMs } from "../lib/time-format";
+import { formatTimeWithMs } from "../lib/time-format";
 
 export type BenchStepKind = "info" | "ok" | "err" | "warn";
 
@@ -65,26 +63,21 @@ function lineClass(kind: BenchStepKind): string {
   return "text-[var(--muted)]";
 }
 
+/**
+ * 실행 중 현재 위치 한 줄 + 이벤트 로그.
+ *
+ * 카드 크롬(제목·테두리)과 실행 제어 버튼·큐 칩·진행률·ETA는 감싸는 StepSection이 가진다.
+ * 진행률 바를 여기서 렌더하지 않는 이유: AppHeader가 같은 수치로 이미 role="progressbar"를
+ * 하나 노출하고 있어, 두 개가 되면 스크린리더가 같은 값을 두 번 읽는다.
+ */
 export function BenchProgressPanel({
   running,
   current,
   lines,
-  progress,
-  eta,
-  benchAction,
-  queueChips,
-  className,
 }: {
   running: boolean;
   current: BenchCurrent | null;
   lines: BenchStepLine[];
-  progress?: BenchProgressStats;
-  eta?: BenchEta;
-  benchAction?: ReactNode;
-  /** 큐의 모델별 상태 칩. 실행 제어 버튼과 같은 층에 두어 어느 모델이 도는지 항상 보이게 한다. */
-  queueChips?: ReactNode;
-  /** 부모에서 벤치 라이브 테두리 등 유틸 클래스 주입 */
-  className?: string;
 }) {
   const { m } = useI18n();
   const summary = formatBenchProgressSummary({ running, current, b: m.bench });
@@ -98,76 +91,29 @@ export function BenchProgressPanel({
   }, [running, lines]);
 
   return (
-    <section
-      className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", className].filter(Boolean).join(" ")}
-      aria-labelledby="bench-progress-heading"
-    >
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-2">
-        <h2 id="bench-progress-heading" className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-          {running ? (
-            <Loader2 className="size-4 shrink-0 animate-spin text-[var(--accent)]" aria-hidden />
-          ) : (
-            <Activity className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-          )}
-          {m.bench.progressHeading}
-        </h2>
-        {benchAction ? <div className="flex shrink-0 flex-wrap items-center gap-2">{benchAction}</div> : null}
-      </div>
-
-      {queueChips ? <div className="mb-3">{queueChips}</div> : null}
-
+    <div>
       <div className="mb-3 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-xs text-[var(--foreground)]">
         {summary}
       </div>
 
-      {progress && progress.total > 0 ? (
-        <div className="mb-3">
-          <div role="status" className="mb-1 flex items-center justify-between gap-2 text-xs text-[var(--muted)]">
-            <span className="font-semibold uppercase tracking-wide">{m.bench.progressRate}</span>
-            <span className="font-mono tabular-nums text-[var(--foreground)]">
-              {progress.pct}% · {progress.completed}/{progress.total}
-            </span>
-          </div>
-          <div
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={progress.pct}
-            aria-valuetext={m.bench.progressRateValue(progress.pct, progress.completed, progress.total)}
-            className="h-1.5 overflow-hidden rounded-full bg-[var(--border)]"
-          >
-            <div
-              className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-300 ease-out"
-              style={{ width: `${progress.pct}%` }}
-            />
-          </div>
-        </div>
-      ) : null}
-
-      {eta && (eta.paused || eta.remainingMs != null) ? (
-        <div className="mb-3 text-xs text-[var(--muted)]" role="status">
-          {eta.paused ? m.bench.etaWaiting : m.bench.etaRemaining(formatDurationMs(eta.remainingMs ?? 0))}
-        </div>
-      ) : null}
-
-      <div>
-        <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{m.bench.eventLogHeading}</h3>
-        <ul
-          ref={logScrollRef}
-          className="max-h-40 overflow-y-auto rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 font-mono text-[11px] leading-relaxed"
-          aria-label={m.bench.eventLogAria}
-        >
-          {lines.length === 0 ? (
-            <li className="text-[var(--muted)]">{m.bench.eventLogEmpty}</li>
-          ) : (
-            lines.map((ln, i) => (
-              <li key={`${ln.ts}-${i}`} className={lineClass(ln.kind)}>
-                {formatTimeWithMs(ln.ts)} {ln.text}
-              </li>
-            ))
-          )}
-        </ul>
-      </div>
-    </section>
+      <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+        {m.bench.eventLogHeading}
+      </h3>
+      <ul
+        ref={logScrollRef}
+        className="max-h-40 overflow-y-auto rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 font-mono text-[11px] leading-relaxed"
+        aria-label={m.bench.eventLogAria}
+      >
+        {lines.length === 0 ? (
+          <li className="text-[var(--muted)]">{m.bench.eventLogEmpty}</li>
+        ) : (
+          lines.map((ln, i) => (
+            <li key={`${ln.ts}-${i}`} className={lineClass(ln.kind)}>
+              {formatTimeWithMs(ln.ts)} {ln.text}
+            </li>
+          ))
+        )}
+      </ul>
+    </div>
   );
 }

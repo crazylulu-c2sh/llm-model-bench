@@ -21,6 +21,7 @@ import type { SortingState } from "@tanstack/react-table";
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
   Bookmark,
   Bot,
   CheckSquare,
@@ -1809,10 +1810,15 @@ export function App() {
     activeBenchApiRoutes.length,
     rows.length,
   ]);
-  const benchLiveSoft = "bench-live-panel--soft";
-  const benchMetricsPanelsClass = running && rows.length > 0 ? benchLiveSoft : "";
-  const benchPreviewPanelClass = running && preview.length > 0 ? benchLiveSoft : "";
-  const benchProgressClass = running ? benchLiveSoft : "";
+  /** 헤더 칩 행 꼬리의 진행률·ETA. 진행률 바는 AppHeader 하나만 두고 수치는 여기로 모은다 —
+   *  같은 값을 role="progressbar" 두 개로 노출하면 스크린리더가 두 번 읽는다. */
+  const benchProgressTail = (() => {
+    if (!running || benchProgress.total === 0) return null;
+    const parts = [`${benchProgress.completed}/${benchProgress.total}`, `${benchProgress.pct}%`];
+    if (benchEta?.paused) parts.push(msg().bench.etaWaiting);
+    else if (benchEta?.remainingMs != null) parts.push(msg().bench.etaRemaining(formatDurationMs(benchEta.remainingMs)));
+    return parts.join(" · ");
+  })();
   const benchStartReady = !running && !!detect && visibleSelectedScenarioIds.length > 0;
   const benchStartEmphasis = benchStartReady || running;
   const samplingOverridesInvalid =
@@ -2280,6 +2286,7 @@ export function App() {
             currentScenario={running ? benchCurrent?.scenario : null}
             running={running}
             touchedScenarioIds={touchedScenarioIds}
+            headingLevel={3}
           />
         </StepSection>
 
@@ -2633,278 +2640,292 @@ export function App() {
         </StepSection>
 
 
-        <BenchProgressPanel
-          className={benchProgressClass}
-          running={running}
-          current={benchCurrent}
-          lines={benchStepLines}
-          progress={running ? benchProgress : undefined}
-          eta={benchEta}
-          queueChips={<QueueStatusChips items={benchQueueItems} />}
-          benchAction={
-            <>
-              <button
-                type="button"
-                className={[
-                  "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold shadow-sm disabled:opacity-50",
-                  benchStartEmphasis
-                    ? "bg-[var(--accent)] text-white"
-                    : "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]",
-                ].join(" ")}
-                onClick={requestBench}
-                disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
-                aria-busy={running}
-                aria-label={msg().bench.runSelectedAria}
-                title={visibleSelectedScenarioIds.length === 0 ? msg().bench.selectScenarioTitle : undefined}
-              >
-                {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Play className="size-4" aria-hidden />}
-                {msg().bench.runSelected}
-              </button>
-              {running ? (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm disabled:opacity-50"
-                  onClick={toggleBenchPause}
-                  disabled={!benchRunId}
-                  aria-label={benchPaused ? msg().bench.resumeBtnAria : msg().bench.pauseBtnAria}
-                >
-                  {benchPaused ? <Play className="size-4" aria-hidden /> : <Pause className="size-4" aria-hidden />}
-                  {benchPaused ? msg().bench.resumeBtn : msg().bench.pauseBtn}
-                </button>
-              ) : null}
-              {running ? (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-md bg-[var(--danger)] px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
-                  onClick={stopBench}
-                  disabled={!benchRunId}
-                  aria-label={msg().bench.stopBtnAria}
-                >
-                  <Square className="size-4" aria-hidden />
-                  {msg().bench.stopBtn}
-                </button>
-              ) : null}
-            </>
-          }
-        />
-
-        <Scoreboard
-          rows={rows}
-          detailAggregate={detailAggregate}
-          loading={running}
-          benchModelOrder={benchQueueDraft.map((m) => m.id)}
-          providerByModel={providerByModel}
-        />
-
-        <section
-          className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchMetricsPanelsClass].filter(Boolean).join(" ")}
-        >
-          <h2 className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
-            <Activity className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-            {msg().bench.metricsChartHeading}
-          </h2>
-          <div className="mb-4 flex flex-wrap items-center gap-4 text-sm">
-            <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
-              <input
-                type="radio"
-                name="chartView"
-                checked={chartView === "live"}
-                onChange={() => setChartView("live")}
-              />
-              {msg().bench.thisSession}
-            </label>
-            <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
-              <input
-                type="radio"
-                name="chartView"
-                checked={chartView === "compare"}
-                onChange={() => setChartView("compare")}
-              />
-              {msg().bench.compareStoredLast}
-            </label>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium shadow-sm disabled:opacity-50"
-              disabled={compareLoading || !detect || running}
-              onClick={() => void loadCompareFromServer()}
-            >
-              {compareLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-              {msg().bench.loadCompare}
-            </button>
-            {chartView === "compare" && (!compareSeries || compareSeries.length < 2) ? (
-              <span className="text-xs text-[var(--muted)]">{msg().bench.compareHint}</span>
-            ) : null}
-          </div>
-          {chartModelIds.length > 0 ? (
-            <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
-              <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.chartModels}</span>
-              {chartModelIds.map((id) => {
-                const label = detect?.models.find((m: DetectModel) => m.id === id)?.label ?? id;
-                return (
-                  <label
-                    key={id}
-                    className="inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={chartModelFilter[id] !== false}
-                      onChange={() =>
-                        setChartModelFilter((prev) => ({
-                          ...prev,
-                          [id]: !(prev[id] !== false),
-                        }))
-                      }
-                    />
-                    <span className="truncate font-mono" title={id}>
-                      {label}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          ) : null}
-          {chartView === "compare" && compareSeries && compareSeries.length >= 2 ? (
-            filteredCompareSeries && filteredCompareSeries.length >= 2 ? (
-              <BenchCharts
-                chartRows={[]}
-                compareSeries={filteredCompareSeries}
-                onCompareCell={(scenario, api, modelId) => openCompareCell(scenario, api, modelId)}
-                benchScenarioOrder={compareScenarioOrder}
-              />
-            ) : (
-              <p className="py-8 text-center text-sm text-[var(--muted)]">
-                {msg().bench.compareSelectTwo}
-              </p>
-            )
-          ) : chartRows.length > 0 && filteredChartRows.length === 0 ? (
-            <p className="py-8 text-center text-sm text-[var(--muted)]">{msg().bench.selectModelToShow}</p>
-          ) : (
-            <BenchCharts
-              chartRows={filteredChartRows}
-              onBarPayload={(row) => openFromChartRow(row)}
-              benchScenarioOrder={benchScenarioOrder}
-            />
-          )}
-        </section>
-
-        <section
-          className={["rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchMetricsPanelsClass].filter(Boolean).join(" ")}
-        >
-          <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">{msg().bench.resultsTableHeading}</h2>
-          <ResultsTable
-            rows={rows}
-            benchModelOrder={benchQueueDraft.map((m) => m.id)}
-            benchScenarioOrder={benchScenarioOrder}
-            pendingRows={pendingSkeletonRows}
-            maxRows={visibleSelectedScenarioIds.length * Math.max(activeBenchApiRoutes.length, 1)}
-            onRowClick={(r) => openDrawerForRow(r)}
-          />
-        </section>
-
-        <section className="grid gap-6 lg:grid-cols-2">
-          <div
-            className={["min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4", benchPreviewPanelClass].filter(Boolean).join(
-              " ",
-            )}
-          >
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
-              <h2 className="text-sm font-semibold text-[var(--foreground)]">{msg().bench.tokenPreview}</h2>
-              <HighlightToggle on={hlPreview} onChange={setHlPreview} />
-            </div>
-            <JsonCodeBlock
-              code={preview || "—"}
-              language="markdown"
-              enabled={hlPreview}
-              maxHeight={280}
-              stickToBottom={running}
-            />
-          </div>
-          <div className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
-              <h2 className="text-sm font-semibold text-[var(--foreground)]">{msg().bench.logHeading}</h2>
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs disabled:opacity-50"
-                  disabled={serverRunsLoading}
-                  onClick={() => {
-                    if (serverRunsPanelOpen && !serverRunsLoading) {
-                      setServerRunsPanelOpen(false);
-                      return;
-                    }
-                    if (serverRuns.length > 0 && !serverRunsLoading) {
-                      setServerRunsPanelOpen(true);
-                      return;
-                    }
-                    void refreshServerRuns();
-                  }}
-                  aria-label={
-                    serverRunsPanelOpen && serverRuns.length > 0
-                      ? msg().bench.collapseServerRuns
-                      : msg().bench.loadServerRuns
-                  }
-                >
-                  {serverRunsLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <History className="size-3.5" aria-hidden />}
-                  {serverRunsPanelOpen && serverRuns.length > 0 ? msg().bench.collapseList : msg().bench.serverRunsList}
-                </button>
-                <HighlightToggle on={hlLog} onChange={setHlLog} />
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs disabled:opacity-50"
-                  disabled={!rows.length}
-                  onClick={() => {
-                    const blob = new Blob(
-                      [JSON.stringify({ rows, detailAggregate, baseUrl, provider: detect?.provider }, null, 2)],
-                      {
-                      type: "application/json",
-                    });
-                    const a = document.createElement("a");
-                    a.href = URL.createObjectURL(blob);
-                    a.download = "bench-export.json";
-                    a.click();
-                    URL.revokeObjectURL(a.href);
-                  }}
-                  aria-label={msg().bench.downloadLastJsonAria}
-                >
-                  <Download className="size-3.5" aria-hidden />
-                  {msg().bench.downloadLastJson}
-                </button>
+        <StepSection
+          {...stepProps(5)}
+          title={msg().bench.wizard.step5Title}
+          icon={Activity}
+          live={running}
+          headerStrip={
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <QueueStatusChips items={benchQueueItems} />
+                {benchProgressTail ? (
+                  <span role="status" className="font-mono text-[11px] tabular-nums text-[var(--muted)]">
+                    {benchProgressTail}
+                  </span>
+                ) : null}
               </div>
-            </div>
-            <JsonCodeBlock code={logText || "—"} language="markdown" enabled={hlLog} maxHeight={224} />
-            {serverRuns.length > 0 && serverRunsPanelOpen ? (
-              <div className="mt-4 border-t border-[var(--border)] pt-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                    {msg().bench.sqliteStoredRuns}
-                  </h3>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <>
                   <button
                     type="button"
-                    className="shrink-0 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-2)]"
-                    onClick={() => setServerRunsPanelOpen(false)}
+                    className={[
+                      "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold shadow-sm disabled:opacity-50",
+                      benchStartEmphasis
+                        ? "bg-[var(--accent)] text-white"
+                        : "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]",
+                    ].join(" ")}
+                    onClick={requestBench}
+                    disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
+                    aria-busy={running}
+                    aria-label={msg().bench.runSelectedAria}
+                    title={visibleSelectedScenarioIds.length === 0 ? msg().bench.selectScenarioTitle : undefined}
                   >
-                    {msg().bench.closeList}
+                    {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Play className="size-4" aria-hidden />}
+                    {msg().bench.runSelected}
+                  </button>
+                  {running ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm disabled:opacity-50"
+                      onClick={toggleBenchPause}
+                      disabled={!benchRunId}
+                      aria-label={benchPaused ? msg().bench.resumeBtnAria : msg().bench.pauseBtnAria}
+                    >
+                      {benchPaused ? <Play className="size-4" aria-hidden /> : <Pause className="size-4" aria-hidden />}
+                      {benchPaused ? msg().bench.resumeBtn : msg().bench.pauseBtn}
+                    </button>
+                  ) : null}
+                  {running ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-md bg-[var(--danger)] px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+                      onClick={stopBench}
+                      disabled={!benchRunId}
+                      aria-label={msg().bench.stopBtnAria}
+                    >
+                      <Square className="size-4" aria-hidden />
+                      {msg().bench.stopBtn}
+                    </button>
+                  ) : null}
+                </>
+              </div>
+            </div>
+          }
+        >
+          <BenchProgressPanel running={running} current={benchCurrent} lines={benchStepLines} />
+          <section className="grid gap-6 lg:grid-cols-2">
+            <div
+              className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4"
+            >
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
+                <h3 className="text-sm font-semibold text-[var(--foreground)]">{msg().bench.tokenPreview}</h3>
+                <HighlightToggle on={hlPreview} onChange={setHlPreview} />
+              </div>
+              <JsonCodeBlock
+                code={preview || "—"}
+                language="markdown"
+                enabled={hlPreview}
+                maxHeight={280}
+                stickToBottom={running}
+              />
+            </div>
+            <div className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
+                <h3 className="text-sm font-semibold text-[var(--foreground)]">{msg().bench.logHeading}</h3>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs disabled:opacity-50"
+                    disabled={serverRunsLoading}
+                    onClick={() => {
+                      if (serverRunsPanelOpen && !serverRunsLoading) {
+                        setServerRunsPanelOpen(false);
+                        return;
+                      }
+                      if (serverRuns.length > 0 && !serverRunsLoading) {
+                        setServerRunsPanelOpen(true);
+                        return;
+                      }
+                      void refreshServerRuns();
+                    }}
+                    aria-label={
+                      serverRunsPanelOpen && serverRuns.length > 0
+                        ? msg().bench.collapseServerRuns
+                        : msg().bench.loadServerRuns
+                    }
+                  >
+                    {serverRunsLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <History className="size-3.5" aria-hidden />}
+                    {serverRunsPanelOpen && serverRuns.length > 0 ? msg().bench.collapseList : msg().bench.serverRunsList}
+                  </button>
+                  <HighlightToggle on={hlLog} onChange={setHlLog} />
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs disabled:opacity-50"
+                    disabled={!rows.length}
+                    onClick={() => {
+                      const blob = new Blob(
+                        [JSON.stringify({ rows, detailAggregate, baseUrl, provider: detect?.provider }, null, 2)],
+                        {
+                        type: "application/json",
+                      });
+                      const a = document.createElement("a");
+                      a.href = URL.createObjectURL(blob);
+                      a.download = "bench-export.json";
+                      a.click();
+                      URL.revokeObjectURL(a.href);
+                    }}
+                    aria-label={msg().bench.downloadLastJsonAria}
+                  >
+                    <Download className="size-3.5" aria-hidden />
+                    {msg().bench.downloadLastJson}
                   </button>
                 </div>
-                <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs break-all">
-                  {serverRuns.map((run) => (
-                    <li key={run.run_id}>
-                      <button
-                        type="button"
-                        className="w-full rounded px-2 py-1 text-left hover:bg-[var(--surface)]"
-                        onClick={() => void openServerRunDetail(run.run_id)}
-                      >
-                        <span className="text-[var(--muted)]">{run.created_at.slice(0, 19)}</span>{" "}
-                        <span className="text-[var(--foreground)]">{run.model_id}</span>{" "}
-                        <span className="text-[var(--muted)]">{run.status}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+              </div>
+              <JsonCodeBlock code={logText || "—"} language="markdown" enabled={hlLog} maxHeight={224} />
+              {serverRuns.length > 0 && serverRunsPanelOpen ? (
+                <div className="mt-4 border-t border-[var(--border)] pt-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                      {msg().bench.sqliteStoredRuns}
+                    </h3>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-xs text-[var(--foreground)] hover:bg-[var(--surface-2)]"
+                      onClick={() => setServerRunsPanelOpen(false)}
+                    >
+                      {msg().bench.closeList}
+                    </button>
+                  </div>
+                  <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-xs break-all">
+                    {serverRuns.map((run) => (
+                      <li key={run.run_id}>
+                        <button
+                          type="button"
+                          className="w-full rounded px-2 py-1 text-left hover:bg-[var(--surface)]"
+                          onClick={() => void openServerRunDetail(run.run_id)}
+                        >
+                          <span className="text-[var(--muted)]">{run.created_at.slice(0, 19)}</span>{" "}
+                          <span className="text-[var(--foreground)]">{run.model_id}</span>{" "}
+                          <span className="text-[var(--muted)]">{run.status}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        </StepSection>
+
+        <StepSection
+          {...stepProps(6)}
+          title={msg().bench.wizard.step6Title}
+          icon={BarChart3}
+          summary={rows.length > 0 ? msg().bench.wizard.step6Summary(benchQueueDraft.length, rows.length) : msg().bench.wizard.step6Empty}
+        >
+          <Scoreboard
+            rows={rows}
+            detailAggregate={detailAggregate}
+            loading={running}
+            benchModelOrder={benchQueueDraft.map((m) => m.id)}
+            providerByModel={providerByModel}
+            headingLevel={3}
+          />
+          <section
+            className={"rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4"}
+          >
+            <h3 className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
+              <Activity className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
+              {msg().bench.metricsChartHeading}
+            </h3>
+            <div className="mb-4 flex flex-wrap items-center gap-4 text-sm">
+              <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
+                <input
+                  type="radio"
+                  name="chartView"
+                  checked={chartView === "live"}
+                  onChange={() => setChartView("live")}
+                />
+                {msg().bench.thisSession}
+              </label>
+              <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
+                <input
+                  type="radio"
+                  name="chartView"
+                  checked={chartView === "compare"}
+                  onChange={() => setChartView("compare")}
+                />
+                {msg().bench.compareStoredLast}
+              </label>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium shadow-sm disabled:opacity-50"
+                disabled={compareLoading || !detect || running}
+                onClick={() => void loadCompareFromServer()}
+              >
+                {compareLoading ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+                {msg().bench.loadCompare}
+              </button>
+              {chartView === "compare" && (!compareSeries || compareSeries.length < 2) ? (
+                <span className="text-xs text-[var(--muted)]">{msg().bench.compareHint}</span>
+              ) : null}
+            </div>
+            {chartModelIds.length > 0 ? (
+              <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
+                <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.chartModels}</span>
+                {chartModelIds.map((id) => {
+                  const label = detect?.models.find((m: DetectModel) => m.id === id)?.label ?? id;
+                  return (
+                    <label
+                      key={id}
+                      className="inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={chartModelFilter[id] !== false}
+                        onChange={() =>
+                          setChartModelFilter((prev) => ({
+                            ...prev,
+                            [id]: !(prev[id] !== false),
+                          }))
+                        }
+                      />
+                      <span className="truncate font-mono" title={id}>
+                        {label}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             ) : null}
-          </div>
-        </section>
+            {chartView === "compare" && compareSeries && compareSeries.length >= 2 ? (
+              filteredCompareSeries && filteredCompareSeries.length >= 2 ? (
+                <BenchCharts
+                  chartRows={[]}
+                  compareSeries={filteredCompareSeries}
+                  onCompareCell={(scenario, api, modelId) => openCompareCell(scenario, api, modelId)}
+                  benchScenarioOrder={compareScenarioOrder}
+                />
+              ) : (
+                <p className="py-8 text-center text-sm text-[var(--muted)]">
+                  {msg().bench.compareSelectTwo}
+                </p>
+              )
+            ) : chartRows.length > 0 && filteredChartRows.length === 0 ? (
+              <p className="py-8 text-center text-sm text-[var(--muted)]">{msg().bench.selectModelToShow}</p>
+            ) : (
+              <BenchCharts
+                chartRows={filteredChartRows}
+                onBarPayload={(row) => openFromChartRow(row)}
+                benchScenarioOrder={benchScenarioOrder}
+              />
+            )}
+          </section>
+          <section
+            className={"rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4"}
+          >
+            <h3 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">{msg().bench.resultsTableHeading}</h3>
+            <ResultsTable
+              rows={rows}
+              benchModelOrder={benchQueueDraft.map((m) => m.id)}
+              benchScenarioOrder={benchScenarioOrder}
+              pendingRows={pendingSkeletonRows}
+              maxRows={visibleSelectedScenarioIds.length * Math.max(activeBenchApiRoutes.length, 1)}
+              onRowClick={(r) => openDrawerForRow(r)}
+            />
+          </section>
+        </StepSection>
               </>
             }
           />

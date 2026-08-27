@@ -360,6 +360,7 @@ export function Scoreboard({
   benchModelOrder = [],
   title,
   providerByModel,
+  headingLevel = 2,
 }: {
   rows: ResultRow[];
   detailAggregate: ScoringAggregate;
@@ -369,6 +370,8 @@ export function Scoreboard({
   title?: string;
   /** model_id → 백엔드(옵션). 벤더 아이콘 옆 백엔드 배지·툴팁용. 없어도 안 깨짐. */
   providerByModel?: Map<string, ProviderKind>;
+  /** 단계 아코디언 안에서는 3으로 낮춘다(감싸는 StepSection이 h2). 기본 2 — StatsPage 동작 유지. */
+  headingLevel?: 2 | 3;
 }) {
   const { m } = useI18n();
   const board = useMemo(() => scoreboardFromRows(rows, detailAggregate), [rows, detailAggregate]);
@@ -476,10 +479,13 @@ export function Scoreboard({
   const showTierFilter = !loadingLayout && tierCounts.size >= 2;
   const allFilteredOut = !loadingLayout && filteredBoard.length === 0;
 
+  // 단계 아코디언 안에 들어갈 때는 감싸는 StepSection이 h2를 가지므로 h3로 낮춘다.
+  const Heading = headingLevel === 3 ? "h3" : "h2";
+
   return (
     <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
       <div className="mb-1 flex items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
-        <h2 className="text-sm font-semibold text-[var(--foreground)]">{title ?? m.scoreboard.title}</h2>
+        <Heading className="text-sm font-semibold text-[var(--foreground)]">{title ?? m.scoreboard.title}</Heading>
         {!loadingLayout ? (
           <Segmented
             ariaLabel={m.scoreboard.viewAria}
