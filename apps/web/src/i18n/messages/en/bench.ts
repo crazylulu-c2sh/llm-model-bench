@@ -119,7 +119,7 @@ export const bench: Messages["bench"] = {
   qwen38ReasoningEffortHint:
     "The model card defaults to xhigh, but reasoning tokens balloon, so the harness defaults to low. Raise it when you need accuracy.",
   preserveThinkingHint: "Recommended only for agent-style multi-turn.",
-  advancedSummary: "Advanced: preset · sampling JSON override",
+  advancedSummary: "Advanced: reasoning · sampling · model load/memory · contention guard",
   presetOverrideLabel: "Force preset (empty = auto)",
   presetAuto: "Auto",
   samplingOverridesLabel: "samplingOverrides (JSON object)",
@@ -314,6 +314,13 @@ export const bench: Messages["bench"] = {
     },
     queueMore: (n) => `+${n} more`,
     queueMoreAria: (n) => `${n} more model${n === 1 ? "" : "s"} not shown`,
+    step1Summary: (label, models) => `${label} · ${models} model${models === 1 ? "" : "s"}`,
+    step1NotConnected: "Not connected",
+    step2Summary: (selected, total) => `${selected}/${total} selected`,
+    step3MaxDefault: "recommended",
+    step4Summary: (selected, total) => `${selected} / ${total} selected`,
+    step6Summary: (models, results) => `${models} model${models === 1 ? "" : "s"} · ${results} result${results === 1 ? "" : "s"}`,
+    step6Empty: "None yet",
     queueListAria: "Run queue status",
   },
 };

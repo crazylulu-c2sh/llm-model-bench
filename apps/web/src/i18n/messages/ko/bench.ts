@@ -115,7 +115,7 @@ export const bench = {
   qwen38ReasoningEffortHint:
     "모델 카드 기본은 xhigh지만 사고 토큰이 폭주해 하네스 기본은 low입니다. 정확도가 필요하면 올리세요.",
   preserveThinkingHint: "에이전트형 멀티턴에서만 켜는 것을 권장합니다.",
-  advancedSummary: "고급: 프리셋·샘플링 JSON 오버라이드",
+  advancedSummary: "고급: 추론 · 샘플링 · 모델 로드/메모리 · 오염 가드",
   presetOverrideLabel: "preset 강제 (비우면 자동)",
   presetAuto: "자동",
   samplingOverridesLabel: "samplingOverrides (JSON 객체)",
@@ -311,6 +311,13 @@ export const bench = {
     },
     queueMore: (n: number) => `외 ${n}개`,
     queueMoreAria: (n: number) => `표시하지 않은 모델 ${n}개`,
+    step1Summary: (label: string, models: number) => `${label} · 모델 ${models}개`,
+    step1NotConnected: "연결되지 않음",
+    step2Summary: (selected: number, total: number) => `${selected}/${total} 선택`,
+    step3MaxDefault: "권장값",
+    step4Summary: (selected: number, total: number) => `${selected} / ${total} 선택`,
+    step6Summary: (models: number, results: number) => `모델 ${models}개 · 결과 ${results}건`,
+    step6Empty: "아직 없음",
     queueListAria: "실행 큐 상태",
   },
 };

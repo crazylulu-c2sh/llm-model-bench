@@ -28,6 +28,7 @@ import {
   ChevronUp,
   Download,
   Eye,
+  FlaskConical,
   History,
   KeyRound,
   Link2,
@@ -36,6 +37,7 @@ import {
   Monitor,
   Pause,
   Play,
+  Settings2,
   Square,
 } from "lucide-react";
 import type {
@@ -69,8 +71,22 @@ import {
 } from "./components/BenchProgressPanel";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
 import { ScenarioGuideCards } from "./components/ScenarioGuideCards";
-import { classifyModelOutcome, resolveQueueItems, type QueueModelStatus } from "./lib/bench-steps";
+import {
+  classifyModelOutcome,
+  isStepOpen,
+  overrideAfterRunEnd,
+  resolveActiveStep,
+  resolveQueueItems,
+  resolveStepStatus,
+  shouldResetOverride,
+  toggleStepOverride,
+  type QueueModelStatus,
+  type StepDoneInput,
+  type StepNumber,
+  type StepOverride,
+} from "./lib/bench-steps";
 import { QueueStatusChips } from "./components/QueueStatusChips";
+import { StepSection } from "./components/StepSection";
 import { AppHeader, pageTitleForPath } from "./components/AppHeader";
 import { useI18n, msg } from "./i18n";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -336,7 +352,9 @@ export function App() {
   );
   const [presetOverride, setPresetOverride] = useState<SamplingPresetName | "">(boot.presetOverride);
   const [samplingOverridesText, setSamplingOverridesText] = useState(boot.samplingOverridesText);
-  const [profileAdvancedOpen, setProfileAdvancedOpen] = useState(boot.profileAdvancedOpen);
+  // 저장값을 복원하지 않는다: 이 토글이 감싸는 범위가 샘플링 2개에서 모델 로드·메모리·오염 가드까지
+  // 넓어져서, 예전에 true를 저장한 사용자가 첫 진입부터 훨씬 큰 묶음을 펼친 채로 보게 된다.
+  const [profileAdvancedOpen, setProfileAdvancedOpen] = useState(false);
   const profileDetailsRef = useRef<HTMLDetailsElement>(null);
   const parseSamplingOverridesJson = useCallback((raw: string): Record<string, number> | null => {
     const t = raw.trim();
@@ -632,6 +650,68 @@ export function App() {
       }),
     [running, benchPaused, benchQueueDraft, benchModelStatus, orderedSelectedModels, benchCurrent],
   );
+
+  // ── 6단계 아코디언 ──────────────────────────────────────────────────────────
+  const [activeStep, setActiveStep] = useState<StepNumber>(1);
+  const [stepOverride, setStepOverride] = useState<StepOverride>(null);
+  const activeStepRef = useRef<StepNumber | null>(null);
+
+  /** 국면 전이는 시스템 이벤트에서만 일어난다 — 체크박스 토글 같은 사용자 입력으로는 단계가 바뀌지 않는다. */
+  useEffect(() => {
+    const prev = activeStepRef.current;
+    const next = resolveActiveStep(
+      { detected: detect != null, detecting, running, resultCount: rows.length },
+      prev,
+    );
+    if (prev === next) return;
+    activeStepRef.current = next;
+    setActiveStep(next);
+    if (shouldResetOverride(prev, next)) {
+      // 실행이 끝났는데 결과가 하나도 없으면 실패 원인이 접힌 로그에 숨는다 — 5단계를 고정해 연다.
+      setStepOverride(prev === 5 ? overrideAfterRunEnd(rows.length) : null);
+    }
+    if (next === 5 && prev !== null) {
+      // 접힘이 반영된 뒤(레이아웃 확정 후) 진행 단계로 이동한다.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const reduce =
+            typeof window !== "undefined" &&
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          document
+            .getElementById("bench-step-5")
+            ?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+        }),
+      );
+    }
+  }, [detect, detecting, running, rows.length]);
+
+  const stepDoneInput: StepDoneInput = useMemo(
+    () => ({
+      detected: detect != null,
+      selectedScenarioCount: visibleSelectedScenarioIds.length,
+      selectedModelCount: orderedSelectedModels.length,
+      running,
+      resultCount: rows.length,
+    }),
+    [detect, visibleSelectedScenarioIds.length, orderedSelectedModels.length, running, rows.length],
+  );
+
+  const stepProps = useCallback(
+    (step: StepNumber) => ({
+      id: `bench-step-${step}`,
+      step,
+      open: isStepOpen(step, stepOverride, activeStep),
+      status: resolveStepStatus(step, activeStep, stepDoneInput),
+      onToggle: () => setStepOverride((cur) => toggleStepOverride(step, cur, activeStep)),
+    }),
+    [stepOverride, activeStep, stepDoneInput],
+  );
+
+  /** 1단계 접힘 요약 — 별칭이 붙어 있으면 URL 대신 별칭을 쓴다. */
+  const baseUrlDisplayLabel = useMemo(() => {
+    const current = detect?.baseUrl ?? baseUrl;
+    return namedBaseUrls.find((b) => b.baseUrl === current)?.name ?? current;
+  }, [detect, baseUrl, namedBaseUrls]);
 
   const activeBenchApiRoutes = useMemo(
     () =>
@@ -1875,7 +1955,12 @@ export function App() {
             path="/"
             element={
               <>
-        <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
+        <StepSection
+          {...stepProps(1)}
+          title={msg().bench.wizard.step1Title}
+          icon={Link2}
+          summary={detect ? msg().bench.wizard.step1Summary(baseUrlDisplayLabel, detect.models.length) : msg().bench.wizard.step1NotConnected}
+        >
           <div className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1 text-sm">
               <span className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
@@ -1953,6 +2038,23 @@ export function App() {
               </span>
             </span>
           </label>
+          {detect ? <ProviderSummary detect={detect} /> : null}
+        </StepSection>
+
+        <StepSection
+          {...stepProps(2)}
+          title={msg().bench.wizard.step2Title}
+          icon={FlaskConical}
+          summary={msg().bench.wizard.step2Summary(visibleSelectedScenarioIds.length, PUBLIC_SCENARIO_IDS.length + dynamicScenarios.length)}
+          headerActions={
+            <NavLink
+              to={running && benchCurrent?.scenario ? `/scenarios#${benchCurrent.scenario}` : "/scenarios"}
+              className="shrink-0 text-xs text-[var(--accent-2)] no-underline hover:underline"
+            >
+              {msg().bench.scenarioDetailDocLink}
+            </NavLink>
+          }
+        >
           <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
             <button
               type="button"
@@ -2174,151 +2276,24 @@ export function App() {
               </div>
             ) : null}
           </div>
-          <label
-            className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-            title={detect?.provider === "lm_studio" ? msg().bench.unloadOthersTitleLmStudio : msg().bench.onlyLmStudio}
-          >
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={unloadOtherModels}
-              disabled={detect?.provider !== "lm_studio"}
-              onChange={(e) => setUnloadOtherModels(e.target.checked)}
-            />
-            <span>
-              <span className="font-medium text-[var(--foreground)]">{msg().bench.unloadOthersLabel}</span>
-              <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
-                <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
-                {msg().bench.unloadOthersHint}
-                {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
-              </span>
-            </span>
-          </label>
-          <label
-            className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-            title={detect?.provider === "lm_studio" ? msg().bench.autoUnloadTitleLmStudio : msg().bench.onlyLmStudio}
-          >
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={autoUnloadAfterBench}
-              disabled={detect?.provider !== "lm_studio"}
-              onChange={(e) => setAutoUnloadAfterBench(e.target.checked)}
-            />
-            <span>
-              <span className="font-medium text-[var(--foreground)]">{msg().bench.autoUnloadLabel}</span>
-              <span className="mt-0.5 block text-xs leading-snug">
-                {msg().bench.autoUnloadHint}
-                {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
-              </span>
-            </span>
-          </label>
-          <div
-            className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
-            title={msg().bench.memFitTitle}
-          >
-            <span className="mt-1 flex-1">
-              <span id="fit-policy-label" className="font-medium text-[var(--foreground)]">{msg().bench.memFitLabel}</span>
-              <span className="mt-0.5 block text-xs leading-snug">
-                {msg().bench.memFitHintA}<b>{msg().bench.memFitUnload}</b>{msg().bench.memFitHintB}<b>{msg().bench.memFitSkip}</b>{msg().bench.memFitHintC}
-                {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
-              </span>
-            </span>
-            <select
-              className="mt-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
-              value={fitPolicy}
-              disabled={detect?.provider !== "lm_studio"}
-              aria-labelledby="fit-policy-label"
-              onChange={(e) => setFitPolicy(e.target.value as "" | "skip" | "unload_other_models")}
-            >
-              <option value="">{msg().bench.memFitOptionLog}</option>
-              <option value="unload_other_models">{msg().bench.memFitUnload}</option>
-              <option value="skip">{msg().bench.memFitOptionSkip}</option>
-            </select>
-          </div>
-          <div
-            className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
-            title={msg().bench.loadTtlTitle}
-          >
-            <span className="mt-1 flex-1">
-              <span id="load-ttl-label" className="font-medium text-[var(--foreground)]">{msg().bench.loadTtlLabel}</span>
-              <span className="mt-0.5 block text-xs leading-snug">
-                {msg().bench.loadTtlHintA}<code>ttl</code>{msg().bench.loadTtlHintB}<code>keep_alive</code>{msg().bench.loadTtlHintC}<code>/v1</code>{msg().bench.loadTtlHintD}
-                {detect && !providerSupportsLoadTtl(detect.provider) ? msg().bench.inactiveOnCurrentProvider : ""}
-              </span>
-            </span>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              placeholder={msg().bench.notApplied}
-              className="mt-1 w-24 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
-              value={loadTtlSeconds}
-              disabled={!detect || !providerSupportsLoadTtl(detect.provider)}
-              aria-labelledby="load-ttl-label"
-              onChange={(e) => setLoadTtlSeconds(e.target.value)}
-            />
-          </div>
-          <label
-            className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-            title={msg().bench.contentionGuardTitle}
-          >
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={contentionGuardEnabled}
-              onChange={(e) => setContentionGuardEnabled(e.target.checked)}
-            />
-            <span>
-              <span className="font-medium text-[var(--foreground)]">{msg().bench.contentionGuardLabel}</span>
-              <span className="mt-0.5 block text-xs leading-snug">
-                {msg().bench.contentionGuardHint}
-              </span>
-            </span>
-          </label>
-          {contentionGuardEnabled ? (
-            <div className="mt-2 ml-6 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
-              <label className="flex items-center gap-1.5">
-                {msg().bench.preBenchTimeoutLabel}
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  className="w-20 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
-                  value={contentionPreBenchTimeoutSec}
-                  onChange={(e) => setContentionPreBenchTimeoutSec(e.target.value)}
-                />
-              </label>
-              <label className="flex items-center gap-1.5">
-                {msg().bench.retriesPerRunLabel}
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  max={5}
-                  className="w-16 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
-                  value={contentionMaxRetries}
-                  onChange={(e) => setContentionMaxRetries(e.target.value)}
-                />
-              </label>
-            </div>
-          ) : null}
-          {detect ? <ProviderSummary detect={detect} /> : null}
-        </section>
+          <ScenarioGuideCards
+            currentScenario={running ? benchCurrent?.scenario : null}
+            running={running}
+            touchedScenarioIds={touchedScenarioIds}
+          />
+        </StepSection>
 
-        <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
-          <h2 className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
-            <span className="inline-flex items-center gap-2">
-              <Monitor className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-              {msg().bench.modelSelectHeading}
-            </span>
-            <NavLink
-              to="/profile"
-              className="shrink-0 text-xs font-normal text-[var(--accent-2)] no-underline hover:underline"
-            >
+        <StepSection
+          {...stepProps(3)}
+          title={msg().bench.wizard.step3Title}
+          icon={Settings2}
+          summary={`${profileId} · thinking ${benchmarkThroughputMode ? "off" : thinkingIntent} · max ${benchmarkThroughputMode ? BENCH_THROUGHPUT_MAX_TOKENS : profileMaxTokens || msg().bench.wizard.step3MaxDefault}`}
+          headerActions={
+            <NavLink to="/profile" className="shrink-0 text-xs text-[var(--accent-2)] no-underline hover:underline">
               {msg().bench.profileDetailLink}
             </NavLink>
-          </h2>
+          }
+        >
           <div className="mb-3 grid grid-cols-1 gap-2 rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
             <label className="grid min-w-0 gap-1">
               <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.profile}</span>
@@ -2420,21 +2395,6 @@ export function App() {
                 placeholder={msg().bench.maxTokensPlaceholder}
               />
             </label>
-            {profileId === "auto" || profileId === "qwen36" || profileId === "qwen38" ? (
-              <label className="flex min-w-0 cursor-pointer items-start gap-2 text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 shrink-0"
-                  checked={preserveThinking}
-                  disabled={profileId !== "auto" && profileId !== "qwen36" && profileId !== "qwen38"}
-                  onChange={(e) => setPreserveThinking(e.target.checked)}
-                />
-                <span className="min-w-0">
-                  <span className="font-medium text-[var(--foreground)]">Qwen3.6/3.8: preserve_thinking</span>
-                  <span className="mt-0.5 block leading-snug">{msg().bench.preserveThinkingHint}</span>
-                </span>
-              </label>
-            ) : null}
             <details
               ref={profileDetailsRef}
               className="sm:col-span-2 lg:col-span-3"
@@ -2443,6 +2403,150 @@ export function App() {
             >
               <summary className="cursor-pointer text-xs font-medium text-[var(--foreground)]">{msg().bench.advancedSummary}</summary>
               <div className="mt-2 grid gap-2">
+                  {profileId === "auto" || profileId === "qwen36" || profileId === "qwen38" ? (
+                    <label className="flex min-w-0 cursor-pointer items-start gap-2 text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 shrink-0"
+                        checked={preserveThinking}
+                        disabled={profileId !== "auto" && profileId !== "qwen36" && profileId !== "qwen38"}
+                        onChange={(e) => setPreserveThinking(e.target.checked)}
+                      />
+                      <span className="min-w-0">
+                        <span className="font-medium text-[var(--foreground)]">Qwen3.6/3.8: preserve_thinking</span>
+                        <span className="mt-0.5 block leading-snug">{msg().bench.preserveThinkingHint}</span>
+                      </span>
+                    </label>
+                  ) : null}
+                <label
+                  className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
+                  title={detect?.provider === "lm_studio" ? msg().bench.unloadOthersTitleLmStudio : msg().bench.onlyLmStudio}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={unloadOtherModels}
+                    disabled={detect?.provider !== "lm_studio"}
+                    onChange={(e) => setUnloadOtherModels(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium text-[var(--foreground)]">{msg().bench.unloadOthersLabel}</span>
+                    <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
+                      <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
+                      {msg().bench.unloadOthersHint}
+                      {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
+                    </span>
+                  </span>
+                </label>
+                <label
+                  className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
+                  title={detect?.provider === "lm_studio" ? msg().bench.autoUnloadTitleLmStudio : msg().bench.onlyLmStudio}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={autoUnloadAfterBench}
+                    disabled={detect?.provider !== "lm_studio"}
+                    onChange={(e) => setAutoUnloadAfterBench(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium text-[var(--foreground)]">{msg().bench.autoUnloadLabel}</span>
+                    <span className="mt-0.5 block text-xs leading-snug">
+                      {msg().bench.autoUnloadHint}
+                      {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
+                    </span>
+                  </span>
+                </label>
+                <div
+                  className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
+                  title={msg().bench.memFitTitle}
+                >
+                  <span className="mt-1 flex-1">
+                    <span id="fit-policy-label" className="font-medium text-[var(--foreground)]">{msg().bench.memFitLabel}</span>
+                    <span className="mt-0.5 block text-xs leading-snug">
+                      {msg().bench.memFitHintA}<b>{msg().bench.memFitUnload}</b>{msg().bench.memFitHintB}<b>{msg().bench.memFitSkip}</b>{msg().bench.memFitHintC}
+                      {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
+                    </span>
+                  </span>
+                  <select
+                    className="mt-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
+                    value={fitPolicy}
+                    disabled={detect?.provider !== "lm_studio"}
+                    aria-labelledby="fit-policy-label"
+                    onChange={(e) => setFitPolicy(e.target.value as "" | "skip" | "unload_other_models")}
+                  >
+                    <option value="">{msg().bench.memFitOptionLog}</option>
+                    <option value="unload_other_models">{msg().bench.memFitUnload}</option>
+                    <option value="skip">{msg().bench.memFitOptionSkip}</option>
+                  </select>
+                </div>
+                <div
+                  className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
+                  title={msg().bench.loadTtlTitle}
+                >
+                  <span className="mt-1 flex-1">
+                    <span id="load-ttl-label" className="font-medium text-[var(--foreground)]">{msg().bench.loadTtlLabel}</span>
+                    <span className="mt-0.5 block text-xs leading-snug">
+                      {msg().bench.loadTtlHintA}<code>ttl</code>{msg().bench.loadTtlHintB}<code>keep_alive</code>{msg().bench.loadTtlHintC}<code>/v1</code>{msg().bench.loadTtlHintD}
+                      {detect && !providerSupportsLoadTtl(detect.provider) ? msg().bench.inactiveOnCurrentProvider : ""}
+                    </span>
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    placeholder={msg().bench.notApplied}
+                    className="mt-1 w-24 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
+                    value={loadTtlSeconds}
+                    disabled={!detect || !providerSupportsLoadTtl(detect.provider)}
+                    aria-labelledby="load-ttl-label"
+                    onChange={(e) => setLoadTtlSeconds(e.target.value)}
+                  />
+                </div>
+                <label
+                  className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
+                  title={msg().bench.contentionGuardTitle}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={contentionGuardEnabled}
+                    onChange={(e) => setContentionGuardEnabled(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium text-[var(--foreground)]">{msg().bench.contentionGuardLabel}</span>
+                    <span className="mt-0.5 block text-xs leading-snug">
+                      {msg().bench.contentionGuardHint}
+                    </span>
+                  </span>
+                </label>
+                {contentionGuardEnabled ? (
+                  <div className="mt-2 ml-6 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
+                    <label className="flex items-center gap-1.5">
+                      {msg().bench.preBenchTimeoutLabel}
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        className="w-20 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
+                        value={contentionPreBenchTimeoutSec}
+                        onChange={(e) => setContentionPreBenchTimeoutSec(e.target.value)}
+                      />
+                    </label>
+                    <label className="flex items-center gap-1.5">
+                      {msg().bench.retriesPerRunLabel}
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        max={5}
+                        className="w-16 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
+                        value={contentionMaxRetries}
+                        onChange={(e) => setContentionMaxRetries(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                ) : null}
                 <label className="grid gap-1">
                   <span className="text-xs text-[var(--muted)]">{msg().bench.presetOverrideLabel}</span>
                   <select
@@ -2478,6 +2582,14 @@ export function App() {
               </div>
             </details>
           </div>
+        </StepSection>
+
+        <StepSection
+          {...stepProps(4)}
+          title={msg().bench.wizard.step4Title}
+          icon={Monitor}
+          summary={msg().bench.wizard.step4Summary(orderedSelectedModels.length, detect?.models.length ?? 0)}
+        >
           {detecting ? (
             <p className="flex items-center justify-center gap-2 py-10 text-sm text-[var(--muted)]">
               <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
@@ -2518,27 +2630,8 @@ export function App() {
               {detectButton}
             </div>
           )}
-        </section>
+        </StepSection>
 
-        <div className="space-y-2">
-          <div className="flex justify-end">
-            <NavLink
-              to={
-                running && benchCurrent?.scenario
-                  ? `/scenarios#${benchCurrent.scenario}`
-                  : "/scenarios"
-              }
-              className="text-xs text-[var(--accent-2)] no-underline hover:underline"
-            >
-              {msg().bench.scenarioDetailDocLink}
-            </NavLink>
-          </div>
-          <ScenarioGuideCards
-            currentScenario={running ? benchCurrent?.scenario : null}
-            running={running}
-            touchedScenarioIds={touchedScenarioIds}
-          />
-        </div>
 
         <BenchProgressPanel
           className={benchProgressClass}

@@ -119,7 +119,7 @@ export const bench: Messages["bench"] = {
   qwen38ReasoningEffortHint:
     "モデルカードの既定は xhigh ですが、思考トークンが膨張するためハーネスの既定は low です。精度が必要なら上げてください。",
   preserveThinkingHint: "エージェント型のマルチターンでのみオンにすることを推奨します。",
-  advancedSummary: "高度: プリセット·サンプリング JSON オーバーライド",
+  advancedSummary: "詳細: 推論 · サンプリング · モデルロード/メモリ · 汚染ガード",
   presetOverrideLabel: "preset を強制 (空欄で自動)",
   presetAuto: "自動",
   samplingOverridesLabel: "samplingOverrides (JSON オブジェクト)",
@@ -314,6 +314,13 @@ export const bench: Messages["bench"] = {
     },
     queueMore: (n) => `他 ${n}件`,
     queueMoreAria: (n) => `未表示のモデル ${n}件`,
+    step1Summary: (label, models) => `${label} · モデル ${models}個`,
+    step1NotConnected: "未接続",
+    step2Summary: (selected, total) => `${selected}/${total} 選択`,
+    step3MaxDefault: "推奨値",
+    step4Summary: (selected, total) => `${selected} / ${total} 選択`,
+    step6Summary: (models, results) => `モデル ${models}個 · 結果 ${results}件`,
+    step6Empty: "まだありません",
     queueListAria: "実行キューの状態",
   },
 };
