@@ -265,7 +265,6 @@ export function App() {
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
   })();
   const [selectedScenarioIds, setSelectedScenarioIds] = useState<string[]>(boot.selectedScenarioIds);
-  const [scenarioPickerOpen, setScenarioPickerOpen] = useState(boot.scenarioPickerOpen);
   // #79/#83: 서버에 등록된 동적 시나리오(멀티턴 agent_loop + 사용자 커스텀). 마운트 시 1회 페치.
   const [dynamicScenarios, setDynamicScenarios] = useState<
     Array<{ id: string; source: string; isAgentLoop: boolean; maxTurns: number | null }>
@@ -491,7 +490,6 @@ export function App() {
         samplingOverridesText,
         profileAdvancedOpen,
         selectedScenarioIds,
-        scenarioPickerOpen,
         benchmarkThroughputMode,
         contentionGuardEnabled,
         contentionPreBenchTimeoutSec,
@@ -520,7 +518,6 @@ export function App() {
     samplingOverridesText,
     profileAdvancedOpen,
     selectedScenarioIds,
-    scenarioPickerOpen,
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
@@ -548,7 +545,6 @@ export function App() {
     samplingOverridesText,
     profileAdvancedOpen,
     selectedScenarioIds,
-    scenarioPickerOpen,
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
@@ -574,7 +570,6 @@ export function App() {
     samplingOverridesText,
     profileAdvancedOpen,
     selectedScenarioIds,
-    scenarioPickerOpen,
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
@@ -1222,7 +1217,6 @@ export function App() {
         samplingOverridesText,
         profileAdvancedOpen,
         selectedScenarioIds,
-        scenarioPickerOpen,
         benchmarkThroughputMode,
         contentionGuardEnabled,
         contentionPreBenchTimeoutSec,
@@ -2062,12 +2056,7 @@ export function App() {
           }
         >
           <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
-            <button
-              type="button"
-              onClick={() => setScenarioPickerOpen((v) => !v)}
-              className="flex w-full items-center justify-between gap-2 text-left"
-              aria-expanded={scenarioPickerOpen}
-            >
+            <div className="flex w-full items-center justify-between gap-2 text-left">
               <span className="font-medium text-[var(--foreground)]">
                 {msg().bench.runScenariosLabel}{" "}
                 <span className={visibleSelectedScenarioIds.length === 0 ? "text-[var(--danger)]" : "text-[var(--muted)]"}>
@@ -2100,16 +2089,14 @@ export function App() {
                     {msg().bench.categoryAgent} {selectedAgentCount}/{agentScenarioIds.length}
                   </span>
                 ) : null}
-                <span className="text-[var(--muted)]" aria-hidden>{scenarioPickerOpen ? "▴" : "▾"}</span>
               </span>
-            </button>
-            {visibleSelectedScenarioIds.length === 0 && !scenarioPickerOpen ? (
+            </div>
+            {visibleSelectedScenarioIds.length === 0 ? (
               <p className="mt-2 text-xs text-[var(--danger)]">
                 {msg().bench.scenarioRequiredHint}
               </p>
             ) : null}
-            {scenarioPickerOpen ? (
-              <div className="mt-2 space-y-3">
+            <div className="mt-2 space-y-3">
                 <div className="flex flex-wrap gap-2 text-xs">
                   {(() => {
                     const allDefaultSelected = DEFAULT_SCENARIO_IDS.every(id => selectedScenarioIds.includes(id));
@@ -2280,7 +2267,6 @@ export function App() {
                   </div>
                 ) : null}
               </div>
-            ) : null}
           </div>
           <ScenarioGuideCards
             currentScenario={running ? benchCurrent?.scenario : null}
