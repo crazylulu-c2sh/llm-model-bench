@@ -251,11 +251,27 @@ export const DetectStepSchema = z.object({
 });
 export type DetectStep = z.infer<typeof DetectStepSchema>;
 
+/**
+ * 실패 분류. 서버는 코드만 보내고 사람이 읽는 문장은 클라이언트 i18n이 만든다 —
+ * 서버가 문장을 만들면 en·ja UI에 한국어가 그대로 샌다.
+ */
+export const ReachabilityCodeSchema = z.enum([
+  "connect_timeout",
+  "refused",
+  "dns",
+  "tls",
+  "network",
+  "partial",
+]);
+export type ReachabilityCode = z.infer<typeof ReachabilityCodeSchema>;
+
 /** 목록 API·네트워크 도달 여부(선택 — 구버전 응답에는 없을 수 있음) */
 export const ReachabilitySchema = z.object({
   ok: z.boolean(),
   state: z.enum(["ok", "unreachable", "partial"]),
+  /** errno 등 원문 진단. 번역 대상이 아니라 사유 문장 뒤에 덧붙이는 상세다. */
   reason: z.string().optional(),
+  code: ReachabilityCodeSchema.optional(),
 });
 export type Reachability = z.infer<typeof ReachabilitySchema>;
 

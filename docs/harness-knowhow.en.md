@@ -77,14 +77,14 @@ A single benchmark harness can target many locally-hosted or remote LLM servers 
 
 ### Detect → fallback chain
 
-`detectProvider()` tries each list endpoint in order and returns on the first success; every attempt is appended to `steps[]` for diagnostics. If all three miss, it falls back to `provider: "manual"`.
+`detectProvider()` tries each list endpoint in order and returns on the first success; every attempt is appended to `steps[]` for diagnostics. If all three miss, it falls back to `provider: "manual"`. Each request is bounded by `timeoutMs` (5s default), and a transport-layer failure (`ECONNREFUSED`, `EHOSTUNREACH`, connect timeout, …) skips the remaining paths and the capability probe for that same origin — without a bound, undici's default connect timeout accumulates once per request and an unreachable host stalls detection for over 50 seconds.
 
-- `${base}/api/v1/models` → `provider: "lm_studio"` (expects `{ models: [{ key, type, display_name, publisher, ... }] }`; `publisher` is forwarded into DetectResult, falling back to the `org/` prefix of the id when absent)
+- `${base}/api/v1/models` → `provider: "lm_studio"` (expects `{ models: [{ key, type, display_name, publisher, ... }] }`; `publisher` is forwarded into DetectResult, falling back to the `org/` prefix of the id when absent). **A 200 whose body carries no native `models` array does not identify LM Studio — detection continues to the next candidate** — because LM Studio answers unknown paths with `200 + {"error": …}` too, so trusting the status alone manufactures a fake "healthy connection with 0 models"
 - `${base}/api/tags` → `provider: "ollama"` (expects `{ models: [{ name, model, size }] }`; publisher from the id's `org/` prefix only)
 - `${base}/v1/models` → `provider: "openai_compatible"` (expects `{ data: [{ id }] }`; publisher from the id's `org/` prefix only)
-- none matched → `provider: "manual"` with `models: []` and a computed `reachability` state (`ok` | `partial` | `unreachable`)
+- none matched → `provider: "manual"` with `models: []` and a computed `reachability` — a state (`ok` | `partial` | `unreachable`) plus a classification code (`connect_timeout` | `refused` | `dns` | `tls` | `network` | `partial`). The server sends only the code and the raw diagnostic (errno); the human-readable sentence is built by client i18n — a sentence built on the server leaks one language into every locale
 
-`base` is normalized first by `normalizeBaseUrl()`, which prepends `http://` if missing and strips a trailing OpenAI-style `/v1` suffix (via `stripOpenAiStyleV1Suffix()`) so the harness can consistently compose `base + /v1/...`.
+`base` is normalized first by `normalizeBaseUrl()`, which prepends `http://` if missing (case-insensitively — `HTTP://` is not mistaken for a hostname) and strips the documented API-base suffix via `stripDocumentedApiBaseSuffix()`. That covers the OpenAI-compatible `…/v1` as well as the `…/api/v1` and `…/api/v0` bases LM Studio advertises — the harness composes `base + /v1/...` and `base + /api/v1/...` itself, so leaving the suffix on doubles the path and probes a dead address.
 
 ```ts
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
@@ -92,7 +92,7 @@ export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 
 export async function detectProvider(
   rawBaseUrl: string,
-  opts?: { fetchImpl?: FetchLike; apiKey?: string;
+  opts?: { fetchImpl?: FetchLike; apiKey?: string; timeoutMs?: number;
            manual?: { provider: ProviderKind; models?: { id: string; label?: string }[] } },
 ): Promise<DetectResult>;
 ```

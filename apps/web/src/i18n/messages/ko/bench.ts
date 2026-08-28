@@ -202,8 +202,25 @@ export const bench = {
   runDetailError: (status: number) => `런 조회 실패 (${status})`,
   noScenarioData: "시나리오 데이터가 없습니다.",
   detectFailed: "프로바이더 감지에 실패했습니다.",
-  unreachableDefault: "Base URL에 연결할 수 없습니다. 서버가 켜져 있는지·주소·방화벽을 확인하세요.",
-  partialDefault: "모델 목록 경로 일부만 응답했습니다. 네트워크 또는 프록시 설정을 확인하세요.",
+  /**
+   * 도달 실패 사유. 서버는 분류 코드와 원문 진단(errno)만 보내고 문장은 여기서 만든다 —
+   * 서버가 문장을 만들면 en·ja UI에 한국어가 그대로 샌다.
+   */
+  reachabilityMessage: (code: string | undefined, detail?: string) => {
+    const head =
+      code === "connect_timeout"
+        ? "시간 안에 연결이 열리지 않았습니다. 포트와 방화벽(호스트 쪽 인바운드 차단)을 확인하세요."
+        : code === "refused"
+          ? "연결이 거부되었습니다. 해당 포트에서 서버가 실행 중인지 확인하세요."
+          : code === "dns"
+            ? "호스트 이름을 찾지 못했습니다. 주소 철자를 확인하세요."
+            : code === "tls"
+              ? "TLS 연결에 실패했습니다. http/https 선택과 인증서를 확인하세요."
+              : code === "partial"
+                ? "모델 목록 경로 일부만 응답했습니다. 네트워크 또는 프록시 설정을 확인하세요."
+                : "Base URL에 연결할 수 없습니다. 서버가 켜져 있는지·주소·방화벽을 확인하세요.";
+    return detail ? `${head} (${detail})` : head;
+  },
   noModelsHintLmStudio: "LM Studio에서 모델을 로드한 뒤 다시 시도하세요.",
   noModelsHintGeneric: "모델 목록이 비어 있습니다. Base URL·API 키를 확인하세요.",
   detectedNoModels: (hint: string) => `감지됐지만 모델이 없습니다. ${hint}`,
@@ -322,6 +339,8 @@ export const bench = {
     queueMore: (n: number) => `외 ${n}개`,
     queueMoreAria: (n: number) => `표시하지 않은 모델 ${n}개`,
     step1Summary: (label: string, models: number) => `${label} · 모델 ${models}개`,
+    /** 닿지 못한 연결을 "URL · 모델 0개"로 적으면 접힌 요약이 연결됨처럼 읽힌다. */
+    step1Unreachable: (label: string) => `${label} · 닿지 못함`,
     step1NotConnected: "연결되지 않음",
     step2Summary: (selected: number, total: number) => `${selected}/${total} 선택`,
     step3MaxDefault: "권장값",

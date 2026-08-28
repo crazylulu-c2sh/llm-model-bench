@@ -22,6 +22,11 @@ export type StepStatus = "pending" | "active" | "done";
 export type BenchPhase = {
   /** `detect != null` */
   detected: boolean;
+  /**
+   * 감지 결과가 실제로 프로바이더에 닿았는지. 닿지 못한 결과로 국면을 넘기면 실패 사유가 든
+   * 1단계가 접혀, 사용자에게는 아무 설명 없이 4단계만 열린 화면이 남는다.
+   */
+  reachable: boolean;
   detecting: boolean;
   running: boolean;
   /** `rows.length` */
@@ -36,7 +41,7 @@ export type BenchPhase = {
  */
 export function resolveActiveStep(phase: BenchPhase, prevActive: StepNumber | null): StepNumber {
   if (phase.detecting) return prevActive ?? 1;
-  if (!phase.detected) return 1;
+  if (!phase.detected || !phase.reachable) return 1;
   if (phase.running) return 5;
   if (phase.resultCount > 0) return 6;
   return 4;

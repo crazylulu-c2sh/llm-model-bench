@@ -20,7 +20,7 @@ import {
   type ScenarioCategory,
 } from "@llm-bench/shared";
 import { makeBenchRunMeta, runBench, type BenchRequest } from "../bench-runner.js";
-import { detectProvider } from "../detect.js";
+import { describeFetchError, detectProvider } from "../detect.js";
 import { registerMonitorRoutes } from "../monitor-routes.js";
 import { runStress, type StressRequest } from "../stress-runner.js";
 import { cancelRunControl, pauseRunControl, resumeRunControl } from "../run-control.js";
@@ -412,7 +412,7 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       const result = await detectProvider(baseUrl, { apiKey, manual });
       return c.json(result satisfies DetectResult);
     } catch (e) {
-      return c.json({ error: String(e) }, 500);
+      return c.json({ error: describeFetchError(e) }, 500);
     }
   });
 
