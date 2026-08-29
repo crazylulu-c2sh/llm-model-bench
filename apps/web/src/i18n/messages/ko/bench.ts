@@ -41,6 +41,12 @@ export const bench = {
   categoryVision: "비전",
   categoryAgent: "에이전트",
   scenarioRequiredHint: "실행할 시나리오를 1개 이상 선택해야 합니다.",
+  settingsInitial: "초기값",
+  settingsRecommended: "권장값",
+  settingsInitialTitle:
+    "하네스 공장 기본값으로 되돌립니다. 프로파일 자동, 사고 켜기, Qwen3.8 effort low, max_tokens 비움, 고급(로드·메모리·오염 가드)도 기본값. Base URL·API 키는 유지합니다.",
+  settingsRecommendedTitle:
+    "모델 카드 권장으로 맞춥니다. 사고 켜기, 처리량 모드 끄기, Qwen3.8 effort xhigh, max_tokens는 비워 시나리오별 권장값을 씁니다. 로드·메모리·오염 가드는 바꾸지 않습니다.",
   toggleTextTitle: (n: number) => `텍스트 시나리오 ${n}개 토글`,
   toggleVisionTitle: (n: number) => `비전 시나리오 ${n}개 토글`,
   toggleAgentTitle: "에이전트 시나리오 토글",
@@ -313,6 +319,7 @@ export const bench = {
 
   // 시나리오 안내 카드 (ScenarioGuideCards)
   scenarioGuideHeading: "벤치 시나리오 안내",
+  scenarioGuideSummary: (n: number) => `${n}개 카드`,
   scenarioGuideIntroA: "각 카드는 해당 시나리오가 무엇을 검증하는지 요약합니다. ",
   scenarioGuideIntroB: " 뱃지 카드는 이미지 입력을 받으며 비전 미지원 모델에서는 400을 받을 수 있습니다.",
   enlargeImageAria: (id: string) => `${id} 이미지 확대`,

@@ -37,6 +37,12 @@ export const bench: Messages["bench"] = {
   categoryVision: "Vision",
   categoryAgent: "Agent",
   scenarioRequiredHint: "Select at least one scenario to run.",
+  settingsInitial: "Initial",
+  settingsRecommended: "Recommended",
+  settingsInitialTitle:
+    "Reset to harness factory defaults: profile auto, thinking on, Qwen3.8 effort low, empty max_tokens, and advanced load/memory/contention defaults. Base URL and API key are kept.",
+  settingsRecommendedTitle:
+    "Apply model-card recommendations: thinking on, throughput mode off, Qwen3.8 effort xhigh, empty max_tokens so per-scenario recommended values apply. Load/memory/contention settings are left unchanged.",
   toggleTextTitle: (n) => `Toggle ${n} text scenarios`,
   toggleVisionTitle: (n) => `Toggle ${n} vision scenarios`,
   toggleAgentTitle: "Toggle agent scenarios",
@@ -312,6 +318,7 @@ export const bench: Messages["bench"] = {
 
   // Scenario guide cards (ScenarioGuideCards)
   scenarioGuideHeading: "Bench scenario guide",
+  scenarioGuideSummary: (n) => `${n} card${n === 1 ? "" : "s"}`,
   scenarioGuideIntroA: "Each card summarizes what the scenario verifies. ",
   scenarioGuideIntroB: " badge cards take image input and may 400 on models without vision support.",
   enlargeImageAria: (id) => `Enlarge ${id} image`,

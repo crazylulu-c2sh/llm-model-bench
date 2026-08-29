@@ -90,6 +90,7 @@ import {
 } from "./lib/bench-steps";
 import { QueueStatusChips } from "./components/QueueStatusChips";
 import { StepSection } from "./components/StepSection";
+import { CollapsibleCard } from "./components/CollapsibleCard";
 import { AppHeader, pageTitleForPath } from "./components/AppHeader";
 import { useI18n, msg } from "./i18n";
 import {
@@ -97,10 +98,18 @@ import {
   isPickerBuiltinAgentId,
   PICKER_BUILTIN_AGENT_IDS,
 } from "./lib/bench-scenario-picker";
+import {
+  categoryChipClass,
+  categoryToggleClass,
+  fillAriaPressed,
+  fillLevel,
+} from "./lib/selection-fill";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { WslLoopbackHint } from "./components/WslLoopbackHint";
 import {
   QWEN38_REASONING_EFFORTS,
+  QWEN38_REASONING_EFFORT_RECOMMENDED,
+  factoryStep3Settings,
   readInitialUiState,
   saveUiSnapshot,
   type Qwen38ReasoningEffort,
@@ -1289,6 +1298,37 @@ export function App() {
     });
   }, []);
 
+  const applyInitialStep3 = useCallback(() => {
+    const f = factoryStep3Settings();
+    setProfileId(f.profileId);
+    setProfileMaxTokens(f.profileMaxTokens);
+    setThinkingIntent(f.thinkingIntent);
+    setPreserveThinking(f.preserveThinking);
+    setReasoningEffort(f.reasoningEffort);
+    setQwen38ReasoningEffort(f.qwen38ReasoningEffort);
+    setPresetOverride(f.presetOverride);
+    setSamplingOverridesText(f.samplingOverridesText);
+    setBenchmarkThroughputMode(f.benchmarkThroughputMode);
+    setContentionGuardEnabled(f.contentionGuardEnabled);
+    setContentionPreBenchTimeoutSec(f.contentionPreBenchTimeoutSec);
+    setContentionMaxRetries(f.contentionMaxRetries);
+    setUnloadOtherModels(f.unloadOtherModels);
+    setAutoUnloadAfterBench(f.autoUnloadAfterBench);
+    setLoadTtlSeconds(f.loadTtlSeconds);
+    setFitPolicy(f.fitPolicy);
+    setProfileAdvancedOpen(false);
+  }, []);
+
+  const applyRecommendedStep3 = useCallback(() => {
+    setThinkingIntent("on");
+    setBenchmarkThroughputMode(false);
+    setQwen38ReasoningEffort(QWEN38_REASONING_EFFORT_RECOMMENDED);
+    setReasoningEffort("medium");
+    setPresetOverride("");
+    setSamplingOverridesText("");
+    setProfileMaxTokens("");
+  }, []);
+
   const pushBenchLine = useCallback((kind: BenchStepKind, text: string) => {
     setBenchStepLines((prev) => [...prev.slice(-79), { ts: Date.now(), kind, text }]);
   }, []);
@@ -2090,7 +2130,7 @@ export function App() {
             </NavLink>
           }
         >
-          <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
+          <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
             <div className="flex w-full items-center justify-between gap-2 text-left">
               <span className="font-medium text-[var(--foreground)]">
                 {msg().bench.runScenariosLabel}{" "}
@@ -2099,27 +2139,13 @@ export function App() {
                 </span>
               </span>
               <span className="flex items-center gap-2 text-xs">
-                <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[var(--muted)]">
+                <span className={categoryChipClass(fillLevel(selectedTextCount, totalTextScenarios))}>
                   {msg().bench.categoryText} {selectedTextCount}/{totalTextScenarios}
                 </span>
-                <span
-                  className={[
-                    "rounded px-1.5 py-0.5",
-                    selectedVisionCount > 0
-                      ? "bg-[var(--accent)]/15 text-[var(--accent-2)]"
-                      : "bg-[var(--surface-2)] text-[var(--muted)]",
-                  ].join(" ")}
-                >
+                <span className={categoryChipClass(fillLevel(selectedVisionCount, VISION_SCENARIO_IDS.length))}>
                   {msg().bench.categoryVision} {selectedVisionCount}/{VISION_SCENARIO_IDS.length}
                 </span>
-                <span
-                  className={[
-                    "rounded px-1.5 py-0.5",
-                    selectedAgentCount > 0
-                      ? "bg-[var(--accent)]/15 text-[var(--accent-2)]"
-                      : "bg-[var(--surface-2)] text-[var(--muted)]",
-                  ].join(" ")}
-                >
+                <span className={categoryChipClass(fillLevel(selectedAgentCount, agentScenarioIds.length))}>
                   {msg().bench.categoryAgent} {selectedAgentCount}/{agentScenarioIds.length}
                 </span>
               </span>
@@ -2132,14 +2158,28 @@ export function App() {
             <div className="mt-2 space-y-3">
                 <div className="flex flex-wrap gap-2 text-xs">
                   {(() => {
-                    const allDefaultSelected = DEFAULT_SCENARIO_IDS.every(id => selectedScenarioIds.includes(id));
-                    const allVisionSelected = VISION_SCENARIO_IDS.every(id => selectedScenarioIds.includes(id));
-                    const allAgentSelected = agentScenarioIds.length > 0 && agentScenarioIds.every(id => selectedScenarioIds.includes(id));
+                    const textFill = fillLevel(
+                      DEFAULT_SCENARIO_IDS.filter((id) => selectedScenarioIds.includes(id)).length,
+                      DEFAULT_SCENARIO_IDS.length,
+                    );
+                    const visionFill = fillLevel(
+                      VISION_SCENARIO_IDS.filter((id) => selectedScenarioIds.includes(id)).length,
+                      VISION_SCENARIO_IDS.length,
+                    );
+                    const agentFill = fillLevel(
+                      agentScenarioIds.filter((id) => selectedScenarioIds.includes(id)).length,
+                      agentScenarioIds.length,
+                    );
+                    const catalogFill = fillLevel(visibleSelectedScenarioIds.length, pickerCatalogCount);
+                    const allDefaultSelected = textFill === "all";
+                    const allVisionSelected = visionFill === "all";
+                    const allAgentSelected = agentFill === "all";
                     return (
                       <>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    className={categoryToggleClass(textFill)}
+                    aria-pressed={fillAriaPressed(textFill)}
                     onClick={() => {
                       if (allDefaultSelected) {
                         setSelectedScenarioIds(prev => prev.filter(id => !(DEFAULT_SCENARIO_IDS as string[]).includes(id)));
@@ -2154,7 +2194,8 @@ export function App() {
                   </button>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    className={categoryToggleClass(visionFill)}
+                    aria-pressed={fillAriaPressed(visionFill)}
                     onClick={() => {
                       if (allVisionSelected) {
                         setSelectedScenarioIds(prev => prev.filter(id => !(VISION_SCENARIO_IDS as string[]).includes(id)));
@@ -2169,7 +2210,8 @@ export function App() {
                   </button>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    className={categoryToggleClass(agentFill)}
+                    aria-pressed={fillAriaPressed(agentFill)}
                     onClick={() => {
                       if (allAgentSelected) {
                         setSelectedScenarioIds(prev => prev.filter(id => !agentScenarioIds.includes(id)));
@@ -2184,7 +2226,8 @@ export function App() {
                   </button>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    className={categoryToggleClass(catalogFill)}
+                    aria-pressed={fillAriaPressed(catalogFill)}
                     onClick={() =>
                       setSelectedScenarioIds([
                         ...DEFAULT_SCENARIO_IDS,
@@ -2201,7 +2244,7 @@ export function App() {
                   </button>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[var(--foreground)] hover:bg-[var(--surface-2)]"
                     onClick={() => setSelectedScenarioIds([])}
                   >
                     <Square className="size-3" aria-hidden />
@@ -2346,7 +2389,26 @@ export function App() {
             </NavLink>
           }
         >
-          <div className="mb-3 grid grid-cols-1 gap-2 rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs font-medium text-[var(--foreground)] shadow-sm hover:bg-[var(--surface-2)]"
+                title={msg().bench.settingsInitialTitle}
+                onClick={applyInitialStep3}
+              >
+                {msg().bench.settingsInitial}
+              </button>
+              <button
+                type="button"
+                className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs font-medium text-[var(--foreground)] shadow-sm hover:bg-[var(--surface-2)]"
+                title={msg().bench.settingsRecommendedTitle}
+                onClick={applyRecommendedStep3}
+              >
+                {msg().bench.settingsRecommended}
+              </button>
+            </div>
+          <div className="grid grid-cols-1 gap-2 rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
             <label className="grid min-w-0 gap-1">
               <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.profile}</span>
               <select
@@ -2634,6 +2696,7 @@ export function App() {
               </div>
             </details>
           </div>
+          </div>
         </StepSection>
 
         <StepSection
@@ -2649,7 +2712,7 @@ export function App() {
             </p>
           ) : detect && detect.models.length > 0 ? (
             <>
-              <div className="mb-3 flex justify-end">{detectButton}</div>
+              <div className="flex justify-end">{detectButton}</div>
               <ModelTable
                 models={detect.models}
                 selected={selected}
@@ -2874,13 +2937,12 @@ export function App() {
             providerByModel={providerByModel}
             headingLevel={3}
           />
-          <section
-            className={"rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4"}
+          <CollapsibleCard
+            id="bench-metrics-chart"
+            title={msg().bench.metricsChartHeading}
+            icon={Activity}
+            headingLevel={3}
           >
-            <h3 className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
-              <Activity className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-              {msg().bench.metricsChartHeading}
-            </h3>
             <div className="mb-4 flex flex-wrap items-center gap-4 text-sm">
               <label className="inline-flex cursor-pointer items-center gap-2 text-[var(--foreground)]">
                 <input
@@ -2963,7 +3025,7 @@ export function App() {
                 benchScenarioOrder={benchScenarioOrder}
               />
             )}
-          </section>
+          </CollapsibleCard>
           <section
             className={"rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4"}
           >

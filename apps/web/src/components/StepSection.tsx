@@ -118,7 +118,9 @@ export const StepSection = memo(function StepSection({
 
       <div
         id={bodyId}
-        className={open ? "border-t border-[var(--border)] px-4 pb-4 pt-3" : "hidden"}
+        className={
+          open ? "flex flex-col gap-6 border-t border-[var(--border)] px-4 pb-4 pt-3" : "hidden"
+        }
       >
         {children}
       </div>

@@ -8,6 +8,7 @@ import {
 import { Layers, ZoomIn } from "lucide-react";
 import { useState } from "react";
 import { useI18n } from "../i18n";
+import { CollapsibleCard } from "./CollapsibleCard";
 import { VisionImageModal } from "./VisionImageModal";
 
 export function ScenarioGuideCards({
@@ -23,17 +24,19 @@ export function ScenarioGuideCards({
   headingLevel?: 2 | 3;
 }) {
   const { m, locale } = useI18n();
-  const Heading = headingLevel === 3 ? "h3" : "h2";
   const touched = touchedScenarioIds ?? [];
   const baseUrl =
     typeof window !== "undefined" ? window.location.origin : undefined;
   const [modal, setModal] = useState<{ url: string; scenarioId: string; category?: string } | null>(null);
   return (
-    <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
-      <Heading className="mb-3 inline-flex items-center gap-2 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">
-        <Layers className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-        {m.bench.scenarioGuideHeading}
-      </Heading>
+    <>
+      <CollapsibleCard
+        id="bench-scenario-guide"
+        title={m.bench.scenarioGuideHeading}
+        icon={Layers}
+        headingLevel={headingLevel}
+        summary={m.bench.scenarioGuideSummary(PUBLIC_SCENARIO_IDS.length)}
+      >
       <p className="mb-3 text-xs leading-relaxed text-[var(--muted)]">
         {m.bench.scenarioGuideIntroA}<strong>Vision</strong>{m.bench.scenarioGuideIntroB}
       </p>
@@ -117,6 +120,7 @@ export function ScenarioGuideCards({
           );
         })}
       </div>
+      </CollapsibleCard>
       <VisionImageModal
         open={modal !== null}
         imageUrl={modal?.url ?? ""}
@@ -124,6 +128,6 @@ export function ScenarioGuideCards({
         categoryLabel={modal?.category}
         onClose={() => setModal(null)}
       />
-    </section>
+    </>
   );
 }
