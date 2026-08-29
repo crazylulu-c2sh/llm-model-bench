@@ -21,6 +21,7 @@ import {
 } from "@llm-bench/shared";
 import { makeBenchRunMeta, runBench, type BenchRequest } from "../bench-runner.js";
 import { describeFetchError, detectProvider } from "../detect.js";
+import { readWindowsHostIp } from "../util/wsl-windows-host.js";
 import { registerMonitorRoutes } from "../monitor-routes.js";
 import { runStress, type StressRequest } from "../stress-runner.js";
 import { cancelRunControl, pauseRunControl, resumeRunControl } from "../run-control.js";
@@ -67,7 +68,13 @@ const emptyStressFilterOptions = () => ({
  * 핸들러는 `c.req.param()/query()`만 쓰므로 경로 문자열만 prefix로 템플릿한다(로직 무변경).
  */
 export function registerApiRoutes(app: Hono, prefix: string): void {
-  app.get(`${prefix}/health`, (c) => c.json({ ok: true, service: "llm-bench-server" }));
+  app.get(`${prefix}/health`, (c) =>
+    c.json({
+      ok: true,
+      service: "llm-bench-server",
+      wsl_windows_host: readWindowsHostIp(),
+    }),
+  );
 
   // (model_id, base_url)별 최신 finished 런 요약 — 통계 페이지 목록
   app.get(`${prefix}/stats/model-latest`, async (c) => {

@@ -50,6 +50,7 @@ import {
   type OpenAiStreamMetrics,
 } from "./openai-stream.js";
 import { openAiChatPostWithUsage } from "./openai-fetch.js";
+import { providerFetch } from "./provider-fetch.js";
 import {
   ALL_SCENARIO_IDS,
   anthropicMessagesForScenario,
@@ -505,7 +506,7 @@ export async function* runBench(
     systemInfoImpl?: () => SystemSnapshot;
   } = {},
 ): AsyncGenerator<StreamEvent> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? providerFetch;
   const base = detect.baseUrl.replace(/\/+$/, "");
   // STEP 0: 오염 가드 config·probe·clock. config는 BenchRequest로 흐르고(opts는 테스트 주입 전용).
   const contentionCfg: ContentionConfig = resolveContentionConfig({

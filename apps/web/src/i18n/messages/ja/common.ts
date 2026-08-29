@@ -19,4 +19,9 @@ export const common: Messages["common"] = {
     title: "このページの表示中にエラーが発生しました",
     body: "別のタブに移動すれば引き続き利用できます。問題が繰り返し発生する場合は、下のエラー内容とあわせてお知らせください。",
   },
+  wslLoopbackHintBefore:
+    "このベンチサーバーは WSL 上です。Base URL は localhost のままにしてください。接続時に Windows ホスト ",
+  wslLoopbackHintAfter: " へ自動転送されます。",
+  wslUseLocalhost: "localhost に固定",
+  wslUseLocalhostAria: (url) => `Base URL を ${url} に変更します`,
 };

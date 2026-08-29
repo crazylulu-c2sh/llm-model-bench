@@ -35,6 +35,7 @@ import {
   type OpenAiStreamDelta,
 } from "./openai-stream.js";
 import { openAiChatPostWithUsage } from "./openai-fetch.js";
+import { providerFetch } from "./provider-fetch.js";
 import { detectScript } from "./scenarios.js";
 import {
   lmStudioUnload,
@@ -274,7 +275,7 @@ export async function* runStress(
   detect: DetectResult,
   opts: StressRunnerOptions = {},
 ): AsyncGenerator<StressStreamEvent> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? providerFetch;
   const tickIntervalMs = Math.max(250, opts.tickIntervalMs ?? 1000);
   const externalSignal = opts.signal;
 

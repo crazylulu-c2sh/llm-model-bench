@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import type { SortingState } from "@tanstack/react-table";
 import { DEFAULT_MODEL_TABLE_SORTING, ModelTable } from "./components/ModelTable";
 import { ProviderMemoryWidget } from "./components/ProviderMemoryWidget";
+import { WslLoopbackHint } from "./components/WslLoopbackHint";
 import { StressMonitorGrid, emptyCellState, type StressCellState } from "./components/StressMonitorGrid";
 import { StressResultTable } from "./components/StressResultTable";
 import { StressTpsChart } from "./components/StressTpsChart";
@@ -490,6 +491,7 @@ export function StressPage() {
             {m.stress.detect.detectBtn}
           </button>
         </div>
+        <WslLoopbackHint baseUrl={baseUrl} onUseLocalhost={setBaseUrl} />
         <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]">
           <input
             type="checkbox"

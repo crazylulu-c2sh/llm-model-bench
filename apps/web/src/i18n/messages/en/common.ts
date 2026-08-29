@@ -19,4 +19,9 @@ export const common: Messages["common"] = {
     title: "Something went wrong while showing this page",
     body: "You can keep using the app by switching to another tab. If the problem persists, let us know with the error details below.",
   },
+  wslLoopbackHintBefore:
+    "This bench server is in WSL. Keep Base URL as localhost — connections are forwarded to the Windows host ",
+  wslLoopbackHintAfter: ".",
+  wslUseLocalhost: "Use localhost",
+  wslUseLocalhostAria: (url) => `Change Base URL to ${url}`,
 };

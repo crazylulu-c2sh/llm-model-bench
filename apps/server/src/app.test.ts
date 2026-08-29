@@ -32,7 +32,15 @@ describe("dual-prefix routing (/api ≡ /api/v1)", () => {
     const b = await req("/api/v1/health");
     expect(a.status).toBe(200);
     expect(b.status).toBe(200);
-    expect(await a.json()).toEqual(await b.json());
+    const body = (await a.json()) as {
+      ok: boolean;
+      service: string;
+      wsl_windows_host: string | null;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.service).toBe("llm-bench-server");
+    expect(body.wsl_windows_host === null || typeof body.wsl_windows_host === "string").toBe(true);
+    expect(await b.json()).toEqual(body);
   });
 
   it("scenarios served at both prefixes", async () => {

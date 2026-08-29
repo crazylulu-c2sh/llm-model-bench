@@ -91,6 +91,7 @@ import { StepSection } from "./components/StepSection";
 import { AppHeader, pageTitleForPath } from "./components/AppHeader";
 import { useI18n, msg } from "./i18n";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { WslLoopbackHint } from "./components/WslLoopbackHint";
 import {
   QWEN38_REASONING_EFFORTS,
   readInitialUiState,
@@ -2005,6 +2006,7 @@ export function App() {
               />
             </label>
           </div>
+          <WslLoopbackHint baseUrl={baseUrl} onUseLocalhost={setBaseUrl} />
           {namedBaseUrls.length > 0 ? (
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
               <label

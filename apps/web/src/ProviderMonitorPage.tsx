@@ -10,6 +10,7 @@ import {
   type MonitorProvider,
 } from "./persisted-settings";
 import { msg, useI18n } from "./i18n";
+import { WslLoopbackHint } from "./components/WslLoopbackHint";
 
 const INTERVAL_MS_OPTIONS: (2000 | 5000 | 10000)[] = [2000, 5000, 10000];
 
@@ -161,6 +162,7 @@ export function ProviderMonitorPage() {
             {m.monitor.refresh}
           </button>
         </div>
+        <WslLoopbackHint baseUrl={baseUrl} onUseLocalhost={setBaseUrl} />
 
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
           <Badge ok={remoteLoopback} label={remoteLoopback ? "loopback" : "remote"} />

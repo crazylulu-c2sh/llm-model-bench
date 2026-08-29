@@ -7,6 +7,7 @@ import {
   type Reachability,
   type ReachabilityCode,
 } from "@llm-bench/shared";
+import { providerFetch } from "./provider-fetch.js";
 
 export type FetchLike = typeof fetch;
 
@@ -186,7 +187,7 @@ export async function detectProvider(
     timeoutMs?: number;
   } = {},
 ): Promise<DetectResult> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? providerFetch;
   const baseUrl = normalizeBaseUrl(rawBaseUrl);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const steps: DetectStep[] = [];
