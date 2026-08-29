@@ -53,6 +53,8 @@ export const bench = {
   textScenariosHeading: "텍스트 시나리오",
   visionScenariosHeading: "비전 시나리오",
   visionScenariosNote: "(opt-in · 비전 미지원 모델은 400/거부 가능 · 호출 비용 ↑)",
+  agentScenariosHeading: "에이전트 시나리오",
+  agentScenariosNote: "(opt-in · 멀티턴 agent_loop)",
   customAgentScenariosHeading: "커스텀 · 에이전트 시나리오",
   customAgentScenariosNote: "(agent_loop · 사용자 등록 — 서버에 등록된 것)",
 

@@ -49,6 +49,8 @@ export const bench: Messages["bench"] = {
   textScenariosHeading: "テキストシナリオ",
   visionScenariosHeading: "ビジョンシナリオ",
   visionScenariosNote: "(opt-in · ビジョン非対応モデルは 400/拒否あり · 呼び出しコスト ↑)",
+  agentScenariosHeading: "エージェントシナリオ",
+  agentScenariosNote: "(opt-in · マルチターン agent_loop)",
   customAgentScenariosHeading: "カスタム · エージェントシナリオ",
   customAgentScenariosNote: "(agent_loop · ユーザー登録 — サーバーに登録済みのもの)",
 

@@ -5,6 +5,7 @@ import {
   VISION_SCENARIO_IDS,
   cleanModelDisplayName,
   getScenarioBenchMeta,
+  getScenarioDef,
   inferLlmProfileFamily,
   isAgentScenario,
   isVisionScenario,
@@ -90,6 +91,11 @@ import { QueueStatusChips } from "./components/QueueStatusChips";
 import { StepSection } from "./components/StepSection";
 import { AppHeader, pageTitleForPath } from "./components/AppHeader";
 import { useI18n, msg } from "./i18n";
+import {
+  benchPickerCatalogCount,
+  isPickerBuiltinAgentId,
+  PICKER_BUILTIN_AGENT_IDS,
+} from "./lib/bench-scenario-picker";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { WslLoopbackHint } from "./components/WslLoopbackHint";
 import {
@@ -306,10 +312,17 @@ export function App() {
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
     );
   }, []);
+  const customScenarios = useMemo(
+    () => dynamicScenarios.filter((d) => !isPickerBuiltinAgentId(d.id)),
+    [dynamicScenarios],
+  );
   const visibleSelectedScenarioIds = useMemo(
     () =>
       selectedScenarioIds.filter(
-        (id) => (PUBLIC_SCENARIO_IDS as readonly string[]).includes(id) || dynamicScenarioIds.has(id),
+        (id) =>
+          (PUBLIC_SCENARIO_IDS as readonly string[]).includes(id) ||
+          isPickerBuiltinAgentId(id) ||
+          dynamicScenarioIds.has(id),
       ),
     [selectedScenarioIds, dynamicScenarioIds],
   );
@@ -330,9 +343,13 @@ export function App() {
     [],
   );
   const agentScenarioIds = useMemo(
-    () => dynamicScenarios.filter((d) => d.isAgentLoop).map((d) => d.id),
-    [dynamicScenarios],
+    () => [
+      ...PICKER_BUILTIN_AGENT_IDS,
+      ...customScenarios.filter((d) => d.isAgentLoop).map((d) => d.id),
+    ],
+    [customScenarios],
   );
+  const pickerCatalogCount = benchPickerCatalogCount(customScenarios.length);
   const [profileId, setProfileId] = useState<"auto" | LlmProfileFamily>(boot.profileId);
   const [profileMaxTokens, setProfileMaxTokens] = useState(boot.profileMaxTokens);
   const [thinkingIntent, setThinkingIntent] = useState<ThinkingIntent>(boot.thinkingIntent);
@@ -2060,7 +2077,7 @@ export function App() {
           {...stepProps(2)}
           title={msg().bench.wizard.step2Title}
           icon={FlaskConical}
-          summary={msg().bench.wizard.step2Summary(visibleSelectedScenarioIds.length, PUBLIC_SCENARIO_IDS.length + dynamicScenarios.length)}
+          summary={msg().bench.wizard.step2Summary(visibleSelectedScenarioIds.length, pickerCatalogCount)}
           headerActions={
             <NavLink
               to={running && benchCurrent?.scenario ? `/scenarios#${benchCurrent.scenario}` : "/scenarios"}
@@ -2075,7 +2092,7 @@ export function App() {
               <span className="font-medium text-[var(--foreground)]">
                 {msg().bench.runScenariosLabel}{" "}
                 <span className={visibleSelectedScenarioIds.length === 0 ? "text-[var(--danger)]" : "text-[var(--muted)]"}>
-                  ({visibleSelectedScenarioIds.length}/{PUBLIC_SCENARIO_IDS.length + dynamicScenarios.length})
+                  ({visibleSelectedScenarioIds.length}/{pickerCatalogCount})
                 </span>
               </span>
               <span className="flex items-center gap-2 text-xs">
@@ -2092,18 +2109,16 @@ export function App() {
                 >
                   {msg().bench.categoryVision} {selectedVisionCount}/{VISION_SCENARIO_IDS.length}
                 </span>
-                {agentScenarioIds.length > 0 ? (
-                  <span
-                    className={[
-                      "rounded px-1.5 py-0.5",
-                      selectedAgentCount > 0
-                        ? "bg-[var(--accent)]/15 text-[var(--accent-2)]"
-                        : "bg-[var(--surface-2)] text-[var(--muted)]",
-                    ].join(" ")}
-                  >
-                    {msg().bench.categoryAgent} {selectedAgentCount}/{agentScenarioIds.length}
-                  </span>
-                ) : null}
+                <span
+                  className={[
+                    "rounded px-1.5 py-0.5",
+                    selectedAgentCount > 0
+                      ? "bg-[var(--accent)]/15 text-[var(--accent-2)]"
+                      : "bg-[var(--surface-2)] text-[var(--muted)]",
+                  ].join(" ")}
+                >
+                  {msg().bench.categoryAgent} {selectedAgentCount}/{agentScenarioIds.length}
+                </span>
               </span>
             </div>
             {visibleSelectedScenarioIds.length === 0 ? (
@@ -2149,42 +2164,38 @@ export function App() {
                     <Eye className="size-3" aria-hidden />
                     {msg().bench.visionCountButton(VISION_SCENARIO_IDS.length)}
                   </button>
-                  {agentScenarioIds.length > 0 ? (
-                    <>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
-                        onClick={() => {
-                          if (allAgentSelected) {
-                            setSelectedScenarioIds(prev => prev.filter(id => !agentScenarioIds.includes(id)));
-                          } else {
-                            setSelectedScenarioIds(prev => [...new Set([...prev, ...agentScenarioIds])]);
-                          }
-                        }}
-                        title={msg().bench.toggleAgentTitle}
-                      >
-                        <Bot className="size-3" aria-hidden />
-                        {msg().bench.agentCountButton(agentScenarioIds.length)}
-                      </button>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
-                        onClick={() =>
-                          setSelectedScenarioIds([
-                            ...DEFAULT_SCENARIO_IDS,
-                            ...VISION_SCENARIO_IDS,
-                            ...agentScenarioIds,
-                          ])
-                        }
-                        title={msg().bench.selectAllCategoriesTitle}
-                      >
-                        <CheckSquare className="size-3" aria-hidden />
-                        {msg().bench.selectAllCountButton(
-                          DEFAULT_SCENARIO_IDS.length + VISION_SCENARIO_IDS.length + agentScenarioIds.length,
-                        )}
-                      </button>
-                    </>
-                  ) : null}
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    onClick={() => {
+                      if (allAgentSelected) {
+                        setSelectedScenarioIds(prev => prev.filter(id => !agentScenarioIds.includes(id)));
+                      } else {
+                        setSelectedScenarioIds(prev => [...new Set([...prev, ...agentScenarioIds])]);
+                      }
+                    }}
+                    title={msg().bench.toggleAgentTitle}
+                  >
+                    <Bot className="size-3" aria-hidden />
+                    {msg().bench.agentCountButton(agentScenarioIds.length)}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                    onClick={() =>
+                      setSelectedScenarioIds([
+                        ...DEFAULT_SCENARIO_IDS,
+                        ...VISION_SCENARIO_IDS,
+                        ...agentScenarioIds,
+                      ])
+                    }
+                    title={msg().bench.selectAllCategoriesTitle}
+                  >
+                    <CheckSquare className="size-3" aria-hidden />
+                    {msg().bench.selectAllCountButton(
+                      DEFAULT_SCENARIO_IDS.length + VISION_SCENARIO_IDS.length + agentScenarioIds.length,
+                    )}
+                  </button>
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
@@ -2250,14 +2261,44 @@ export function App() {
                     })}
                   </div>
                 </div>
-                {dynamicScenarios.length > 0 ? (
+                <div>
+                  <div className="mb-1 text-xs font-semibold text-[var(--foreground)]">
+                    {msg().bench.agentScenariosHeading}{" "}
+                    <span className="text-[var(--muted)]">{msg().bench.agentScenariosNote}</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                    {PICKER_BUILTIN_AGENT_IDS.map((id) => {
+                      const meta = getScenarioBenchMeta(id, locale);
+                      const checked = selectedScenarioIds.includes(id);
+                      const maxTurns = getScenarioDef(id)?.agentLoop?.maxTurns;
+                      return (
+                        <label key={id} className="flex items-start gap-2 text-xs text-[var(--muted)]">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={checked}
+                            onChange={() => toggleScenarioSelection(id)}
+                          />
+                          <span>
+                            <span className="font-mono text-[var(--foreground)]">{id}</span>
+                            {meta ? <span className="ml-1">— {meta.purpose.slice(0, 60)}</span> : null}
+                            {maxTurns != null ? (
+                              <span className="ml-1">· maxTurns {maxTurns}</span>
+                            ) : null}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+                {customScenarios.length > 0 ? (
                   <div>
                     <div className="mb-1 text-xs font-semibold text-[var(--foreground)]">
                       {msg().bench.customAgentScenariosHeading}{" "}
                       <span className="text-[var(--muted)]">{msg().bench.customAgentScenariosNote}</span>
                     </div>
                     <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                      {dynamicScenarios.map((s) => {
+                      {customScenarios.map((s) => {
                         const checked = selectedScenarioIds.includes(s.id);
                         return (
                           <label key={s.id} className="flex items-start gap-2 text-xs text-[var(--muted)]">
