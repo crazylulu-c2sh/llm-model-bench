@@ -4,6 +4,7 @@ import { isLmsCliEnabled, lmsPs, type LmsExecResult } from "./lms-cli.js";
 import { collectLmStudioLoaded, collectOllamaLoaded } from "./monitor-collect.js";
 import { baseKey } from "./lmstudio.js";
 import { isTargetOnServerHost } from "./util/localhost.js";
+import { providerFetch } from "./provider-fetch.js";
 
 /**
  * 벤치마크 오염 가드의 감지 핵심.
@@ -259,7 +260,7 @@ function loadedToBaseline(loaded: LoadedModelInfo[]): InFlightBaseline {
 
 export function makeContentionProbe(opts: MakeProbeOpts): ContentionProbe {
   const { provider, baseUrl, apiKey, modelId, cfg } = opts;
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? providerFetch;
   const getGpu = opts.getGpu ?? getGpuSnapshot;
   const runLmsPs = opts.runLmsPs ?? lmsPs;
   const targetKey = provider === "lm_studio" ? baseKey(modelId) : modelId;

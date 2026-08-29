@@ -162,7 +162,7 @@ describe("makeBenchRunMeta publisher", () => {
 });
 
 describe("normalizeScenarioIdsForBench", () => {
-  it("moves translate_nist_fips197_pdf_tools to the end while preserving other order", () => {
+  it("moves translate_nist_fips197_pdf_tools to the end of the text block while preserving other text order", () => {
     const input: ScenarioId[] = [
       "translate_nist_fips197_pdf_tools",
       "chat_ping",

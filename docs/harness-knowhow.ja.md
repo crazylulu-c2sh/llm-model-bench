@@ -84,7 +84,7 @@ for await (const ev of runBench(req, detect)) {
 - `${base}/v1/models` → `provider: "openai_compatible"`（`{ data: [{ id }] }` を期待。publisher は id の `org/` 接頭のみ）
 - いずれも一致しない → `provider: "manual"`（`models: []` と、算出された `reachability`）。状態（`ok` | `partial` | `unreachable`）に加えて分類コード（`connect_timeout` | `refused` | `dns` | `tls` | `network` | `partial`）を載せます。サーバーはコードと生の診断（errno）だけを送り、人が読む文はクライアントの i18n が組み立てます — サーバーが文を作ると多言語 UI に一つの言語が漏れます
 
-`base` はまず `normalizeBaseUrl()` で正規化され、スキームがなければ（大文字小文字を問わず — `HTTP://` をホスト名と誤認しません）`http://` を前置し、ドキュメントに記載された API ベースのサフィックスを `stripDocumentedApiBaseSuffix()` で取り除きます。対象は OpenAI 互換の `…/v1` に加え、LM Studio が案内する `…/api/v1`・`…/api/v0` も含みます — ハーネス自身が `base + /v1/...` と `base + /api/v1/...` を組み立てるため、外さないとパスが二重になり死んだアドレスを叩きます。
+`base` はまず `normalizeBaseUrl()` で正規化され、スキームがなければ（大文字小文字を問わず — `HTTP://` をホスト名と誤認しません）`http://` を前置し、ドキュメントに記載された API ベースのサフィックスを `stripDocumentedApiBaseSuffix()` で取り除きます。対象は OpenAI 互換の `…/v1` に加え、LM Studio が案内する `…/api/v1`・`…/api/v0` も含みます — ハーネス自身が `base + /v1/...` と `base + /api/v1/...` を組み立てるため、外さないとパスが二重になり死んだアドレスを叩きます。WSL2 NAT ではダッシュボードの `localhost` は Windows の LM Studio に届かないため、デフォルトの `providerFetch()`（`apps/server/src/provider-fetch.ts`）がループバック `ECONNREFUSED` のあと Windows ホスト（ゲートウェイ）へ 1 回再試行します（`apps/server/src/util/wsl-windows-host.ts`）。UI の Base URL は `localhost` のままにし、テストが渡す `fetchImpl` はこのラッパを通りません。
 
 ```ts
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;

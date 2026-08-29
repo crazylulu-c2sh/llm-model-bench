@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  BUILTIN_AGENT_LOOP_IDS,
   DEFAULT_SCENARIO_IDS,
   PUBLIC_SCENARIO_IDS,
   isStressWorkloadId,
@@ -125,7 +126,10 @@ const CUSTOM_SCENARIO_ID_RE = /^[a-z][a-z0-9_]{2,63}$/;
 
 function sanitizeSelectedScenarioIds(input: string[] | undefined): string[] {
   if (!Array.isArray(input)) return [...DEFAULT_SCENARIO_IDS];
-  const allowed = new Set(PUBLIC_SCENARIO_IDS as readonly string[]);
+  const allowed = new Set<string>([
+    ...(PUBLIC_SCENARIO_IDS as readonly string[]),
+    ...(BUILTIN_AGENT_LOOP_IDS as readonly string[]),
+  ]);
   const filtered = input.filter((s) => allowed.has(s) || CUSTOM_SCENARIO_ID_RE.test(s));
   return filtered.length > 0 ? filtered : [...DEFAULT_SCENARIO_IDS];
 }

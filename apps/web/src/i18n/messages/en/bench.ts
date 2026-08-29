@@ -49,6 +49,8 @@ export const bench: Messages["bench"] = {
   textScenariosHeading: "Text scenarios",
   visionScenariosHeading: "Vision scenarios",
   visionScenariosNote: "(opt-in · non-vision models may 400/refuse · higher call cost ↑)",
+  agentScenariosHeading: "Agent scenarios",
+  agentScenariosNote: "(opt-in · multi-turn agent_loop)",
   customAgentScenariosHeading: "Custom · agent scenarios",
   customAgentScenariosNote: "(agent_loop · user-registered — those registered on the server)",
 

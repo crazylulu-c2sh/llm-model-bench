@@ -1,6 +1,7 @@
 import type { LoadTtlStatus } from "@llm-bench/shared";
 import type { FetchLike } from "./detect.js";
 import { baseUrlCacheKey } from "./http-shared.js";
+import { providerFetch } from "./provider-fetch.js";
 
 function headers(apiKey?: string): HeadersInit {
   const h: Record<string, string> = { "content-type": "application/json" };
@@ -107,7 +108,7 @@ export async function lmStudioListModels(
   baseUrl: string,
   opts: { fetchImpl?: FetchLike; apiKey?: string; timeoutMs?: number } = {},
 ): Promise<{ ok: boolean; status: number; models: LmStudioListedModel[]; body: string }> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? providerFetch;
   const timeoutMs = opts.timeoutMs;
   const root = apiRoot(baseUrl);
   const candidates = [`${root}/api/v1/models`, `${root}/api/v0/models`];
@@ -166,7 +167,7 @@ export async function lmStudioLoad(
   modelKey: string,
   opts: { fetchImpl?: FetchLike; apiKey?: string } = {},
 ): Promise<{ ok: boolean; status: number; body: string }> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? providerFetch;
   const root = apiRoot(baseUrl);
   const candidates = [`${root}/api/v1/models/load`, `${root}/api/v0/models/load`];
   const body = JSON.stringify({ model: modelKey });
@@ -239,7 +240,7 @@ export async function lmStudioJitTtlPrime(
   modelKey: string,
   opts: { fetchImpl?: FetchLike; apiKey?: string; ttlSeconds: number; signal?: AbortSignal },
 ): Promise<{ ok: boolean; status: number; body: string; ttl_status: LoadTtlStatus }> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? providerFetch;
   const root = apiRoot(baseUrl);
   const url = `${root}/v1/chat/completions`;
   const key = baseUrlCacheKey(baseUrl);
@@ -394,7 +395,7 @@ export async function lmStudioUnload(
   modelKey: string,
   opts: { fetchImpl?: FetchLike; apiKey?: string } = {},
 ): Promise<{ ok: boolean; status: number; body: string }> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? providerFetch;
   const root = apiRoot(baseUrl);
   const candidates = [`${root}/api/v1/models/unload`, `${root}/api/v0/models/unload`];
 

@@ -81,12 +81,33 @@ export const PUBLIC_SCENARIO_IDS: ScenarioId[] = [
   "vision_wireframe_html_b",
 ];
 
-/** PDF·툴 시나리오를 항상 마지막에 두어 나머지를 먼저 실행한다(중복 translate는 1개로). */
-export function normalizeScenarioIdsForBench(ids: ScenarioId[]): ScenarioId[] {
-  const translate: ScenarioId = "translate_nist_fips197_pdf_tools";
-  const hasTranslate = ids.includes(translate);
-  const rest = ids.filter((id) => id !== translate);
-  return hasTranslate ? [...rest, translate] : rest;
+const TRANSLATE_ID = "translate_nist_fips197_pdf_tools";
+
+/**
+ * 벤치 실행 순서: 텍스트 → 비전 → 에이전트.
+ * 카테고리 안에서는 입력 상대 순서를 유지하되, PDF 툴(`translate_*`)만 텍스트 블록 끝으로 보낸다.
+ * 선택 순서(비전 토글을 먼저 누름)가 실행 순서가 되지 않게 한다.
+ */
+export function normalizeScenarioIdsForBench<T extends string>(ids: readonly T[]): T[] {
+  const seen = new Set<string>();
+  const unique: T[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    unique.push(id);
+  }
+  const text: T[] = [];
+  const vision: T[] = [];
+  const agent: T[] = [];
+  for (const id of unique) {
+    const cat = scenarioCategory(id);
+    if (cat === "vision") vision.push(id);
+    else if (cat === "agent") agent.push(id);
+    else text.push(id);
+  }
+  const hasTranslate = text.some((id) => id === TRANSLATE_ID);
+  const textRest = text.filter((id) => id !== TRANSLATE_ID);
+  return [...textRest, ...(hasTranslate ? [TRANSLATE_ID as T] : []), ...vision, ...agent];
 }
 
 /** 공개 시나리오의 벤치 실행 순서 — `normalizeScenarioIdsForBench` 규칙 재활용(단일 소스). */

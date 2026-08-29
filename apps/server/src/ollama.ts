@@ -1,4 +1,5 @@
 import type { FetchLike } from "./detect.js";
+import { providerFetch } from "./provider-fetch.js";
 
 function headers(apiKey?: string): HeadersInit {
   const h: Record<string, string> = { "content-type": "application/json" };
@@ -28,7 +29,7 @@ export async function ollamaKeepAliveLoad(
   model: string,
   opts: { ttlSeconds: number; fetchImpl?: FetchLike; apiKey?: string },
 ): Promise<{ ok: boolean; status: number; body: string }> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? providerFetch;
   const url = `${apiRoot(baseUrl)}/api/generate`;
   const seconds = Math.floor(opts.ttlSeconds);
   const body = JSON.stringify({

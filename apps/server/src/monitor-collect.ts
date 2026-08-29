@@ -1,6 +1,7 @@
 import type { LoadedModelInfo } from "@llm-bench/shared";
 import { lmStudioListModels } from "./lmstudio.js";
 import { lmsPs } from "./lms-cli.js";
+import { providerFetch } from "./provider-fetch.js";
 
 export type ProviderLoadedSource = "http" | "cli" | "none";
 
@@ -165,7 +166,7 @@ export async function collectOllamaLoaded(
   baseUrl: string,
   opts: { fetchImpl?: typeof fetch } = {},
 ): Promise<ProviderLoadedResult> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? providerFetch;
   const root = baseUrl.replace(/\/+$/, "");
   try {
     // 5초 timeout — 죽은 호스트에서 snapshot 전체가 hang하는 것을 방지.

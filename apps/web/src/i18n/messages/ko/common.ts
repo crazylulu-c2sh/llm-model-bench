@@ -18,4 +18,9 @@ export const common = {
     title: "이 페이지를 표시하는 중 오류가 발생했습니다",
     body: "다른 탭으로 이동하면 계속 사용할 수 있습니다. 문제가 반복되면 아래 오류 내용과 함께 알려주세요.",
   },
+  wslLoopbackHintBefore:
+    "이 벤치 서버는 WSL에 있습니다. Base URL은 localhost를 유지하세요. 연결 시 Windows 호스트 ",
+  wslLoopbackHintAfter: " 로 자동 전달됩니다.",
+  wslUseLocalhost: "localhost로 고정",
+  wslUseLocalhostAria: (url: string) => `Base URL을 ${url}로 바꿉니다`,
 };
