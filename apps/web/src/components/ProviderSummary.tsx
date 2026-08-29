@@ -71,18 +71,16 @@ export function ProviderSummary({ detect }: { detect: DetectResult }) {
       {rch?.state === "unreachable" ? (
         <p className="flex items-start gap-2 text-xs text-[var(--chart-fail)]">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          <span>
-            {m.bench.serverUnreachable}
-            {rch.reason ? ` ${rch.reason}` : ""}
-          </span>
+          <span>{m.bench.reachabilityMessage(rch.code, rch.reason)}</span>
         </p>
       ) : rch?.state === "partial" ? (
         <p className="flex items-start gap-2 text-xs text-[var(--foreground)]">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--muted)]" aria-hidden />
-          <span>{rch.reason ?? m.bench.partialModelList}</span>
+          <span>{m.bench.reachabilityMessage(rch.code ?? "partial", rch.reason)}</span>
         </p>
       ) : null}
-      {rch?.state === "ok" && hint ? (
+      {/* 시도한 경로 목록은 실패했을 때가 가장 필요하다 — ok일 때만 보여주면 진단이 사라진다. */}
+      {hint ? (
         <p className="text-xs text-[var(--muted)]" title={hint}>
           {m.bench.detectStep(hint)}
         </p>

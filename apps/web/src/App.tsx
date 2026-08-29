@@ -657,7 +657,13 @@ export function App() {
   useEffect(() => {
     const prev = activeStepRef.current;
     const next = resolveActiveStep(
-      { detected: detect != null, detecting, running, resultCount: rows.length },
+      {
+        detected: detect != null,
+        reachable: detect?.reachability?.ok !== false,
+        detecting,
+        running,
+        resultCount: rows.length,
+      },
       prev,
     );
     if (prev === next) return;
@@ -1189,9 +1195,9 @@ export function App() {
       appendLog(`provider=${d.provider} models=${d.models.length} reachability=${d.reachability?.state ?? "n/a"}`);
       const rch = d.reachability;
       if (rch?.state === "unreachable") {
-        toast.error(rch.reason ?? msg().bench.unreachableDefault);
+        toast.error(msg().bench.reachabilityMessage(rch.code, rch.reason));
       } else if (rch?.state === "partial") {
-        toast.warning(rch.reason ?? msg().bench.partialDefault);
+        toast.warning(msg().bench.reachabilityMessage(rch.code ?? "partial", rch.reason));
       } else if (d.models.length === 0) {
         const hint =
           d.provider === "lm_studio" ? msg().bench.noModelsHintLmStudio : msg().bench.noModelsHintGeneric;
@@ -1960,7 +1966,13 @@ export function App() {
           {...stepProps(1)}
           title={msg().bench.wizard.step1Title}
           icon={Link2}
-          summary={detect ? msg().bench.wizard.step1Summary(baseUrlDisplayLabel, detect.models.length) : msg().bench.wizard.step1NotConnected}
+          summary={
+            !detect
+              ? msg().bench.wizard.step1NotConnected
+              : detect.reachability?.ok === false
+                ? msg().bench.wizard.step1Unreachable(baseUrlDisplayLabel)
+                : msg().bench.wizard.step1Summary(baseUrlDisplayLabel, detect.models.length)
+          }
         >
           <div className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1 text-sm">
@@ -2609,7 +2621,14 @@ export function App() {
           ) : detect && detect.models.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-8 text-center text-sm text-[var(--muted)]">
               <p>
-                {msg().bench.noModelsPrefix}<strong className="text-[var(--foreground)]">{msg().bench.detectButton}</strong>{msg().bench.noModelsSuffix}
+                {detect.reachability?.ok === false ? (
+                  // 닿지도 못한 연결에 "API 키를 확인하세요"라고 안내하면 엉뚱한 곳을 뒤지게 된다.
+                  msg().bench.reachabilityMessage(detect.reachability.code, detect.reachability.reason)
+                ) : (
+                  <>
+                    {msg().bench.noModelsPrefix}<strong className="text-[var(--foreground)]">{msg().bench.detectButton}</strong>{msg().bench.noModelsSuffix}
+                  </>
+                )}
               </p>
               {detectButton}
             </div>

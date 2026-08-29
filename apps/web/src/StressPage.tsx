@@ -211,6 +211,12 @@ export function StressPage() {
       }
       const j = (await resp.json()) as DetectResult;
       setDetect(j);
+      // 서버가 정규화한 baseUrl을 그대로 채택한다 — 안 그러면 두 페이지가 서로 다른 문자열을 저장한다.
+      setBaseUrl(j.baseUrl);
+      // 벤치 페이지와 같은 실패 표현을 쓴다. 이걸 빼면 닿지 못한 서버가 "모델 0개"로만 보인다.
+      if (j.reachability?.ok === false) {
+        setErrorLine(msg().bench.reachabilityMessage(j.reachability.code, j.reachability.reason));
+      }
       // 자동 선택 우선순위:
       //   1) 저장된 lastSelectedModelId가 결과에 있으면 그것
       //   2) 모델이 1개면 그것

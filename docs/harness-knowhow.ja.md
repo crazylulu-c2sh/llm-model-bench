@@ -77,14 +77,14 @@ for await (const ev of runBench(req, detect)) {
 
 ### 検出 → フォールバックチェーン
 
-`detectProvider()` は各リストエンドポイントを順に試し、最初に成功した時点で返します。すべての試行は診断用に `steps[]` に追記されます。3 つすべてが外れた場合は `provider: "manual"` にフォールバックします。
+`detectProvider()` は各リストエンドポイントを順に試し、最初に成功した時点で返します。すべての試行は診断用に `steps[]` に追記されます。3 つすべてが外れた場合は `provider: "manual"` にフォールバックします。各リクエストには `timeoutMs`（既定 5 秒）の上限が掛かり、トランスポート層のエラー（`ECONNREFUSED`・`EHOSTUNREACH`・接続タイムアウトなど）で失敗した場合は同一オリジンの残りのパスと能力プローブをスキップします — 上限がないと undici の既定 connect timeout がリクエスト数だけ積み上がり、到達できないホストで 50 秒以上ハングします。
 
-- `${base}/api/v1/models` → `provider: "lm_studio"`（`{ models: [{ key, type, display_name, publisher, ... }] }` を期待。`publisher` は DetectResult に通し、無い場合は id の `org/` 接頭にフォールバック）
+- `${base}/api/v1/models` → `provider: "lm_studio"`（`{ models: [{ key, type, display_name, publisher, ... }] }` を期待。`publisher` は DetectResult に通し、無い場合は id の `org/` 接頭にフォールバック）。**200 でも本文にネイティブな `models` 配列が無ければ LM Studio と断定せず次の候補へ進みます** — LM Studio は未知のパスにも `200 + {"error": …}` を返すため、ステータスだけを信じると「モデル 0 個の正常な接続」という偽の成功が生まれます
 - `${base}/api/tags` → `provider: "ollama"`（`{ models: [{ name, model, size }] }` を期待。publisher は id の `org/` 接頭のみ）
 - `${base}/v1/models` → `provider: "openai_compatible"`（`{ data: [{ id }] }` を期待。publisher は id の `org/` 接頭のみ）
-- いずれも一致しない → `provider: "manual"`（`models: []` と、算出された `reachability` 状態（`ok` | `partial` | `unreachable`））
+- いずれも一致しない → `provider: "manual"`（`models: []` と、算出された `reachability`）。状態（`ok` | `partial` | `unreachable`）に加えて分類コード（`connect_timeout` | `refused` | `dns` | `tls` | `network` | `partial`）を載せます。サーバーはコードと生の診断（errno）だけを送り、人が読む文はクライアントの i18n が組み立てます — サーバーが文を作ると多言語 UI に一つの言語が漏れます
 
-`base` はまず `normalizeBaseUrl()` で正規化され、スキームがなければ `http://` を前置し、末尾の OpenAI 形式の `/v1` サフィックスを（`stripOpenAiStyleV1Suffix()` で）取り除きます。これによりハーネスは一貫して `base + /v1/...` を組み立てられます。
+`base` はまず `normalizeBaseUrl()` で正規化され、スキームがなければ（大文字小文字を問わず — `HTTP://` をホスト名と誤認しません）`http://` を前置し、ドキュメントに記載された API ベースのサフィックスを `stripDocumentedApiBaseSuffix()` で取り除きます。対象は OpenAI 互換の `…/v1` に加え、LM Studio が案内する `…/api/v1`・`…/api/v0` も含みます — ハーネス自身が `base + /v1/...` と `base + /api/v1/...` を組み立てるため、外さないとパスが二重になり死んだアドレスを叩きます。
 
 ```ts
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
@@ -92,7 +92,7 @@ export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 
 export async function detectProvider(
   rawBaseUrl: string,
-  opts?: { fetchImpl?: FetchLike; apiKey?: string;
+  opts?: { fetchImpl?: FetchLike; apiKey?: string; timeoutMs?: number;
            manual?: { provider: ProviderKind; models?: { id: string; label?: string }[] } },
 ): Promise<DetectResult>;
 ```

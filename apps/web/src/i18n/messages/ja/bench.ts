@@ -207,8 +207,21 @@ export const bench: Messages["bench"] = {
   runDetailError: (status) => `ランの取得に失敗 (${status})`,
   noScenarioData: "シナリオデータがありません。",
   detectFailed: "プロバイダーの検出に失敗しました。",
-  unreachableDefault: "Base URL に接続できません。サーバーが起動しているか·アドレス·ファイアウォールを確認してください。",
-  partialDefault: "モデル一覧ルートの一部のみ応答しました。ネットワークまたはプロキシ設定を確認してください。",
+  reachabilityMessage: (code, detail) => {
+    const head =
+      code === "connect_timeout"
+        ? "時間内に接続が確立しませんでした。ポートとホスト側の受信ファイアウォールを確認してください。"
+        : code === "refused"
+          ? "接続が拒否されました。そのポートでサーバーが起動しているか確認してください。"
+          : code === "dns"
+            ? "ホスト名を解決できませんでした。アドレスの綴りを確認してください。"
+            : code === "tls"
+              ? "TLS 接続に失敗しました。http/https の選択と証明書を確認してください。"
+              : code === "partial"
+                ? "モデル一覧ルートの一部のみ応答しました。ネットワークまたはプロキシ設定を確認してください。"
+                : "Base URL に接続できません。サーバーが起動しているか·アドレス·ファイアウォールを確認してください。";
+    return detail ? `${head} (${detail})` : head;
+  },
   noModelsHintLmStudio: "LM Studio でモデルをロードしてから再試行してください。",
   noModelsHintGeneric: "モデル一覧が空です。Base URL·API キーを確認してください。",
   detectedNoModels: (hint) => `検出されましたがモデルがありません。${hint}`,
@@ -325,6 +338,7 @@ export const bench: Messages["bench"] = {
     queueMore: (n) => `他 ${n}件`,
     queueMoreAria: (n) => `未表示のモデル ${n}件`,
     step1Summary: (label, models) => `${label} · モデル ${models}個`,
+    step1Unreachable: (label) => `${label} · 到達不可`,
     step1NotConnected: "未接続",
     step2Summary: (selected, total) => `${selected}/${total} 選択`,
     step3MaxDefault: "推奨値",

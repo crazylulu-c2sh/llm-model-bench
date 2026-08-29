@@ -18,6 +18,7 @@ import {
 
 const phase = (over: Partial<BenchPhase> = {}): BenchPhase => ({
   detected: true,
+  reachable: true,
   detecting: false,
   running: false,
   resultCount: 0,
@@ -31,6 +32,11 @@ describe("resolveActiveStep — 국면", () => {
 
   test("감지 성공 후에는 설정 허브(4단계)", () => {
     expect(resolveActiveStep(phase(), 1)).toBe(4);
+  });
+
+  test("프로바이더에 닿지 못했으면 1단계에 머문다 — 유일한 실패 설명이 접히면 안 된다", () => {
+    expect(resolveActiveStep(phase({ reachable: false }), 1)).toBe(1);
+    expect(resolveActiveStep(phase({ reachable: false }), 4)).toBe(1);
   });
 
   test("실행 중에는 5단계, 결과가 있으면 6단계", () => {

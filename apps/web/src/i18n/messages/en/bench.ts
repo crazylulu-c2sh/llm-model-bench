@@ -207,8 +207,21 @@ export const bench: Messages["bench"] = {
   runDetailError: (status) => `Failed to fetch run (${status})`,
   noScenarioData: "No scenario data.",
   detectFailed: "Failed to detect the provider.",
-  unreachableDefault: "Can't connect to the Base URL. Check the server is up, the address, and the firewall.",
-  partialDefault: "Only some of the model-list routes responded. Check your network or proxy settings.",
+  reachabilityMessage: (code, detail) => {
+    const head =
+      code === "connect_timeout"
+        ? "The connection didn't open in time. Check the port and the host's inbound firewall."
+        : code === "refused"
+          ? "The connection was refused. Check a server is running on that port."
+          : code === "dns"
+            ? "The host name couldn't be resolved. Check the address spelling."
+            : code === "tls"
+              ? "The TLS handshake failed. Check the http/https choice and the certificate."
+              : code === "partial"
+                ? "Only some of the model-list routes responded. Check your network or proxy settings."
+                : "Can't connect to the Base URL. Check the server is up, the address, and the firewall.";
+    return detail ? `${head} (${detail})` : head;
+  },
   noModelsHintLmStudio: "Load a model in LM Studio, then try again.",
   noModelsHintGeneric: "The model list is empty. Check the Base URL·API key.",
   detectedNoModels: (hint) => `Detected but no models. ${hint}`,
@@ -325,6 +338,7 @@ export const bench: Messages["bench"] = {
     queueMore: (n) => `+${n} more`,
     queueMoreAria: (n) => `${n} more model${n === 1 ? "" : "s"} not shown`,
     step1Summary: (label, models) => `${label} · ${models} model${models === 1 ? "" : "s"}`,
+    step1Unreachable: (label) => `${label} · unreachable`,
     step1NotConnected: "Not connected",
     step2Summary: (selected, total) => `${selected}/${total} selected`,
     step3MaxDefault: "recommended",

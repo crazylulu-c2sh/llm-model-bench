@@ -77,14 +77,14 @@ for await (const ev of runBench(req, detect)) {
 
 ### 감지(Detect) → 폴백 체인
 
-`detectProvider()`는 각 목록 엔드포인트를 순서대로 시도하고 첫 성공에서 반환합니다. 진단을 위해 모든 시도가 `steps[]`에 덧붙여집니다. 셋 다 실패하면 `provider: "manual"`로 폴백합니다.
+`detectProvider()`는 각 목록 엔드포인트를 순서대로 시도하고 첫 성공에서 반환합니다. 진단을 위해 모든 시도가 `steps[]`에 덧붙여집니다. 셋 다 실패하면 `provider: "manual"`로 폴백합니다. 각 요청에는 `timeoutMs`(기본 5초) 상한이 걸리고, 전송 계층 오류(`ECONNREFUSED`·`EHOSTUNREACH`·연결 타임아웃 등)로 실패하면 같은 원점의 남은 경로와 능력 프로브를 건너뜁니다 — 상한이 없으면 undici 기본 connect timeout이 요청 수만큼 누적돼 닿지 않는 호스트에서 50초 넘게 매달립니다.
 
-- `${base}/api/v1/models` → `provider: "lm_studio"` (`{ models: [{ key, type, display_name, publisher, ... }] }` 기대; `publisher`는 DetectResult로 통과, 없으면 id의 `org/` 접두 폴백)
+- `${base}/api/v1/models` → `provider: "lm_studio"` (`{ models: [{ key, type, display_name, publisher, ... }] }` 기대; `publisher`는 DetectResult로 통과, 없으면 id의 `org/` 접두 폴백). **200이라도 본문에 네이티브 `models` 배열이 없으면 LM Studio로 단정하지 않고 다음 후보로 넘어갑니다** — LM Studio는 모르는 경로에도 `200 + {"error": …}`를 돌려주므로, 상태 코드만 믿으면 "모델 0개인 정상 연결"이라는 가짜 성공이 만들어집니다
 - `${base}/api/tags` → `provider: "ollama"` (`{ models: [{ name, model, size }] }` 기대; publisher는 id의 `org/` 접두만)
 - `${base}/v1/models` → `provider: "openai_compatible"` (`{ data: [{ id }] }` 기대; publisher는 id의 `org/` 접두만)
-- 매칭 없음 → `models: []`인 `provider: "manual"`과 계산된 `reachability` 상태(`ok` | `partial` | `unreachable`)
+- 매칭 없음 → `models: []`인 `provider: "manual"`과 계산된 `reachability` — 상태(`ok` | `partial` | `unreachable`)에 더해 분류 코드(`connect_timeout` | `refused` | `dns` | `tls` | `network` | `partial`)를 싣습니다. 서버는 코드와 원문 진단(errno)만 보내고 사람이 읽는 문장은 클라이언트 i18n이 만듭니다 — 서버가 문장을 만들면 다국어 UI에 한 언어가 그대로 샙니다
 
-`base`는 먼저 `normalizeBaseUrl()`로 정규화됩니다. 이 함수는 스킴이 없으면 `http://`를 앞에 붙이고, 후행 OpenAI 스타일 `/v1` 접미사를 (`stripOpenAiStyleV1Suffix()`로) 벗겨내어 하네스가 `base + /v1/...`을 일관되게 조합할 수 있게 합니다.
+`base`는 먼저 `normalizeBaseUrl()`로 정규화됩니다. 이 함수는 스킴이 없으면 `http://`를 앞에 붙이고(대소문자 무관 — `HTTP://`를 호스트명으로 오인하지 않습니다), 문서에 적힌 API 베이스 접미사를 (`stripDocumentedApiBaseSuffix()`로) 벗겨냅니다. 대상은 OpenAI 호환 `…/v1`뿐 아니라 LM Studio가 안내하는 `…/api/v1`·`…/api/v0`도 포함합니다 — 하네스가 `base + /v1/...`과 `base + /api/v1/...`을 직접 조합하므로, 벗기지 않으면 경로가 두 번 붙어 죽은 주소를 찌릅니다.
 
 ```ts
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
@@ -92,7 +92,7 @@ export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 
 export async function detectProvider(
   rawBaseUrl: string,
-  opts?: { fetchImpl?: FetchLike; apiKey?: string;
+  opts?: { fetchImpl?: FetchLike; apiKey?: string; timeoutMs?: number;
            manual?: { provider: ProviderKind; models?: { id: string; label?: string }[] } },
 ): Promise<DetectResult>;
 ```
