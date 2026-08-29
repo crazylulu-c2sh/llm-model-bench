@@ -10,6 +10,7 @@ import {
   isAgentScenario,
   isVisionScenario,
   normalizeBaseUrl,
+  normalizeScenarioIdsForBench,
   outputTokensFromRun,
   providerSupportsLoadTtl,
   resolveBenchApiRoutes,
@@ -318,11 +319,13 @@ export function App() {
   );
   const visibleSelectedScenarioIds = useMemo(
     () =>
-      selectedScenarioIds.filter(
-        (id) =>
-          (PUBLIC_SCENARIO_IDS as readonly string[]).includes(id) ||
-          isPickerBuiltinAgentId(id) ||
-          dynamicScenarioIds.has(id),
+      normalizeScenarioIdsForBench(
+        selectedScenarioIds.filter(
+          (id) =>
+            (PUBLIC_SCENARIO_IDS as readonly string[]).includes(id) ||
+            isPickerBuiltinAgentId(id) ||
+            dynamicScenarioIds.has(id),
+        ),
       ),
     [selectedScenarioIds, dynamicScenarioIds],
   );

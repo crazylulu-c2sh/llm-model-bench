@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  BENCH_PUBLIC_EXECUTION_ORDER_IDS,
   compareScenarioBenchOrder,
   DEFAULT_SCENARIO_IDS,
   defaultMaxTokensForVisionScenario,
@@ -7,6 +8,8 @@ import {
   getScenarioUserPromptPreview,
   isAgentScenario,
   isVisionScenario,
+  normalizeScenarioIdsForBench,
+  PUBLIC_SCENARIO_IDS,
   scenarioCategory,
   VISION_SCENARIO_IDS,
 } from "./scenarios-preview.js";
@@ -156,6 +159,46 @@ describe("scenario prompt previews", () => {
     expect(user).toContain("labels");
     expect(user).not.toMatch(/fenced/i);
     expect(user).not.toMatch(/no prose/i);
+  });
+});
+
+describe("normalizeScenarioIdsForBench", () => {
+  it("비전을 먼저 골라도 텍스트 → 비전 → 에이전트 순으로 재배열한다", () => {
+    expect(
+      normalizeScenarioIdsForBench([
+        "vision_table_ocr_a",
+        "agent_loop_mock_v1",
+        "chat_hello",
+        "vision_chart_peak_b",
+        "code_sort_js",
+      ]),
+    ).toEqual([
+      "chat_hello",
+      "code_sort_js",
+      "vision_table_ocr_a",
+      "vision_chart_peak_b",
+      "agent_loop_mock_v1",
+    ]);
+  });
+
+  it("translate는 텍스트 블록 끝에 두고 비전·에이전트보다 앞에 둔다", () => {
+    expect(
+      normalizeScenarioIdsForBench([
+        "vision_table_ocr_a",
+        "translate_nist_fips197_pdf_tools",
+        "chat_ping",
+      ]),
+    ).toEqual(["chat_ping", "translate_nist_fips197_pdf_tools", "vision_table_ocr_a"]);
+  });
+
+  it("공개 카탈로그 정규화 순서는 텍스트(translate 포함) 다음 비전", () => {
+    const order = BENCH_PUBLIC_EXECUTION_ORDER_IDS;
+    const lastText = order.reduce((acc, id, i) => (scenarioCategory(id) === "text" ? i : acc), -1);
+    const firstVision = order.findIndex((id) => scenarioCategory(id) === "vision");
+    expect(lastText).toBeGreaterThanOrEqual(0);
+    expect(firstVision).toBeGreaterThan(lastText);
+    expect(order[lastText]).toBe("translate_nist_fips197_pdf_tools");
+    expect(order).toHaveLength(PUBLIC_SCENARIO_IDS.length);
   });
 });
 
