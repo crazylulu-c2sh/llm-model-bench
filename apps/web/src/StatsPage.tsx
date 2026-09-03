@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import type { BenchRunDetailResponse, StatsModelLatestItem, StatsModelLatestResponse } from "./api-types";
 import { BaseUrlNameModal } from "./components/BaseUrlNameModal";
 import { BenchCharts } from "./components/BenchCharts";
+import { CollapsibleCard } from "./components/CollapsibleCard";
 import { DEFAULT_STATS_MODEL_SORTING, StatsModelTable } from "./components/StatsModelTable";
 import { scenarioRowKey, type ChartRow } from "./components/chart-types";
 import { HighlightToggle } from "./components/JsonCodeBlock";
@@ -373,14 +374,12 @@ export function StatsPage() {
 
       <Scoreboard rows={rows} detailAggregate={detailAggregate} providerByModel={providerByModel} />
 
-      <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2">
-          <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-            <Activity className="size-4 shrink-0 text-[var(--muted)]" aria-hidden />
-            {m.stats.metricChartTitle}
-          </h2>
-          <HighlightToggle on={hlPreview} onChange={setHlPreview} />
-        </div>
+      <CollapsibleCard
+        id="stats-metrics-chart"
+        title={m.stats.metricChartTitle}
+        icon={Activity}
+        headerActions={<HighlightToggle on={hlPreview} onChange={setHlPreview} />}
+      >
         {chartModelIds.length > 0 ? (
           <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-3">
             <span className="text-xs font-medium text-[var(--muted)]">{m.stats.chartModels}</span>
@@ -421,7 +420,7 @@ export function StatsPage() {
         ) : (
           <p className="py-8 text-center text-sm text-[var(--muted)]">{m.stats.noScenarioAgg}</p>
         )}
-      </section>
+      </CollapsibleCard>
 
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
         <h2 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">{m.stats.resultsTableTitle}</h2>

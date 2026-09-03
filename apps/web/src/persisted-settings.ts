@@ -19,6 +19,33 @@ export const QWEN38_REASONING_EFFORTS = ["xhigh", "medium", "low"] as const;
 export type Qwen38ReasoningEffort = (typeof QWEN38_REASONING_EFFORTS)[number];
 /** 모델카드 기본은 xhigh이나 로컬 벤치에서 사고 토큰이 폭주해 하네스 기본은 low. */
 export const QWEN38_REASONING_EFFORT_DEFAULT: Qwen38ReasoningEffort = "low";
+/** 모델 카드 권장 — UI 「권장값」버튼이 Qwen3.8 effort를 이 값으로 올린다. */
+export const QWEN38_REASONING_EFFORT_RECOMMENDED: Qwen38ReasoningEffort = "xhigh";
+
+/**
+ * 3단계 설정 공장값. UI 「초기값」버튼과 `readInitialUiState` SSR 분기가 공유한다.
+ * Base URL·API 키·시나리오 선택은 포함하지 않는다.
+ */
+export function factoryStep3Settings() {
+  return {
+    profileId: "auto" as const,
+    profileMaxTokens: "" as string,
+    thinkingIntent: "on" as ThinkingIntent,
+    preserveThinking: false,
+    reasoningEffort: "medium" as const,
+    qwen38ReasoningEffort: QWEN38_REASONING_EFFORT_DEFAULT,
+    presetOverride: "" as const,
+    samplingOverridesText: "",
+    benchmarkThroughputMode: false,
+    contentionGuardEnabled: true,
+    contentionPreBenchTimeoutSec: "120",
+    contentionMaxRetries: "2",
+    unloadOtherModels: false,
+    autoUnloadAfterBench: false,
+    loadTtlSeconds: "" as string,
+    fitPolicy: "" as "" | "skip" | "unload_other_models",
+  };
+}
 
 export const PREFS_STORAGE_KEY = "llm-bench-ui-prefs";
 export const SESSION_API_KEY = "llm-bench-api-key";
@@ -139,28 +166,13 @@ export function readInitialUiState() {
   if (typeof window === "undefined") {
     return {
       baseUrl: DEFAULT_BASE,
-      unloadOtherModels: false,
-      autoUnloadAfterBench: false,
-      loadTtlSeconds: "" as string,
-      fitPolicy: "" as "" | "skip" | "unload_other_models",
       hlPreview: false,
       hlLog: false,
       persistApiKeyToDisk: false,
       apiKey: "",
-      profileId: "auto" as const,
-      profileMaxTokens: "" as string,
-      thinkingIntent: "on" as ThinkingIntent,
-      preserveThinking: false,
-      reasoningEffort: "medium" as const,
-      qwen38ReasoningEffort: QWEN38_REASONING_EFFORT_DEFAULT,
-      presetOverride: "" as const,
-      samplingOverridesText: "",
       profileAdvancedOpen: false,
       selectedScenarioIds: [...DEFAULT_SCENARIO_IDS] as string[],
-      benchmarkThroughputMode: false,
-      contentionGuardEnabled: true,
-      contentionPreBenchTimeoutSec: "120",
-      contentionMaxRetries: "2",
+      ...factoryStep3Settings(),
     };
   }
   const p = readPrefsFromDisk();

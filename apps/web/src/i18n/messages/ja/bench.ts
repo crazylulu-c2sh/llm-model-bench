@@ -37,6 +37,12 @@ export const bench: Messages["bench"] = {
   categoryVision: "ビジョン",
   categoryAgent: "エージェント",
   scenarioRequiredHint: "実行するシナリオを 1 つ以上選択してください。",
+  settingsInitial: "初期値",
+  settingsRecommended: "推奨値",
+  settingsInitialTitle:
+    "ハーネスの工場既定値に戻します。プロファイル自動、思考オン、Qwen3.8 effort low、max_tokens 空欄、高度設定（ロード・メモリ・汚染ガード）も既定値。Base URL と API キーは維持します。",
+  settingsRecommendedTitle:
+    "モデルカードの推奨に合わせます。思考オン、スループットモードオフ、Qwen3.8 effort xhigh、max_tokens は空欄のままシナリオ別推奨値を使います。ロード・メモリ・汚染ガードは変更しません。",
   toggleTextTitle: (n) => `テキストシナリオ ${n}個をトグル`,
   toggleVisionTitle: (n) => `ビジョンシナリオ ${n}個をトグル`,
   toggleAgentTitle: "エージェントシナリオをトグル",
@@ -312,6 +318,7 @@ export const bench: Messages["bench"] = {
 
   // シナリオ案内カード (ScenarioGuideCards)
   scenarioGuideHeading: "ベンチシナリオ案内",
+  scenarioGuideSummary: (n) => `${n}枚のカード`,
   scenarioGuideIntroA: "各カードはそのシナリオが何を検証するかを要約します。",
   scenarioGuideIntroB: " バッジのカードは画像入力を受け取り、ビジョン非対応モデルでは 400 になる場合があります。",
   enlargeImageAria: (id) => `${id} の画像を拡大`,

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   MONITOR_PREFS_STORAGE_KEY,
   PREFS_STORAGE_KEY,
+  factoryStep3Settings,
   readInitialMonitorState,
   readInitialStressState,
   readInitialUiState,
@@ -233,6 +234,17 @@ describe("readInitialUiState contention guard + v2→v3 migration", () => {
 describe("readInitialUiState — Qwen3.8 프로파일", () => {
   it("qwen38ReasoningEffort 기본값은 low (모델카드 기본 xhigh가 아님)", () => {
     expect(readInitialUiState().qwen38ReasoningEffort).toBe("low");
+  });
+
+  it("factoryStep3Settings는 하네스 공장값(Qwen3.8 low, 사고 on, max 비움)", () => {
+    const f = factoryStep3Settings();
+    expect(f.profileId).toBe("auto");
+    expect(f.thinkingIntent).toBe("on");
+    expect(f.qwen38ReasoningEffort).toBe("low");
+    expect(f.reasoningEffort).toBe("medium");
+    expect(f.profileMaxTokens).toBe("");
+    expect(f.benchmarkThroughputMode).toBe(false);
+    expect(f.contentionGuardEnabled).toBe(true);
   });
 
   it("profileId=qwen38과 qwen38ReasoningEffort를 왕복 저장한다", () => {
