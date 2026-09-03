@@ -243,6 +243,41 @@ describe("resolveQueueItems — 칩 소스 2단", () => {
     ]);
   });
 
+  test("재연결로 큐를 복원했으면 선택이 비어도 결과 칩이 남는다", () => {
+    // 재접속한 탭은 모델을 고른 적이 없어 selectedIds가 비어 있다. 이걸 "선택을 바꿨다"로 보면
+    // 런이 끝나는 순간(running:false) 복원해 둔 칩이 통째로 사라진다.
+    expect(
+      resolveQueueItems(
+        source({
+          running: false,
+          queuedIds: ["a", "b"],
+          statusById: { a: "done", b: "done-with-errors" },
+          selectedIds: [],
+        }),
+      ),
+    ).toEqual([
+      { id: "a", status: "done" },
+      { id: "b", status: "done-with-errors" },
+    ]);
+  });
+
+  test("실행 후 선택 순서만 바뀌어도 stale — 선택 기준으로 되돌아간다", () => {
+    // 위와 대비: 선택이 있으면(길이가 같아도 순서가 다르면) 다음 실행 계획을 보여줘야 한다.
+    expect(
+      resolveQueueItems(
+        source({
+          running: false,
+          queuedIds: ["a", "b"],
+          statusById: { a: "done", b: "failed" },
+          selectedIds: ["b", "a"],
+        }),
+      ),
+    ).toEqual([
+      { id: "b", status: "pending" },
+      { id: "a", status: "pending" },
+    ]);
+  });
+
   test("새로고침 후 재연결 — 큐가 비어도 현재 모델 칩은 보여준다", () => {
     expect(
       resolveQueueItems(source({ running: true, currentModelId: "b", selectedIds: [] })),
