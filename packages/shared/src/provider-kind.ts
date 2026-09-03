@@ -17,7 +17,15 @@ export type ProviderKind = z.infer<typeof ProviderKindSchema>;
  * - `unknown`: ttl을 실어 보냈고 2xx를 받았다. OpenAI 호환 서버는 모르는 필드를 조용히
  *   무시하는 게 일반적이라 2xx만으로는 적용을 단정할 수 없다.
  */
-export const LoadTtlStatusSchema = z.enum(["not_applied", "rejected", "unknown"]);
+/**
+ * 로드 TTL 적용 결과.
+ * - `applied`: 적용을 **확인**했다(로드 후 `lms ps`에서 실제 ttl을 읽음). 로컬 LM Studio + CLI에서만 나온다.
+ * - `unknown`: 요청은 보냈고 2xx를 받았지만 서버가 읽었는지 알 수 없다 — OpenAI 호환 서버는 모르는
+ *   body 필드를 조용히 무시하는 게 일반적이라 2xx가 적용을 증명하지 않는다.
+ * - `not_applied`: 걸지 못했다(이미 상주 중, 명시적 load 폴백, ttl 미요청 등).
+ * - `rejected`: 서버가 ttl 필드를 400/422로 거절했다.
+ */
+export const LoadTtlStatusSchema = z.enum(["applied", "not_applied", "rejected", "unknown"]);
 export type LoadTtlStatus = z.infer<typeof LoadTtlStatusSchema>;
 
 /**

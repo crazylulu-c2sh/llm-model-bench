@@ -1,4 +1,5 @@
 import type { LoadTtlStatus } from "@llm-bench/shared";
+import { verifyLmStudioTtlApplied } from "./lms-ttl-verify.js";
 import type { FetchLike } from "./detect.js";
 import { baseUrlCacheKey } from "./http-shared.js";
 import { providerFetch } from "./provider-fetch.js";
@@ -346,13 +347,15 @@ export async function prepareLmStudioForRun(opts: {
 
   const loaded = await lmStudioIsModelLoaded(baseUrl, modelId, { fetchImpl, apiKey });
   if (loaded.ok && loaded.loaded) {
-    // Idle TTL은 JIT 로드 시점에만 설정할 수 있다. 이미 상주 중이면 걸 방법이 없으므로
-    // (모델을 내렸다 올리는 건 사용자가 요청하지 않은 상태 변경) 조용히 넘어가지 말고
-    // 미적용을 보고한다 — 그래야 UI 경고가 실제로 뜬다.
+    // Idle TTL은 JIT 로드 시점에만 설정할 수 있다. 이미 상주 중이면 이 런이 걸 방법이 없으므로
+    // (모델을 내렸다 올리는 건 사용자가 요청하지 않은 상태 변경) 조용히 넘어가지 않는다.
+    // 다만 **앞선 런이 걸어둔 TTL이 이미 살아 있을 수 있다** — 읽을 수 있으면 그걸 그대로 보고한다.
+    // 그러지 않으면 TTL이 멀쩡히 걸린 모델에도 "미적용" 경고가 뜬다.
+    const resident = wantsTtl ? await verifyLmStudioTtlApplied({ baseUrl, modelId }) : null;
     return {
       prepare: "already_in_memory",
       loadedByThisRun: false,
-      ...(wantsTtl ? { ttlStatus: "not_applied" as const } : {}),
+      ...(wantsTtl ? { ttlStatus: resident ?? ("not_applied" as const) } : {}),
     };
   }
 
@@ -379,7 +382,14 @@ export async function prepareLmStudioForRun(opts: {
     signal,
   });
   if (primed.ok) {
-    return { prepare: "jit_load_with_ttl", loadedByThisRun: true, ttlStatus: primed.ttl_status };
+    // 2xx는 적용을 증명하지 않는다 — 로컬 대상이면 `lms ps`로 실제 ttl을 읽어 확정한다.
+    // 확인이 불가능하면(원격·CLI 미사용·형식 미상) 기존의 보수적인 값을 그대로 둔다.
+    const verified = await verifyLmStudioTtlApplied({ baseUrl, modelId });
+    return {
+      prepare: "jit_load_with_ttl",
+      loadedByThisRun: true,
+      ttlStatus: verified ?? primed.ttl_status,
+    };
   }
 
   // 정지 때문에 prime이 끊긴 경우엔 폴백하지 않는다. 여기서 명시적 load를 하면 "정지를 눌렀는데

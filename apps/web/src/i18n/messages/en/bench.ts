@@ -102,6 +102,7 @@ export const bench: Messages["bench"] = {
   loadTtlRejected: (modelId: string) =>
     `${modelId}: load TTL rejected — the server refused the ttl field, so the run continued without it (no idle auto-unload)`,
   /** ttl was sent and accepted with 2xx, but acceptance does not prove it took effect. */
+  loadTtlApplied: (modelId: string) => `${modelId}: load TTL confirmed applied (lms ps)`,
   loadTtlUnknown: (modelId: string) =>
     `${modelId}: load TTL could not be confirmed — the request succeeded, but OpenAI-compatible servers may silently ignore unknown fields`,
 

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { _setExecFileForTest } from "./lms-cli.js";
+import { _setLocalAddressesForTest } from "./util/localhost.js";
 import {
   _resetLmStudioJitTtlCacheForTests,
   lmStudioIsModelLoaded,
@@ -495,7 +497,40 @@ describe("prepareLmStudioForRun", () => {
     expect(r.ttlStatus).toBe("not_applied");
   });
 
-  it("이미 상주 중인 모델에는 TTL을 걸지 못한다고 보고한다", async () => {
+  it("이미 상주 중인데 앞선 런의 TTL이 살아 있으면 그걸 보고한다", async () => {
+    // TTL이 멀쩡히 걸린 모델에 "미적용" 경고를 띄우면 사용자는 매번 헛짚는다.
+    process.env.ENABLE_LMS_CLI = "1";
+    _setLocalAddressesForTest(["127.0.0.1"]);
+    _setExecFileForTest(((_f: unknown, _a: unknown, _o: unknown, cb: unknown) => {
+      (cb as (e: unknown, out: string, err: string) => void)?.(
+        null,
+        JSON.stringify([{ identifier: "m1", ttlMs: 3_600_000 }]),
+        "",
+      );
+      return {} as never;
+    }) as never);
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") || url.endsWith("/api/v0/models")) {
+        return jsonResponse({ models: [{ key: "m1", loaded_instances: [{}] }] });
+      }
+      return jsonResponse({ ok: true });
+    }) as unknown as typeof fetch;
+    const r = await prepareLmStudioForRun({
+      baseUrl: "http://127.0.0.1:1234",
+      modelId: "m1",
+      skipModelLoad: false,
+      ttlSeconds: 3600,
+      fetchImpl,
+    });
+    expect(r.prepare).toBe("already_in_memory");
+    expect(r.ttlStatus).toBe("applied");
+    delete process.env.ENABLE_LMS_CLI;
+    _setLocalAddressesForTest(null);
+    _setExecFileForTest(null);
+  });
+
+  it("이미 상주 중이고 TTL도 확인 안 되면 미적용으로 보고한다", async () => {
     // LM Studio는 로드 시점에만 TTL을 받는다 — 조용히 넘어가면 사용자는 TTL이 걸린 줄 안다.
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestUrl(input);

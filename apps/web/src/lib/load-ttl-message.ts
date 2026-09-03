@@ -19,6 +19,8 @@ export function loadTtlNotice(
   prepare?: string,
 ): LoadTtlNotice {
   if (!status) return null;
+  // "applied"를 여기서 안 잡으면 아래 기본 분기로 떨어져 **적용됐는데 "미적용"이라고 말한다**.
+  if (status === "applied") return { level: "info", text: m.bench.loadTtlApplied(modelId) };
   if (status === "rejected") return { level: "warn", text: m.bench.loadTtlRejected(modelId) };
   if (status === "unknown") return { level: "info", text: m.bench.loadTtlUnknown(modelId) };
   return {
