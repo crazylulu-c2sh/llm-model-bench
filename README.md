@@ -206,6 +206,8 @@ AI 에이전트가 이 서비스를 프로그래밍적으로 쓸 수 있도록 *
 
 - 순서: `detect_provider`(먼저) → `run_bench`. `run_bench`는 `detect`를 넘기지 않으면 내부적으로 감지합니다. 진행은 MCP progress 알림으로 전달되고, `run_bench`는 token 스트림을 버린 **compact 요약**(시나리오별 TTFT/TPS/품질 + 랭킹 롤업)을 반환합니다.
 - `/bench/stream`은 클라이언트 abort 후에도 서버에서 끝까지 실행되므로, 타임아웃 시 `run_bench`는 `GET /api/v1/runs/{runId}`로 결과를 회수하고 `serverKeepsRunning: true`를 표시합니다.
+- **서버 큐·다른 런과의 충돌(양방향)**: 직렬 실행 락은 정규화된 **`detect.baseUrl`**(실제 추론 대상, `bench.baseUrl`이 아님)을 키로 양쪽으로 걸립니다 — 같은 `baseUrl`에서 서버 소유 벤치 큐가 실행 중이면 `POST /bench/stream`이 409 `queue_active`(`queue_id`·큐가 돌고 있는 `model_id`. 모델 경계·일시정지 중이면 `model_id`는 `null`)로 거부하고, 반대로 진행 중인 **단발** 런이 있으면 `POST /bench/queue`가 409 `run_active`(`run_id`·`model_id`)로 거부합니다. 큐 시작은 그 백엔드가 완전히 비었을 때만 허용된다는 뜻입니다(측정이 겹치면 에러가 아니라 조용한 오염이 되기 때문). **막지 않는 조합은 하나뿐입니다: `/bench/stream` 두 건의 동시 실행** — MCP의 타임아웃 후 재호출 흐름을 살리려고 남겨 둔 한계라, 단발끼리 겹치지 않게 하는 건 호출자 책임입니다.
+- **`run_bench`의 409 처리**: 거부 본문을 에러 메시지와 `data`에 그대로 담아 돌려주며, 기본값은 즉시 실패입니다. `queue_active`를 만났을 때 큐가 끝나기를 기다리게 하려면 `waitForIdleMs`(ms)를 주십시오 — 5초 간격으로 `GET /api/v1/bench/running`을 확인해 그 `baseUrl`의 **실행 중** 큐가 없어지면 자동으로 재시도하고(TTL 안에 남아 있는 완료 큐는 점유로 세지 않습니다), 예산을 넘기면 대기 시간을 밝힌 메시지로, 큐가 연달아 새로 떠 **재시도 상한(20회)**에 먼저 걸리면 남은 예산(`wait_budget_remaining_ms`)과 함께 "예산을 늘려도 같은 결과"라는 사실을 밝힌 메시지로 실패합니다(무한 재시도 없음). `run_active`는 대기 대상이 아니라 **즉시 실패**입니다 — `waitForIdleMs`는 큐만 기다리므로, 막고 있는 `run_id`를 `GET /api/v1/bench/running`의 `runs[]`에서 확인해 끝나기를 기다리거나 `POST /api/v1/bench/{runId}/stop`으로 세운 뒤 다시 부르십시오.
 
 **stdio (Claude Desktop / Claude Code `.mcp.json`)**
 

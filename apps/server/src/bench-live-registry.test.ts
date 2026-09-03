@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { StreamEvent } from "@llm-bench/shared";
+import type { BenchQueuePlan, BenchRunMeta, StreamEvent } from "@llm-bench/shared";
 import {
   _resetLiveRunRegistryForTests,
+  activeStandaloneRunForBaseUrl,
   endLiveRun,
   listLiveRuns,
   publishLiveEvent,
+  releaseStreamRun,
+  reserveStreamRun,
   startLiveRun,
   subscribeToLiveRun,
 } from "./bench-live-registry.js";
@@ -84,5 +87,126 @@ describe("bench-live-registry", () => {
     publishLiveEvent("r1", ev);
     expect(gotA).toEqual([ev]);
     expect(gotB).toEqual([ev]);
+  });
+});
+
+const META: BenchRunMeta = {
+  run_id: "r1",
+  base_url: INFO.base_url,
+  provider: "lm_studio",
+  model_id: "m1",
+  api_routes: ["chat_completions"],
+  scenario_ids: ["chat_hello", "chat_ping"],
+  scenario_bundle_version: "4",
+  temperature: 0.2,
+  max_tokens: 512,
+  parallel: false,
+  warmup_runs: 1,
+  measured_runs: 3,
+  created_at: "2026-01-01T00:00:00.000Z",
+};
+
+/** 오염 가드 대기처럼 한 런에서 수백 건이 쏟아지는 이벤트 — 링버퍼(500)를 넘기는 용도. */
+function floodContentionWaiting(runId: string, count: number): void {
+  for (let i = 0; i < count; i++) {
+    publishLiveEvent(runId, {
+      type: "contention_waiting",
+      phase: "pre_bench",
+      waiting_reason: "gpu_busy",
+      reasons: ["gpu_busy"],
+      gpu_signal_available: true,
+      elapsed_ms: i,
+    });
+  }
+}
+
+describe("bench-live-registry: run_started 핀", () => {
+  it("run_started는 링버퍼 축출을 견딘다", () => {
+    // 이게 밀려나면 재연결 탭이 시나리오 계획·warmup/measured·run_id를 통째로 잃는다.
+    startLiveRun("r1", INFO);
+    publishLiveEvent("r1", { type: "run_started", run_id: "r1", meta: META });
+    floodContentionWaiting("r1", 600);
+
+    const first = subscribeToLiveRun("r1")!.bufferedEvents[0];
+    expect(first?.type).toBe("run_started");
+    expect(first?.type === "run_started" && first.meta).toEqual(META);
+  });
+
+  it("replay에서 run_started가 중복되지 않는다", () => {
+    // 핀과 버퍼 양쪽에 넣으면 클라이언트가 같은 런을 두 번 초기화한다.
+    startLiveRun("r1", INFO);
+    publishLiveEvent("r1", { type: "run_started", run_id: "r1", meta: META });
+    publishLiveEvent("r1", { type: "model_loaded", model_id: "m1", provider: "lm_studio" });
+
+    const replay = subscribeToLiveRun("r1")!.bufferedEvents;
+    expect(replay.filter((ev) => ev.type === "run_started")).toHaveLength(1);
+    expect(replay).toHaveLength(2);
+  });
+
+  it("두 번째 run_started는 핀을 덮어쓰지 않는다", () => {
+    startLiveRun("r1", INFO);
+    const first: StreamEvent = { type: "run_started", run_id: "r1", meta: META };
+    publishLiveEvent("r1", first);
+    publishLiveEvent("r1", { type: "run_started", run_id: "r1-dup" });
+
+    // 선두는 meta를 가진 최초 run_started 그대로여야 한다.
+    expect(subscribeToLiveRun("r1")!.bufferedEvents[0]).toEqual(first);
+  });
+});
+
+describe("bench-live-registry: 큐 메타데이터", () => {
+  it("listLiveRuns가 plan·queue_id를 노출한다", () => {
+    // SSE를 열지 않고도 /bench/running만으로 시나리오 계획과 소속 큐를 알 수 있어야 한다.
+    const plan: BenchQueuePlan = {
+      scenario_ids: ["chat_hello", "chat_ping"],
+      api_routes: ["chat_completions"],
+      warmup_runs: 1,
+      measured_runs: 3,
+    };
+    startLiveRun("r1", { ...INFO, plan, queue_id: "q1" });
+
+    const summary = listLiveRuns()[0];
+    expect(summary?.plan).toEqual(plan);
+    expect(summary?.queue_id).toBe("q1");
+  });
+
+  it("단독 런은 plan·queue_id 없이도 나열된다", () => {
+    startLiveRun("r1", INFO);
+    const summary = listLiveRuns()[0];
+    expect(summary?.plan).toBeUndefined();
+    expect(summary?.queue_id).toBeUndefined();
+  });
+});
+
+describe("단발 런 점유 판정 — 큐 시작을 막는 근거", () => {
+  const BASE = "http://127.0.0.1:1234";
+
+  it("run_started 전(예약 구간)에도 점유로 센다", () => {
+    // 라이브 등록은 run_started 이후다. 그 앞의 감지·모델 로드(LM Studio는 수십 초) 동안
+    // 점유가 비어 보이면 큐가 그 위로 올라타 벤치 두 건이 겹친다.
+    expect(activeStandaloneRunForBaseUrl(BASE)).toBeNull();
+    const token = reserveStreamRun(BASE);
+    expect(activeStandaloneRunForBaseUrl(BASE)).toEqual({ run_id: null, model_id: null });
+    releaseStreamRun(token);
+    expect(activeStandaloneRunForBaseUrl(BASE)).toBeNull();
+  });
+
+  it("등록된 단발 런은 run_id·model_id와 함께 잡힌다", () => {
+    startLiveRun("r1", INFO);
+    expect(activeStandaloneRunForBaseUrl(BASE)).toEqual({ run_id: "r1", model_id: "m1" });
+    endLiveRun("r1");
+    expect(activeStandaloneRunForBaseUrl(BASE)).toBeNull();
+  });
+
+  it("큐 소유 런은 점유로 세지 않는다 — 큐 자신을 막으면 안 된다", () => {
+    startLiveRun("r1", { ...INFO, queue_id: "q1" });
+    expect(activeStandaloneRunForBaseUrl(BASE)).toBeNull();
+  });
+
+  it("다른 baseUrl의 런·예약은 잡지 않는다", () => {
+    const token = reserveStreamRun("http://127.0.0.1:9999");
+    startLiveRun("r1", { ...INFO, base_url: "http://127.0.0.1:8888" });
+    expect(activeStandaloneRunForBaseUrl(BASE)).toBeNull();
+    releaseStreamRun(token);
   });
 });

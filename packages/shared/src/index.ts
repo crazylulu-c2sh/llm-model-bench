@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { LoadTtlStatusSchema, ProviderKindSchema } from "./provider-kind";
+// 큐 이벤트 유니온이 StreamEventSchema의 상위집합이라 여기서 조립한다(bench-queue.ts는 index를 임포트하지 않는다).
+import {
+  BenchQueueModelSchema as BenchQueueModelSchemaLocal,
+  BenchQueueModelStatusSchema as BenchQueueModelStatusSchemaLocal,
+  BenchQueuePlanSchema as BenchQueuePlanSchemaLocal,
+} from "./bench-queue";
 // 아래 요청 바디 스키마에서 로컬로 사용(재-export만으론 로컬 바인딩이 안 생김).
 import { STRESS_WORKLOAD_IDS as STRESS_WORKLOAD_IDS_LOCAL, type StressWorkloadId as StressWorkloadIdLocal } from "./scenarios-preview";
 import { StressRampConfigSchema as StressRampConfigSchemaLocal } from "./stress";
@@ -557,6 +563,53 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
 ]);
 export type StreamEvent = z.infer<typeof StreamEventSchema>;
 
+/**
+ * 서버 소유 큐(`POST /bench/queue`)가 내보내는 이벤트 — 런 이벤트 전부 + 큐 레벨 이벤트.
+ * `StreamEvent` 자체는 건드리지 않는다: 퍼시스터·MCP·runBench가 그 유니온에 결합돼 있고,
+ * 큐 이벤트는 DB에 저장할 것이 없다.
+ */
+export const BenchQueueStreamEventSchema = z.discriminatedUnion("type", [
+  ...StreamEventSchema.options,
+  z.object({
+    type: z.literal("queue_started"),
+    queue_id: z.string(),
+    base_url: z.string(),
+    provider: ProviderKindSchema,
+    model_ids: z.array(z.string()),
+    plan: BenchQueuePlanSchemaLocal,
+  }),
+  /** 모델 실행 직전. run_id는 아직 없다 — 뒤따르는 run_started가 준다. */
+  z.object({
+    type: z.literal("queue_model_started"),
+    queue_id: z.string(),
+    index: z.number().int(),
+    model_id: z.string(),
+  }),
+  z.object({
+    type: z.literal("queue_model_finished"),
+    queue_id: z.string(),
+    index: z.number().int(),
+    model_id: z.string(),
+    run_id: z.string().nullable(),
+    status: BenchQueueModelStatusSchemaLocal,
+    error_count: z.number().int().nonnegative(),
+  }),
+  /**
+   * 큐 레벨 일시정지/재개. 런 레벨 run_paused/run_resumed와 별개로 필요하다 —
+   * 모델 경계(진행 중인 런이 없을 때) 일시정지는 런 이벤트를 하나도 만들지 않아,
+   * 이게 없으면 클라이언트 버튼이 영원히 굳는다.
+   */
+  z.object({ type: z.literal("queue_paused"), queue_id: z.string() }),
+  z.object({ type: z.literal("queue_resumed"), queue_id: z.string() }),
+  z.object({
+    type: z.literal("queue_finished"),
+    queue_id: z.string(),
+    status: z.enum(["finished", "cancelled"]),
+    models: z.array(BenchQueueModelSchemaLocal),
+  }),
+]);
+export type BenchQueueStreamEvent = z.infer<typeof BenchQueueStreamEventSchema>;
+
 export const BenchResultSchema = z.object({
   meta: BenchRunMetaSchema,
   scenarios: z.array(
@@ -681,10 +734,12 @@ export const DetectBodySchema = z.object({
 });
 export type DetectBody = z.infer<typeof DetectBodySchema>;
 
-export const BenchStreamBodySchema = z.object({
-  detect: DetectResultSchema,
-  bench: z.object({
-    baseUrl: z.string(),
+/**
+ * 벤치 1건의 설정. `/bench/stream`은 이걸 그대로 받고, `/bench/queue`는 `modelId`만 빼고
+ * 받아(모델은 `model_ids`가 결정) 모델마다 프로파일을 다시 해석한다.
+ */
+export const BenchConfigSchema = z.object({
+  baseUrl: z.string(),
     apiKey: z.string().optional(),
     provider: ProviderKindSchema,
     modelId: z.string(),
@@ -722,9 +777,31 @@ export const BenchStreamBodySchema = z.object({
     contentionRequiredConsecutiveIdle: z.number().int().positive().optional(),
     contentionServerMetricsEnabled: z.boolean().optional(),
     contentionLmsCliActivityEnabled: z.boolean().optional(),
-  }),
+});
+export type BenchConfig = z.infer<typeof BenchConfigSchema>;
+
+export const BenchStreamBodySchema = z.object({
+  detect: DetectResultSchema,
+  bench: BenchConfigSchema,
 });
 export type BenchStreamBody = z.infer<typeof BenchStreamBodySchema>;
+
+/**
+ * `POST /bench/queue` 바디. `bench`는 큐 전체가 공유하는 **의도**다 — 모델별로 달라지는
+ * reasoning effort 두 칸을 모두 실어 보내고, 서버가 모델마다 `benchProfileForModel`로 해석한다.
+ * (칸 하나로 합치면 gpt-oss + Qwen3.8 혼합 큐에서 한쪽 선택이 반드시 유실된다.)
+ */
+export const BenchQueueStartBodySchema = z.object({
+  detect: DetectResultSchema,
+  bench: BenchConfigSchema.omit({ modelId: true }).extend({
+    /** Qwen3.8 계열 전용 reasoning_effort(xhigh|medium|low). `reasoningEffort`는 gpt-oss 계열용. */
+    qwen38ReasoningEffort: ReasoningEffortSchema,
+    /** 성능 측정 모드 — 사고 off + 고정 출력 한도. 모델 무관 게이트지만 서버가 적용한다. */
+    benchmarkThroughputMode: z.boolean().optional(),
+  }),
+  model_ids: z.array(z.string().min(1)).min(1).max(64),
+});
+export type BenchQueueStartBody = z.infer<typeof BenchQueueStartBodySchema>;
 
 export const StressStreamBodySchema = z.object({
   detect: DetectResultSchema,
@@ -754,6 +831,25 @@ export const StressStreamBodySchema = z.object({
   }),
 });
 export type StressStreamBody = z.infer<typeof StressStreamBodySchema>;
+
+// ─── 서버 소유 모델 큐(순수 타입·게이트) ─────────────────────────────────────
+// 서브패스 import(`@llm-bench/shared/bench-queue`) 금지 — web tsc만 통과하고 vite/server/mcp에서 깨진다.
+export {
+  BENCH_THROUGHPUT_MAX_TOKENS,
+  BenchQueueModelSchema,
+  BenchQueueModelStatusSchema,
+  BenchQueuePlanSchema,
+  BenchQueueSnapshotSchema,
+  benchProfileForModel,
+  classifyModelOutcome,
+  type BenchProfileIntent,
+  type BenchQueueModel,
+  type BenchQueueModelStatus,
+  type BenchQueuePlan,
+  type BenchQueueSnapshot,
+  type ModelRunOutcome,
+  type ResolvedBenchProfilePayload,
+} from "./bench-queue";
 
 // ─── 모델 정렬 비교자(순수) ─────────────────────────────────────────────────
 export {
