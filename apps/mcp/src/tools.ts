@@ -13,7 +13,7 @@ import {
   type StreamEvent,
 } from "@llm-bench/shared";
 import type { McpConfig } from "./config.js";
-import type { BenchClient } from "./bench-client.js";
+import { BenchHttpError, isQueueActiveError, type BenchClient } from "./bench-client.js";
 import { consumeSseJsonLines } from "./sse.js";
 
 /** 도구 결과 헬퍼 — compact JSON을 text content로 반환(구조화 파싱 가능). */
@@ -159,6 +159,74 @@ async function drainBenchStream(
   };
 }
 
+/** 큐가 비었는지 확인하는 간격. 벤치 큐의 모델 1건은 분 단위라 더 촘촘히 물어봐야 얻는 게 없다. */
+const QUEUE_POLL_INTERVAL_MS = 5_000;
+/** 대기 예산과 별개인 재시도 상한 — 큐가 연달아 새로 뜨면 예산만으로는 루프가 길어질 수 있다. */
+const MAX_QUEUE_RETRIES = 20;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * 이 baseUrl을 지금 점유 중인 큐. `/bench/running`의 `queues`에는 TTL(30분) 안의 **완료 큐도** 들어오므로
+ * 목록이 비었는지로 판단하면 안 된다 — status가 "running"인 것만 점유로 센다.
+ */
+async function runningQueueFor(
+  client: BenchClient,
+  baseUrl: string,
+): Promise<{ queue_id?: string; index?: number; models?: Array<{ model_id?: string }> } | null> {
+  const res = await client.getJson<{
+    queues?: Array<{ queue_id?: string; status?: string; index?: number; models?: Array<{ model_id?: string }> }>;
+  }>(`/bench/running?baseUrl=${encodeURIComponent(baseUrl)}`);
+  return (res.queues ?? []).find((q) => q.status === "running") ?? null;
+}
+
+/** 예산 안에서 큐가 비기를 기다린다. 비면 true, 예산 소진이면 false — 어느 쪽이든 반드시 끝난다. */
+async function waitUntilQueueIdle(client: BenchClient, baseUrl: string, deadline: number): Promise<boolean> {
+  for (;;) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return false;
+    await sleep(Math.min(QUEUE_POLL_INTERVAL_MS, remaining));
+    try {
+      if ((await runningQueueFor(client, baseUrl)) === null) return true;
+    } catch {
+      // 폴링 실패는 "큐 상태 모름"일 뿐이라 대기를 접지 않는다 — 예산이 상한 역할을 한다.
+    }
+  }
+}
+
+/** 409 queue_active 본문에서 에이전트가 쓸 수 있는 값만 추린다(어느 큐를, 어느 모델에서 기다리는지). */
+function queueActiveInfo(e: BenchHttpError): Record<string, unknown> {
+  const p = e.payload ?? {};
+  return {
+    reason: "queue_active",
+    base_url: p.base_url ?? null,
+    queue_id: p.queue_id ?? null,
+    queue_model_id: p.model_id ?? null,
+  };
+}
+
+/**
+ * 409 `run_active` — 같은 baseUrl을 **단발** 런이 점유 중이다(큐가 아니다).
+ * `waitForIdleMs`는 큐가 비기만 기다리므로 이 거부는 대기 대상이 아니라 즉시 실패다.
+ */
+function isRunActiveError(e: unknown): e is BenchHttpError {
+  return e instanceof BenchHttpError && e.status === 409 && e.payload?.error === "run_active";
+}
+
+/** 409 run_active 본문에서 후속 행동(어느 런을 기다리거나 세울지)의 근거가 되는 값만 추린다. */
+function runActiveInfo(e: BenchHttpError): Record<string, unknown> {
+  const p = e.payload ?? {};
+  return {
+    reason: "run_active",
+    base_url: p.base_url ?? null,
+    run_id: p.run_id ?? null,
+    run_model_id: p.model_id ?? null,
+    waitable: false,
+  };
+}
+
 export function registerTools(server: McpServer, client: BenchClient, cfg: McpConfig): void {
   server.registerTool(
     "health",
@@ -204,7 +272,10 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
       title: "모델 벤치 실행(진행 스트리밍, compact 결과)",
       description:
         "선택 시나리오로 한 모델을 벤치한다. detect를 넘기면 재감지 스킵, 아니면 baseUrl/apiKey로 내부 감지. " +
-        "token 스트림은 버리고 시나리오별 TTFT/TPS/품질 요약 + 랭킹 롤업을 반환. 진행은 progress 알림으로 전달.",
+        "token 스트림은 버리고 시나리오별 TTFT/TPS/품질 요약 + 랭킹 롤업을 반환. 진행은 progress 알림으로 전달. " +
+        "같은 baseUrl에서 서버 큐가 실행 중이면 409 queue_active로 거부된다(측정이 겹치면 조용히 오염되므로). " +
+        "거부 대신 큐가 끝나기를 기다리려면 waitForIdleMs를 주라 — 이 대기는 **큐에만** 적용된다. " +
+        "다른 단발 런이 점유 중이라는 409 run_active는 대기 없이 즉시 실패하며, 막고 있는 run_id를 결과에 담는다.",
       inputSchema: {
         baseUrl: z.string(),
         apiKey: z.string().optional(),
@@ -220,6 +291,12 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
         fitPolicy: z.enum(["skip", "unload_other_models"]).optional(),
         /** 로드 시 TTL(초). 지원 백엔드(lm_studio·ollama)에서만 적용, 그 외는 무시. */
         loadTtlSeconds: z.number().int().positive().optional(),
+        /**
+         * 서버 **큐**가 이 baseUrl을 점유해 409 queue_active를 받았을 때 기다릴 최대 시간(ms). 기본 0 = 즉시 실패.
+         * >0이면 5초 간격으로 `/bench/running`을 확인해 큐가 끝나면 자동 재시도한다(재시도 상한 20회).
+         * 409 run_active(단발 런 점유)에는 적용되지 않는다 — 그건 언제나 즉시 실패다.
+         */
+        waitForIdleMs: z.number().int().nonnegative().optional(),
       },
     },
     async (args, extra) => {
@@ -245,8 +322,55 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
           fitPolicy: args.fitPolicy,
           loadTtlSeconds: args.loadTtlSeconds,
         };
-        const result = await drainBenchStream(client, cfg, { detect, bench }, extra as ProgressExtra);
-        return ok(result);
+        const waitBudgetMs = args.waitForIdleMs ?? 0;
+        const deadline = Date.now() + waitBudgetMs;
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            const result = await drainBenchStream(client, cfg, { detect, bench }, extra as ProgressExtra);
+            return ok(result);
+          } catch (e) {
+            // run_active는 큐가 아니라 **단발** 런이 baseUrl을 점유한 경우다 — waitForIdleMs는
+            // 큐만 기다리므로 여기서 대기 루프에 넣으면 영원히 못 빠져나온다. 즉시 실패시키되
+            // 어느 런이 막고 있는지와 다음 행동을 메시지에 남긴다.
+            if (isRunActiveError(e)) {
+              return fail(
+                `${e.message} — 같은 baseUrl에서 다른 단발 벤치 런이 실행 중이라 거부됐다(큐가 아니다). ` +
+                  `waitForIdleMs는 서버 큐만 기다리므로 이 거부에는 효과가 없다 — ` +
+                  `GET /bench/running의 runs[]에서 그 런이 끝나기를 확인하거나 ` +
+                  `POST /bench/{runId}/stop으로 세운 뒤 다시 부르라.`,
+                runActiveInfo(e),
+              );
+            }
+            if (!isQueueActiveError(e)) throw e;
+            const info = queueActiveInfo(e);
+            if (waitBudgetMs <= 0) {
+              return fail(
+                `${e.message} — 서버 벤치 큐가 이 baseUrl을 점유 중이라 실행을 거부했다. ` +
+                  `큐가 끝나기를 기다리려면 waitForIdleMs(ms)를 지정하라.`,
+                info,
+              );
+            }
+            const budgetExhausted = () =>
+              fail(
+                `${e.message} — 서버 벤치 큐가 waitForIdleMs=${waitBudgetMs}ms 안에 끝나지 않았다. ` +
+                  `큐 진행은 GET /bench/running으로 확인하고, 더 긴 waitForIdleMs로 다시 부르라.`,
+                { ...info, retries: attempt },
+              );
+            // 재시도 상한과 대기 예산은 서로 다른 한계다. 예산이 남았는데 상한에 걸린 걸
+            // "시간 안에 안 끝났다"고 보고하면, 에이전트는 waitForIdleMs만 늘려 같은 벽에 다시 부딪힌다.
+            if (attempt >= MAX_QUEUE_RETRIES) {
+              const remainingMs = Math.max(0, deadline - Date.now());
+              if (remainingMs <= 0) return budgetExhausted();
+              return fail(
+                `${e.message} — 큐가 빌 때마다 새 큐가 올라와 재시도 상한(${MAX_QUEUE_RETRIES}회)에 걸렸다. ` +
+                  `waitForIdleMs 예산은 아직 ${remainingMs}ms 남아 있으므로 예산을 늘려도 같은 결과다 — ` +
+                  `GET /bench/running으로 누가 큐를 계속 올리는지 확인하고 그쪽을 멈춘 뒤 다시 부르라.`,
+                { ...info, retries: attempt, wait_budget_remaining_ms: remainingMs },
+              );
+            }
+            if (!(await waitUntilQueueIdle(client, args.baseUrl, deadline))) return budgetExhausted();
+          }
+        }
       } catch (e) {
         return fail(e instanceof Error ? e.message : String(e));
       }
