@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import type { StreamEvent } from "@llm-bench/shared";
+import type { BenchQueuePlan, StreamEvent } from "@llm-bench/shared";
 
 /**
  * 진행 중인 벤치 런의 실시간 이벤트를 여러 구독자(원 요청 + 새로고침 후 재연결한 탭들)에게
@@ -16,13 +16,23 @@ type LiveRunInfo = {
   model_id: string;
   provider: string;
   started_at: number;
+  /** run_started.meta에서 파생 — SSE를 열지 않고도 시나리오 목록·반복 수를 알 수 있게. */
+  plan?: BenchQueuePlan | null;
+  /** 이 런이 속한 서버 큐. 단독 /bench/stream이면 null. */
+  queue_id?: string | null;
 };
 
 type LiveEntry = {
   emitter: EventEmitter;
   info: LiveRunInfo;
   paused: boolean;
-  /** token_delta 제외, 최대 MAX_BUFFERED_EVENTS개 — 재연결 시 그대로 replay. */
+  /**
+   * 링버퍼 축출과 무관하게 보존하는 최초 run_started(meta 포함).
+   * 이게 밀려나면 재연결 탭이 시나리오 계획·warmup/measured·run_id를 통째로 잃는다
+   * (일시정지/정지 버튼이 죽고 워밍업 라벨이 기본값으로 떨어진다).
+   */
+  pinnedRunStarted: StreamEvent | null;
+  /** token_delta·핀된 run_started 제외, 최대 MAX_BUFFERED_EVENTS개 — 재연결 시 그대로 replay. */
   buffered: StreamEvent[];
 };
 
@@ -33,7 +43,7 @@ const registry = new Map<string, LiveEntry>();
 export function startLiveRun(runId: string, info: LiveRunInfo): void {
   const emitter = new EventEmitter();
   emitter.setMaxListeners(0); // 여러 탭이 동시에 재연결할 수 있어 무제한 허용
-  registry.set(runId, { emitter, info, paused: false, buffered: [] });
+  registry.set(runId, { emitter, info, paused: false, pinnedRunStarted: null, buffered: [] });
 }
 
 export function publishLiveEvent(runId: string, ev: StreamEvent): void {
@@ -41,7 +51,10 @@ export function publishLiveEvent(runId: string, ev: StreamEvent): void {
   if (!entry) return;
   if (ev.type === "run_paused") entry.paused = true;
   if (ev.type === "run_resumed") entry.paused = false;
-  if (ev.type !== "token_delta") {
+  if (ev.type === "run_started" && entry.pinnedRunStarted === null) {
+    // 핀에만 저장한다 — buffered에도 넣으면 replay에서 두 번 나간다.
+    entry.pinnedRunStarted = ev;
+  } else if (ev.type !== "token_delta") {
     entry.buffered.push(ev);
     if (entry.buffered.length > MAX_BUFFERED_EVENTS) entry.buffered.shift();
   }
@@ -68,7 +81,10 @@ export function subscribeToLiveRun(runId: string): LiveRunSubscription | null {
   if (!entry) return null;
   const listeners: { event?: (ev: StreamEvent) => void; done?: () => void } = {};
   return {
-    bufferedEvents: [...entry.buffered],
+    // run_started가 항상 replay 선두 — 클라이언트의 워밍업/측정 구분이 이 순서에 의존한다.
+    bufferedEvents: entry.pinnedRunStarted
+      ? [entry.pinnedRunStarted, ...entry.buffered]
+      : [...entry.buffered],
     onEvent(cb) {
       listeners.event = cb;
       entry.emitter.on("event", cb);
