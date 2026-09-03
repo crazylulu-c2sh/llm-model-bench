@@ -580,21 +580,23 @@ export function ResultsTable({
                 );
               })}
               {pendingRows.map((pr) => (
+                // 예약 행도 "무엇이 남았는지"를 읽는 정보다 — muted @40%는 두 테마 모두 2:1 미만이라
+                // 전경색 @70%(다크 8.2:1 · 라이트 5.7:1)로 흐린 느낌은 유지하되 대비를 지킨다.
                 <tr
                   key={pr.rowKey}
-                  className="border-t border-[var(--border)] opacity-40"
+                  className="border-t border-[var(--border)] opacity-70"
                   aria-hidden="true"
                 >
                   <td className="p-2">
-                    <span className="whitespace-nowrap text-xs text-[var(--muted)]">
+                    <span className="whitespace-nowrap text-xs text-[var(--foreground)]">
                       <ModelLabel modelId={pr.model_id} size={14} />
                     </span>
                   </td>
                   <td className="p-2">
-                    <span className="font-mono text-xs text-[var(--muted)]">{pr.scenario}</span>
+                    <span className="font-mono text-xs text-[var(--foreground)]">{pr.scenario}</span>
                   </td>
                   <td className="p-2">
-                    <span className="text-xs text-[var(--muted)]">{pr.api}</span>
+                    <span className="text-xs text-[var(--foreground)]">{pr.api}</span>
                   </td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-8 animate-pulse rounded bg-[var(--border)]" /></td>
