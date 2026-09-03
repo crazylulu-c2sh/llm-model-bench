@@ -168,11 +168,18 @@ export const BenchQueueSnapshotSchema = z.object({
   /**
    * 레지스트리 자체 상태. DB의 `bench_runs.status`를 완료 신호로 쓰면 안 된다 —
    * 시나리오 에러 하나로 `running`→`partial`이 되면서 `finished_at`은 NULL로 남는다.
+   *
+   * 루프가 예외로 죽은 경우도 "cancelled"로 닫힌다. 별도 상태를 두는 대신 그 모델의
+   * `models[].status`를 "failed"로 남겨 구분한다(사용자 정지면 그 모델도 "cancelled").
    */
   status: z.enum(["running", "finished", "cancelled"]),
   created_at: z.number(),
   finished_at: z.number().nullable(),
-  /** 현재 실행 중인 모델의 인덱스. 끝났으면 models.length. */
+  /**
+   * 지금 실행 중인, 또는 다음에 실행할 모델의 인덱스. 모델이 끝나면 곧바로 다음으로 옮겨간다 —
+   * 끝난 모델을 계속 가리키면 모델 경계에서 재연결한 클라이언트가 그 모델을 실행 중으로 그린다.
+   * "실제로 지금 돌고 있는가"는 `current_run_id`가 말한다. 큐가 끝났으면 models.length.
+   */
   index: z.number().int().nonnegative(),
   paused: z.boolean(),
   /** running일 때만 채운다 — 완료 큐가 죽은 run_id를 들고 있으면 클라이언트가 그걸로 재연결해 404를 맞는다. */

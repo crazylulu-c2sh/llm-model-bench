@@ -605,12 +605,17 @@ describe("서버 소유 큐 — 정지·일시정지", () => {
     // queue_model_finished{0}은 다음 루프의 pause 게이트보다 **먼저** 발행된다. 이 이벤트를 본
     // 시점에 러너는 이미 waitWhileQueuePaused에 걸려 있으므로 sleep 없이 부재를 단언할 수 있다.
     await waitForEvent(c, (e) => e.type === "queue_model_finished" && e.index === 0);
-    // 스냅샷을 먼저 본다 — markModelRunning은 queue_model_started 발행 **직전**에 index/status를
-    // 옮기므로, 게이트가 없으면 SSE 도착을 기다릴 것도 없이 여기서 이미 index:1/running으로 보인다.
+    // 스냅샷을 먼저 본다 — markModelRunning은 queue_model_started 발행 **직전**에 status를 옮기므로,
+    // 게이트가 없으면 SSE 도착을 기다릴 것도 없이 여기서 이미 running으로 보인다.
+    // (index는 모델이 끝나는 즉시 "다음에 실행할 모델"로 옮겨가므로 게이트 신호가 아니다 —
+    //  실제로 시작했는지는 models[i].status·queue_model_started·업스트림 호출이 말한다.)
     const gated = await snapshotOf(queueId);
     expect(gated.paused).toBe(true);
-    expect(gated.index, "일시정지 중인데 큐가 다음 모델로 넘어갔다 — pause 게이트가 없다").toBe(0);
-    expect(gated.models[1].status).toBe("pending");
+    expect(gated.current_run_id, "일시정지 중인데 다음 런이 떠 있다").toBeNull();
+    expect(
+      gated.models[1].status,
+      "일시정지 중인데 큐가 다음 모델로 넘어갔다 — pause 게이트가 없다",
+    ).toBe("pending");
     expect(
       hasModelStarted(c, 1),
       "일시정지 중인데 다음 모델이 시작됐다 — 큐 러너의 pause 게이트가 없다",
