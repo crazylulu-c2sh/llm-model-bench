@@ -377,6 +377,16 @@ export const BenchRunMetaSchema = z.object({
   auto_unload_after_bench: z.boolean().optional(),
   /** 로드 시 적용한 TTL(초). LM Studio는 JIT prime 요청의 `ttl`(명시적 load 미지원), Ollama는 `keep_alive`. 지원 백엔드에서만 채워짐. */
   load_ttl_seconds: z.number().int().positive().optional(),
+  /**
+   * TTL이 실제로 걸렸는지(런 종료 후 patch). `load_ttl_seconds`는 **요청값일 뿐**이라 이것 없이는
+   * "3600을 보냈다"와 "3600이 걸렸다"를 구분할 수 없다 — 그 구분이 안 돼서 모델이 TTL 없이
+   * 상주하는 것을 한동안 못 봤다.
+   */
+  load_ttl_status: LoadTtlStatusSchema.optional(),
+  /** LM Studio 준비 경로(런 종료 후 patch) — 이미 상주/JIT/명시적 load/건너뜀 중 무엇이었는지. */
+  lm_studio_prepare: z
+    .enum(["loaded", "already_in_memory", "load_skipped_by_request", "jit_load_with_ttl"])
+    .optional(),
   /** Vite 등에서 서빙하는 public 자산 베이스 (예: http://127.0.0.1:21104) — nist.fips.197.pdf URL 허용용 */
   public_assets_origin: z.string().optional(),
   /** 오염 가드: 해석·클램프된 config (INSERT 시점 기록; `effective`는 사전 probe 후 결정되어 meta엔 없음 → contention_summary로). */

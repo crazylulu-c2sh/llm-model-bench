@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   _resetLmStudioJitTtlCacheForTests,
   lmStudioIsModelLoaded,
+  prepareLmStudioForRun,
   lmStudioJitTtlPrime,
   lmStudioLoad,
   lmStudioUnload,
@@ -402,5 +403,116 @@ describe("looksLikeLmStudioTtlRejection", () => {
   it("only considers 400/422", () => {
     expect(looksLikeLmStudioTtlRejection(500, '{"error":"unknown field ttl"}')).toBe(false);
     expect(looksLikeLmStudioTtlRejection(422, '{"error":"unknown field ttl"}')).toBe(true);
+  });
+});
+
+/**
+ * 런 준비 경로. 여기가 비어 있어서 "정지를 눌렀는데 모델이 TTL 없이 상주"하는 경로를 오래 못 봤다 —
+ * LM Studio 로그에는 우리가 끊은 "operation canceled"만 남아 원인이 보이지 않는다.
+ */
+describe("prepareLmStudioForRun", () => {
+  beforeEach(() => _resetLmStudioJitTtlCacheForTests());
+
+  /** 미로드 상태를 흉내 내고, 어떤 엔드포인트가 불렸는지 기록한다. */
+  function stub(handlers: {
+    onPrime?: (url: string) => Promise<Response>;
+  } = {}) {
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      calls.push(url);
+      if (url.endsWith("/api/v1/models") || url.endsWith("/api/v0/models")) {
+        return jsonResponse({ models: [{ key: "m1", loaded_instances: [] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        if (handlers.onPrime) return handlers.onPrime(url);
+        return jsonResponse({ choices: [{ message: { content: "." } }] });
+      }
+      return jsonResponse({ ok: true });
+    });
+    return { calls, fetchImpl: fetchImpl as unknown as typeof fetch };
+  }
+
+  const loadCalls = (calls: string[]) => calls.filter((u) => u.includes("/models/load"));
+  const unloadCalls = (calls: string[]) => calls.filter((u) => u.includes("/models/unload"));
+
+  it("시작 전에 이미 정지됐으면 아무것도 올리지 않는다", async () => {
+    const { calls, fetchImpl } = stub();
+    const ac = new AbortController();
+    ac.abort();
+    const r = await prepareLmStudioForRun({
+      baseUrl: "http://x:1234",
+      modelId: "m1",
+      skipModelLoad: false,
+      ttlSeconds: 3600,
+      fetchImpl,
+      signal: ac.signal,
+    });
+    expect(r.loadedByThisRun).toBe(false);
+    expect(r.ttlStatus).toBe("not_applied");
+    expect(loadCalls(calls)).toEqual([]);
+    expect(calls.filter((u) => u.endsWith("/v1/chat/completions"))).toEqual([]);
+  });
+
+  it("prime이 정지로 끊기면 명시적 load로 폴백하지 않고 되돌린다", async () => {
+    // 폴백하면 "정지했는데 모델이, 그것도 TTL 없이(명시적 load는 ttl 미지원) 상주"하게 된다.
+    const ac = new AbortController();
+    const { calls, fetchImpl } = stub({
+      onPrime: async () => {
+        ac.abort();
+        throw new DOMException("The operation was aborted.", "AbortError");
+      },
+    });
+    const r = await prepareLmStudioForRun({
+      baseUrl: "http://x:1234",
+      modelId: "m1",
+      skipModelLoad: false,
+      ttlSeconds: 3600,
+      fetchImpl,
+      signal: ac.signal,
+    });
+    expect(r.loadedByThisRun).toBe(false);
+    expect(r.ttlStatus).toBe("not_applied");
+    expect(loadCalls(calls), "정지 후 명시적 load로 폴백했다").toEqual([]);
+    // prime이 이미 JIT 로드를 트리거했을 수 있으므로 되돌린다(직전 검사에서 미로드였다).
+    expect(unloadCalls(calls).length).toBeGreaterThan(0);
+  });
+
+  it("정지가 아닌 prime 실패는 기존대로 명시적 load로 폴백한다", async () => {
+    const { calls, fetchImpl } = stub({
+      onPrime: async () => {
+        throw new TypeError("network down");
+      },
+    });
+    const r = await prepareLmStudioForRun({
+      baseUrl: "http://x:1234",
+      modelId: "m1",
+      skipModelLoad: false,
+      ttlSeconds: 3600,
+      fetchImpl,
+    });
+    expect(loadCalls(calls).length).toBeGreaterThan(0);
+    expect(r.ttlStatus).toBe("not_applied");
+  });
+
+  it("이미 상주 중인 모델에는 TTL을 걸지 못한다고 보고한다", async () => {
+    // LM Studio는 로드 시점에만 TTL을 받는다 — 조용히 넘어가면 사용자는 TTL이 걸린 줄 안다.
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") || url.endsWith("/api/v0/models")) {
+        return jsonResponse({ models: [{ key: "m1", loaded_instances: [{}] }] });
+      }
+      return jsonResponse({ ok: true });
+    }) as unknown as typeof fetch;
+    const r = await prepareLmStudioForRun({
+      baseUrl: "http://x:1234",
+      modelId: "m1",
+      skipModelLoad: false,
+      ttlSeconds: 3600,
+      fetchImpl,
+    });
+    expect(r.prepare).toBe("already_in_memory");
+    expect(r.ttlStatus).toBe("not_applied");
+    expect(r.loadedByThisRun).toBe(false);
   });
 });
