@@ -108,6 +108,20 @@ export class BenchRunPersistence {
           `iteration_discarded ${ev.scenario_id} idx=${ev.measured_index} retry=${ev.retry_count}/${ev.max_retries} ${ev.reason}`,
         );
         break;
+      case "model_loaded": {
+        // 라이브 이벤트에만 있던 값이라 런이 끝나고 나면 "TTL이 실제로 걸렸는가"를 알 방법이 없었다.
+        // meta_json에 남겨 /runs/:id로 사후 확인이 되게 한다.
+        if (ev.load_ttl_status != null || ev.lm_studio_prepare != null) {
+          updateRunMetaJson(this.db, this.runId, {
+            ...(ev.load_ttl_status != null ? { load_ttl_status: ev.load_ttl_status } : {}),
+            ...(ev.lm_studio_prepare != null ? { lm_studio_prepare: ev.lm_studio_prepare } : {}),
+          });
+        }
+        this.logLine(
+          `model_loaded ${ev.model_id} prepare=${ev.lm_studio_prepare ?? "-"} ttl=${ev.load_ttl_status ?? "-"}`,
+        );
+        break;
+      }
       case "contention_summary": {
         // effective 등 사전 probe 후에야 확정되는 값을 meta_json에 patch(INSERT엔 없음).
         const { type: _t, ...summary } = ev;

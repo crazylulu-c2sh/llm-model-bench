@@ -356,6 +356,12 @@ export async function prepareLmStudioForRun(opts: {
     };
   }
 
+  // 여기까지 왔다는 건 "우리가 올릴 모델"이라는 뜻이다(직전 검사에서 미로드).
+  // 시작 전에 이미 취소됐으면 아무것도 올리지 않는다.
+  if (signal?.aborted) {
+    return { prepare: "load_skipped_by_request", loadedByThisRun: false, ...(wantsTtl ? { ttlStatus: "not_applied" as const } : {}) };
+  }
+
   await lmStudioUnload(baseUrl, modelId, { fetchImpl, apiKey });
 
   if (!wantsTtl) {
@@ -374,6 +380,15 @@ export async function prepareLmStudioForRun(opts: {
   });
   if (primed.ok) {
     return { prepare: "jit_load_with_ttl", loadedByThisRun: true, ttlStatus: primed.ttl_status };
+  }
+
+  // 정지 때문에 prime이 끊긴 경우엔 폴백하지 않는다. 여기서 명시적 load를 하면 "정지를 눌렀는데
+  // 모델이, 그것도 TTL 없이 올라와 상주"하는 결과가 된다 — LM Studio 로그에는 우리가 끊은
+  // "operation canceled"만 남아 원인도 안 보인다. prime이 이미 JIT 로드를 트리거했을 수 있으므로
+  // 되돌린다(직전 검사에서 미로드였으니 이 모델은 우리 것이다).
+  if (signal?.aborted) {
+    await lmStudioUnload(baseUrl, modelId, { fetchImpl, apiKey });
+    return { prepare: "load_skipped_by_request", loadedByThisRun: false, ttlStatus: "not_applied" };
   }
 
   // prime 실패(네트워크 등) — 명시적 load로 폴백해 로드 자체는 보장한다.
