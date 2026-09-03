@@ -332,6 +332,8 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
             // run_active는 큐가 아니라 **단발** 런이 baseUrl을 점유한 경우다 — waitForIdleMs는
             // 큐만 기다리므로 여기서 대기 루프에 넣으면 영원히 못 빠져나온다. 즉시 실패시키되
             // 어느 런이 막고 있는지와 다음 행동을 메시지에 남긴다.
+            // 현재 /bench/stream은 run_active를 내지 않는다(큐 시작만 이 코드로 거부된다).
+            // 서버가 나중에 단발끼리도 막게 되면 그때 이 분기가 살아난다.
             if (isRunActiveError(e)) {
               return fail(
                 `${e.message} — 같은 baseUrl에서 다른 단발 벤치 런이 실행 중이라 거부됐다(큐가 아니다). ` +
@@ -368,7 +370,10 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
                 { ...info, retries: attempt, wait_budget_remaining_ms: remainingMs },
               );
             }
-            if (!(await waitUntilQueueIdle(client, args.baseUrl, deadline))) return budgetExhausted();
+            // 서버의 직렬 실행 락은 정규화된 detect.baseUrl로 걸린다 — 409 본문이 알려준 그 값으로
+            // 폴링해야 한다. args.baseUrl(사용자 입력 표기)로 물으면 유휴로 오판해 409만 반복해 맞는다.
+            const lockBaseUrl = typeof info.base_url === "string" && info.base_url ? info.base_url : args.baseUrl;
+            if (!(await waitUntilQueueIdle(client, lockBaseUrl, deadline))) return budgetExhausted();
           }
         }
       } catch (e) {

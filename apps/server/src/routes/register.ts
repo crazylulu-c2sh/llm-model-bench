@@ -45,9 +45,12 @@ import { registerMonitorRoutes } from "../monitor-routes.js";
 import { runStress, type StressRequest } from "../stress-runner.js";
 import { cancelRunControl, pauseRunControl, resumeRunControl } from "../run-control.js";
 import {
+  activeStandaloneRunForBaseUrl,
   endLiveRun,
   listLiveRuns,
   publishLiveEvent,
+  releaseStreamRun,
+  reserveStreamRun,
   startLiveRun,
   subscribeToLiveRun,
 } from "../bench-live-registry.js";
@@ -621,7 +624,11 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
     // 실행 루프를 별도 async 컨텍스트로 완전히 분리 — await 하지 않는다(fire-and-forget).
     // 응답 스트림(그리고 그것을 구독하는 브라우저 연결)의 생존 여부와 무관하게 끝까지
     // 실행된다 — persister.finalize()도 마찬가지.
+    // 라이브 등록(run_started) 전 구간에도 이 백엔드가 점유 중임을 알린다 — 그 창에서 큐가 끼어들면
+    // 벤치 두 건이 겹친다.
+    const reservation = reserveStreamRun(normBaseUrl(detect.baseUrl));
     void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
+      releaseStreamRun(reservation);
       clearInterval(keepalive);
       try {
         controllerBox.ref?.close();
@@ -684,13 +691,14 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
     // 큐 시작은 baseUrl이 **완전히 비었을 때만** 허용한다. 큐끼리만 배타적으로 두면
     // 단발 런(MCP·PR-B 이전 웹) 위로 큐가 그대로 올라타 같은 GPU에서 벤치 두 건이 겹친다.
     // 이건 에러가 아니라 조용한 측정 오염이라 실행 전에 막아야 한다.
-    const busyRun = listLiveRuns().find((r) => r.base_url === baseUrl && !r.queue_id);
+    // 아직 run_started를 내지 않은(감지·모델 로드 중) 스트림 런도 점유로 센다.
+    const busyRun = activeStandaloneRunForBaseUrl(baseUrl);
     if (busyRun) {
       return c.json(
         {
           error: "run_active",
           message: "이 baseUrl에서 단발 벤치 런이 실행 중입니다. 끝난 뒤 큐를 시작하세요.",
-          base_url: busyRun.base_url,
+          base_url: baseUrl,
           run_id: busyRun.run_id,
           model_id: busyRun.model_id,
         },

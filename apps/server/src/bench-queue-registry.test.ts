@@ -770,3 +770,72 @@ describe("_resetBenchQueueRegistryForTests", () => {
     expect(activeQueueForBaseUrl(BASE)).toBeNull();
   });
 });
+
+describe("모델 경계(다음 모델 시작 전) 재연결", () => {
+  const PLAN: BenchQueuePlan = {
+    scenario_ids: ["chat_ping"],
+    api_routes: ["chat_completions"],
+    warmup_runs: 0,
+    measured_runs: 1,
+  };
+
+  function runFirstModelToCompletion(): void {
+    createQueue({
+      queueId: "q1",
+      baseUrl: "http://x",
+      provider: "lm_studio",
+      modelIds: ["m1", "m2"],
+      plan: PLAN,
+    });
+    publishQueueEvent("q1", {
+      type: "queue_started",
+      queue_id: "q1",
+      base_url: "http://x",
+      provider: "lm_studio",
+      model_ids: ["m1", "m2"],
+      plan: PLAN,
+    });
+    markModelRunning("q1", 0);
+    publishQueueEvent("q1", { type: "queue_model_started", queue_id: "q1", index: 0, model_id: "m1" });
+    markModelRunId("q1", 0, "run-1");
+    publishQueueEvent("q1", { type: "run_started", run_id: "run-1" } as BenchQueueStreamEvent);
+    publishQueueEvent("q1", { type: "metrics_update", aggregate: {} } as BenchQueueStreamEvent);
+    markModelFinished("q1", 0, { status: "done", errorCount: 0 });
+    publishQueueEvent("q1", {
+      type: "queue_model_finished",
+      queue_id: "q1",
+      index: 0,
+      model_id: "m1",
+      run_id: "run-1",
+      status: "done",
+      error_count: 0,
+    });
+  }
+
+  it("끝난 모델의 컨텍스트가 replay에 남지 않는다", () => {
+    // 여기서 재연결한 탭이 stale한 queue_model_started·run_started를 받으면, 이미 끝난 모델을
+    // 진행 중으로 그리고 죽은 run_id를 붙잡는다. 끝난 모델의 결과는 SQLite에서 복원한다.
+    runFirstModelToCompletion();
+    publishQueueEvent("q1", { type: "queue_paused", queue_id: "q1" });
+
+    const replay = subscribeToQueue("q1")!.bufferedEvents;
+    expect(replay.map((e) => e.type)).toEqual(["queue_started", "queue_paused"]);
+    expect(JSON.stringify(replay)).not.toContain("run-1");
+    expect(_bufferedCountForTests("q1")).toBe(1); // queue_paused만
+  });
+
+  it("커서는 다음에 실행할 모델을 가리키고, 실행 중 여부는 current_run_id가 말한다", () => {
+    runFirstModelToCompletion();
+    const snap = getQueueSnapshot("q1")!;
+    expect(snap.index).toBe(1);
+    expect(snap.current_run_id).toBeNull();
+    expect(snap.models.map((m) => m.status)).toEqual(["done", "pending"]);
+  });
+
+  it("마지막 모델이 끝나면 커서가 models.length를 넘지 않는다", () => {
+    runFirstModelToCompletion();
+    markModelRunning("q1", 1);
+    markModelFinished("q1", 1, { status: "done", errorCount: 0 });
+    expect(getQueueSnapshot("q1")!.index).toBe(2);
+  });
+});

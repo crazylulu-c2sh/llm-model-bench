@@ -168,6 +168,13 @@ export function publishQueueEvent(queueId: string, ev: BenchQueueStreamEvent): v
     entry.buffered = [];
     entry.pinnedRunStarted = null;
     entry.pinnedModelStarted = ev;
+  } else if (ev.type === "queue_model_finished") {
+    // 모델 경계(다음 모델이 시작되기 전, 예: 여기서 일시정지)에 재연결하는 탭이 있다.
+    // 끝난 모델의 컨텍스트를 남겨두면 그 탭은 replay로 죽은 run_id와 "진행 중" 표시를 받는다.
+    // 끝난 모델의 결과는 SQLite에서 복원하므로 라이브 버퍼가 들고 있을 이유가 없다.
+    entry.buffered = [];
+    entry.pinnedModelStarted = null;
+    entry.pinnedRunStarted = null;
   } else if (ev.type === "run_started" && entry.pinnedRunStarted === null) {
     entry.pinnedRunStarted = ev;
   } else if (ev.type !== "token_delta" && entry.snapshot.status === "running") {
@@ -208,6 +215,9 @@ export function markModelFinished(
   model.error_count = result.errorCount;
   model.finished_at = Date.now();
   entry.snapshot.current_run_id = null;
+  // 커서를 "다음에 실행할 모델"로 옮긴다 — 끝난 모델을 계속 가리키면 모델 경계에서 재연결한
+  // 클라이언트가 그 모델을 현재 실행 중인 것으로 그린다. 실행 중 여부는 current_run_id가 말한다.
+  entry.snapshot.index = Math.min(index + 1, entry.snapshot.models.length);
 }
 
 /** 아직 시작하지 않은 모델을 중지됨으로 표시(긴급 정지). */

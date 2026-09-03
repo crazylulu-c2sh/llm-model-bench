@@ -100,6 +100,43 @@ export function subscribeToLiveRun(runId: string): LiveRunSubscription | null {
   };
 }
 
+/**
+ * `POST /bench/stream`이 수락된 시점부터 `run_started`가 나오기까지의 예약.
+ *
+ * 라이브 등록은 `run_started` 이후인데, 그 앞에는 감지·프리플라이트·모델 로드(LM Studio는 수십 초)가
+ * 있다. 그 창 동안 `listLiveRuns()`는 비어 보이므로, 예약이 없으면 `POST /bench/queue`가 "이 백엔드는
+ * 한가하다"고 판단해 큐를 띄우고 결국 벤치 두 건이 겹친다 — 막으려던 바로 그 오염이다.
+ */
+const streamReservations = new Map<string, string>(); // token → normalized base_url
+
+export function reserveStreamRun(baseUrl: string): string {
+  const token = `res_${Math.random().toString(36).slice(2)}_${streamReservations.size}`;
+  streamReservations.set(token, baseUrl);
+  return token;
+}
+
+export function releaseStreamRun(token: string): void {
+  streamReservations.delete(token);
+}
+
+/**
+ * 이 baseUrl에서 **큐에 속하지 않은** 벤치가 진행 중인가(예약 포함).
+ * 큐 시작을 막는 판정에 쓴다 — 큐 자신의 런은 queue_id가 있어 제외된다.
+ */
+export function activeStandaloneRunForBaseUrl(
+  baseUrl: string,
+): { run_id: string | null; model_id: string | null } | null {
+  for (const [runId, entry] of registry) {
+    if (entry.info.base_url === baseUrl && !entry.info.queue_id) {
+      return { run_id: runId, model_id: entry.info.model_id };
+    }
+  }
+  for (const reserved of streamReservations.values()) {
+    if (reserved === baseUrl) return { run_id: null, model_id: null };
+  }
+  return null;
+}
+
 export type LiveRunSummary = LiveRunInfo & { run_id: string; paused: boolean };
 
 export function listLiveRuns(): LiveRunSummary[] {
@@ -113,4 +150,5 @@ export function listLiveRuns(): LiveRunSummary[] {
 /** 테스트 전용 — 모듈 레벨 Map을 초기화. */
 export function _resetLiveRunRegistryForTests(): void {
   registry.clear();
+  streamReservations.clear();
 }

@@ -2,9 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { BenchQueuePlan, BenchRunMeta, StreamEvent } from "@llm-bench/shared";
 import {
   _resetLiveRunRegistryForTests,
+  activeStandaloneRunForBaseUrl,
   endLiveRun,
   listLiveRuns,
   publishLiveEvent,
+  releaseStreamRun,
+  reserveStreamRun,
   startLiveRun,
   subscribeToLiveRun,
 } from "./bench-live-registry.js";
@@ -172,5 +175,38 @@ describe("bench-live-registry: 큐 메타데이터", () => {
     const summary = listLiveRuns()[0];
     expect(summary?.plan).toBeUndefined();
     expect(summary?.queue_id).toBeUndefined();
+  });
+});
+
+describe("단발 런 점유 판정 — 큐 시작을 막는 근거", () => {
+  const BASE = "http://127.0.0.1:1234";
+
+  it("run_started 전(예약 구간)에도 점유로 센다", () => {
+    // 라이브 등록은 run_started 이후다. 그 앞의 감지·모델 로드(LM Studio는 수십 초) 동안
+    // 점유가 비어 보이면 큐가 그 위로 올라타 벤치 두 건이 겹친다.
+    expect(activeStandaloneRunForBaseUrl(BASE)).toBeNull();
+    const token = reserveStreamRun(BASE);
+    expect(activeStandaloneRunForBaseUrl(BASE)).toEqual({ run_id: null, model_id: null });
+    releaseStreamRun(token);
+    expect(activeStandaloneRunForBaseUrl(BASE)).toBeNull();
+  });
+
+  it("등록된 단발 런은 run_id·model_id와 함께 잡힌다", () => {
+    startLiveRun("r1", INFO);
+    expect(activeStandaloneRunForBaseUrl(BASE)).toEqual({ run_id: "r1", model_id: "m1" });
+    endLiveRun("r1");
+    expect(activeStandaloneRunForBaseUrl(BASE)).toBeNull();
+  });
+
+  it("큐 소유 런은 점유로 세지 않는다 — 큐 자신을 막으면 안 된다", () => {
+    startLiveRun("r1", { ...INFO, queue_id: "q1" });
+    expect(activeStandaloneRunForBaseUrl(BASE)).toBeNull();
+  });
+
+  it("다른 baseUrl의 런·예약은 잡지 않는다", () => {
+    const token = reserveStreamRun("http://127.0.0.1:9999");
+    startLiveRun("r1", { ...INFO, base_url: "http://127.0.0.1:8888" });
+    expect(activeStandaloneRunForBaseUrl(BASE)).toBeNull();
+    releaseStreamRun(token);
   });
 });

@@ -379,7 +379,8 @@ export function buildOpenApiSpec(): object {
                 "**queue_active** — 같은 baseUrl에 이미 활성 큐가 있다. 본문 `{ error, queue }`의 " +
                 "queue는 BenchQueueSnapshot이라 그 queue_id로 바로 재구독(`GET /bench/queue/{queueId}/reconnect`)하면 된다. " +
                 "**run_active** — 같은 baseUrl에서 진행 중인 단발 `/bench/stream` 런이 있다(큐 시작은 그 백엔드가 " +
-                "완전히 비었을 때만 허용한다). 본문 `{ error, message, base_url, run_id, model_id }`의 run_id로 " +
+                "완전히 비었을 때만 허용한다). 아직 `run_started`를 내지 않은 런(감지·프리플라이트·모델 로드 중)도 " +
+                "점유로 세므로, 그 구간에는 `run_id`·`model_id`가 null이다. run_id가 있으면 그것으로 " +
                 "`GET /bench/{runId}/reconnect` 재구독하거나 `POST /bench/{runId}/stop`으로 세운 뒤 다시 시도하라. " +
                 "두 검사 모두 락 키가 정규화된 **`detect.baseUrl`**(실제 추론 대상)이다 — `bench.baseUrl`이 아니므로 " +
                 "그쪽만 바꿔서는 락을 피할 수 없다.",
@@ -401,15 +402,20 @@ export function buildOpenApiSpec(): object {
                         title: "run_active",
                         description: "같은 baseUrl에 진행 중인 단발 /bench/stream 런이 있음",
                         type: "object",
-                        // 단발 런은 항상 모델 하나에 묶여 있어 model_id가 null이 되는 경계 상태가 없다
-                        // (큐의 queue_active와 달리 nullable이 아니다).
+                        // run_started 전(감지·모델 로드 중)에 점유가 잡히면 아직 run_id가 없다.
                         required: ["error", "base_url", "run_id", "model_id"],
                         properties: {
                           error: { type: "string", const: "run_active" },
                           message: { type: "string" },
                           base_url: { type: "string" },
-                          run_id: { type: "string", description: "점유 중인 단발 런의 id" },
-                          model_id: { type: "string", description: "그 런이 돌고 있는 모델" },
+                          run_id: {
+                            type: ["string", "null"],
+                            description: "점유 중인 단발 런의 id. run_started 전이면 null",
+                          },
+                          model_id: {
+                            type: ["string", "null"],
+                            description: "그 런이 돌고 있는 모델. run_started 전이면 null",
+                          },
                         },
                       },
                     ],
