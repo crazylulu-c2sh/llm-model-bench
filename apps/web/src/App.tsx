@@ -106,6 +106,7 @@ import {
   planFromQueueSnapshot,
   planPendingUnits,
   planTotals,
+  resolveBenchOutcomeToast,
   resolvePlanView,
   type BenchRunPlan,
 } from "./lib/bench-run-plan";
@@ -522,6 +523,8 @@ export function App() {
   runningRef.current = running;
   /** 재연결이 진행 중인 큐/런 id — runningRef는 렌더 중 대입이라 한 틱 늦어 중복 구독을 못 막는다. */
   const reconnectInFlightRef = useRef<string | null>(null);
+  /** 완료 큐 자동 복원 판정용 — 화면에 이미 결과가 있으면 덮지 않는다. */
+  const rowCountRef = useRef(0);
 
   // 영속 저장 (debounce 350ms). `/stress` 등 다른 라우트에서는 게이트로 차단해
   // App의 stale state가 stress 페이지의 공유 키 변경(baseUrl/apiKey 등)을 되돌리는 회귀 방지.
@@ -706,6 +709,8 @@ export function App() {
    * 진행률·예약 행·ETA·스코어보드가 읽는 단일 소스. 실행 계획이 있으면 계획을, 없으면(실행 전)
    * 폼을 그대로 돌려주므로 idle 동작은 이전과 같다.
    */
+  rowCountRef.current = rows.length;
+
   const activeRunPlanView = useMemo(
     () =>
       resolvePlanView({
@@ -1742,6 +1747,7 @@ export function App() {
     let anyHttpFail = false;
     let streamErrorCount = 0;
     let sawQueueFinished = false;
+    let wasCancelled = false;
     const modelIds = models.map((m) => m.id);
     // queue_started가 오기 전까지 쓸 잠정 계획 — 진행률이 잠깐이라도 0/0으로 보이지 않게.
     setBenchRunPlan(
@@ -1792,7 +1798,10 @@ export function App() {
         if (conflict) toast.error(conflict);
       } else {
         await consumeSseJsonLines(r.body, (ev) => {
-          if (ev.type === "queue_finished") sawQueueFinished = true;
+          if (ev.type === "queue_finished") {
+            sawQueueFinished = true;
+            wasCancelled = ev.status === "cancelled";
+          }
           handleQueueStreamEvent(ev, () => {
             streamErrorCount += 1;
           });
@@ -1807,12 +1816,25 @@ export function App() {
     setBenchRunId(null);
     setBenchPaused(false);
     appendLog("bench finished");
-    if (anyHttpFail) {
-      // 409·네트워크 실패는 위에서 이미 안내했다 — 완료 토스트를 덧씌우지 않는다.
-    } else if (streamErrorCount > 0 || !sawQueueFinished) {
-      toast.warning(msg().bench.benchDoneWithIssues);
-    } else {
-      toast.success(msg().bench.benchAllDone);
+    switch (
+      resolveBenchOutcomeToast({
+        httpFailed: anyHttpFail,
+        cancelled: wasCancelled,
+        errorCount: streamErrorCount,
+        sawQueueFinished,
+      })
+    ) {
+      case "none":
+        break; // 409·네트워크 실패는 위에서 이미 안내했다 — 덧씌우지 않는다.
+      case "cancelled":
+        toast(msg().bench.benchCancelledToast);
+        break;
+      case "warning":
+        toast.warning(msg().bench.benchDoneWithIssues);
+        break;
+      case "success":
+        toast.success(msg().bench.benchAllDone);
+        break;
     }
   }, [
     apiKey,
@@ -1887,7 +1909,9 @@ export function App() {
       activeRunMetaRef.current = { warmupRuns: plan.warmupRuns, measuredRuns: plan.measuredRuns };
       setBenchRunPlan(plan);
       setBenchModelStatus(hydrateQueueStatus(plan));
-      const currentModelId = plan.modelIds[plan.index] ?? null;
+      // 모델 경계(끝난 직후, 다음 모델 시작 전)에는 실행 중인 모델이 없다 — index만 보고 그리면
+      // 이미 끝났거나 아직 시작도 안 한 모델을 "진행 중"으로 표시한다. current_run_id가 판정 기준이다.
+      const currentModelId = snapshot.current_run_id ? (plan.modelIds[plan.index] ?? null) : null;
       setBenchCurrent(currentModelId ? { modelId: currentModelId } : null);
       queueCursorRef.current = { modelId: currentModelId, state: makeBenchStreamState() };
       pushBenchLine("info", msg().bench.eventQueueRestored(plan.done.length, plan.modelIds.length));
@@ -2012,7 +2036,11 @@ export function App() {
         // 서버가 실행 중 큐를 앞에 정렬해 주지만, 방어적으로 한 번 더 고른다.
         const queue =
           queues.find((q) => q.status === "running") ??
-          queues.find((q) => q.finished_at != null && Date.now() - q.finished_at < RECENTLY_FINISHED_MS);
+          // 방금 끝난 큐만, 그것도 화면이 비어 있을 때만 되살린다. 같은 baseUrl로 감지를 다시 누른
+          // 것뿐인데 방금 보고 있던 결과가 옛 큐로 덮이면 사용자에겐 데이터가 사라진 것으로 보인다.
+          (rowCountRef.current === 0
+            ? queues.find((q) => q.finished_at != null && Date.now() - q.finished_at < RECENTLY_FINISHED_MS)
+            : undefined);
         if (queue) {
           if (reconnectInFlightRef.current) return;
           reconnectInFlightRef.current = queue.queue_id;

@@ -204,3 +204,24 @@ export function mergeByRowKey<T extends { rowKey: string }>(
   }
   return out;
 }
+
+/**
+ * 큐 실행이 끝난 뒤 어떤 안내를 낼지. App.tsx는 단위 테스트가 불가하므로 판정만 떼어 고정한다.
+ *
+ * 정지는 보통 `error` 이벤트를 내지 않고 `queue_finished.status === "cancelled"`로만 드러난다 —
+ * 그 신호를 안 보면 사용자가 큐를 멈췄는데 "벤치가 모두 완료되었습니다"가 뜬다.
+ */
+export type BenchOutcomeToast = "none" | "cancelled" | "warning" | "success";
+
+export function resolveBenchOutcomeToast(input: {
+  /** 409·네트워크 실패 — 이미 그 자리에서 안내했으므로 덧씌우지 않는다. */
+  httpFailed: boolean;
+  cancelled: boolean;
+  errorCount: number;
+  sawQueueFinished: boolean;
+}): BenchOutcomeToast {
+  if (input.httpFailed) return "none";
+  if (input.cancelled) return "cancelled";
+  if (input.errorCount > 0 || !input.sawQueueFinished) return "warning";
+  return "success";
+}

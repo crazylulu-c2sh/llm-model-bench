@@ -9,6 +9,7 @@ import {
   planFromQueueSnapshot,
   planPendingUnits,
   planTotals,
+  resolveBenchOutcomeToast,
   resolvePlanView,
   type BenchPlanView,
   type BenchRunPlan,
@@ -470,5 +471,34 @@ describe("mergeByRowKey — DB 복원 병합", () => {
     mergeByRowKey(live, restored);
     expect(live).toHaveLength(1);
     expect(restored).toHaveLength(1);
+  });
+});
+
+describe("resolveBenchOutcomeToast — 실행 종료 안내", () => {
+  const base = { httpFailed: false, cancelled: false, errorCount: 0, sawQueueFinished: true };
+
+  test("정상 완주는 성공", () => {
+    expect(resolveBenchOutcomeToast(base)).toBe("success");
+  });
+
+  test("큐를 정지하면 완료가 아니라 중지 안내다", () => {
+    // 정지는 error 이벤트를 내지 않으므로, queue_finished.status를 안 보면 "모두 완료"가 뜬다.
+    expect(resolveBenchOutcomeToast({ ...base, cancelled: true })).toBe("cancelled");
+  });
+
+  test("정지가 오류보다 우선한다 — 멈춘 걸 '오류로 끝남'이라 하지 않는다", () => {
+    expect(resolveBenchOutcomeToast({ ...base, cancelled: true, errorCount: 3 })).toBe("cancelled");
+  });
+
+  test("시나리오 오류가 있으면 경고", () => {
+    expect(resolveBenchOutcomeToast({ ...base, errorCount: 1 })).toBe("warning");
+  });
+
+  test("queue_finished를 못 보고 끊기면 경고", () => {
+    expect(resolveBenchOutcomeToast({ ...base, sawQueueFinished: false })).toBe("warning");
+  });
+
+  test("HTTP 실패는 이미 안내했으므로 아무것도 띄우지 않는다", () => {
+    expect(resolveBenchOutcomeToast({ ...base, httpFailed: true, sawQueueFinished: false })).toBe("none");
   });
 });
