@@ -1,6 +1,8 @@
 import type { Hono } from "hono";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import type {
+  BenchProfileIntent,
   BenchRunMeta,
   DetectResult,
   StreamEvent,
@@ -11,6 +13,7 @@ import type {
 } from "@llm-bench/shared";
 import {
   BaseUrlNameInputSchema,
+  BenchQueueStartBodySchema,
   BenchStreamBodySchema,
   DetectBodySchema,
   StressStreamBodySchema,
@@ -20,6 +23,22 @@ import {
   type ScenarioCategory,
 } from "@llm-bench/shared";
 import { makeBenchRunMeta, runBench, type BenchRequest } from "../bench-runner.js";
+import { runOneBenchModel } from "../bench-run-driver.js";
+import {
+  benchRequestForQueueModel,
+  driveBenchQueue,
+  type BenchQueueBaseRequest,
+} from "../bench-queue-runner.js";
+import {
+  activeQueueForBaseUrl,
+  createQueue,
+  getQueueSnapshot,
+  listQueues,
+  pauseQueue,
+  requestQueueStop,
+  resumeQueue,
+  subscribeToQueue,
+} from "../bench-queue-registry.js";
 import { describeFetchError, detectProvider } from "../detect.js";
 import { readWindowsHostIp } from "../util/wsl-windows-host.js";
 import { registerMonitorRoutes } from "../monitor-routes.js";
@@ -40,6 +59,78 @@ import { SQLITE_PUBLIC_UNAVAILABLE_MSG, normBaseUrl } from "../http-shared.js";
 const RunsQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),
 });
+
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream; charset=utf-8",
+  "Cache-Control": "no-cache",
+  Connection: "keep-alive",
+} as const;
+
+type EventSubscription<E> = {
+  bufferedEvents: E[];
+  onEvent(cb: (ev: E) => void): void;
+  onDone(cb: () => void): void;
+  unsubscribe(): void;
+};
+
+/**
+ * 진행 중인 런/큐에 재구독하는 SSE 응답 본문. 연결 즉시 버퍼링된 이벤트를 replay한 뒤
+ * 라이브 이벤트를 계속 흘려보낸다 — 클라이언트가 최초 스트림과 **동일한 이벤트 처리 경로**로
+ * 상태를 재구성할 수 있게(서버가 별도 "스냅샷" 포맷을 만들지 않는다).
+ */
+function sseStreamFromSubscription<E>(sub: EventSubscription<E>): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const controllerBox: { ref: ReadableStreamDefaultController<Uint8Array> | null } = { ref: null };
+  const push = (ev: E) => {
+    if (!controllerBox.ref) return;
+    try {
+      controllerBox.ref.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+    } catch {
+      controllerBox.ref = null;
+    }
+  };
+  let keepalive: ReturnType<typeof setInterval> | null = null;
+  /**
+   * 정리는 **양쪽 종료 경로에서 모두** 불려야 한다. 소비자가 끊으면 `cancel()`이 오지만,
+   * 런/큐가 정상 완주해 서버가 `close()`하는 경로에서는 `cancel()`이 오지 않는다
+   * (Streams 스펙: 이미 closed면 source.cancel을 부르지 않는다). 여기서 정리하지 않으면
+   * SSE 한 건마다 15초 인터벌과 emitter 리스너가 프로세스가 죽을 때까지 남는다.
+   */
+  const teardown = () => {
+    if (keepalive) {
+      clearInterval(keepalive);
+      keepalive = null;
+    }
+    sub.unsubscribe();
+    controllerBox.ref = null;
+  };
+  const onDone = () => {
+    try {
+      controllerBox.ref?.close();
+    } catch {
+      // 무시
+    }
+    teardown();
+  };
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controllerBox.ref = controller;
+      for (const ev of sub.bufferedEvents) push(ev);
+      sub.onEvent(push);
+      sub.onDone(onDone);
+      keepalive = setInterval(() => {
+        if (!controllerBox.ref) return;
+        try {
+          controllerBox.ref.enqueue(encoder.encode(": ping\n\n"));
+        } catch {
+          controllerBox.ref = null;
+        }
+      }, 15_000);
+      keepalive.unref?.();
+    },
+    cancel: teardown,
+  });
+}
 
 // 저장된 모델 카드 카테고리 칩 순서와 맞춘 고정 정렬.
 const SCENARIO_CATEGORY_ORDER: readonly ScenarioCategory[] = ["text", "vision", "agent"];
@@ -428,6 +519,27 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const { detect, bench } = parsed.data;
 
+    // 서버 소유 큐가 이 백엔드를 점유 중이면 단발 실행을 막는다 — 겹쳐 돌면 에러가 아니라
+    // 조용한 측정 오염이 되고(원격 백엔드에서는 오염 가드 신호원이 없어 가드도 꺼진다),
+    // AGENTS.md의 serial model execution 요구가 깨진다. 활성 *스트림* 런은 막지 않는다
+    // (MCP의 타임아웃 후 재호출 흐름을 유지하기 위함).
+    // 키는 bench.baseUrl이 아니라 **실제 추론 대상인 detect.baseUrl**이다 — runBench가 I/O에
+    // 쓰는 값이 그쪽이라, 두 필드가 갈라지면 같은 백엔드에 락이 두 개 생긴다.
+    const activeQueue = activeQueueForBaseUrl(normBaseUrl(detect.baseUrl));
+    if (activeQueue) {
+      return c.json(
+        {
+          error: "queue_active",
+          message: "이 baseUrl에서 서버 벤치 큐가 실행 중입니다. 큐가 끝난 뒤 다시 시도하세요.",
+          base_url: activeQueue.base_url,
+          queue_id: activeQueue.queue_id,
+          // 모델 경계·일시정지 상태에서는 실행 중인 모델이 없다 — 직전 모델을 현재로 보고하지 않는다.
+          model_id: activeQueue.models.find((m) => m.status === "running")?.model_id ?? null,
+        },
+        409,
+      );
+    }
+
     const req: BenchRequest = {
       baseUrl: bench.baseUrl,
       apiKey: bench.apiKey,
@@ -509,59 +621,14 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
     // 실행 루프를 별도 async 컨텍스트로 완전히 분리 — await 하지 않는다(fire-and-forget).
     // 응답 스트림(그리고 그것을 구독하는 브라우저 연결)의 생존 여부와 무관하게 끝까지
     // 실행된다 — persister.finalize()도 마찬가지.
-    void (async () => {
-      type Persister = { start(meta: BenchRunMeta): void; onEvent(ev: StreamEvent): void; finalize(): void };
-      const noopPersister: Persister = { start() {}, onEvent() {}, finalize() {} };
-      let persister: Persister = noopPersister;
+    void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
+      clearInterval(keepalive);
       try {
-        const dbMod = await import("../db/database.js");
-        const { BenchRunPersistence } = await import("../db/persist-stream.js");
-        persister = new BenchRunPersistence(dbMod.tryOpenProdBenchDatabase());
-      } catch (e) {
-        console.error("[llm-bench-server] SQLite 계층 로드 실패 — 벤치는 진행하나 디스크 저장은 건너뜁니다:", e);
-        persister = noopPersister;
+        controllerBox.ref?.close();
+      } catch {
+        // 이미 닫혔거나 클라이언트가 사라짐 — 무시
       }
-      let started = false;
-      // 새로고침 후 재연결(라이브 재구독)을 위한 브로드캐스트 대상 runId — run_started에서 채워진다.
-      let liveRunId: string | null = null;
-      try {
-        for await (const ev of runBench(req, detect)) {
-          if (ev.type === "run_started") {
-            const meta: BenchRunMeta = ev.meta ?? makeBenchRunMeta(req, detect, ev.run_id);
-            persister.start(meta);
-            started = true;
-            liveRunId = ev.run_id;
-            startLiveRun(ev.run_id, {
-              base_url: normBaseUrl(req.baseUrl),
-              model_id: req.modelId,
-              provider: req.provider,
-              started_at: Date.now(),
-            });
-          }
-          persister.onEvent(ev);
-          push(ev);
-          if (liveRunId) publishLiveEvent(liveRunId, ev);
-        }
-      } catch (e) {
-        const errEv: StreamEvent = {
-          type: "error",
-          layer: "orchestrator",
-          code: "stream_failed",
-          message: String(e),
-        };
-        push(errEv);
-        if (liveRunId) publishLiveEvent(liveRunId, errEv);
-      } finally {
-        clearInterval(keepalive);
-        if (started) persister.finalize();
-        if (liveRunId) endLiveRun(liveRunId);
-        try {
-          controllerBox.ref?.close();
-        } catch {
-          // 이미 닫혔거나 클라이언트가 사라짐 — 무시
-        }
-      }
-    })();
+    });
 
     return c.newResponse(readable, {
       status: 200,
@@ -590,71 +657,150 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
 
   // 새로고침 등으로 화면을 잃었을 때 "지금 진행 중인 벤치가 있는가"를 알아내기 위한 조회.
   // baseUrl 쿼리로 좁힐 수 있다(현재 연결된 provider와 같은 벤치만 재연결 대상으로 삼기 위함).
+  // `queues`에는 TTL(30분) 안의 **완료 큐도** 포함된다 — 마지막 모델이 끝난 직후 새로고침한 탭도
+  // 모델별 run_id 목록을 받아야 결과를 DB에서 복원할 수 있기 때문. 실행 중 큐가 항상 앞에 온다.
   app.get(`${prefix}/bench/running`, (c) => {
     const baseUrl = c.req.query("baseUrl");
+    const norm = baseUrl ? normBaseUrl(baseUrl) : undefined;
     const all = listLiveRuns();
-    const runs = baseUrl ? all.filter((r) => r.base_url === normBaseUrl(baseUrl)) : all;
-    return c.json({ runs });
+    const runs = norm ? all.filter((r) => r.base_url === norm) : all;
+    return c.json({ runs, queues: listQueues(norm) });
+  });
+
+  // ── 서버 소유 모델 큐 ────────────────────────────────────────────────────
+  // 여러 모델을 서버가 순차 실행한다. 클라이언트는 구독자일 뿐이라 새로고침하거나 탭을 닫아도
+  // 큐가 끝까지 진행되고, 탭 두 개가 각자 큐를 몰아 같은 GPU에 벤치를 겹치는 일이 원천 차단된다.
+  app.post(`${prefix}/bench/queue`, async (c) => {
+    const parsed = BenchQueueStartBodySchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const { detect, bench, model_ids } = parsed.data;
+    // 실제 추론 대상(detect.baseUrl)으로 잠근다 — bench.baseUrl은 runBench가 I/O에 쓰지 않는다.
+    const baseUrl = normBaseUrl(detect.baseUrl);
+
+    // 아래 블록에는 await가 없다 — 같은 tick에 도착한 두 요청이 모두 통과하지 않도록
+    // 충돌 검사와 큐 등록이 원자적으로 일어나야 한다(Node 단일 스레드).
+    const conflict = activeQueueForBaseUrl(baseUrl);
+    if (conflict) return c.json({ error: "queue_active", queue: conflict }, 409);
+    // 큐 시작은 baseUrl이 **완전히 비었을 때만** 허용한다. 큐끼리만 배타적으로 두면
+    // 단발 런(MCP·PR-B 이전 웹) 위로 큐가 그대로 올라타 같은 GPU에서 벤치 두 건이 겹친다.
+    // 이건 에러가 아니라 조용한 측정 오염이라 실행 전에 막아야 한다.
+    const busyRun = listLiveRuns().find((r) => r.base_url === baseUrl && !r.queue_id);
+    if (busyRun) {
+      return c.json(
+        {
+          error: "run_active",
+          message: "이 baseUrl에서 단발 벤치 런이 실행 중입니다. 끝난 뒤 큐를 시작하세요.",
+          base_url: busyRun.base_url,
+          run_id: busyRun.run_id,
+          model_id: busyRun.model_id,
+        },
+        409,
+      );
+    }
+
+    const base: BenchQueueBaseRequest = {
+      baseUrl: bench.baseUrl,
+      apiKey: bench.apiKey,
+      provider: bench.provider,
+      scenarioIds: bench.scenarioIds as BenchRequest["scenarioIds"],
+      temperature: bench.temperature,
+      max_tokens: bench.max_tokens,
+      requestTimeoutMs: bench.requestTimeoutMs,
+      warmupRuns: bench.warmupRuns,
+      measuredRuns: bench.measuredRuns,
+      skipModelLoad: bench.skipModelLoad,
+      unloadOtherModels: bench.unloadOtherModels,
+      autoUnloadAfterBench: bench.autoUnloadAfterBench,
+      loadTtlSeconds: bench.loadTtlSeconds,
+      fitPolicy: bench.fitPolicy,
+      publicAssetsOrigin: bench.publicAssetsOrigin,
+      apiRoutes: bench.apiRoutes,
+      contentionGuardEnabled: bench.contentionGuardEnabled,
+      contentionPollIntervalMs: bench.contentionPollIntervalMs,
+      contentionMaxRetriesPerIteration: bench.contentionMaxRetriesPerIteration,
+      contentionPreBenchTimeoutMs: bench.contentionPreBenchTimeoutMs,
+      contentionBetweenIterationTimeoutMs: bench.contentionBetweenIterationTimeoutMs,
+      contentionTotalWaitBudgetMs: bench.contentionTotalWaitBudgetMs,
+      contentionGpuUtilThresholdPct: bench.contentionGpuUtilThresholdPct,
+      contentionRequiredConsecutiveIdle: bench.contentionRequiredConsecutiveIdle,
+      contentionServerMetricsEnabled: bench.contentionServerMetricsEnabled,
+      contentionLmsCliActivityEnabled: bench.contentionLmsCliActivityEnabled,
+    };
+    // 큐 전체가 공유하는 "의도" — 모델별 해석은 러너가 benchProfileForModel로 다시 한다.
+    const intent: BenchProfileIntent = {
+      profileId: bench.profileId as LlmProfileFamily | "auto" | undefined,
+      taskMode: bench.taskMode,
+      thinkingIntent: bench.thinkingIntent,
+      preserveThinking: bench.preserveThinking,
+      presetOverride: bench.presetOverride as SamplingPresetName | undefined,
+      samplingOverrides: bench.samplingOverrides,
+      reasoningEffort: bench.reasoningEffort,
+      qwen38ReasoningEffort: bench.qwen38ReasoningEffort,
+      profileMaxTokens: bench.profileMaxTokens,
+      benchmarkThroughputMode: bench.benchmarkThroughputMode,
+    };
+
+    // 계획은 첫 모델 기준으로 한 번만 뽑는다(시나리오·라우트·반복 수는 모델과 무관).
+    const planMeta = makeBenchRunMeta(
+      benchRequestForQueueModel(base, model_ids[0], intent),
+      detect,
+      "plan",
+    );
+    const queueId = randomUUID();
+    createQueue({
+      queueId,
+      baseUrl,
+      provider: bench.provider,
+      modelIds: model_ids,
+      plan: {
+        scenario_ids: [...planMeta.scenario_ids],
+        api_routes: [...planMeta.api_routes],
+        warmup_runs: planMeta.warmup_runs,
+        measured_runs: planMeta.measured_runs,
+      },
+    });
+    driveBenchQueue({ queueId, detect, base, intent, modelIds: model_ids });
+    const sub = subscribeToQueue(queueId);
+    if (!sub) return c.json({ error: "queue_gone" }, 500);
+    return c.newResponse(sseStreamFromSubscription(sub), { status: 200, headers: SSE_HEADERS });
+  });
+
+  app.get(`${prefix}/bench/queue/:queueId`, (c) => {
+    const snapshot = getQueueSnapshot(c.req.param("queueId"));
+    if (!snapshot) return c.json({ error: "not_found" }, 404);
+    return c.json(snapshot);
+  });
+
+  // 진행 중인 큐에 재구독. 완료된 큐는 404 — 클라이언트는 스냅샷의 status를 보고 애초에
+  // 여기로 오지 않고 DB 복원 경로를 탄다.
+  app.get(`${prefix}/bench/queue/:queueId/reconnect`, (c) => {
+    const sub = subscribeToQueue(c.req.param("queueId"));
+    if (!sub) return c.json({ error: "not_found" }, 404);
+    return c.newResponse(sseStreamFromSubscription(sub), { status: 200, headers: SSE_HEADERS });
+  });
+
+  app.post(`${prefix}/bench/queue/:queueId/pause`, (c) => {
+    const ok = pauseQueue(c.req.param("queueId"));
+    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: "not_found" }, 404);
+  });
+
+  app.post(`${prefix}/bench/queue/:queueId/resume`, (c) => {
+    const ok = resumeQueue(c.req.param("queueId"));
+    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: "not_found" }, 404);
+  });
+
+  app.post(`${prefix}/bench/queue/:queueId/stop`, (c) => {
+    const ok = requestQueueStop(c.req.param("queueId"));
+    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: "not_found" }, 404);
   });
 
   // 진행 중인 런에 재구독(SSE) — /bench/stream과 달리 새 런을 시작하지 않고 기존 런의
   // 라이브 이벤트를 받는다. 연결 즉시 지금까지의 버퍼링된 이벤트(token_delta 제외)를
   // replay해, 클라이언트가 /bench/stream과 동일한 이벤트 처리 경로로 상태를 재구성할 수 있게 한다.
   app.get(`${prefix}/bench/:runId/reconnect`, (c) => {
-    const runId = c.req.param("runId");
-    const sub = subscribeToLiveRun(runId);
+    const sub = subscribeToLiveRun(c.req.param("runId"));
     if (!sub) return c.json({ error: "not_found" }, 404);
-
-    const encoder = new TextEncoder();
-    const controllerBox: { ref: ReadableStreamDefaultController<Uint8Array> | null } = { ref: null };
-    const push = (ev: StreamEvent) => {
-      if (!controllerBox.ref) return;
-      try {
-        controllerBox.ref.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
-      } catch {
-        controllerBox.ref = null;
-      }
-    };
-    const onEvent = (ev: StreamEvent) => push(ev);
-    const onDone = () => {
-      try {
-        controllerBox.ref?.close();
-      } catch {
-        // 무시
-      }
-    };
-    let keepalive: ReturnType<typeof setInterval> | null = null;
-
-    const readable = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controllerBox.ref = controller;
-        for (const ev of sub.bufferedEvents) push(ev);
-        sub.onEvent(onEvent);
-        sub.onDone(onDone);
-        keepalive = setInterval(() => {
-          if (!controllerBox.ref) return;
-          try {
-            controllerBox.ref.enqueue(encoder.encode(": ping\n\n"));
-          } catch {
-            controllerBox.ref = null;
-          }
-        }, 15_000);
-      },
-      cancel() {
-        if (keepalive) clearInterval(keepalive);
-        sub.unsubscribe();
-        controllerBox.ref = null;
-      },
-    });
-
-    return c.newResponse(readable, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
+    return c.newResponse(sseStreamFromSubscription(sub), { status: 200, headers: SSE_HEADERS });
   });
 
   app.post(`${prefix}/stress/stream`, async (c) => {

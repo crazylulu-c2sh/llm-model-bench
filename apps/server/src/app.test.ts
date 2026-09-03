@@ -530,12 +530,51 @@ describe("OpenAPI spec", () => {
         components: { schemas: Record<string, unknown> };
       };
       expect(spec.openapi).toBe("3.1.0");
-      for (const path of ["/health", "/detect", "/scenarios", "/scoreboard", "/bench/stream"]) {
+      for (const path of [
+        "/health",
+        "/detect",
+        "/scenarios",
+        "/scoreboard",
+        "/bench/stream",
+        // 서버 소유 큐 6종 — 에이전트가 스펙만 보고 큐를 몰 수 있어야 한다.
+        "/bench/queue",
+        "/bench/queue/{queueId}",
+        "/bench/queue/{queueId}/reconnect",
+        "/bench/queue/{queueId}/pause",
+        "/bench/queue/{queueId}/resume",
+        "/bench/queue/{queueId}/stop",
+      ]) {
         expect(spec.paths[path]).toBeDefined();
       }
-      for (const s of ["DetectResult", "BenchResult", "StreamEvent", "ScoreboardResponse"]) {
+      for (const s of [
+        "DetectResult",
+        "BenchResult",
+        "StreamEvent",
+        "ScoreboardResponse",
+        "BenchQueueStartBody",
+        "BenchQueueSnapshot",
+        "BenchQueueStreamEvent",
+      ]) {
         expect(spec.components.schemas[s]).toBeDefined();
       }
+
+      // 런 단위 stop/resume은 큐가 아니라 모델 하나에만 걸린다 — 이 경고가 스펙에서 빠지면
+      // 에이전트가 "큐를 세웠다"고 착각한 채 다음 모델이 계속 도는 걸 못 본다.
+      const runRoutes = spec.paths as Record<
+        string,
+        { post?: { description?: string; responses?: Record<string, { description?: string }> } }
+      >;
+      expect(runRoutes["/bench/{runId}/stop"]?.post?.description).toContain("/bench/queue/{queueId}/stop");
+      expect(runRoutes["/bench/{runId}/resume"]?.post?.description).toContain("/bench/queue/{queueId}/resume");
+
+      // POST /bench/queue의 409는 두 갈래다(활성 큐=queue_active, 활성 단발 런=run_active).
+      // run_active가 스펙에서 빠지면 에이전트가 "단발 런 위에 큐를 올려도 된다"고 읽는다.
+      const queuePost = runRoutes["/bench/queue"]?.post;
+      expect(queuePost?.responses?.["409"]?.description).toContain("run_active");
+      expect(queuePost?.responses?.["409"]?.description).toContain("queue_active");
+      // 직렬 실행 락 키는 bench.baseUrl이 아니라 detect.baseUrl이다 — 스펙이 이걸 밝혀야
+      // bench.baseUrl만 바꿔 락을 피할 수 있다는 오해가 안 생긴다.
+      expect(queuePost?.description).toContain("detect.baseUrl");
     }
   });
 
