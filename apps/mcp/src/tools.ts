@@ -159,6 +159,9 @@ async function drainBenchStream(
   };
 }
 
+/** 로드 TTL 기본값(초) — 모델이 백엔드에 무기한 상주하지 않도록 하는 안전장치. */
+const DEFAULT_LOAD_TTL_SECONDS = 3600;
+
 /** 큐가 비었는지 확인하는 간격. 벤치 큐의 모델 1건은 분 단위라 더 촘촘히 물어봐야 얻는 게 없다. */
 const QUEUE_POLL_INTERVAL_MS = 5_000;
 /** 대기 예산과 별개인 재시도 상한 — 큐가 연달아 새로 뜨면 예산만으로는 루프가 길어질 수 있다. */
@@ -290,6 +293,11 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
         /** #81: 메모리-핏 프리플라이트 정책(LM Studio). 미지정이면 예측만 로그 후 진행. */
         fitPolicy: z.enum(["skip", "unload_other_models"]).optional(),
         /** 로드 시 TTL(초). 지원 백엔드(lm_studio·ollama)에서만 적용, 그 외는 무시. */
+        /**
+         * 로드 TTL(초). 기본 1시간 — 지정하지 않으면 이 하네스가 올린 모델이 백엔드에 영구 상주해
+         * 다음 벤치의 메모리 여유를 갉아먹는다. LM Studio는 이미 로드된 모델의 TTL을 바꾸지 않으므로
+         * 사후에 되돌릴 수 없다. 상주시키려면 아주 큰 값을 명시하라.
+         */
         loadTtlSeconds: z.number().int().positive().optional(),
         /**
          * 서버 **큐**가 이 baseUrl을 점유해 409 queue_active를 받았을 때 기다릴 최대 시간(ms). 기본 0 = 즉시 실패.
@@ -320,7 +328,7 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
           max_tokens: args.max_tokens,
           apiRoutes: args.apiRoutes,
           fitPolicy: args.fitPolicy,
-          loadTtlSeconds: args.loadTtlSeconds,
+          loadTtlSeconds: args.loadTtlSeconds ?? DEFAULT_LOAD_TTL_SECONDS,
         };
         const waitBudgetMs = args.waitForIdleMs ?? 0;
         const deadline = Date.now() + waitBudgetMs;
