@@ -110,15 +110,6 @@ export function AppHeader({
       ]
         .filter(Boolean)
         .join(" ")}
-      {...(showBenchProgress
-        ? {
-            role: "progressbar" as const,
-            "aria-valuemin": 0,
-            "aria-valuemax": 100,
-            "aria-valuenow": progressPct,
-            "aria-valuetext": progressText,
-          }
-        : {})}
     >
       {showBenchProgress ? (
         <>
@@ -127,10 +118,19 @@ export function AppHeader({
             style={{ width: `${progressPct}%` }}
             aria-hidden
           />
+          {/*
+            role은 header가 아니라 진행 막대 자체에 둔다. header에 걸면 (1) 접근 가능한 이름이 없고
+            (2) nav 링크·언어/테마 컨트롤을 progressbar가 삼켜 nested-interactive 위반이 된다.
+          */}
           <div
             className="app-header__progress-bar pointer-events-none absolute bottom-0 left-0"
             style={{ width: `${progressPct}%` }}
-            aria-hidden
+            role="progressbar"
+            aria-label={m.header.benchProgressShort}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progressPct}
+            aria-valuetext={progressText}
           />
         </>
       ) : null}

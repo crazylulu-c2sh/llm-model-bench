@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_LOAD_TTL_SECONDS,
   MONITOR_PREFS_STORAGE_KEY,
   PREFS_STORAGE_KEY,
   factoryStep3Settings,
@@ -291,9 +292,12 @@ describe("readInitialUiState — Qwen3.8 프로파일", () => {
 });
 
 describe("readInitialUiState loadTtlSeconds", () => {
-  it("defaults to empty string (미적용)", () => {
+  it("defaults to 1시간 — 하네스가 올린 모델이 백엔드에 영구 상주하지 않게", () => {
+    // LM Studio는 이미 로드된 모델의 TTL을 바꾸지 않는다(적용 시점이 로드 순간뿐) —
+    // 기본값으로 켜 두지 않으면 사후에 되돌릴 방법이 없다.
     const s = readInitialUiState();
-    expect(s.loadTtlSeconds).toBe("");
+    expect(s.loadTtlSeconds).toBe(String(DEFAULT_LOAD_TTL_SECONDS));
+    expect(DEFAULT_LOAD_TTL_SECONDS).toBe(3600);
   });
 
   it("reads persisted number as string", () => {
@@ -304,11 +308,11 @@ describe("readInitialUiState loadTtlSeconds", () => {
     expect(readInitialUiState().loadTtlSeconds).toBe("900");
   });
 
-  it("falls back to empty string when persisted value is not finite", () => {
+  it("falls back to the default when persisted value is not finite", () => {
     window.localStorage.setItem(
       PREFS_STORAGE_KEY,
       JSON.stringify({ v: 3, loadTtlSeconds: "oops" }),
     );
-    expect(readInitialUiState().loadTtlSeconds).toBe("");
+    expect(readInitialUiState().loadTtlSeconds).toBe(String(DEFAULT_LOAD_TTL_SECONDS));
   });
 });

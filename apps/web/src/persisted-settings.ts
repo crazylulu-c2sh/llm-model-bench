@@ -26,6 +26,9 @@ export const QWEN38_REASONING_EFFORT_RECOMMENDED: Qwen38ReasoningEffort = "xhigh
  * 3단계 설정 공장값. UI 「초기값」버튼과 `readInitialUiState` SSR 분기가 공유한다.
  * Base URL·API 키·시나리오 선택은 포함하지 않는다.
  */
+/** 로드 TTL 기본값(초). 모델이 백엔드에 무기한 상주하지 않도록 하는 안전장치. */
+export const DEFAULT_LOAD_TTL_SECONDS = 3600;
+
 export function factoryStep3Settings() {
   return {
     profileId: "auto" as const,
@@ -42,7 +45,12 @@ export function factoryStep3Settings() {
     contentionMaxRetries: "2",
     unloadOtherModels: false,
     autoUnloadAfterBench: false,
-    loadTtlSeconds: "" as string,
+    /**
+     * 로드 TTL 기본 1시간. 비워 두면 이 하네스가 올린 모델이 백엔드에 영구 상주해, 다음 벤치의
+     * 메모리 여유와 로드 시간을 조용히 갉아먹는다. LM Studio는 **이미 로드된 모델의 TTL을 바꾸지
+     * 않으므로**(적용 시점이 로드 순간뿐) 기본값으로 켜 두지 않으면 사후에 되돌릴 방법이 없다.
+     */
+    loadTtlSeconds: String(DEFAULT_LOAD_TTL_SECONDS),
     fitPolicy: "" as "" | "skip" | "unload_other_models",
   };
 }
@@ -182,8 +190,12 @@ export function readInitialUiState() {
     baseUrl: typeof p.baseUrl === "string" && p.baseUrl.length ? p.baseUrl : DEFAULT_BASE,
     unloadOtherModels: p.unloadOtherModels ?? false,
     autoUnloadAfterBench: p.autoUnloadAfterBench ?? false,
+    // 저장값이 없으면(이 필드가 생기기 전 설정 포함) 기본 TTL로 떨어진다 — 사용자가 명시적으로
+    // 비운 경우에는 0이 저장되므로 그 의도는 그대로 보존된다.
     loadTtlSeconds:
-      p.loadTtlSeconds != null && Number.isFinite(p.loadTtlSeconds) ? String(p.loadTtlSeconds) : "",
+      p.loadTtlSeconds != null && Number.isFinite(p.loadTtlSeconds)
+        ? String(p.loadTtlSeconds)
+        : String(DEFAULT_LOAD_TTL_SECONDS),
     fitPolicy: (p.fitPolicy ?? "") as "" | "skip" | "unload_other_models",
     hlPreview: p.hlPreview ?? false,
     hlLog: p.hlLog ?? false,

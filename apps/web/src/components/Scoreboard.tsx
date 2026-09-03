@@ -252,12 +252,13 @@ function ScoreboardSkeletonRow({
 }) {
   const pulse = "mx-auto h-3 w-10 animate-pulse rounded bg-[var(--border)]";
   return (
-    <tr className="border-t border-[var(--border)] opacity-40" aria-hidden="true">
+    // opacity-40 + muted는 4.5:1에 한참 못 미친다 — ResultsTable 예약 행과 같은 규칙을 쓴다.
+    <tr className="border-t border-[var(--border)] opacity-70" aria-hidden="true">
       <td className="relative p-2">
         {barColor ? (
           <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: barColor }} aria-hidden />
         ) : null}
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-[var(--muted)]">
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-[var(--foreground)]">
           <span className="font-mono">{rank}.</span>
           {multiModel && barColor ? (
             <span className="size-2 shrink-0 rounded-full" style={{ background: barColor }} aria-hidden />

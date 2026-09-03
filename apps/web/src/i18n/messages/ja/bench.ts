@@ -280,6 +280,12 @@ export const bench: Messages["bench"] = {
     `競合サマリー · 破棄 ${discarded}回 · 最大待機 ${maxWaitMs}ms${eff}`,
   eventAggregateDone: (scenarioId, apiLabel) => `集計完了 · ${scenarioId} · ${apiLabel}`,
   eventRequestFailed: (modelId, err) => `リクエスト失敗 · ${modelId}: ${err}`,
+  eventQueueRestored: (done, total) => `キュー復元 · ${done}/${total} 完了`,
+  eventRestoredFromDb: (runs, rows) => `保存済み結果を復元 · ラン${runs}件 (${rows}行)`,
+  eventRestoreFailed: (runId) => `保存済み結果を読み込めませんでした · ${runId}`,
+  queueConflictActive:
+    "このサーバーでは既にベンチキューが実行中です。接続/検出をもう一度押すと進行状況に再接続します。",
+  runConflictActive: "このサーバーで別のベンチが実行中です。終了後にもう一度お試しください。",
   logUnloadDone: (phase, modelId, status) => `${phase}モデルアンロード完了 · ${modelId} · HTTP ${status}`,
   logUnloadFail: (phase, modelId, status) => `${phase}モデルアンロード失敗 · ${modelId} · HTTP ${status}`,
   logBenchIncomplete: (modelId) => `bench incomplete: run_finished なし model=${modelId}`,

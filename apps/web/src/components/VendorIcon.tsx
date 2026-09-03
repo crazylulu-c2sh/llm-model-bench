@@ -168,7 +168,14 @@ export function backendLabel(provider: ProviderKind, m: Messages): string {
   }
 }
 
-/** 백엔드 배지 아이콘. Ollama는 브랜드 마크, 그 외는 lucide(providerIcon) 폴백. */
+/**
+ * 백엔드 배지 아이콘. Ollama는 브랜드 마크, 그 외는 lucide(providerIcon) 폴백.
+ *
+ * **접근 가능한 이름은 호출자가 준다** — ModelLabel은 감싸는 span의 aria-label로,
+ * ScoreboardChart는 바로 옆의 텍스트 라벨로 이미 이름을 붙인다. 아이콘까지 이름을 가지면
+ * 같은 값이 두 번 읽히고, role 없는 <svg>에 aria-label을 달면 그마저 무시된다
+ * (axe aria-prohibited-attr / WCAG 4.1.2). 그래서 여기서는 장식으로 둔다.
+ */
 export function BackendIcon({
   provider,
   size = 14,
@@ -178,7 +185,6 @@ export function BackendIcon({
   size?: number;
   className?: string;
 }) {
-  const { m } = useI18n();
   if (provider === "ollama") {
     return (
       <span
@@ -186,12 +192,12 @@ export function BackendIcon({
         title="Ollama"
         style={{ display: "inline-flex", color: "var(--foreground)", verticalAlign: "middle" }}
       >
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Ollama">
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
           <path d={OLLAMA_PATH} />
         </svg>
       </span>
     );
   }
   const Icon = providerIcon(provider);
-  return <Icon className={className} style={{ width: size, height: size }} aria-label={backendLabel(provider, m)} />;
+  return <Icon className={className} style={{ width: size, height: size }} aria-hidden />;
 }

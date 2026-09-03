@@ -280,6 +280,13 @@ export const bench = {
     `오염 요약 · 폐기 ${discarded}회 · 최대대기 ${maxWaitMs}ms${eff}`,
   eventAggregateDone: (scenarioId: string, apiLabel: string) => `집계 완료 · ${scenarioId} · ${apiLabel}`,
   eventRequestFailed: (modelId: string, err: string) => `요청 실패 · ${modelId}: ${err}`,
+  /** 새로고침 후 서버 큐를 되살렸을 때 — 완료된 모델 수와 큐 전체 모델 수. */
+  eventQueueRestored: (done: number, total: number) => `큐 복원 · ${done}/${total} 완료`,
+  eventRestoredFromDb: (runs: number, rows: number) => `저장된 결과 복원 · 런 ${runs}건 (${rows}행)`,
+  eventRestoreFailed: (runId: string) => `저장된 결과를 불러오지 못했습니다 · ${runId}`,
+  queueConflictActive:
+    "이 서버에서 이미 벤치 큐가 실행 중입니다. 연결/감지를 다시 누르면 진행 상황에 재연결합니다.",
+  runConflictActive: "이 서버에서 다른 벤치가 실행 중입니다. 끝난 뒤 다시 시도하세요.",
   // 진단 로그(appendLog) — 언로드 결과·미완료 스트림
   logUnloadDone: (phase: string, modelId: string, status: string) => `${phase}모델 언로드 완료 · ${modelId} · HTTP ${status}`,
   logUnloadFail: (phase: string, modelId: string, status: string) => `${phase}모델 언로드 실패 · ${modelId} · HTTP ${status}`,

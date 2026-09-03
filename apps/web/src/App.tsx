@@ -1,4 +1,14 @@
-import type { BenchRunMeta, DetectResult, LlmProfileFamily, SamplingPresetName, StreamEvent, ThinkingIntent } from "@llm-bench/shared";
+import type {
+  BenchQueueModelStatus,
+  BenchQueueSnapshot,
+  BenchQueueStreamEvent,
+  BenchRunMeta,
+  DetectResult,
+  LlmProfileFamily,
+  SamplingPresetName,
+  StreamEvent,
+  ThinkingIntent,
+} from "@llm-bench/shared";
 import {
   DEFAULT_SCENARIO_IDS,
   PUBLIC_SCENARIO_IDS,
@@ -88,6 +98,20 @@ import {
   type StepNumber,
   type StepOverride,
 } from "./lib/bench-steps";
+import {
+  hydrateQueueStatus,
+  mergeByRowKey,
+  mergePlanWithRunMeta,
+  planFromForm,
+  planFromQueueSnapshot,
+  planPendingUnits,
+  planTotals,
+  resolveBenchOutcomeToast,
+  resolvePlanView,
+  shouldRestoreFinishedQueue,
+  type BenchRunPlan,
+} from "./lib/bench-run-plan";
+import { mergeBenchDetailsToState } from "./stats/hydrateBenchUi";
 import { QueueStatusChips } from "./components/QueueStatusChips";
 import { StepSection } from "./components/StepSection";
 import { CollapsibleCard } from "./components/CollapsibleCard";
@@ -168,6 +192,31 @@ type MetricsAgg = {
   }>;
 };
 
+/**
+ * 이 탭이 붙어 있던 큐 id. 완료된 큐를 자동 복원할지 판정하는 유일한 근거다.
+ *
+ * localStorage가 아니라 sessionStorage인 이유: 새로고침은 살아남고 탭을 새로 열면 사라진다 —
+ * "마지막 모델까지 끝난 직후 새로고침하면 결과가 남아 있어야 한다"는 경계와 정확히 같다.
+ */
+const WATCHED_QUEUE_ID_KEY = "llm-bench:watched-queue-id";
+
+/** 시크릿 모드·저장소 차단에서는 접근 자체가 throw한다 — 못 읽으면 "복원하지 않음"으로 떨어진다. */
+function readWatchedQueueId(): string | null {
+  try {
+    return sessionStorage.getItem(WATCHED_QUEUE_ID_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberWatchedQueueId(queueId: string): void {
+  try {
+    sessionStorage.setItem(WATCHED_QUEUE_ID_KEY, queueId);
+  } catch {
+    /* 저장 못 해도 실행 자체는 계속된다 — 새로고침 후 복원만 포기한다. */
+  }
+}
+
 function benchErrorHint(code: string): string | null {
   // 스트림 error 코드 → 힌트. ko가 shape 정의(Record<string,string>), 알 수 없는 코드는 null.
   return msg().bench.errors[code] ?? null;
@@ -175,7 +224,7 @@ function benchErrorHint(code: string): string | null {
 
 function consumeSseJsonLines(
   stream: ReadableStream<Uint8Array>,
-  onEvent: (ev: StreamEvent) => void,
+  onEvent: (ev: BenchQueueStreamEvent) => void,
 ): Promise<void> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -193,7 +242,7 @@ function consumeSseJsonLines(
           if (!s.startsWith("data:")) continue;
           const json = s.slice(5).trim();
           try {
-            onEvent(JSON.parse(json) as StreamEvent);
+            onEvent(JSON.parse(json) as BenchQueueStreamEvent);
           } catch {
             /* ignore */
           }
@@ -403,40 +452,38 @@ export function App() {
     }
   }, []);
 
-  const buildBenchProfilePayload = useCallback(
-    (modelId: string) => {
-      const samplingOverrides = parseSamplingOverridesJson(samplingOverridesText);
-      const maxTok = profileMaxTokens.trim() ? Number(profileMaxTokens) : NaN;
-      const profileMaxTokensNum = Number.isFinite(maxTok) && maxTok > 0 ? Math.floor(maxTok) : undefined;
-      const fam = profileId === "auto" ? inferLlmProfileFamily(modelId) : profileId;
-      // 성능 측정 모드: 사고 off + 고정 출력 한도로 처리량을 apples-to-apples 비교. (라우트 제한은 요청 body의 apiRoutes로.)
-      const effectiveThinking: ThinkingIntent = benchmarkThroughputMode ? "off" : thinkingIntent;
-      const effectiveMaxTokens = benchmarkThroughputMode ? BENCH_THROUGHPUT_MAX_TOKENS : profileMaxTokensNum;
-      return {
-        profileId,
-        profileMaxTokens: effectiveMaxTokens,
-        thinkingIntent: effectiveThinking,
-        preserveThinking:
-          (fam === "qwen36" || fam === "qwen38") && !benchmarkThroughputMode ? preserveThinking : false,
-        reasoningEffort:
-          fam === "gpt_oss" ? reasoningEffort : fam === "qwen38" ? qwen38ReasoningEffort : undefined,
-        presetOverride: benchmarkThroughputMode ? undefined : presetOverride || undefined,
-        samplingOverrides: samplingOverrides ?? undefined,
-      };
-    },
-    [
-      benchmarkThroughputMode,
-      parseSamplingOverridesJson,
-      presetOverride,
-      preserveThinking,
+  /**
+   * 큐 요청에 싣는 프로파일 **의도**. `buildBenchProfilePayload`와 달리 모델별 게이트를 적용하지 않는다 —
+   * 어느 effort 칸을 쓸지는 모델마다 다르므로 서버가 `benchProfileForModel`로 정한다. 두 칸(gpt-oss용·
+   * Qwen3.8용)을 모두 실어 보내야 혼합 큐에서 한쪽 선택이 유실되지 않는다.
+   */
+  const buildBenchIntentPayload = useCallback(() => {
+    const samplingOverrides = parseSamplingOverridesJson(samplingOverridesText);
+    const maxTok = profileMaxTokens.trim() ? Number(profileMaxTokens) : NaN;
+    const profileMaxTokensNum = Number.isFinite(maxTok) && maxTok > 0 ? Math.floor(maxTok) : undefined;
+    return {
       profileId,
-      profileMaxTokens,
-      qwen38ReasoningEffort,
-      reasoningEffort,
-      samplingOverridesText,
+      profileMaxTokens: profileMaxTokensNum,
       thinkingIntent,
-    ],
-  );
+      preserveThinking,
+      reasoningEffort,
+      qwen38ReasoningEffort,
+      presetOverride: presetOverride || undefined,
+      samplingOverrides: samplingOverrides ?? undefined,
+      benchmarkThroughputMode,
+    };
+  }, [
+    benchmarkThroughputMode,
+    parseSamplingOverridesJson,
+    presetOverride,
+    preserveThinking,
+    profileId,
+    profileMaxTokens,
+    qwen38ReasoningEffort,
+    reasoningEffort,
+    samplingOverridesText,
+    thinkingIntent,
+  ]);
   const [detect, setDetect] = useState<DetectResult | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -459,6 +506,11 @@ export function App() {
   const [modelTableSorting, setModelTableSorting] = useState<SortingState>(() => DEFAULT_MODEL_TABLE_SORTING);
   const [modelOrderIds, setModelOrderIds] = useState<string[]>([]);
   const [benchQueueDraft, setBenchQueueDraft] = useState<DetectModel[]>([]);
+  /**
+   * 실행 중인 런의 권위 있는 계획(서버 큐 스냅샷·run_started.meta에서 온다).
+   * 진행률·예약 행·ETA·스코어보드가 이걸 읽는다 — 폼 상태를 읽으면 재접속한 탭에서 분모가 0이 된다.
+   */
+  const [benchRunPlan, setBenchRunPlan] = useState<BenchRunPlan | null>(null);
   /** 큐 칩용 모델별 실행 결과. 런 전체 누적값(anyHttpFail 등)과 달리 모델 단위로 모은다. */
   const [benchModelStatus, setBenchModelStatus] = useState<Record<string, QueueModelStatus>>({});
   const [detailAggregate, setDetailAggregate] = useState<Record<string, MetricsAgg>>({});
@@ -495,6 +547,10 @@ export function App() {
    *  running을 runDetect의 의존성 배열에 넣지 않고도 최신 값을 읽기 위함. */
   const runningRef = useRef(false);
   runningRef.current = running;
+  /** 재연결이 진행 중인 큐/런 id — runningRef는 렌더 중 대입이라 한 틱 늦어 중복 구독을 못 막는다. */
+  const reconnectInFlightRef = useRef<string | null>(null);
+  /** 완료 큐 자동 복원 판정용 — 화면에 이미 결과가 있으면 덮지 않는다. */
+  const rowCountRef = useRef(0);
 
   // 영속 저장 (debounce 350ms). `/stress` 등 다른 라우트에서는 게이트로 차단해
   // App의 stale state가 stress 페이지의 공유 키 변경(baseUrl/apiKey 등)을 되돌리는 회귀 방지.
@@ -664,18 +720,46 @@ export function App() {
     return out;
   }, [detect, modelOrderIds, selected]);
 
+  const activeBenchApiRoutes = useMemo(
+    () =>
+      detect
+        ? resolveBenchApiRoutes(
+            detect.capabilities,
+            benchmarkThroughputMode ? ["chat_completions"] : undefined,
+          )
+        : [],
+    [detect, benchmarkThroughputMode],
+  );
+
+  /**
+   * 진행률·예약 행·ETA·스코어보드가 읽는 단일 소스. 실행 계획이 있으면 계획을, 없으면(실행 전)
+   * 폼을 그대로 돌려주므로 idle 동작은 이전과 같다.
+   */
+  rowCountRef.current = rows.length;
+
+  const activeRunPlanView = useMemo(
+    () =>
+      resolvePlanView({
+        plan: benchRunPlan,
+        draftModelIds: benchQueueDraft.map((m) => m.id),
+        formScenarioIds: visibleSelectedScenarioIds,
+        formApiRoutes: activeBenchApiRoutes,
+      }),
+    [benchRunPlan, benchQueueDraft, visibleSelectedScenarioIds, activeBenchApiRoutes],
+  );
+
   /** 큐 칩 소스 2단 — 실행 전에는 선택 모델을 미리, 실행 중/직후에는 큐+모델별 상태를 쓴다. */
   const benchQueueItems = useMemo(
     () =>
       resolveQueueItems({
         running,
         paused: benchPaused,
-        queuedIds: benchQueueDraft.map((m) => m.id),
+        queuedIds: activeRunPlanView.modelIds,
         statusById: benchModelStatus,
         selectedIds: orderedSelectedModels.map((m) => m.id),
         currentModelId: benchCurrent?.modelId ?? null,
       }),
-    [running, benchPaused, benchQueueDraft, benchModelStatus, orderedSelectedModels, benchCurrent],
+    [running, benchPaused, activeRunPlanView, benchModelStatus, orderedSelectedModels, benchCurrent],
   );
 
   // ── 6단계 아코디언 ──────────────────────────────────────────────────────────
@@ -722,12 +806,13 @@ export function App() {
     () => ({
       connectionUsable:
         detect != null && detect.reachability?.state !== "unreachable" && detect.models.length > 0,
-      selectedScenarioCount: visibleSelectedScenarioIds.length,
+      // 실행 중에는 계획 기준 — 실행 도중 폼에서 "전체 해제"를 눌러도 2단계 배지가 뒤집히지 않는다.
+      selectedScenarioCount: activeRunPlanView.scenarioIds.length,
       selectedModelCount: orderedSelectedModels.length,
       running,
       resultCount: rows.length,
     }),
-    [detect, visibleSelectedScenarioIds.length, orderedSelectedModels.length, running, rows.length],
+    [detect, activeRunPlanView, orderedSelectedModels.length, running, rows.length],
   );
 
   const stepProps = useCallback(
@@ -747,33 +832,10 @@ export function App() {
     return namedBaseUrls.find((b) => b.baseUrl === current)?.name ?? current;
   }, [detect, baseUrl, namedBaseUrls]);
 
-  const activeBenchApiRoutes = useMemo(
-    () =>
-      detect
-        ? resolveBenchApiRoutes(
-            detect.capabilities,
-            benchmarkThroughputMode ? ["chat_completions"] : undefined,
-          )
-        : [],
-    [detect, benchmarkThroughputMode],
-  );
-
   const pendingSkeletonRows = useMemo(() => {
-    if (!running || activeBenchApiRoutes.length === 0) return [];
-    const completedKeys = new Set(rows.map((r) => r.rowKey));
-    const result: Array<{ rowKey: string; model_id: string; scenario: string; api: string }> = [];
-    for (const model of benchQueueDraft) {
-      for (const scenarioId of visibleSelectedScenarioIds) {
-        for (const api of activeBenchApiRoutes) {
-          const rk = scenarioRowKey(scenarioId, api, model.id);
-          if (!completedKeys.has(rk)) {
-            result.push({ rowKey: rk, model_id: model.id, scenario: scenarioId, api });
-          }
-        }
-      }
-    }
-    return result;
-  }, [running, rows, benchQueueDraft, visibleSelectedScenarioIds, activeBenchApiRoutes]);
+    if (!running) return [];
+    return planPendingUnits(activeRunPlanView, new Set(rows.map((r) => r.rowKey)));
+  }, [running, rows, activeRunPlanView]);
 
   // 벤치 예상 실행 시간: 정확 일치용 1차 인덱스 + 같은 베이스 모델의 다른 양자화 폴백용 2차 인덱스.
   const preRunExactIndex = useMemo(() => buildScenarioTimeIndex(preRunEstimateRaw), [preRunEstimateRaw]);
@@ -1198,6 +1260,9 @@ export function App() {
     setRows([]);
     setBenchScenarioOrder([]);
     setLog([]);
+    // 재감지는 새 대상이다 — 이전 계획이 남으면 새 프로바이더 아래 옛 큐 칩과 분모가 살아남는다.
+    setBenchRunPlan(null);
+    setBenchModelStatus({});
     setDetailAggregate({});
     setLiveSystemPromptByRowKey({});
     setLiveUserPromptByRowKey({});
@@ -1573,6 +1638,117 @@ export function App() {
     [appendLog, pushBenchLine],
   );
 
+  /** 큐 스트림을 소비하는 동안의 현재 모델·누적 상태. 서버 큐에서는 모델 경계가 이벤트로 오므로
+   *  for-루프 지역 변수 대신 ref로 든다(재연결 스트림도 같은 커서를 쓴다). */
+  const queueCursorRef = useRef<{ modelId: string | null; state: BenchStreamState }>({
+    modelId: null,
+    state: makeBenchStreamState(),
+  });
+
+  /** 큐 레벨 이벤트를 처리하고 나머지는 기존 런 이벤트 처리기로 넘긴다. */
+  const handleQueueStreamEvent = useCallback(
+    (ev: BenchQueueStreamEvent, onError: () => void) => {
+      if (ev.type === "queue_started") {
+        // 이 탭이 이 큐를 보고 있다고 기록해 둔다 — 끝난 뒤 새로고침하면 이 id로만 복원한다.
+        rememberWatchedQueueId(ev.queue_id);
+        setBenchRunPlan((prev) => ({
+          queueId: ev.queue_id,
+          modelIds: [...ev.model_ids],
+          index: prev?.index ?? 0,
+          scenarioIds: [...ev.plan.scenario_ids],
+          apiRoutes: [...ev.plan.api_routes],
+          warmupRuns: ev.plan.warmup_runs,
+          measuredRuns: ev.plan.measured_runs,
+          done: prev?.done ?? [],
+          // 재연결 replay에서도 이 이벤트가 먼저 오므로, 하이드레이트한 완료 상태를 덮지 않는다.
+          statusById: {
+            ...Object.fromEntries(ev.model_ids.map((id) => [id, "pending" as BenchQueueModelStatus])),
+            ...(prev?.statusById ?? {}),
+          },
+          source: "server",
+        }));
+        setBenchModelStatus((prev) => ({
+          ...Object.fromEntries(ev.model_ids.map((id) => [id, "pending" as QueueModelStatus])),
+          ...prev,
+        }));
+        return;
+      }
+      if (ev.type === "queue_model_started") {
+        queueCursorRef.current = { modelId: ev.model_id, state: makeBenchStreamState() };
+        setBenchRunPlan((prev) => (prev ? { ...prev, index: ev.index } : prev));
+        setBenchCurrent({ modelId: ev.model_id });
+        setBenchRunId(null);
+        setBenchModelStatus((prev) => ({ ...prev, [ev.model_id]: "running" }));
+        appendLog(`bench start model=${ev.model_id}`);
+        return;
+      }
+      if (ev.type === "queue_model_finished") {
+        setBenchModelStatus((prev) => ({ ...prev, [ev.model_id]: ev.status }));
+        setBenchRunPlan((prev) =>
+          prev
+            ? {
+                ...prev,
+                statusById: { ...prev.statusById, [ev.model_id]: ev.status },
+                done: [
+                  ...prev.done.filter((d) => d.modelId !== ev.model_id),
+                  { modelId: ev.model_id, runId: ev.run_id, status: ev.status },
+                ],
+              }
+            : prev,
+        );
+        return;
+      }
+      if (ev.type === "queue_paused") {
+        setBenchPaused(true);
+        setEtaPaused(true);
+        return;
+      }
+      if (ev.type === "queue_resumed") {
+        setBenchPaused(false);
+        setEtaPaused(false);
+        return;
+      }
+      if (ev.type === "queue_finished") {
+        setBenchModelStatus((prev) => ({
+          ...prev,
+          ...Object.fromEntries(ev.models.map((m) => [m.model_id, m.status])),
+        }));
+        setBenchRunPlan((prev) =>
+          prev
+            ? {
+                ...prev,
+                statusById: {
+                  ...prev.statusById,
+                  ...Object.fromEntries(ev.models.map((m) => [m.model_id, m.status])),
+                },
+              }
+            : prev,
+        );
+        return;
+      }
+      const cursor = queueCursorRef.current;
+      if (ev.type === "run_started") {
+        // 서버가 큐 계획을 못 준 경우(구버전·버퍼 축출)에도 meta가 시나리오·라우트를 확정해 준다.
+        setBenchRunPlan((prev) => mergePlanWithRunMeta(prev, ev.meta ?? null, cursor.modelId ?? ""));
+      }
+      handleBenchStreamEvent(ev, cursor.modelId ?? "", cursor.state, onError);
+    },
+    [appendLog, handleBenchStreamEvent],
+  );
+
+  /** 409 거부 본문을 사람이 읽을 수 있는 안내로. 서버가 왜 막았는지(큐/단발 런)를 그대로 옮긴다. */
+  const describeBenchConflict = useCallback(async (r: Response): Promise<string | null> => {
+    if (r.status !== 409) return null;
+    try {
+      const body = (await r.json()) as { error?: string };
+      if (body.error === "queue_active") return msg().bench.queueConflictActive;
+      if (body.error === "run_active") return msg().bench.runConflictActive;
+    } catch {
+      // 본문이 없거나 JSON이 아니면 일반 안내로 떨어진다.
+    }
+    return msg().bench.queueConflictActive;
+  }, []);
+
   const runBench = useCallback(async (modelsToRun: DetectModel[]) => {
     if (!detect) return;
     const models = modelsToRun;
@@ -1598,116 +1774,213 @@ export function App() {
     activeRunMetaRef.current = null;
     let anyHttpFail = false;
     let streamErrorCount = 0;
-    let streamIncomplete = false;
+    let sawQueueFinished = false;
     let wasCancelled = false;
-    setBenchModelStatus(Object.fromEntries(models.map((m) => [m.id, "pending" as QueueModelStatus])));
-    for (let mi = 0; mi < models.length; mi += 1) {
-      const m = models[mi];
-      appendLog(`bench start model=${m.id}`);
-      setBenchCurrent({ modelId: m.id });
-      setBenchRunId(null);
-      setBenchPaused(false);
-      setBenchModelStatus((prev) => ({ ...prev, [m.id]: "running" }));
-      const state = makeBenchStreamState();
-      // 런 전체 누적값과 별개로 이 모델 한 건의 결과를 모은다 — 시나리오 1개 오류로 모델 전체를
-      // 실패로 찍거나, 앞 모델의 오류가 뒤 모델에 옮아붙지 않게.
-      let modelHttpFailed = false;
-      let modelThrew = false;
-      let modelErrorCount = 0;
-      try {
-        const r = await fetch("/api/bench/stream", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            detect,
-            bench: {
-              baseUrl: detect.baseUrl,
-              apiKey: apiKey || undefined,
-              provider: detect.provider,
-              modelId: m.id,
-              skipModelLoad: detect.provider !== "lm_studio",
-              unloadOtherModels,
-              autoUnloadAfterBench,
-              ...(loadTtlSecondsNum ? { loadTtlSeconds: loadTtlSecondsNum } : {}),
-              ...(fitPolicy ? { fitPolicy } : {}),
-              publicAssetsOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
-              scenarioIds: visibleSelectedScenarioIds,
-              ...(benchmarkThroughputMode ? { apiRoutes: ["chat_completions"] as const } : {}),
-              contentionGuardEnabled,
-              ...(Number.isFinite(Number(contentionPreBenchTimeoutSec)) && contentionPreBenchTimeoutSec.trim()
-                ? { contentionPreBenchTimeoutMs: Math.max(0, Math.floor(Number(contentionPreBenchTimeoutSec) * 1000)) }
-                : {}),
-              ...(Number.isFinite(Number(contentionMaxRetries)) && contentionMaxRetries.trim()
-                ? { contentionMaxRetriesPerIteration: Math.max(0, Math.floor(Number(contentionMaxRetries))) }
-                : {}),
-              ...buildBenchProfilePayload(m.id),
-            },
-          }),
-        });
-        if (!r.ok || !r.body) {
-          anyHttpFail = true;
-          modelHttpFailed = true;
-          appendLog(`bench http error ${r.status}`);
-          pushBenchLine("err", `HTTP ${r.status} · ${m.id}`);
-        } else {
-          await consumeSseJsonLines(r.body, (ev) =>
-            handleBenchStreamEvent(ev, m.id, state, () => {
-              streamErrorCount += 1;
-              modelErrorCount += 1;
-            }),
-          );
-          if (!state.sawRunFinished) {
-            streamIncomplete = true;
-            appendLog(msg().bench.logBenchIncomplete(m.id));
-          }
-        }
-      } catch (e) {
-        anyHttpFail = true;
-        modelThrew = true;
-        appendLog(String(e));
-        pushBenchLine("err", msg().bench.eventRequestFailed(m.id, String(e).slice(0, 200)));
-      }
-      setBenchModelStatus((prev) => ({
-        ...prev,
-        [m.id]: classifyModelOutcome({
-          httpFailed: modelHttpFailed,
-          threw: modelThrew,
-          sawRunFinished: state.sawRunFinished,
-          cancelled: state.cancelledByUser,
-          skippedByPreflight: state.skippedByPreflight,
-          scenarioErrorCount: modelErrorCount,
+    const modelIds = models.map((m) => m.id);
+    // queue_started가 오기 전까지 쓸 잠정 계획 — 진행률이 잠깐이라도 0/0으로 보이지 않게.
+    setBenchRunPlan(
+      planFromForm({
+        modelIds,
+        scenarioIds: visibleSelectedScenarioIds,
+        apiRoutes: activeBenchApiRoutes,
+      }),
+    );
+    setBenchModelStatus(Object.fromEntries(modelIds.map((id) => [id, "pending" as QueueModelStatus])));
+    queueCursorRef.current = { modelId: null, state: makeBenchStreamState() };
+    try {
+      // 모델 큐는 서버가 소유한다 — 탭을 닫거나 새로고침해도 남은 모델이 계속 실행된다.
+      const r = await fetch("/api/bench/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          detect,
+          bench: {
+            baseUrl: detect.baseUrl,
+            apiKey: apiKey || undefined,
+            provider: detect.provider,
+            skipModelLoad: detect.provider !== "lm_studio",
+            unloadOtherModels,
+            autoUnloadAfterBench,
+            ...(loadTtlSecondsNum ? { loadTtlSeconds: loadTtlSecondsNum } : {}),
+            ...(fitPolicy ? { fitPolicy } : {}),
+            publicAssetsOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
+            scenarioIds: visibleSelectedScenarioIds,
+            ...(benchmarkThroughputMode ? { apiRoutes: ["chat_completions"] as const } : {}),
+            contentionGuardEnabled,
+            ...(Number.isFinite(Number(contentionPreBenchTimeoutSec)) && contentionPreBenchTimeoutSec.trim()
+              ? { contentionPreBenchTimeoutMs: Math.max(0, Math.floor(Number(contentionPreBenchTimeoutSec) * 1000)) }
+              : {}),
+            ...(Number.isFinite(Number(contentionMaxRetries)) && contentionMaxRetries.trim()
+              ? { contentionMaxRetriesPerIteration: Math.max(0, Math.floor(Number(contentionMaxRetries))) }
+              : {}),
+            ...buildBenchIntentPayload(),
+          },
+          model_ids: modelIds,
         }),
-      }));
-      if (state.cancelledByUser) {
-        wasCancelled = true;
-        // 큐에 남은 모델은 아예 실행되지 않았으므로 대기가 아니라 중지됨으로 표시한다.
-        const skipped = models.slice(mi + 1).map((x) => x.id);
-        if (skipped.length > 0) {
-          setBenchModelStatus((prev) => ({
-            ...prev,
-            ...Object.fromEntries(skipped.map((id) => [id, "cancelled" as QueueModelStatus])),
-          }));
-        }
-        break; // 큐에 남은 나머지 모델로 넘어가지 않고 전체 정지.
+      });
+      if (!r.ok || !r.body) {
+        anyHttpFail = true;
+        const conflict = await describeBenchConflict(r);
+        appendLog(`bench queue http error ${r.status}`);
+        pushBenchLine("err", conflict ?? `HTTP ${r.status}`);
+        if (conflict) toast.error(conflict);
+      } else {
+        await consumeSseJsonLines(r.body, (ev) => {
+          if (ev.type === "queue_finished") {
+            sawQueueFinished = true;
+            wasCancelled = ev.status === "cancelled";
+          }
+          handleQueueStreamEvent(ev, () => {
+            streamErrorCount += 1;
+          });
+        });
       }
+    } catch (e) {
+      anyHttpFail = true;
+      appendLog(String(e));
+      pushBenchLine("err", msg().bench.eventRequestFailed(modelIds[0] ?? "", String(e).slice(0, 200)));
     }
     setRunning(false);
     setBenchRunId(null);
     setBenchPaused(false);
     appendLog("bench finished");
-    if (wasCancelled) {
-      toast(msg().bench.benchCancelledToast);
-    } else if (anyHttpFail || streamErrorCount > 0 || streamIncomplete) {
-      toast.warning(msg().bench.benchDoneWithIssues);
-    } else {
-      toast.success(msg().bench.benchAllDone);
+    switch (
+      resolveBenchOutcomeToast({
+        httpFailed: anyHttpFail,
+        cancelled: wasCancelled,
+        errorCount: streamErrorCount,
+        sawQueueFinished,
+      })
+    ) {
+      case "none":
+        break; // 409·네트워크 실패는 위에서 이미 안내했다 — 덧씌우지 않는다.
+      case "cancelled":
+        toast(msg().bench.benchCancelledToast);
+        break;
+      case "warning":
+        toast.warning(msg().bench.benchDoneWithIssues);
+        break;
+      case "success":
+        toast.success(msg().bench.benchAllDone);
+        break;
     }
-  }, [apiKey, appendLog, autoUnloadAfterBench, benchmarkThroughputMode, buildBenchProfilePayload, contentionGuardEnabled, contentionMaxRetries, contentionPreBenchTimeoutSec, detect, fitPolicy, handleBenchStreamEvent, loadTtlSecondsNum, pushBenchLine, unloadOtherModels, visibleSelectedScenarioIds]);
+  }, [
+    apiKey,
+    appendLog,
+    activeBenchApiRoutes,
+    autoUnloadAfterBench,
+    benchmarkThroughputMode,
+    buildBenchIntentPayload,
+    contentionGuardEnabled,
+    contentionMaxRetries,
+    contentionPreBenchTimeoutSec,
+    describeBenchConflict,
+    detect,
+    fitPolicy,
+    handleQueueStreamEvent,
+    loadTtlSecondsNum,
+    pushBenchLine,
+    unloadOtherModels,
+    visibleSelectedScenarioIds,
+  ]);
 
-  /** 새로고침으로 화면 상태를 잃은 뒤, 서버에서 여전히 진행 중인 런에 라이브로 재구독한다.
-   *  runBench와 달리 큐(여러 모델 순차 실행) 개념이 없다 — 새로고침 전 큐에 남아있던 나머지
-   *  모델은 클라이언트 상태였으므로 복구 대상이 아니고, 지금 진행 중인 이 런만 대상이다. */
-  const reconnectBench = useCallback(
+  /** 큐에서 이미 끝난 모델의 결과를 SQLite에서 되살린다. 라이브 스트림을 막지 않도록 await 하지 않는다. */
+  const restoreFinishedQueueRuns = useCallback(
+    async (plan: BenchRunPlan) => {
+      const runIds = plan.done.map((d) => d.runId).filter((id): id is string => !!id);
+      if (runIds.length === 0) return;
+      const details: BenchRunDetailResponse[] = [];
+      for (const runId of runIds) {
+        try {
+          const r = await fetch(`/api/runs/${encodeURIComponent(runId)}`);
+          if (!r.ok) {
+            pushBenchLine("err", msg().bench.eventRestoreFailed(runId));
+            continue;
+          }
+          details.push((await r.json()) as BenchRunDetailResponse);
+        } catch {
+          pushBenchLine("err", msg().bench.eventRestoreFailed(runId));
+        }
+      }
+      if (details.length === 0) return;
+      const merged = mergeBenchDetailsToState(details);
+      // 라이브가 항상 이긴다 — 복원이 늦게 끝나도 지금 돌고 있는 모델의 행을 덮지 않는다.
+      setRows((prev) => mergeByRowKey(prev, merged.rows));
+      setDetailAggregate((prev) => ({ ...merged.detailAggregate, ...prev }));
+      setLiveUserPromptByRowKey((prev) => ({ ...merged.promptByRowKey, ...prev }));
+      setLiveSystemPromptByRowKey((prev) => ({ ...merged.systemPromptByRowKey, ...prev }));
+      pushBenchLine("info", msg().bench.eventRestoredFromDb(details.length, merged.rows.length));
+    },
+    [pushBenchLine],
+  );
+
+  /** 새로고침으로 화면 상태를 잃은 뒤 서버 큐에 다시 붙는다 — 완료/진행/예약 칩과 진행률을 복원하고,
+   *  이미 끝난 모델의 결과는 DB에서 되살린다. 진행 중이 아니면 복원만 하고 끝낸다. */
+  const reconnectQueue = useCallback(
+    async (snapshot: BenchQueueSnapshot) => {
+      const plan = planFromQueueSnapshot(snapshot);
+      if (!plan) return;
+      // 실행 중 큐에 붙는 것도 "이 탭이 보는 큐"다 — 끝난 뒤 새로고침해도 이 큐만 되살아난다.
+      rememberWatchedQueueId(snapshot.queue_id);
+      appendLog(`bench reconnect queue_id=${snapshot.queue_id} status=${snapshot.status}`);
+      setRunning(true);
+      setRows([]);
+      setBenchScenarioOrder(plan.scenarioIds);
+      setDetailAggregate({});
+      setLiveSystemPromptByRowKey({});
+      setLiveUserPromptByRowKey({});
+      setPreview("");
+      setBenchStepLines([]);
+      setTouchedScenarioIds([]);
+      setLiveObserved(new Map());
+      setEtaPaused(snapshot.paused);
+      setBenchRunId(null);
+      setBenchPaused(snapshot.paused);
+      activeRunMetaRef.current = { warmupRuns: plan.warmupRuns, measuredRuns: plan.measuredRuns };
+      setBenchRunPlan(plan);
+      setBenchModelStatus(hydrateQueueStatus(plan));
+      // 모델 경계(끝난 직후, 다음 모델 시작 전)에는 실행 중인 모델이 없다 — index만 보고 그리면
+      // 이미 끝났거나 아직 시작도 안 한 모델을 "진행 중"으로 표시한다. current_run_id가 판정 기준이다.
+      const currentModelId = snapshot.current_run_id ? (plan.modelIds[plan.index] ?? null) : null;
+      setBenchCurrent(currentModelId ? { modelId: currentModelId } : null);
+      queueCursorRef.current = { modelId: currentModelId, state: makeBenchStreamState() };
+      pushBenchLine("info", msg().bench.eventQueueRestored(plan.done.length, plan.modelIds.length));
+      void restoreFinishedQueueRuns(plan);
+      if (snapshot.status !== "running") {
+        // 완료된 큐는 재연결 대상이 아니다 — 스냅샷 + DB 복원으로 끝난다(/reconnect는 404다).
+        setRunning(false);
+        return;
+      }
+      let anyHttpFail = false;
+      let streamErrorCount = 0;
+      try {
+        const r = await fetch(`/api/bench/queue/${encodeURIComponent(snapshot.queue_id)}/reconnect`);
+        if (!r.ok || !r.body) {
+          // 그 사이 큐가 끝났을 수 있다(404) — 실패가 아니라 정상 완료로 본다.
+          if (r.status !== 404) anyHttpFail = true;
+          appendLog(`bench reconnect http ${r.status}`);
+        } else {
+          await consumeSseJsonLines(r.body, (ev) =>
+            handleQueueStreamEvent(ev, () => {
+              streamErrorCount += 1;
+            }),
+          );
+        }
+      } catch (e) {
+        anyHttpFail = true;
+        appendLog(String(e));
+      }
+      setRunning(false);
+      setBenchRunId(null);
+      setBenchPaused(false);
+      appendLog("bench reconnect finished");
+      if (anyHttpFail || streamErrorCount > 0) toast.warning(msg().bench.benchDoneWithIssues);
+    },
+    [appendLog, handleQueueStreamEvent, pushBenchLine, restoreFinishedQueueRuns],
+  );
+
+  /** 큐에 속하지 않은 단독 런(MCP 등)에 재연결하는 예전 경로. */
+  const reconnectSingleRun = useCallback(
     async (runId: string, modelId: string) => {
       appendLog(`bench reconnect run_id=${runId} model=${modelId}`);
       setRunning(true);
@@ -1725,10 +1998,12 @@ export function App() {
       setBenchRunId(null);
       setBenchPaused(false);
       activeRunMetaRef.current = null;
+      setBenchRunPlan(null);
       const state = makeBenchStreamState();
+      queueCursorRef.current = { modelId, state };
       let anyHttpFail = false;
       let streamErrorCount = 0;
-      // 재연결에는 큐가 없으므로 칩도 이 모델 한 개다. 비워두면 재접속 직후 큐 상태 표시가 사라진다.
+      // 큐가 아니므로 칩도 이 모델 한 개다. 비워두면 재접속 직후 큐 상태 표시가 사라진다.
       setBenchModelStatus({ [modelId]: "running" });
       try {
         const r = await fetch(`/api/bench/${runId}/reconnect`);
@@ -1737,7 +2012,7 @@ export function App() {
           appendLog(`bench reconnect http error ${r.status}`);
         } else {
           await consumeSseJsonLines(r.body, (ev) =>
-            handleBenchStreamEvent(ev, modelId, state, () => {
+            handleQueueStreamEvent(ev, () => {
               streamErrorCount += 1;
             }),
           );
@@ -1768,46 +2043,95 @@ export function App() {
         toast.success(msg().bench.benchAllDone);
       }
     },
-    [appendLog, handleBenchStreamEvent],
+    [appendLog, handleQueueStreamEvent],
   );
 
-  /** 연결/감지 성공 직후 호출 — 이 baseUrl로 서버에서 여전히 진행 중인 벤치가 있으면
-   *  자동으로 라이브 재연결한다(새로고침 복구). best-effort — 실패해도 조용히 무시. */
+  /** 연결/감지 성공 직후 호출 — 이 baseUrl에 서버가 들고 있는 큐/런이 있으면 자동으로 복원한다.
+   *  best-effort — 실패해도 조용히 무시. */
   const checkForLiveBenchRun = useCallback(
     async (baseUrlToCheck: string) => {
       if (runningRef.current) return; // 이 탭에서 이미 다른 런을 보고 있으면 건드리지 않음
+      if (reconnectInFlightRef.current) return; // runningRef는 렌더 중 대입이라 한 틱 늦다
       try {
         const r = await fetch(`/api/bench/running?baseUrl=${encodeURIComponent(baseUrlToCheck)}`);
         if (!r.ok) return;
-        const j = (await r.json()) as { runs: Array<{ run_id: string; model_id: string }> };
-        const live = j.runs[0];
+        const j = (await r.json()) as {
+          runs?: Array<{ run_id: string; model_id: string; queue_id?: string | null }>;
+          queues?: BenchQueueSnapshot[];
+        };
+        const queues = j.queues ?? [];
+        // 서버가 실행 중 큐를 앞에 정렬해 주지만, 방어적으로 한 번 더 고른다.
+        // 실행 중 큐는 무조건 붙는다(다른 기기에서 보는 것도 의도). 끝난 큐는 이 탭이 보던 것만.
+        const watchedQueueId = readWatchedQueueId();
+        const queue =
+          queues.find((q) => q.status === "running") ??
+          queues.find(
+            (q) =>
+              q.finished_at != null &&
+              shouldRestoreFinishedQueue({
+                queueId: q.queue_id,
+                watchedQueueId,
+                hasRows: rowCountRef.current > 0,
+              }),
+          );
+        if (queue) {
+          if (reconnectInFlightRef.current) return;
+          reconnectInFlightRef.current = queue.queue_id;
+          appendLog(`found bench queue ${queue.queue_id} (${queue.status}) — restoring`);
+          void reconnectQueue(queue).finally(() => {
+            reconnectInFlightRef.current = null;
+          });
+          return;
+        }
+        // 큐에 속하지 않은 단독 런만 예전 경로로 재연결한다.
+        const live = (j.runs ?? []).find((x) => !x.queue_id);
         if (!live) return;
+        reconnectInFlightRef.current = live.run_id;
         appendLog(`found live bench run_id=${live.run_id} model=${live.model_id} — reconnecting`);
-        void reconnectBench(live.run_id, live.model_id);
+        void reconnectSingleRun(live.run_id, live.model_id).finally(() => {
+          reconnectInFlightRef.current = null;
+        });
       } catch {
         // 재연결은 best-effort — 조용히 무시
       }
     },
-    [appendLog, reconnectBench],
+    [appendLog, reconnectQueue, reconnectSingleRun],
   );
 
   // detect가 바뀔 때마다(연결/감지 성공 포함, 새로고침 후 재클릭 등) 이 baseUrl에 서버가
   // 아직 들고 있는 진행 중인 벤치가 있는지 확인해 있으면 자동으로 재연결한다.
+  // 의존성을 baseUrl로 좁힌다 — 콜백 identity에 걸면 설정 입력 한 글자마다 재조회가 돈다.
+  const checkForLiveBenchRunRef = useRef(checkForLiveBenchRun);
+  checkForLiveBenchRunRef.current = checkForLiveBenchRun;
   useEffect(() => {
-    if (!detect) return;
-    void checkForLiveBenchRun(detect.baseUrl);
-  }, [detect, checkForLiveBenchRun]);
+    if (!detect?.baseUrl) return;
+    void checkForLiveBenchRunRef.current(detect.baseUrl);
+  }, [detect?.baseUrl]);
 
+  /** 일시정지·정지는 큐가 있으면 큐 전체에 건다 — 런 단위 라우트는 그 모델만 건너뛰는 의미다. */
   const toggleBenchPause = useCallback(() => {
-    if (!benchRunId) return;
+    const queueId = benchRunPlan?.queueId;
     const action = benchPaused ? "resume" : "pause";
+    if (queueId) {
+      void fetch(`/api/bench/queue/${encodeURIComponent(queueId)}/${action}`, { method: "POST" }).catch(() => {});
+      return;
+    }
+    if (!benchRunId) return;
     void fetch(`/api/bench/${benchRunId}/${action}`, { method: "POST" }).catch(() => {});
-  }, [benchRunId, benchPaused]);
+  }, [benchRunPlan, benchPaused, benchRunId]);
+
+  /** 큐가 살아 있으면 모델 경계(런이 없는 순간)에도 조작할 수 있어야 한다 — 큐가 pause의 주체다. */
+  const benchControlTarget = benchRunPlan?.queueId ?? benchRunId;
 
   const stopBench = useCallback(() => {
+    const queueId = benchRunPlan?.queueId;
+    if (queueId) {
+      void fetch(`/api/bench/queue/${encodeURIComponent(queueId)}/stop`, { method: "POST" }).catch(() => {});
+      return;
+    }
     if (!benchRunId) return;
     void fetch(`/api/bench/${benchRunId}/stop`, { method: "POST" }).catch(() => {});
-  }, [benchRunId]);
+  }, [benchRunPlan, benchRunId]);
 
   const requestBench = useCallback(() => {
     if (!detect) return;
@@ -1860,18 +2184,10 @@ export function App() {
   }, []);
 
   const logText = log.join("\n");
-  const benchProgress = useMemo(() => {
-    const routeCount = Math.max(activeBenchApiRoutes.length, 1);
-    const total = benchQueueDraft.length * visibleSelectedScenarioIds.length * routeCount;
-    const completed = rows.length;
-    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-    return { completed, total, pct };
-  }, [
-    benchQueueDraft.length,
-    visibleSelectedScenarioIds.length,
-    activeBenchApiRoutes.length,
-    rows.length,
-  ]);
+  const benchProgress = useMemo(
+    () => planTotals(activeRunPlanView, rows.length),
+    [activeRunPlanView, rows.length],
+  );
   /** 헤더 칩 행 꼬리의 진행률·ETA. 진행률 바는 AppHeader 하나만 두고 수치는 여기로 모은다 —
    *  같은 값을 role="progressbar" 두 개로 노출하면 스크린리더가 두 번 읽는다. */
   const benchProgressTail = (() => {
@@ -2120,7 +2436,7 @@ export function App() {
           {...stepProps(2)}
           title={msg().bench.wizard.step2Title}
           icon={FlaskConical}
-          summary={msg().bench.wizard.step2Summary(visibleSelectedScenarioIds.length, pickerCatalogCount)}
+          summary={msg().bench.wizard.step2Summary(activeRunPlanView.scenarioIds.length, pickerCatalogCount)}
           headerActions={
             <NavLink
               to={running && benchCurrent?.scenario ? `/scenarios#${benchCurrent.scenario}` : "/scenarios"}
@@ -2794,7 +3110,7 @@ export function App() {
                       type="button"
                       className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm disabled:opacity-50"
                       onClick={toggleBenchPause}
-                      disabled={!benchRunId}
+                      disabled={!benchControlTarget}
                       aria-label={benchPaused ? msg().bench.resumeBtnAria : msg().bench.pauseBtnAria}
                     >
                       {benchPaused ? <Play className="size-4" aria-hidden /> : <Pause className="size-4" aria-hidden />}
@@ -2806,7 +3122,7 @@ export function App() {
                       type="button"
                       className="inline-flex items-center gap-2 rounded-md bg-[var(--danger)] px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
                       onClick={stopBench}
-                      disabled={!benchRunId}
+                      disabled={!benchControlTarget}
                       aria-label={msg().bench.stopBtnAria}
                     >
                       <Square className="size-4" aria-hidden />
@@ -2927,13 +3243,13 @@ export function App() {
           {...stepProps(6)}
           title={msg().bench.wizard.step6Title}
           icon={BarChart3}
-          summary={rows.length > 0 ? msg().bench.wizard.step6Summary(benchQueueDraft.length, rows.length) : msg().bench.wizard.step6Empty}
+          summary={rows.length > 0 ? msg().bench.wizard.step6Summary(activeRunPlanView.modelIds.length, rows.length) : msg().bench.wizard.step6Empty}
         >
           <Scoreboard
             rows={rows}
             detailAggregate={detailAggregate}
             loading={running}
-            benchModelOrder={benchQueueDraft.map((m) => m.id)}
+            benchModelOrder={activeRunPlanView.modelIds}
             providerByModel={providerByModel}
             headingLevel={3}
           />
@@ -3032,10 +3348,10 @@ export function App() {
             <h3 className="mb-3 border-b border-[var(--border)] pb-2 text-sm font-semibold text-[var(--foreground)]">{msg().bench.resultsTableHeading}</h3>
             <ResultsTable
               rows={rows}
-              benchModelOrder={benchQueueDraft.map((m) => m.id)}
+              benchModelOrder={activeRunPlanView.modelIds}
               benchScenarioOrder={benchScenarioOrder}
               pendingRows={pendingSkeletonRows}
-              maxRows={visibleSelectedScenarioIds.length * Math.max(activeBenchApiRoutes.length, 1)}
+              maxRows={activeRunPlanView.scenarioIds.length * Math.max(activeRunPlanView.apiRoutes.length, 1)}
               onRowClick={(r) => openDrawerForRow(r)}
             />
           </section>

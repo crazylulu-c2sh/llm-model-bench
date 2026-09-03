@@ -182,7 +182,10 @@ function sameOrder(a: readonly string[], b: readonly string[]): boolean {
  */
 export function resolveQueueItems(source: QueueSource): QueueItem[] {
   if (source.queuedIds.length > 0) {
-    const staleAfterRun = !source.running && !sameOrder(source.queuedIds, source.selectedIds);
+    // 선택이 비어 있으면 "선택을 바꿨다"고 볼 수 없다 — 재접속한 탭은 모델을 고른 적이 없어서
+    // 이 가드가 없으면 런이 끝나는 순간 복원한 결과 칩이 통째로 사라진다.
+    const staleAfterRun =
+      !source.running && source.selectedIds.length > 0 && !sameOrder(source.queuedIds, source.selectedIds);
     if (!staleAfterRun) {
       return source.queuedIds.map((id) => {
         const status = source.statusById[id] ?? "pending";

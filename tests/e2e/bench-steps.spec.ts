@@ -1,5 +1,18 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect, type Page } from "@playwright/test";
+import {
+  AXE_TAGS,
+  makeDetect,
+  mockBenchRunning,
+  mockDetect,
+  mockQueueStart,
+  mockRunsApi,
+  openStates,
+  resultsTable,
+  settleAnimations,
+  stepButton,
+  type QueuePlan,
+} from "./helpers/bench-mocks";
 
 /**
  * "/" 모델 벤치의 6단계 아코디언 — 국면 전이와 헤더 클릭 의미론 회귀 가드.
@@ -10,118 +23,85 @@ import { test, expect, type Page } from "@playwright/test";
  *  - 열린 단계를 다시 누르면 접힐 것(다른 카드가 대신 펼쳐지지 않을 것)
  *  - 실행이 시작되면 설정 단계들이 접히고 진행 단계가 열릴 것
  *
- * e2e webServer는 백엔드 없는 정적 프리뷰라 /api/detect·/api/bench/stream을 page.route로 고정한다.
- * 이 목업이 없으면 running·done 상태에 도달할 수 없어 새 disclosure 버튼·큐 칩이 axe 스캔을
- * 한 번도 받지 못한다.
+ * e2e webServer는 백엔드 없는 정적 프리뷰라 API를 page.route로 고정한다. 실행 경로는 모델
+ * for-루프가 아니라 **서버 소유 큐**(`POST /bench/queue` 한 번 + 큐 이벤트 소비)이므로 목업도
+ * 큐 계약을 따른다 — 예전 `/bench/stream` 스텁은 아무도 부르지 않아, 실행 테스트가 "실행 중"
+ * 한순간만 스치고 통과하는 빈 가드가 된다.
  */
 
-const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
 const BASE_URL = "http://localhost:1234/v1";
-const RUN_ID = "e2e-run-1";
+const QUEUE_ID = "e2e-queue-1";
 const MODEL_IDS = ["bench-model-a", "bench-model-b"];
+const DETECT = makeDetect({ baseUrl: BASE_URL, modelIds: MODEL_IDS });
 
-const DETECT = {
-  provider: "lm_studio",
-  baseUrl: BASE_URL,
-  models: MODEL_IDS.map((id, i) => ({
-    id,
-    publisher: "e2e",
-    params_string: `${7 + i}B`,
-    size_bytes: (4 + i) * 1024 ** 3,
-  })),
-  steps: [{ name: "models", ok: true }],
-  capabilities: { openaiChat: true, anthropicMessages: false },
-  reachability: { state: "ok" },
+/**
+ * 시나리오 2건이 통과로 끝나는 최소 런. 모델마다 rows가 2개 생기므로 종료 후 결과 단계가 열린다.
+ *
+ * 두 번째는 **일부러 오염된 행**이다(#169). 깨끗한 런만 목업하던 시절의 axe 스캔은 결과 표의
+ * 경고 배지를 한 번도 훑지 못했고, 그래서 "role 없는 span의 aria-label은 무시된다"는 위반이
+ * 실서버 데이터에서야 드러났다. 여기서 두 배지를 항상 렌더해 그 경로를 스캔 안으로 끌어들인다.
+ */
+const SCENARIOS = [
+  { id: "chat_hello", api: "chat_completions" as const },
+  {
+    id: "code_sort_js",
+    api: "chat_completions" as const,
+    channelTagLeak: true,
+    reasoningHidden: true,
+  },
+];
+/** 오염 배지가 붙는 행의 시나리오 id — 배지 단언이 깨끗한 행을 잡지 않도록 이름으로 좁힌다. */
+const CONTAMINATED_SCENARIO = SCENARIOS[1].id;
+const PLAN: QueuePlan = {
+  scenario_ids: SCENARIOS.map((s) => s.id),
+  api_routes: ["chat_completions"],
+  warmup_runs: 1,
+  measured_runs: 3,
 };
 
-function sse(events: ReadonlyArray<Record<string, unknown>>): string {
-  return events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
-}
-
-/** 시나리오 1건이 통과로 끝나는 최소 런. rows가 1개 생기므로 종료 후 결과 단계가 열린다. */
-function runStream(modelId: string): string {
-  return sse([
-    { type: "run_started", run_id: `${RUN_ID}-${modelId}` },
-    { type: "scenario_start", scenario_id: "chat_hello", api_route: "chat_completions" },
-    {
-      type: "scenario_end",
-      scenario_id: "chat_hello",
-      api_route: "chat_completions",
-      metrics: {
-        ttft_ms: 120,
-        total_ms: 800,
-        output_chars: 40,
-        approx_tokens: 10,
-        usage_output_tokens: 10,
-        stream_completed: true,
-      },
-      quality: { pass: true },
-    },
-    // 결과 행은 metrics_update의 aggregate에서 만들어진다 — scenario_end만으로는 rows가 비어
-    // 종료 후 결과 단계가 열리지 않는다.
-    {
-      type: "metrics_update",
-      aggregate: {
-        scenario_id: "chat_hello",
-        api_route: "chat_completions",
-        runs: [
-          {
-            ttft_ms: 120,
-            total_ms: 800,
-            output_text: "hello from e2e",
-            usage_output_tokens: 10,
-            quality: { pass: true, score: 1 },
-          },
-        ],
-      },
-    },
-    { type: "run_finished", run_id: `${RUN_ID}-${modelId}` },
-  ]);
-}
-
 async function mockBackend(page: Page) {
-  await page.route("**/api/detect", (route) =>
-    route.fulfill({ contentType: "application/json", body: JSON.stringify(DETECT) }),
-  );
-  // 사전 예상 시간 조회 — 기록 없음. items가 없으면 앱이 순회하다 터지므로 실제 응답 형태 그대로 준다.
-  await page.route("**/api/runs/latest-by-model*", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ base_url: BASE_URL, items: [], sqlite_available: true }),
-    }),
-  );
-  let call = 0;
-  await page.route("**/api/bench/stream", (route) => {
-    const modelId = MODEL_IDS[Math.min(call, MODEL_IDS.length - 1)];
-    call += 1;
-    route.fulfill({ contentType: "text/event-stream", body: runStream(modelId) });
-  });
+  await mockDetect(page, DETECT);
+  await mockRunsApi(page, { baseUrl: BASE_URL });
+  // 감지 성공 직후 앱이 곧바로 부른다 — 살아 있는 큐가 없어야 새 실행 경로를 탄다.
+  await mockBenchRunning(page);
+  await mockQueueStart(page, { queueId: QUEUE_ID, baseUrl: BASE_URL, plan: PLAN, scenarios: SCENARIOS });
 }
 
-const stepButton = (page: Page, n: number) => page.locator(`#bench-step-${n} > div > h2 > button`);
-
-async function openStates(page: Page): Promise<string[]> {
-  return Promise.all(
-    [1, 2, 3, 4, 5, 6].map(async (n) => (await stepButton(page, n).getAttribute("aria-expanded")) ?? "?"),
-  );
+async function detectAndSelectFirstModel(page: Page) {
+  await page.getByRole("button", { name: /Connect and detect provider|연결 및 프로바이더 감지/ }).first().click();
+  await expect(stepButton(page, 4)).toHaveAttribute("aria-expanded", "true");
+  await page.locator("#bench-step-4-body tbody input[type=checkbox]").first().check();
 }
 
-/** axe의 color-contrast는 실행 중 트랜지션의 중간 합성색을 읽어 무작위로 실패한다 — 정착 후 스캔. */
-async function settleAnimations(page: Page) {
-  for (let pass = 0; pass < 2; pass++) {
-    await page.evaluate(
-      async (timeoutMs) =>
-        void (await Promise.all(
-          document.getAnimations().map((a) =>
-            Promise.race([
-              a.finished.catch(() => undefined),
-              new Promise((resolve) => setTimeout(resolve, timeoutMs)),
-            ]),
-          ),
-        )),
-      1000,
-    );
-  }
+function queueChips(page: Page) {
+  return page.getByRole("list", { name: /Run queue status|실행 큐 상태/ });
+}
+
+const CONTAMINATION_NAME = /엔진 프로토콜 회귀 의심|engine protocol regression/;
+const REASONING_HIDDEN_NAME = /추론 숨김|Reasoning hidden/;
+
+/**
+ * 결과 표의 경고 배지 — 이름(aria-label)으로 찾는다.
+ *
+ * 배지는 aria-hidden 아이콘 하나뿐이라 `role="img"`가 없으면 aria-label이 무시되고
+ * 접근 가능한 이름이 0이 된다(#169). 그러면 이 로케이터가 먼저 비어서 실패한다 —
+ * 배지가 스크린리더에서 사라지는 회귀를 axe보다 먼저 잡는 가드다.
+ * (모델 셀의 벤더 아이콘도 role="img"라, 이름 없이 role만으로 세면 안 된다.)
+ */
+function warnBadge(page: Page, scenarioId: string, name: RegExp) {
+  return resultsTable(page).locator("tbody tr").filter({ hasText: scenarioId }).getByRole("img", { name });
+}
+
+/**
+ * 실행 → 큐 종료까지. 칩이 "완료"로 바뀌는 것을 먼저 기다린다 — 큐 이벤트가 실제로 흐른 뒤에만
+ * 일어나는 변화라, 목업이 죽어 있을 때 "실행 중" 한순간을 스치고 통과하는 일이 없다.
+ */
+async function runSelectedModelsAndWait(page: Page) {
+  await page.getByRole("button", { name: /Run bench on selected models|선택 모델 벤치 실행/ }).click();
+  await page.getByRole("button", { name: /^(Run bench|벤치 실행)$/ }).click();
+  await expect(queueChips(page)).toContainText(/done|완료/, { timeout: 15_000 });
+  // 헤더 진행률 바는 running일 때만 렌더된다 — 사라지면 큐 스트림이 닫힌 것.
+  await expect(page.getByRole("progressbar")).toHaveCount(0, { timeout: 15_000 });
 }
 
 test.describe("모델 벤치 6단계 아코디언", () => {
@@ -161,26 +141,44 @@ test.describe("모델 벤치 6단계 아코디언", () => {
   });
 
   test("실행하면 설정 단계가 접히고 진행·결과 단계가 열린다", async ({ page }) => {
-    await page.getByRole("button", { name: /Connect and detect provider|연결 및 프로바이더 감지/ }).first().click();
-    await page.locator("#bench-step-4-body tbody input[type=checkbox]").first().check();
+    await detectAndSelectFirstModel(page);
+    await runSelectedModelsAndWait(page);
 
-    await page.getByRole("button", { name: /Run bench on selected models|선택 모델 벤치 실행/ }).click();
-    await page.getByRole("button", { name: /^(Run bench|벤치 실행)$/ }).click();
-
-    // 실행이 끝나면 결과가 있으므로 결과 단계가 열린다.
-    await expect(stepButton(page, 6)).toHaveAttribute("aria-expanded", "true", { timeout: 15_000 });
+    // 큐가 끝난 뒤 결과가 남아 있어야 6단계가 계속 열려 있다 — 실행 중 한순간이 아니라 종료 상태를 본다.
+    await expect(stepButton(page, 6)).toHaveAttribute("aria-expanded", "true");
     expect((await openStates(page)).slice(0, 4)).toEqual(["false", "false", "false", "false"]);
 
+    // 큐 스트림의 metrics_update가 실제 결과 행이 되었는지 — 목업이 계약에서 어긋나면 여기서 걸린다.
+    const rows = resultsTable(page).locator("tbody tr");
+    await expect(rows).toHaveCount(SCENARIOS.length);
+    await expect(rows.first()).toContainText(SCENARIOS[0].id);
+    await expect(rows.first()).toContainText(MODEL_IDS[0]);
+
     // 큐 칩이 남아 어느 모델이 어떻게 끝났는지 보인다.
-    await expect(page.getByRole("list", { name: /Run queue status|실행 큐 상태/ })).toBeVisible();
+    await expect(queueChips(page)).toBeVisible();
+    await expect(queueChips(page).getByRole("listitem")).toHaveCount(1);
+  });
+
+  test("오염·추론 숨김 경고 배지에 접근 가능한 이름이 있다", async ({ page }) => {
+    await detectAndSelectFirstModel(page);
+    await runSelectedModelsAndWait(page);
+
+    // 깨끗한 행에는 배지가 없어야 한다 — 플래그와 무관하게 늘 그린다면 경고가 의미를 잃는다.
+    await expect(warnBadge(page, SCENARIOS[0].id, CONTAMINATION_NAME)).toHaveCount(0);
+    await expect(warnBadge(page, SCENARIOS[0].id, REASONING_HIDDEN_NAME)).toHaveCount(0);
+    await expect(warnBadge(page, CONTAMINATED_SCENARIO, CONTAMINATION_NAME)).toHaveCount(1);
+    await expect(warnBadge(page, CONTAMINATED_SCENARIO, REASONING_HIDDEN_NAME)).toHaveCount(1);
   });
 
   test("axe: 실행 완료 상태 WCAG 2.1 AA 위반 없음", async ({ page }) => {
-    await page.getByRole("button", { name: /Connect and detect provider|연결 및 프로바이더 감지/ }).first().click();
-    await page.locator("#bench-step-4-body tbody input[type=checkbox]").first().check();
-    await page.getByRole("button", { name: /Run bench on selected models|선택 모델 벤치 실행/ }).click();
-    await page.getByRole("button", { name: /^(Run bench|벤치 실행)$/ }).click();
-    await expect(stepButton(page, 6)).toHaveAttribute("aria-expanded", "true", { timeout: 15_000 });
+    await detectAndSelectFirstModel(page);
+    await runSelectedModelsAndWait(page);
+    await expect(stepButton(page, 6)).toHaveAttribute("aria-expanded", "true");
+
+    // 픽스처만 오염시켜 놓고 배지가 안 그려지면 이 스캔은 아무것도 못 본다(#169가 그래서 새어나갔다).
+    // 배지가 실제로 화면에 있는지부터 못 박고 스캔한다.
+    await expect(warnBadge(page, CONTAMINATED_SCENARIO, CONTAMINATION_NAME)).toHaveCount(1);
+    await expect(warnBadge(page, CONTAMINATED_SCENARIO, REASONING_HIDDEN_NAME)).toHaveCount(1);
 
     await settleAnimations(page);
     const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();

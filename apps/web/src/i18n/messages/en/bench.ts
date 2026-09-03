@@ -280,6 +280,12 @@ export const bench: Messages["bench"] = {
     `contention summary · discarded ${discarded}× · max wait ${maxWaitMs}ms${eff}`,
   eventAggregateDone: (scenarioId, apiLabel) => `aggregate done · ${scenarioId} · ${apiLabel}`,
   eventRequestFailed: (modelId, err) => `request failed · ${modelId}: ${err}`,
+  eventQueueRestored: (done, total) => `queue restored · ${done}/${total} done`,
+  eventRestoredFromDb: (runs, rows) => `restored saved results · ${runs} run(s) (${rows} rows)`,
+  eventRestoreFailed: (runId) => `could not load saved results · ${runId}`,
+  queueConflictActive:
+    "A bench queue is already running on this server. Press Connect/Detect again to reattach to it.",
+  runConflictActive: "Another bench is running on this server. Try again once it finishes.",
   logUnloadDone: (phase, modelId, status) => `${phase}model unloaded · ${modelId} · HTTP ${status}`,
   logUnloadFail: (phase, modelId, status) => `${phase}model unload failed · ${modelId} · HTTP ${status}`,
   logBenchIncomplete: (modelId) => `bench incomplete: no run_finished, model=${modelId}`,
