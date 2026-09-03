@@ -46,6 +46,19 @@ export type ScenarioFixture = {
   totalMs?: number;
   text?: string;
   outputTokens?: number;
+  /**
+   * 결과 행의 경고 배지 플래그(기본 전부 꺼짐).
+   *
+   * 깨끗한 런만 목업하면 ResultsTable의 경고 배지 경로가 e2e에서 **한 번도 렌더되지 않는다** —
+   * 실제로 #169(role 없는 span의 aria-label 무시)가 그래서 실서버에서야 드러났다.
+   * 켜는 쪽은 스펙이 고르되(기본 false), 켰을 때 서버가 내보내는 필드명과 같게 흘려보낸다.
+   */
+  /** `reasoning_hidden` — TTFT 칸의 "추론 숨김" 배지. */
+  reasoningHidden?: boolean;
+  /** `channel_tag_leak_detected` — 시나리오 칸의 오염(추론 누수) 배지. */
+  channelTagLeak?: boolean;
+  /** `tool_call_args_corrupted` — 시나리오 칸의 오염(도구 인자 손상) 배지. */
+  toolCallArgsCorrupted?: boolean;
 };
 
 type ResolvedScenario = Required<ScenarioFixture>;
@@ -58,6 +71,24 @@ function resolveScenario(s: ScenarioFixture, i: number): ResolvedScenario {
     totalMs: s.totalMs ?? 800 + i * 100,
     text: s.text ?? `e2e output ${s.id}`,
     outputTokens: s.outputTokens ?? 10 + i,
+    reasoningHidden: s.reasoningHidden ?? false,
+    channelTagLeak: s.channelTagLeak ?? false,
+    toolCallArgsCorrupted: s.toolCallArgsCorrupted ?? false,
+  };
+}
+
+/** 스트림(`metrics_update`)과 DB 복원(`GET /runs/:id`)이 같은 run 블록을 쓰도록 한 곳에서 만든다. */
+function scenarioRun(sc: ResolvedScenario) {
+  return {
+    ttft_ms: sc.ttftMs,
+    total_ms: sc.totalMs,
+    output_text: sc.text,
+    stream_completed: true,
+    usage_output_tokens: sc.outputTokens,
+    reasoning_hidden: sc.reasoningHidden,
+    channel_tag_leak_detected: sc.channelTagLeak,
+    tool_call_args_corrupted: sc.toolCallArgsCorrupted,
+    quality: { pass: true, score: 1 },
   };
 }
 
@@ -162,16 +193,7 @@ export function modelQueueEvents(options: {
       aggregate: {
         scenario_id: sc.id,
         api_route: sc.api,
-        runs: [
-          {
-            ttft_ms: sc.ttftMs,
-            total_ms: sc.totalMs,
-            output_text: sc.text,
-            stream_completed: true,
-            usage_output_tokens: sc.outputTokens,
-            quality: { pass: true, score: 1 },
-          },
-        ],
+        runs: [scenarioRun(sc)],
       },
     });
   }
@@ -351,16 +373,7 @@ export function makeRunDetail(options: {
       api_route: sc.api,
       prompt_system_preview: null,
       prompt_preview: `e2e prompt ${sc.id}`,
-      runs: [
-        {
-          ttft_ms: sc.ttftMs,
-          total_ms: sc.totalMs,
-          output_text: sc.text,
-          stream_completed: true,
-          usage_output_tokens: sc.outputTokens,
-          quality: { pass: true, score: 1 },
-        },
-      ],
+      runs: [scenarioRun(sc)],
     })),
   };
 }

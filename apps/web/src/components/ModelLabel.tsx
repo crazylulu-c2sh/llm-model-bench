@@ -57,7 +57,14 @@ export function ModelLabel({
         </span>
       ) : null}
       {showBackend && provider ? (
-        <span className="shrink-0 text-[var(--muted)]" title={backendLabel(provider, m)} aria-label={backendLabel(provider, m)}>
+        // role 없는 span에서는 aria-label이 무시된다(axe aria-prohibited-attr / WCAG 4.1.2).
+        // 자식 아이콘이 aria-hidden이라 role을 빼면 백엔드 배지가 이름 없이 사라진다 — role="img" 유지.
+        <span
+          role="img"
+          className="shrink-0 text-[var(--muted)]"
+          title={backendLabel(provider, m)}
+          aria-label={backendLabel(provider, m)}
+        >
           <BackendIcon provider={provider} size={12} />
         </span>
       ) : null}

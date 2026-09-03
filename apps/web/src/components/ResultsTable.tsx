@@ -225,7 +225,11 @@ export function ResultsTable({
             <span className="inline-flex items-center gap-1 font-mono text-xs">
               {info.getValue()}
               {contaminated ? (
+                // role 없는 span에서는 aria-label이 무시된다(axe aria-prohibited-attr / WCAG 4.1.2).
+                // 유일한 자식인 아이콘은 aria-hidden이라 role을 빼면 접근 가능한 이름이 0 —
+                // "이 수치를 믿지 말라"는 오염 경고가 스크린리더에서 통째로 사라진다. role="img"로 이름을 준다.
                 <span
+                  role="img"
                   className="inline-flex items-center text-amber-500"
                   title={m.results.table.contaminatedTitle(detail)}
                   aria-label={m.results.table.contaminatedAria(detail)}
@@ -289,7 +293,9 @@ export function ResultsTable({
               {win ? <span aria-hidden>▾</span> : null}
               {formatTtftMs(v)}
               {row.original.reasoning_hidden ? (
+                // 위 오염 배지와 같은 이유 — role 없이는 aria-label이 무시돼 경고가 이름 없이 사라진다.
                 <span
+                  role="img"
                   className="inline-flex items-center text-amber-500"
                   title={m.results.table.reasoningHiddenTitle}
                   aria-label={m.results.table.reasoningHiddenAria}
@@ -403,7 +409,10 @@ export function ResultsTable({
             const rubricLabel = rubric ?? "?";
             const passLabel = pass ? m.results.pass : m.results.notPass;
             return (
+              // 같은 결함: role 없는 span의 aria-label은 무시된다. 여기선 이름이 "2/3 · 0.85"처럼
+              // 기호만 읽히던 자리라, role="img" + aria-label로 "루브릭 …점수 …통과"를 이름으로 세운다.
               <span
+                role="img"
                 className={`inline-flex items-center gap-1.5 rounded border bg-[var(--surface)] px-1.5 py-0.5 ${colorClass}`}
                 aria-label={m.results.table.qualityVisionAria(rubricLabel, score.toFixed(2), passLabel)}
                 title={m.results.table.qualityVisionTitle(rubricLabel, score.toFixed(2), passLabel)}

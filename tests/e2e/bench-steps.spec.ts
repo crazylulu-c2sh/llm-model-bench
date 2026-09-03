@@ -34,8 +34,24 @@ const QUEUE_ID = "e2e-queue-1";
 const MODEL_IDS = ["bench-model-a", "bench-model-b"];
 const DETECT = makeDetect({ baseUrl: BASE_URL, modelIds: MODEL_IDS });
 
-/** 시나리오 1건이 통과로 끝나는 최소 런. 모델마다 rows가 1개 생기므로 종료 후 결과 단계가 열린다. */
-const SCENARIOS = [{ id: "chat_hello", api: "chat_completions" as const }];
+/**
+ * 시나리오 2건이 통과로 끝나는 최소 런. 모델마다 rows가 2개 생기므로 종료 후 결과 단계가 열린다.
+ *
+ * 두 번째는 **일부러 오염된 행**이다(#169). 깨끗한 런만 목업하던 시절의 axe 스캔은 결과 표의
+ * 경고 배지를 한 번도 훑지 못했고, 그래서 "role 없는 span의 aria-label은 무시된다"는 위반이
+ * 실서버 데이터에서야 드러났다. 여기서 두 배지를 항상 렌더해 그 경로를 스캔 안으로 끌어들인다.
+ */
+const SCENARIOS = [
+  { id: "chat_hello", api: "chat_completions" as const },
+  {
+    id: "code_sort_js",
+    api: "chat_completions" as const,
+    channelTagLeak: true,
+    reasoningHidden: true,
+  },
+];
+/** 오염 배지가 붙는 행의 시나리오 id — 배지 단언이 깨끗한 행을 잡지 않도록 이름으로 좁힌다. */
+const CONTAMINATED_SCENARIO = SCENARIOS[1].id;
 const PLAN: QueuePlan = {
   scenario_ids: SCENARIOS.map((s) => s.id),
   api_routes: ["chat_completions"],
@@ -59,6 +75,21 @@ async function detectAndSelectFirstModel(page: Page) {
 
 function queueChips(page: Page) {
   return page.getByRole("list", { name: /Run queue status|실행 큐 상태/ });
+}
+
+const CONTAMINATION_NAME = /엔진 프로토콜 회귀 의심|engine protocol regression/;
+const REASONING_HIDDEN_NAME = /추론 숨김|Reasoning hidden/;
+
+/**
+ * 결과 표의 경고 배지 — 이름(aria-label)으로 찾는다.
+ *
+ * 배지는 aria-hidden 아이콘 하나뿐이라 `role="img"`가 없으면 aria-label이 무시되고
+ * 접근 가능한 이름이 0이 된다(#169). 그러면 이 로케이터가 먼저 비어서 실패한다 —
+ * 배지가 스크린리더에서 사라지는 회귀를 axe보다 먼저 잡는 가드다.
+ * (모델 셀의 벤더 아이콘도 role="img"라, 이름 없이 role만으로 세면 안 된다.)
+ */
+function warnBadge(page: Page, scenarioId: string, name: RegExp) {
+  return resultsTable(page).locator("tbody tr").filter({ hasText: scenarioId }).getByRole("img", { name });
 }
 
 /**
@@ -119,7 +150,7 @@ test.describe("모델 벤치 6단계 아코디언", () => {
 
     // 큐 스트림의 metrics_update가 실제 결과 행이 되었는지 — 목업이 계약에서 어긋나면 여기서 걸린다.
     const rows = resultsTable(page).locator("tbody tr");
-    await expect(rows).toHaveCount(1);
+    await expect(rows).toHaveCount(SCENARIOS.length);
     await expect(rows.first()).toContainText(SCENARIOS[0].id);
     await expect(rows.first()).toContainText(MODEL_IDS[0]);
 
@@ -128,10 +159,26 @@ test.describe("모델 벤치 6단계 아코디언", () => {
     await expect(queueChips(page).getByRole("listitem")).toHaveCount(1);
   });
 
+  test("오염·추론 숨김 경고 배지에 접근 가능한 이름이 있다", async ({ page }) => {
+    await detectAndSelectFirstModel(page);
+    await runSelectedModelsAndWait(page);
+
+    // 깨끗한 행에는 배지가 없어야 한다 — 플래그와 무관하게 늘 그린다면 경고가 의미를 잃는다.
+    await expect(warnBadge(page, SCENARIOS[0].id, CONTAMINATION_NAME)).toHaveCount(0);
+    await expect(warnBadge(page, SCENARIOS[0].id, REASONING_HIDDEN_NAME)).toHaveCount(0);
+    await expect(warnBadge(page, CONTAMINATED_SCENARIO, CONTAMINATION_NAME)).toHaveCount(1);
+    await expect(warnBadge(page, CONTAMINATED_SCENARIO, REASONING_HIDDEN_NAME)).toHaveCount(1);
+  });
+
   test("axe: 실행 완료 상태 WCAG 2.1 AA 위반 없음", async ({ page }) => {
     await detectAndSelectFirstModel(page);
     await runSelectedModelsAndWait(page);
     await expect(stepButton(page, 6)).toHaveAttribute("aria-expanded", "true");
+
+    // 픽스처만 오염시켜 놓고 배지가 안 그려지면 이 스캔은 아무것도 못 본다(#169가 그래서 새어나갔다).
+    // 배지가 실제로 화면에 있는지부터 못 박고 스캔한다.
+    await expect(warnBadge(page, CONTAMINATED_SCENARIO, CONTAMINATION_NAME)).toHaveCount(1);
+    await expect(warnBadge(page, CONTAMINATED_SCENARIO, REASONING_HIDDEN_NAME)).toHaveCount(1);
 
     await settleAnimations(page);
     const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
