@@ -100,6 +100,8 @@ export const bench = {
   loadTtlRejected: (modelId: string) =>
     `${modelId}: 로드 TTL 거부됨 — 서버가 ttl 필드를 거절해 TTL 없이 진행했습니다(유휴 자동 언로드 없음)`,
   /** ttl을 보냈고 2xx를 받았지만 적용을 확인할 수 없는 경우. */
+  /** `lms ps`로 실제 ttl을 읽어 확인한 경우 — 유일하게 "걸렸다"고 말할 수 있는 상태다. */
+  loadTtlApplied: (modelId: string) => `${modelId}: 로드 TTL 적용 확인 (lms ps)`,
   loadTtlUnknown: (modelId: string) =>
     `${modelId}: 로드 TTL 적용 여부 확인 불가 — 요청은 성공했지만 OpenAI 호환 서버는 모르는 필드를 조용히 무시할 수 있습니다`,
 

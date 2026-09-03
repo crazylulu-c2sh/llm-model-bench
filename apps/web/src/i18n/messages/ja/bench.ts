@@ -102,6 +102,7 @@ export const bench: Messages["bench"] = {
   loadTtlRejected: (modelId: string) =>
     `${modelId}: ロードTTL拒否 — サーバーが ttl フィールドを拒否したため TTL なしで続行しました(アイドル自動アンロードなし)`,
   /** ttl を送信して 2xx を受け取ったが、適用を確認できない場合。 */
+  loadTtlApplied: (modelId: string) => `${modelId}: ロードTTLの適用を確認 (lms ps)`,
   loadTtlUnknown: (modelId: string) =>
     `${modelId}: ロードTTLの適用可否を確認できません — リクエストは成功しましたが、OpenAI 互換サーバーは未知のフィールドを黙って無視することがあります`,
 
