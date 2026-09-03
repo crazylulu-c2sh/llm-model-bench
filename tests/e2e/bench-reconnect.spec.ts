@@ -101,6 +101,87 @@ async function arriveOnReconnectingTab(page: Page, holdMs?: number) {
 
 const queueChips = (page: Page) => page.getByRole("list", { name: /Run queue status|실행 큐 상태/ });
 
+/** 모든 모델이 끝난 큐. 서버는 TTL(30분) 동안 이 스냅샷을 계속 돌려준다. */
+const FINISHED_SNAPSHOT = {
+  ...SNAPSHOT,
+  status: "finished",
+  finished_at: 1_700_000_100_000,
+  index: MODEL_IDS.length,
+  current_run_id: null,
+  models: [
+    queueModel({ modelId: MODEL_IDS[0], status: "done", runId: DONE_RUN_ID }),
+    queueModel({ modelId: MODEL_IDS[1], status: "done", runId: "recon-run-b" }),
+    queueModel({ modelId: MODEL_IDS[2], status: "done", runId: "recon-run-c" }),
+  ],
+};
+
+/**
+ * 완료된 큐만 남은 서버에 접속한다. `watched`가 있으면 "이 탭이 보던 큐"로 기억된 상태를 흉내 낸다.
+ *
+ * 복원 여부는 **`GET /runs/:runId` 호출 유무**로 판정한다. 표의 행 수로 보면 복원이 비동기라
+ * "아직 안 왔을 뿐"인 상태와 "아예 안 한다"가 구분되지 않아 단언이 빈 가드가 된다.
+ */
+async function arriveAfterEverythingFinished(page: Page, opts: { watched?: string } = {}) {
+  const detailRequests: string[] = [];
+  page.on("request", (r) => {
+    if (/\/api\/runs\/[^/?]+$/.test(new URL(r.url()).pathname)) detailRequests.push(r.url());
+  });
+  let runningQueried = false;
+  page.on("request", (r) => {
+    if (r.url().includes("/api/bench/running")) runningQueried = true;
+  });
+  await mockDetect(page, makeDetect({ baseUrl: BASE_URL, modelIds: MODEL_IDS }));
+  await mockBenchRunning(page, { queues: [FINISHED_SNAPSHOT] });
+  await mockRunsApi(page, {
+    baseUrl: BASE_URL,
+    detailByRunId: {
+      [DONE_RUN_ID]: makeRunDetail({
+        runId: DONE_RUN_ID,
+        baseUrl: BASE_URL,
+        modelId: MODEL_IDS[0],
+        scenarios: SCENARIOS,
+      }),
+    },
+  });
+  await page.goto("/");
+  if (opts.watched) {
+    await page.evaluate(
+      (id) => window.sessionStorage.setItem("llm-bench:watched-queue-id", id),
+      opts.watched,
+    );
+  }
+  await page.getByRole("button", { name: /Connect and detect provider|연결 및 프로바이더 감지/ }).first().click();
+  return {
+    detailRequests,
+    /** 복원 판단이 끝났을 시점까지 기다린다 — 트리거(/bench/running) 응답 뒤 짧은 유예. */
+    async settle() {
+      await expect.poll(() => runningQueried, { timeout: 15_000 }).toBe(true);
+      await page.waitForTimeout(1_200);
+    },
+  };
+}
+
+test.describe("끝난 큐 자동 복원 범위", () => {
+  test("처음 접속한 탭에는 남의 큐 결과가 밀려들지 않는다", async ({ page }) => {
+    // 실서버 회귀: 모든 런이 끝난 뒤 접속하면 관계없는 이전 런의 결과가 화면을 채웠다.
+    // 서버는 완료 큐를 TTL 동안 계속 알려주므로, 복원 여부는 "이 탭이 그 큐를 보고 있었는가"로 갈린다.
+    const { detailRequests, settle } = await arriveAfterEverythingFinished(page);
+    await settle();
+    expect(detailRequests, "끝난 남의 큐 결과를 DB에서 끌어왔다").toEqual([]);
+    await expect(resultsTable(page).locator('tbody tr:not([aria-hidden="true"])')).toHaveCount(0);
+    await expect(page.getByRole("progressbar")).toHaveCount(0);
+  });
+
+  test("직전까지 보던 큐라면 새로고침 후에도 결과가 남는다", async ({ page }) => {
+    const { detailRequests } = await arriveAfterEverythingFinished(page, { watched: QUEUE_ID });
+    await expect(resultsTable(page).locator('tbody tr:not([aria-hidden="true"])')).toHaveCount(
+      SCENARIOS.length,
+    );
+    expect(detailRequests.length, "완료 모델의 결과를 DB에서 가져왔어야 한다").toBeGreaterThan(0);
+  });
+});
+
+
 test.describe("서버 큐 재연결", () => {
   test("예약된 모델까지 큐 칩이 복원된다", async ({ page }) => {
     await arriveOnReconnectingTab(page);

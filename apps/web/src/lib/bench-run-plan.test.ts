@@ -11,6 +11,7 @@ import {
   planTotals,
   resolveBenchOutcomeToast,
   resolvePlanView,
+  shouldRestoreFinishedQueue,
   type BenchPlanView,
   type BenchRunPlan,
 } from "./bench-run-plan";
@@ -471,6 +472,32 @@ describe("mergeByRowKey — DB 복원 병합", () => {
     mergeByRowKey(live, restored);
     expect(live).toHaveLength(1);
     expect(restored).toHaveLength(1);
+  });
+});
+
+describe("shouldRestoreFinishedQueue — 끝난 큐 자동 복원", () => {
+  test("처음 접속한 탭은 복원하지 않는다 — 남이 돌린 런의 결과가 화면을 채우면 안 된다", () => {
+    expect(
+      shouldRestoreFinishedQueue({ queueId: "q_01", watchedQueueId: null, hasRows: false }),
+    ).toBe(false);
+  });
+
+  test("이 탭이 보던 큐면 복원한다 — 마지막 모델까지 끝난 직후 새로고침한 경우", () => {
+    expect(
+      shouldRestoreFinishedQueue({ queueId: "q_01", watchedQueueId: "q_01", hasRows: false }),
+    ).toBe(true);
+  });
+
+  test("다른 큐면 복원하지 않는다", () => {
+    expect(
+      shouldRestoreFinishedQueue({ queueId: "q_02", watchedQueueId: "q_01", hasRows: false }),
+    ).toBe(false);
+  });
+
+  test("화면에 이미 결과가 있으면 덮지 않는다 — 감지를 다시 눌렀을 뿐인데 데이터가 사라져 보인다", () => {
+    expect(
+      shouldRestoreFinishedQueue({ queueId: "q_01", watchedQueueId: "q_01", hasRows: true }),
+    ).toBe(false);
   });
 });
 

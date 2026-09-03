@@ -108,6 +108,7 @@ import {
   planTotals,
   resolveBenchOutcomeToast,
   resolvePlanView,
+  shouldRestoreFinishedQueue,
   type BenchRunPlan,
 } from "./lib/bench-run-plan";
 import { mergeBenchDetailsToState } from "./stats/hydrateBenchUi";
@@ -190,6 +191,31 @@ type MetricsAgg = {
     quality?: { pass: boolean; score?: number; reason?: string };
   }>;
 };
+
+/**
+ * 이 탭이 붙어 있던 큐 id. 완료된 큐를 자동 복원할지 판정하는 유일한 근거다.
+ *
+ * localStorage가 아니라 sessionStorage인 이유: 새로고침은 살아남고 탭을 새로 열면 사라진다 —
+ * "마지막 모델까지 끝난 직후 새로고침하면 결과가 남아 있어야 한다"는 경계와 정확히 같다.
+ */
+const WATCHED_QUEUE_ID_KEY = "llm-bench:watched-queue-id";
+
+/** 시크릿 모드·저장소 차단에서는 접근 자체가 throw한다 — 못 읽으면 "복원하지 않음"으로 떨어진다. */
+function readWatchedQueueId(): string | null {
+  try {
+    return sessionStorage.getItem(WATCHED_QUEUE_ID_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberWatchedQueueId(queueId: string): void {
+  try {
+    sessionStorage.setItem(WATCHED_QUEUE_ID_KEY, queueId);
+  } catch {
+    /* 저장 못 해도 실행 자체는 계속된다 — 새로고침 후 복원만 포기한다. */
+  }
+}
 
 function benchErrorHint(code: string): string | null {
   // 스트림 error 코드 → 힌트. ko가 shape 정의(Record<string,string>), 알 수 없는 코드는 null.
@@ -1623,6 +1649,8 @@ export function App() {
   const handleQueueStreamEvent = useCallback(
     (ev: BenchQueueStreamEvent, onError: () => void) => {
       if (ev.type === "queue_started") {
+        // 이 탭이 이 큐를 보고 있다고 기록해 둔다 — 끝난 뒤 새로고침하면 이 id로만 복원한다.
+        rememberWatchedQueueId(ev.queue_id);
         setBenchRunPlan((prev) => ({
           queueId: ev.queue_id,
           modelIds: [...ev.model_ids],
@@ -1892,6 +1920,8 @@ export function App() {
     async (snapshot: BenchQueueSnapshot) => {
       const plan = planFromQueueSnapshot(snapshot);
       if (!plan) return;
+      // 실행 중 큐에 붙는 것도 "이 탭이 보는 큐"다 — 끝난 뒤 새로고침해도 이 큐만 되살아난다.
+      rememberWatchedQueueId(snapshot.queue_id);
       appendLog(`bench reconnect queue_id=${snapshot.queue_id} status=${snapshot.status}`);
       setRunning(true);
       setRows([]);
@@ -2016,9 +2046,6 @@ export function App() {
     [appendLog, handleQueueStreamEvent],
   );
 
-  /** 방금 끝난 큐까지만 자동 복원한다 — 30분 전에 끝난 큐를 감지할 때마다 되살리면 화면이 제멋대로 채워진다. */
-  const RECENTLY_FINISHED_MS = 5 * 60 * 1000;
-
   /** 연결/감지 성공 직후 호출 — 이 baseUrl에 서버가 들고 있는 큐/런이 있으면 자동으로 복원한다.
    *  best-effort — 실패해도 조용히 무시. */
   const checkForLiveBenchRun = useCallback(
@@ -2034,13 +2061,19 @@ export function App() {
         };
         const queues = j.queues ?? [];
         // 서버가 실행 중 큐를 앞에 정렬해 주지만, 방어적으로 한 번 더 고른다.
+        // 실행 중 큐는 무조건 붙는다(다른 기기에서 보는 것도 의도). 끝난 큐는 이 탭이 보던 것만.
+        const watchedQueueId = readWatchedQueueId();
         const queue =
           queues.find((q) => q.status === "running") ??
-          // 방금 끝난 큐만, 그것도 화면이 비어 있을 때만 되살린다. 같은 baseUrl로 감지를 다시 누른
-          // 것뿐인데 방금 보고 있던 결과가 옛 큐로 덮이면 사용자에겐 데이터가 사라진 것으로 보인다.
-          (rowCountRef.current === 0
-            ? queues.find((q) => q.finished_at != null && Date.now() - q.finished_at < RECENTLY_FINISHED_MS)
-            : undefined);
+          queues.find(
+            (q) =>
+              q.finished_at != null &&
+              shouldRestoreFinishedQueue({
+                queueId: q.queue_id,
+                watchedQueueId,
+                hasRows: rowCountRef.current > 0,
+              }),
+          );
         if (queue) {
           if (reconnectInFlightRef.current) return;
           reconnectInFlightRef.current = queue.queue_id;

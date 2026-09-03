@@ -206,6 +206,30 @@ export function mergeByRowKey<T extends { rowKey: string }>(
 }
 
 /**
+ * 이미 끝난 큐를 자동으로 되살릴지. App.tsx는 단위 테스트가 불가하므로 판정만 떼어 고정한다.
+ *
+ * 예전 기준은 "최근 5분 안에 끝난 큐"였는데, 처음 접속한 탭은 화면이 언제나 비어 있으므로
+ * "결과가 없을 때만" 가드가 무력했다 — 남이 돌린 무관한 런의 결과가 새 탭을 채웠다.
+ * 되살릴 이유가 있는 건 **이 탭이 실제로 붙어 있던 큐**뿐이다(마지막 모델까지 끝난 직후 새로고침).
+ * 그래서 시간 창 대신 탭이 기억하는 큐 id로 판정한다. 시간 상한은 서버가 이미 건다(완료 큐 30분 보관).
+ *
+ * 실행 **중**인 큐는 이 판정을 거치지 않는다 — 다른 기기·다른 브라우저에서도 붙는 것이 의도다.
+ */
+export function shouldRestoreFinishedQueue(input: {
+  queueId: string;
+  /** 이 탭이 붙었던 큐 id(sessionStorage). 읽지 못했거나 붙은 적이 없으면 null. */
+  watchedQueueId: string | null;
+  /** 화면에 이미 결과 행이 있는가 */
+  hasRows: boolean;
+}): boolean {
+  if (!input.watchedQueueId) return false;
+  if (input.watchedQueueId !== input.queueId) return false;
+  // 같은 baseUrl로 감지를 다시 눌렀을 뿐인데 보고 있던 결과가 덮이면 데이터가 사라진 것으로 보인다.
+  if (input.hasRows) return false;
+  return true;
+}
+
+/**
  * 큐 실행이 끝난 뒤 어떤 안내를 낼지. App.tsx는 단위 테스트가 불가하므로 판정만 떼어 고정한다.
  *
  * 정지는 보통 `error` 이벤트를 내지 않고 `queue_finished.status === "cancelled"`로만 드러난다 —
