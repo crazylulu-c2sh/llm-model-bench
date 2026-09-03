@@ -1,4 +1,5 @@
-import { test, expect, type Page, type Route } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
+import { expect, test } from "./helpers/fixtures";
 
 /**
  * Publisher 열(#151) 회귀 게이트.

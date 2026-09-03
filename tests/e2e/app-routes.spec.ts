@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./helpers/fixtures";
 
 test.describe("LLM Model Bench UI", () => {
   const navLink = (page: Page, name: string) =>
@@ -108,7 +109,7 @@ test.describe("LLM Model Bench UI", () => {
     await expect(heading).toHaveCSS("white-space", "nowrap");
     const subtitle = page.getByText("로컬 프로바이더 감지 · 단일 모델 시나리오 벤치");
     await expect(subtitle).toBeVisible();
-    const subtitleLines = await subtitle.evaluate((el) => {
+    const subtitleLines = await subtitle.evaluate((el: HTMLElement) => {
       const lineHeight = parseFloat(getComputedStyle(el).lineHeight);
       return el.offsetHeight / (lineHeight || 20);
     });
@@ -161,7 +162,7 @@ for (const locale of ["en", "ja"] as const) {
       const heading = page.getByRole("heading", { name: "LLM Model Bench" });
       await expect(heading).toBeVisible();
       const subtitle = page.locator("header p").first();
-      const lines = await subtitle.evaluate((el) => {
+      const lines = await subtitle.evaluate((el: HTMLElement) => {
         const lh = parseFloat(getComputedStyle(el).lineHeight);
         return el.offsetHeight / (lh || 20);
       });

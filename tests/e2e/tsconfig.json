@@ -1,0 +1,16 @@
+{
+  "//": "tests/e2e 전용. 루트에 tsconfig가 없어 CI의 pnpm -r typecheck가 여기를 훑지 않는다 — 그래서 e2e 헬퍼의 타입 오류가 조용히 살아남았다.",
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true
+  },
+  "include": ["**/*.ts", "../../playwright.config.ts"]
+}

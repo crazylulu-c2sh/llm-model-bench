@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { test, expect, type Page, type Route } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
+import { expect, test } from "./helpers/fixtures";
 
 /**
  * KWCAG 2.2 / WCAG 2.1 AA 자동 점검: 각 라우트를 axe-core로 스캔한다.

@@ -8,10 +8,11 @@
     "dev": "node scripts/dev.mjs",
     "dev:kill": "node scripts/dev-kill.mjs",
     "build": "pnpm -r run build",
-    "typecheck": "pnpm -r run typecheck",
+    "typecheck": "pnpm -r run typecheck && pnpm run typecheck:e2e",
     "test": "pnpm -r run test",
     "test:e2e": "playwright test",
-    "prepare:vision": "node scripts/prepare-vision-assets.mjs"
+    "prepare:vision": "node scripts/prepare-vision-assets.mjs",
+    "typecheck:e2e": "pnpm --filter @llm-bench/web exec tsc -p ../../tests/e2e/tsconfig.json"
   },
   "keywords": [],
   "author": "",

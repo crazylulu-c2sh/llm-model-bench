@@ -1,4 +1,5 @@
-import { test, expect, type Route } from "@playwright/test";
+import type { Route } from "@playwright/test";
+import { expect, test } from "./helpers/fixtures";
 
 /**
  * 회귀: 모델 통계(/stats)에서 모델을 선택하면 무거운 차트/스코어보드/결과표 서브트리가 마운트된다.

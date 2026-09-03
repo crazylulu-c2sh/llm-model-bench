@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { test, expect, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./helpers/fixtures";
 import {
   AXE_TAGS,
   makeDetect,
