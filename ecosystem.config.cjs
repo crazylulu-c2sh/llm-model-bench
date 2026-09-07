@@ -80,12 +80,22 @@ function probeProxy(port) {
   }
 }
 
-/** 존재가 아니라 **능력**으로 고른다 — 살아있음(/healthz)만으로는 부족하다. */
+/**
+ * 존재가 아니라 **능력**으로 고른다 — 살아있음(/healthz)만으로는 부족하다.
+ *
+ * 우회가 필요한 것은 macOS 뿐이다. 로컬 네트워크 프라이버시는 macOS 기능이라
+ * Linux/Windows 배포에는 게이트 자체가 없다. 그런 호스트에서는 프로브도 돌리지 않고
+ * 경고도 내지 않는다 — 해당 없는 조언은 소음이고, 진짜 경고를 묻히게 만든다.
+ */
 function selectLanProxy() {
-  if (process.env.BENCH_LAN_PROXY) {
-    console.log(`[lan-proxy] BENCH_LAN_PROXY 사용: ${process.env.BENCH_LAN_PROXY}`);
-    return process.env.BENCH_LAN_PROXY;
+  const explicit = process.env.BENCH_LAN_PROXY;
+  if (explicit) {
+    // 명시적 비활성화 — 루프백 프로바이더만 쓰는 macOS 호스트의 탈출구.
+    if (["off", "none", "0", "false"].includes(explicit.toLowerCase())) return null;
+    console.log(`[lan-proxy] BENCH_LAN_PROXY 사용: ${explicit}`);
+    return explicit;
   }
+  if (process.platform !== "darwin") return null; // 게이트가 없는 플랫폼 — 조용히 통과
   const need = requiredIdleMs();
   const seen = [];
   for (const [port, label] of [[SHARED_PROXY_PORT, "공유"], [FALLBACK_PROXY_PORT, "폴백"]]) {
