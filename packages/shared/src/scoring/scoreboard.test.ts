@@ -7,6 +7,7 @@ import {
   type ScoringAggregate,
   type ScoringBenchDetailInput,
   type ScoringResultRow,
+  type ScoringRow,
   type ScoringRunInput,
 } from "./scoreboard";
 
@@ -163,5 +164,64 @@ describe("judge_capped — 실제 reason 포맷(vision 접두사)", () => {
       },
     ];
     expect(averageRunsToScoringRow("A", "agent_loop_docs_v1", "chat_completions", det).judgeCapped).toBe(false);
+  });
+});
+
+describe("#173: 정본 라우트 선택 (경로 풀링 제거)", () => {
+  function row(p: Partial<ScoringRow> & { model_id: string; api: string }): ScoringRow {
+    return {
+      scenario: "chat_hello",
+      ttft_ms: 100,
+      tps: 30,
+      score: 1,
+      judgeCapped: false,
+      ...p,
+    } as ScoringRow;
+  }
+
+  it("두 라우트를 다 측정했으면 chat_completions 만 랭킹에 쓴다", () => {
+    // messages 쪽을 극단적으로 나쁘게 둬서, 풀링되면 반드시 값이 달라지게 한다.
+    const board = computeScoreboard([
+      row({ model_id: "A", api: "chat_completions", tps: 30, ttft_ms: 300, score: 1 }),
+      row({ model_id: "A", api: "messages", tps: 5, ttft_ms: 19_000, score: 0 }),
+    ]);
+    expect(board).toHaveLength(1);
+    expect(board[0]!.api_route).toBe("chat_completions");
+    expect(board[0]!.routes_measured).toEqual(["chat_completions", "messages"]);
+    // chat 단독 값 — 풀링(평균)이었다면 각각 583·9650·50이 나온다.
+    expect(board[0]!.speed.total.score).toBe(1000);
+    expect(board[0]!.speed.total.ttftMs).toBe(300);
+    expect(board[0]!.quality.total.value).toBe(100);
+  });
+
+  it("messages 만 측정한 모델은 그 라우트가 정본 — 랭킹에서 사라지지 않는다", () => {
+    const board = computeScoreboard([
+      row({ model_id: "B", api: "messages", tps: 15, ttft_ms: 2000, score: 0.5 }),
+    ]);
+    expect(board).toHaveLength(1);
+    expect(board[0]!.api_route).toBe("messages");
+    expect(board[0]!.routes_measured).toEqual(["messages"]);
+    expect(board[0]!.speed.total.score).toBe(500);
+  });
+
+  it("모델마다 독립적으로 정본을 고른다", () => {
+    const board = computeScoreboard([
+      row({ model_id: "A", api: "chat_completions", tps: 30 }),
+      row({ model_id: "A", api: "messages", tps: 5 }),
+      row({ model_id: "B", api: "messages", tps: 15 }),
+    ]);
+    const byId = new Map(board.map((b) => [b.model_id, b]));
+    expect(byId.get("A")!.api_route).toBe("chat_completions");
+    expect(byId.get("B")!.api_route).toBe("messages");
+  });
+
+  it("시나리오가 라우트 수만큼 이중 계상되지 않는다", () => {
+    const board = computeScoreboard([
+      row({ model_id: "A", scenario: "chat_hello", api: "chat_completions" }),
+      row({ model_id: "A", scenario: "chat_hello", api: "messages" }),
+      row({ model_id: "A", scenario: "chat_ping", api: "chat_completions" }),
+      row({ model_id: "A", scenario: "chat_ping", api: "messages" }),
+    ]);
+    expect(board[0]!.speed.total.scoredRows).toBe(2);
   });
 });

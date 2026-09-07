@@ -221,6 +221,11 @@ function buildOpenAiBody(meta: StressRunMeta, messages: { role: string; content:
   return body;
 }
 
+/**
+ * #173: 벤치와 달리 스트레스는 `thinking`을 **의도적으로 요청하지 않는다.**
+ * 스트레스는 부하 하 처리량을 재는 것이라 사고를 켜면 워크로드 형태 자체가 바뀐다
+ * (실측: 같은 프롬프트가 47토큰 → 456토큰). 이 제외는 `stress-runner.test.ts`가 고정한다.
+ */
 function buildAnthropicBody(
   meta: StressRunMeta,
   system: string,

@@ -312,6 +312,18 @@ function ScoreboardDataRow({
               text-only
             </span>
           ) : null}
+          {/* #173: 두 라우트를 측정했어도 랭킹엔 정본 하나만 쓴다 — 어느 쪽인지 밝힌다. */}
+          {b.api_route && (b.routes_measured?.length ?? 0) > 1 ? (
+            <span
+              className="rounded border border-[var(--border)] px-1 py-px text-[10px] text-[var(--muted)]"
+              title={m.scoreboard.routeBadgeTitle(
+                b.api_route,
+                (b.routes_measured ?? []).join(", "),
+              )}
+            >
+              {b.api_route}
+            </span>
+          ) : null}
         </span>
       </td>
       <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.text, m.scoreboard.bandLabel)}>

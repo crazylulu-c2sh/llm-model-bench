@@ -220,3 +220,114 @@ describe("consumeAnthropicMessagesStream", () => {
     expect(deltas).toEqual(["Hi", " there"]);
   });
 });
+
+describe("consumeAnthropicMessagesStream: 프레임 파싱 견고성 (#173)", () => {
+  /** CRLF로 프레임을 구분하는 shim — SSE 규약상 적법하다. */
+  function blockCrlf(event: string, data: unknown) {
+    return `event: ${event}\r\ndata: ${JSON.stringify(data)}\r\n\r\n`;
+  }
+  const textDelta = (t: string) => ({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "text_delta", text: t },
+  });
+
+  it("CRLF 프레임을 LF와 동일하게 파싱한다", async () => {
+    const m = await consumeAnthropicMessagesStream(
+      streamFrom([blockCrlf("content_block_delta", textDelta("Hi")), blockCrlf("message_stop", { type: "message_stop" })]),
+    );
+    expect(m.text).toBe("Hi");
+    expect(m.ttftMs).not.toBeNull();
+    expect(m.streamCompleted).toBe(true);
+  });
+
+  it("CRLF 쌍이 청크 경계에 걸쳐도 프레임이 쪼개진다", async () => {
+    // "…\r\n" 까지만 온 뒤 다음 청크가 "\r\ndata: …" 로 시작 — carry 이어붙이기가 깨지면 여기서 잡힌다.
+    const first = `event: content_block_delta\r\ndata: ${JSON.stringify(textDelta("A"))}\r\n`;
+    const second = `\r\nevent: content_block_delta\r\ndata: ${JSON.stringify(textDelta("B"))}\r\n\r\n`;
+    const m = await consumeAnthropicMessagesStream(streamFrom([first, second]));
+    expect(m.text).toBe("AB");
+  });
+
+  it("여러 data: 줄은 LF로 이어 붙인다 (멀티라인 JSON 페이로드)", async () => {
+    const json = JSON.stringify(textDelta("multi"), null, 1); // 줄바꿈 포함
+    const frame = "event: content_block_delta\n" + json.split("\n").map((l) => `data: ${l}`).join("\n") + "\n\n";
+    const m = await consumeAnthropicMessagesStream(streamFrom([frame]));
+    expect(m.text).toBe("multi");
+  });
+
+  it("data: [DONE] 을 스트림 완료로 인정한다", async () => {
+    const m = await consumeAnthropicMessagesStream(
+      streamFrom([block("content_block_delta", textDelta("x")), "data: [DONE]\n\n"]),
+    );
+    expect(m.streamCompleted).toBe(true);
+  });
+
+  it("content_block_start 없는 input_json_delta 도 TTFT를 찍고 도구 인자를 조립한다", async () => {
+    const m = await consumeAnthropicMessagesStream(
+      streamFrom([
+        block("content_block_delta", {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: '{"city":"Seoul"}' },
+        }),
+        block("message_stop", { type: "message_stop" }),
+      ]),
+    );
+    expect(m.ttftMs).not.toBeNull();
+    expect(m.toolUses?.[0]?.input).toEqual({ city: "Seoul" });
+  });
+
+  it("thinking_delta 가 text 에 추론을 담아도 잃지 않는다", async () => {
+    const m = await consumeAnthropicMessagesStream(
+      streamFrom([
+        block("content_block_delta", {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "thinking_delta", text: "reasoning here" },
+        }),
+        block("content_block_delta", textDelta("answer")),
+        block("message_stop", { type: "message_stop" }),
+      ]),
+    );
+    expect(m.reasoningText).toBe("reasoning here");
+    expect(m.text).toBe("answer");
+    expect(m.ttftMs).not.toBeNull();
+    expect(m.sawThinkingBlock).toBe(true);
+  });
+
+  it("redacted_thinking 블록은 델타가 없어도 TTFT를 찍는다", async () => {
+    const m = await consumeAnthropicMessagesStream(
+      streamFrom([
+        block("content_block_start", {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "redacted_thinking" },
+        }),
+        block("content_block_delta", textDelta("ok")),
+        block("message_stop", { type: "message_stop" }),
+      ]),
+    );
+    expect(m.sawThinkingBlock).toBe(true);
+    expect(m.ttftMs).not.toBeNull();
+  });
+
+  it("sawThinkingBlock 은 thinking 블록이 없으면 false", async () => {
+    const m = await consumeAnthropicMessagesStream(
+      streamFrom([block("content_block_delta", textDelta("hi")), block("message_stop", { type: "message_stop" })]),
+    );
+    expect(m.sawThinkingBlock).toBe(false);
+  });
+
+  it("메타데이터 전용 이벤트는 TTFT를 찍지 않는다", async () => {
+    const m = await consumeAnthropicMessagesStream(
+      streamFrom([
+        block("message_start", { type: "message_start", message: { usage: { output_tokens: 0 } } }),
+        ": ping\n\n",
+        block("message_delta", { type: "message_delta", usage: { output_tokens: 7 } }),
+      ]),
+    );
+    expect(m.ttftMs).toBeNull();
+    expect(m.usageOutputTokens).toBe(7);
+  });
+});

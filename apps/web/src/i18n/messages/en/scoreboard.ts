@@ -69,4 +69,6 @@ export const scoreboard: Messages["scoreboard"] = {
   averageLabel: "avg",
   emptyValues: (group: string, metric: string) =>
     `No ${group} ${metric} values to show. Try another metric/group.`,
+  routeBadgeTitle: (route: string, all: string) =>
+    `This model was measured on ${all}, but per-route numbers are not comparable, so the ranking uses ${route} only.`,
 };

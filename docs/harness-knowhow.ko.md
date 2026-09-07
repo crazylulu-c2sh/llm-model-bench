@@ -141,13 +141,14 @@ export function resolveBenchApiRoutes(
 
 ## 3. 스트리밍 메트릭 추출
 
-두 프로바이더 어댑터는 SSE `ReadableStream`을 점진적으로 소비합니다 — `consumeOpenAiChatStream`은 버퍼를 `\n`(줄 단위)으로 나누고, `consumeAnthropicMessagesStream`은 `\n\n`(이벤트 블록 단위)으로 나눕니다 — 그리고 원시 텍스트 대신 하나의 평평한 메트릭 객체를 반환합니다. 소비자는 *첫* content/reasoning/tool 델타에서 `performance.now()`를 한 번만 샘플링하여, HTTP 요청 시작 시 캡처된 `origin` 기준으로 TTFT를 도출합니다. 그리고 모델 출력을 세 개의 병렬 채널(`text` / `assistantText` / `reasoningText`)로 분리하여, 추론 토큰이 채점 대상 답변을 오염시키지 않으면서 처리량에 반영되게 합니다. 재사용 아이디어는 다음과 같습니다: 모든 측정(TTFT, 토큰 추정, 잘림 플래그, 도구 호출 조립, 손상 가드)을 스트림 리더 안에서 수행하여, 어느 벤더의 SSE 방언이 만들어 냈든 호출자가 비교 가능하고 프로바이더 무관한 숫자를 얻게 하는 것입니다. 소스: `apps/server/src/openai-stream.ts`, `apps/server/src/anthropic-stream.ts`. 두 어댑터는 SSE 스트림을 직접 파싱하면서 지연·처리량·잘림·도구호출을 한 번에 측정합니다. 핵심은 (1) 첫 델타에서만 TTFT를 찍고, (2) `usageOutputTokens`(provider 보고)를 우선하되 없으면 `approxOutputTokens`(길이 기반 추정)로 폴백하며, (3) 추론(reasoning/thinking) 채널을 채점용 본문과 물리적으로 분리해 두는 것입니다. OpenAI 쪽은 여기에 반복-루프 조기 종료와 tool_call 인자 손상 감지까지 얹습니다.
+두 프로바이더 어댑터는 SSE `ReadableStream`을 점진적으로 소비합니다 — `consumeOpenAiChatStream`은 버퍼를 `\n`(줄 단위)으로 나누고, `consumeAnthropicMessagesStream`은 `\n\n`(이벤트 블록 단위, CRLF도 허용)으로 나눕니다 — 그리고 원시 텍스트 대신 하나의 평평한 메트릭 객체를 반환합니다. 소비자는 *첫* content/reasoning/tool 델타에서 `performance.now()`를 한 번만 샘플링하여, HTTP 요청 시작 시 캡처된 `origin` 기준으로 TTFT를 도출합니다. 그리고 모델 출력을 세 개의 병렬 채널(`text` / `assistantText` / `reasoningText`)로 분리하여, 추론 토큰이 채점 대상 답변을 오염시키지 않으면서 처리량에 반영되게 합니다. 재사용 아이디어는 다음과 같습니다: 모든 측정(TTFT, 토큰 추정, 잘림 플래그, 도구 호출 조립, 손상 가드)을 스트림 리더 안에서 수행하여, 어느 벤더의 SSE 방언이 만들어 냈든 호출자가 비교 가능하고 프로바이더 무관한 숫자를 얻게 하는 것입니다. 소스: `apps/server/src/openai-stream.ts`, `apps/server/src/anthropic-stream.ts`. 두 어댑터는 SSE 스트림을 직접 파싱하면서 지연·처리량·잘림·도구호출을 한 번에 측정합니다. 핵심은 (1) 첫 델타에서만 TTFT를 찍고, (2) `usageOutputTokens`(provider 보고)를 우선하되 없으면 `approxOutputTokens`(길이 기반 추정)로 폴백하며, (3) 추론(reasoning/thinking) 채널을 채점용 본문과 물리적으로 분리해 두는 것입니다. OpenAI 쪽은 여기에 반복-루프 조기 종료와 tool_call 인자 손상 감지까지 얹습니다.
 
 ### 첫 델타에서 `performance.now()`로 재는 TTFT
 
 - `origin = opts?.requestStartedAt ?? performance.now()` — HTTP 발신 지점에서 `requestStartedAt`를 넘겨 TTFT가 파싱 시간뿐 아니라 연결/큐 지연까지 포함하게 합니다.
 - 단일 `markTtft()` 클로저가 `ttft === null`일 때만 `ttft = performance.now() - origin`을 설정하므로, 첫 델타에서 래치되고 이후로는 멱등입니다.
 - "첫 토큰"의 정의는 의도적입니다: OpenAI는 `reasoning_content`, 문자열 `reasoning`, `content`, 또는 `tool_calls`에서 찍고, Anthropic은 `content_block_start`(tool_use), `input_json_delta`, `thinking_delta`, 또는 텍스트 델타에서 찍습니다. 순수 메타데이터 이벤트(usage-only 청크, `message_delta`)는 TTFT를 찍지 **않습니다**.
+- **서버가 추론 채널을 안 열면 이 정의가 조용히 무너집니다.** Anthropic 호환 shim 중에는 `thinking`을 명시 요청하지 않으면 추론을 `thinking_delta`로 내보내지 않는 것이 있습니다(LM Studio `/v1/messages` 실측). 그러면 TTFT가 "첫 토큰까지"가 아니라 "**첫 가시 토큰까지**" — 즉 prefill + 추론 구간 전체 — 가 되어, 같은 모델의 OpenAI 라우트(`reasoning_content`를 흘림) 대비 실측 60배까지 벌어집니다. 하네스는 (1) 사고 의도가 ON이면 `thinking: { type: "enabled", budget_tokens }`를 실어 채널을 열게 하고(거절하면 한 번 빼고 재시도 후 base URL별 캐시), (2) 그래도 추론이 안 오면 `reasoning_hidden`을 `scenario_end`에 실어 소비자가 TTFT의 의미를 알 수 있게 합니다. 소스: `apps/server/src/anthropic-fetch.ts`.
 - `totalMs = performance.now() - origin`은 read 루프가 끝난 뒤 캡처됩니다. 델타가 하나도 도착하지 않으면 `ttftMs`는 `null`로 남습니다.
 
 ### `usageOutputTokens ?? approxOutputTokens`로 재는 TPS
@@ -161,7 +162,7 @@ export function resolveBenchApiRoutes(
 | 필드 | OpenAI 출처 | Anthropic 출처 | 용도 |
 |---|---|---|---|
 | `assistantText` | `delta.content`만 | `content_block_delta` 텍스트만 | 채점되는 가시 답변; 도구 라운드 히스토리 |
-| `reasoningText` | `delta.reasoning_content` + 문자열 `delta.reasoning` | `thinking_delta` | 추론 히스토리로 재주입; 채점에서 제외 |
+| `reasoningText` | `delta.reasoning_content` + 문자열 `delta.reasoning` | `thinking_delta`(`thinking` 없으면 `text`로 폴백) | 추론 히스토리로 재주입; 채점에서 제외. 서버가 추론을 숨기면 비어 있고, 그 신호가 `reasoning_hidden`이다 |
 | `text` | `combined`(추론 + content, 도착 순) + `\n` + 직렬화된 `tool_calls` | content 텍스트 + `\n` + 직렬화된 `tool_calls`(추론은 **미포함**) | 처리량 분모 / `output_text` 베이스 |
 
 - 채점은 깨끗한 채널을 우선하는 헬퍼를 씁니다: `openAiBenchOutputText`는 `assistantText`가 비어 있지 않으면 그것을 반환하고 아니면 `text`로 폴백합니다(마지막 턴이 추론-only 델타만 방출하는 끼워진 `reasoning_split` 케이스를 가드).

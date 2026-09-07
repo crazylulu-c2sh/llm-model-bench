@@ -1758,3 +1758,98 @@ describe("#174: 비-agent 커스텀 시나리오의 sampling 이 반영된다", 
     }
   });
 });
+
+describe("#173: messages 라우트에 thinking 을 실어 TTFT 를 비교 가능하게 만든다", () => {
+  function messagesDetect(): DetectResult {
+    return {
+      provider: "lm_studio",
+      baseUrl: "http://127.0.0.1:1234/",
+      models: [{ id: MODEL_ID }],
+      steps: [],
+      capabilities: { openaiChat: false, anthropicMessages: true },
+    };
+  }
+  function sseMessages(frames: string[]): Response {
+    const enc = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const f of frames) controller.enqueue(enc.encode(f + "\n\n"));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
+  const TEXT = `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`;
+  const STOP = `event: message_stop\ndata: {"type":"message_stop"}`;
+
+  async function runMessages(req: Partial<BenchRequest> = {}, frames = [TEXT, STOP]) {
+    const bodies: Record<string, unknown>[] = [];
+    const ends: Extract<StreamEvent, { type: "scenario_end" }>[] = [];
+    let meta: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/messages")) {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return sseMessages(frames);
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    for await (const ev of runBench(
+      baseBenchRequest({ skipModelLoad: true, ...req }),
+      messagesDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_end") ends.push(ev);
+      if (ev.type === "run_started") meta = ev.meta as unknown as Record<string, unknown>;
+    }
+    return { bodies, ends, meta };
+  }
+
+  it("thinking 을 요청 바디에 싣고 budget_tokens < max_tokens 를 지킨다", async () => {
+    const { bodies } = await runMessages({ max_tokens: 4096 });
+    expect(bodies).not.toHaveLength(0);
+    for (const b of bodies) {
+      expect(b.thinking).toEqual({ type: "enabled", budget_tokens: 2048 });
+      expect((b.thinking as { budget_tokens: number }).budget_tokens).toBeLessThan(
+        b.max_tokens as number,
+      );
+    }
+  });
+
+  it("max_tokens 가 작으면 thinking 을 생략한다 (#174 상한이 도착한 뒤의 분기)", async () => {
+    const { bodies } = await runMessages({ max_tokens: 293 });
+    for (const b of bodies) expect(b.thinking).toBeUndefined();
+  });
+
+  it("프로필이 사고 OFF 면 요청하지 않는다", async () => {
+    const { bodies } = await runMessages({
+      max_tokens: 4096,
+      profile: { thinkingIntent: "off" },
+    });
+    for (const b of bodies) expect(b.thinking).toBeUndefined();
+  });
+
+  it("run_started 메타에 thinking 요청 의도가 기록된다 (compare 프로토콜 축)", async () => {
+    const on = await runMessages({ max_tokens: 4096 });
+    expect(on.meta?.anthropic_thinking_requested).toBe(true);
+    const off = await runMessages({ max_tokens: 4096, profile: { thinkingIntent: "off" } });
+    expect(off.meta?.anthropic_thinking_requested).toBe(false);
+  });
+
+  it("thinking 블록이 오면 reasoning_hidden 이 서지 않는다", async () => {
+    const THINK = `event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}`;
+    const TDELTA = `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"reasoning"}}`;
+    const USAGE = `event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":500}}`;
+    const { ends } = await runMessages({ max_tokens: 4096 }, [THINK, TDELTA, TEXT, USAGE, STOP]);
+    expect(ends[0]!.metrics.reasoning_hidden).toBeUndefined();
+    expect(ends[0]!.metrics.reasoning_chars).toBeGreaterThan(0);
+  });
+
+  it("추론이 숨겨지면 scenario_end 가 그 사실을 실어 보낸다", async () => {
+    const USAGE = `event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":500}}`;
+    const { ends } = await runMessages({ max_tokens: 4096 }, [TEXT, USAGE, STOP]);
+    // 가시 2자(approx 1토큰)인데 usage 500 → 숨은 추론.
+    expect(ends[0]!.metrics.reasoning_hidden).toBe(true);
+    expect(ends[0]!.metrics.reasoning_chars).toBeUndefined();
+  });
+});

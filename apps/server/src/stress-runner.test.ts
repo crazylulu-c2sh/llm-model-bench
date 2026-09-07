@@ -384,3 +384,51 @@ describe("runStress LM Studio load TTL (JIT prime)", () => {
     }
   });
 });
+
+describe("#173: 스트레스는 thinking 을 요청하지 않는다", () => {
+  /** Anthropic messages SSE — 벤치와 달리 스트레스는 사고를 요청하지 않아야 한다. */
+  function sseAnthropic(): Response {
+    const enc = new TextEncoder();
+    const frames = [
+      `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`,
+      `event: message_stop\ndata: {"type":"message_stop"}`,
+    ];
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const f of frames) controller.enqueue(enc.encode(f + "\n\n"));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
+
+  it("messages 라우트 바디에 thinking 이 없다 — 사고를 켜면 워크로드 형태가 바뀐다", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/messages")) {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return sseAnthropic();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    }) as unknown as typeof fetch;
+
+    const detect: DetectResult = {
+      provider: "openai_compatible",
+      baseUrl: "http://test-stress",
+      models: [{ id: "m1" }],
+      steps: [],
+      capabilities: { openaiChat: false, anthropicMessages: true },
+    };
+    for await (const _ of runStress(
+      // 라우트는 detect 능력에서 결정된다 — anthropicMessages 만 켜면 messages 로 간다.
+      baseStressRequest({ ramp: { start: 1, max: 1, step: 1, durationMs: MIN_DURATION } }),
+      detect,
+      { fetchImpl, tickIntervalMs: 5_000, maxRequestsPerWorker: 1 },
+    )) {
+      void _;
+    }
+    expect(bodies).not.toHaveLength(0);
+    for (const b of bodies) expect(b.thinking).toBeUndefined();
+  });
+});

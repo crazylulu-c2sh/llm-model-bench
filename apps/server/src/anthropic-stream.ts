@@ -19,6 +19,12 @@ export type AnthropicStreamMetrics = {
   /** provider 응답의 `message_delta.usage.output_tokens` (없으면 null) */
   usageOutputTokens: number | null;
   /**
+   * `content_block_start`로 thinking(또는 redacted_thinking) 블록이 실제로 왔는지.
+   * `reasoningText.length > 0`과 달리 "서버가 추론 채널을 열었다"는 **사실**이라, 추론이 비어 있어도
+   * 참일 수 있다. #173의 `reasoning_hidden` 휴리스틱을 사실로 보강하는 데 쓴다.
+   */
+  sawThinkingBlock: boolean;
+  /**
    * `message_delta.delta.stop_reason` — `"end_turn"`, `"max_tokens"`,
    * `"stop_sequence"`, `"tool_use"` 중 하나. `"max_tokens"`면 한도 도달로 잘림.
    * 일부 호환 서버는 보내지 않으므로 null 가능.
@@ -55,19 +61,19 @@ export async function consumeAnthropicMessagesStream(
       streamCompleted: false,
       approxOutputTokens: 0,
       usageOutputTokens: null,
+      sawThinkingBlock: false,
       stopReason: null,
     };
   }
   const reader = body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
-  void buffer;
   let text = "";
   let reasoningText = "";
   const toolUseByIndex = new Map<number, ToolUseAcc>();
   const origin = opts?.requestStartedAt ?? performance.now();
   let ttft: number | null = null;
   let sawMessageDelta = false;
+  let sawThinkingBlock = false;
   let usageOutputTokens: number | null = null;
   let lastStopReason: string | null = null;
   const onDelta = opts?.onDelta;
@@ -77,15 +83,26 @@ export async function consumeAnthropicMessagesStream(
   };
 
   const flushEventBlock = (block: string) => {
-    const lines = block.split("\n");
+    // CRLF(`\r\n`)도 SSE 규약상 적법하다. 줄 단위로 먼저 잘라 각 줄의 `\r`를 떨궈야
+    // `startsWith("data:")` 판정과 JSON 파싱이 둘 다 성립한다.
+    const lines = block.split(/\r?\n/);
     let event = "";
-    let data = "";
+    const dataLines: string[] = [];
     for (const line of lines) {
       if (line.startsWith("event:")) event = line.slice(6).trim();
-      if (line.startsWith("data:")) data += line.slice(5).trim();
+      // 여러 `data:` 줄은 규약상 LF로 이어 붙인다. 예전처럼 빈 문자열로 붙이면
+      // 멀티라인 JSON 페이로드가 깨져 조용히 통째로 버려졌다.
+      if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
     }
     if (event === "message_stop") sawMessageDelta = true;
+    const data = dataLines.join("\n").trim();
     if (!data) return;
+    // 일부 Anthropic 호환 shim이 OpenAI식 종료 표식을 보낸다. JSON.parse가 던지면
+    // catch가 삼켜 `streamCompleted`가 서지 않으므로 명시 처리한다.
+    if (data === "[DONE]") {
+      sawMessageDelta = true;
+      return;
+    }
     try {
       const j = JSON.parse(data) as {
         type?: string;
@@ -119,6 +136,16 @@ export async function consumeAnthropicMessagesStream(
         }
       }
 
+      if (j.type === "content_block_start") {
+        const bt = j.content_block?.type;
+        if (bt === "thinking" || bt === "redacted_thinking") {
+          sawThinkingBlock = true;
+          // redacted_thinking은 델타 없이 블록만 오므로 여기서 찍지 않으면 TTFT를 놓친다.
+          // 평문 thinking은 뒤따르는 thinking_delta가 찍으므로 앞당기지 않는다.
+          if (bt === "redacted_thinking") markTtft();
+        }
+      }
+
       if (j.type === "content_block_start" && j.content_block?.type === "tool_use") {
         const idx = j.index ?? 0;
         toolUseByIndex.set(idx, {
@@ -133,18 +160,25 @@ export async function consumeAnthropicMessagesStream(
       if (j.type === "content_block_delta") {
         const idx = j.index ?? 0;
         if (j.delta?.type === "input_json_delta" && j.delta.partial_json != null) {
-          const tu = toolUseByIndex.get(idx);
-          if (tu) {
-            tu.inputJson += j.delta.partial_json;
-            markTtft();
+          // `content_block_start`를 놓쳤거나 index가 어긋나도 생성은 이미 시작된 것이다.
+          // 예전엔 markTtft()가 `if (tu)` 안에 갇혀 도구-only 응답의 TTFT가 통째로 null이 됐다.
+          markTtft();
+          let tu = toolUseByIndex.get(idx);
+          if (!tu) {
+            tu = { name: "", inputJson: "" };
+            toolUseByIndex.set(idx, tu);
           }
+          tu.inputJson += j.delta.partial_json;
           return;
         }
         // 추론(thinking) 델타 — 첫 생성 토큰이므로 TTFT를 마킹하고(OpenAI 소비자의 reasoning_content와 동일),
         // throughput 지표 기준에 포함되도록 reasoningText로 누적한다(가시 본문 text와는 분리 → 채점 비오염).
         if (j.delta?.type === "thinking_delta") {
-          const r = j.delta.thinking;
+          // 일부 shim은 추론을 `thinking`이 아니라 `text`에 담는다. 무조건 return 하는 분기라
+          // 폴백이 없으면 텍스트도 TTFT도 통째로 사라진다.
+          const r = j.delta.thinking ?? j.delta.text;
           if (r) {
+            sawThinkingBlock = true;
             markTtft();
             reasoningText += r;
             if (onDelta) onDelta({ kind: "reasoning", text: r });
@@ -169,7 +203,7 @@ export async function consumeAnthropicMessagesStream(
     const { done, value } = await reader.read();
     if (done) break;
     carry += decoder.decode(value, { stream: true });
-    const parts = carry.split("\n\n");
+    const parts = carry.split(/\r?\n\r?\n/);
     carry = parts.pop() ?? "";
     for (const block of parts) {
       if (block.trim()) flushEventBlock(block);
@@ -220,6 +254,7 @@ export async function consumeAnthropicMessagesStream(
     streamCompleted: sawMessageDelta || outText.length > 0 || reasoningText.length > 0,
     approxOutputTokens,
     usageOutputTokens,
+    sawThinkingBlock,
     stopReason: lastStopReason,
   };
 }

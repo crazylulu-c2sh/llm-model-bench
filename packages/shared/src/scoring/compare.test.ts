@@ -205,12 +205,51 @@ describe("protocolMismatchFor: affects 라우트 한정(#173 축이 붙을 자�
     expect(affected("chat_completions")).toEqual([]);
   });
 
-  it("현재 등록된 축은 max_tokens_effective 하나이고 두 라우트를 다 덮는다", () => {
-    expect(PROTOCOL_AXES.map((a) => a.key)).toEqual(["max_tokens_effective"]);
-    expect(PROTOCOL_AXES[0]!.affects).toBe("all");
-    expect(protocolMismatchFor("chat_completions", { model_id: "A" }, { model_id: "B", max_tokens_effective: 1 })).toEqual([
+  it("등록된 축과 각자의 affects", () => {
+    expect(PROTOCOL_AXES.map((a) => a.key)).toEqual([
       "max_tokens_effective",
+      "anthropic_thinking_requested",
     ]);
-    expect(protocolMismatchFor("messages", { model_id: "A", max_tokens_effective: 1 }, { model_id: "B", max_tokens_effective: 1 })).toEqual([]);
+    // 출력 상한은 양쪽 라우트를, 사고 요청 여부는 messages만 오염시킨다.
+    expect(PROTOCOL_AXES[0]!.affects).toBe("all");
+    expect(PROTOCOL_AXES[1]!.affects).toEqual(["messages"]);
+  });
+
+  it("max_tokens 축은 두 라우트 모두에 걸린다", () => {
+    const a = { model_id: "A", anthropic_thinking_requested: false };
+    const b = { model_id: "B", max_tokens_effective: 1, anthropic_thinking_requested: false };
+    expect(protocolMismatchFor("chat_completions", a, b)).toEqual(["max_tokens_effective"]);
+    expect(protocolMismatchFor("messages", a, b)).toEqual(["max_tokens_effective"]);
+  });
+
+  it("thinking 축은 messages 에만 걸린다 (#173)", () => {
+    const a = { model_id: "A", max_tokens_effective: 512, anthropic_thinking_requested: false };
+    const b = { model_id: "B", max_tokens_effective: 512, anthropic_thinking_requested: true };
+    expect(protocolMismatchFor("messages", a, b)).toEqual(["anthropic_thinking_requested"]);
+    expect(protocolMismatchFor("chat_completions", a, b)).toEqual([]);
+  });
+
+  it("과거 런(필드 부재)은 thinking 미요청으로 읽힌다", () => {
+    const legacy = { model_id: "A", max_tokens_effective: 512 };
+    const withThinking = {
+      model_id: "B",
+      max_tokens_effective: 512,
+      anthropic_thinking_requested: true,
+    };
+    expect(protocolMismatchFor("messages", legacy, withThinking)).toEqual([
+      "anthropic_thinking_requested",
+    ]);
+    const legacyB = { model_id: "B", max_tokens_effective: 512 };
+    expect(protocolMismatchFor("messages", legacy, legacyB)).toEqual([]);
+  });
+
+  it("두 축이 동시에 어긋나면 둘 다 보고한다", () => {
+    expect(
+      protocolMismatchFor(
+        "messages",
+        { model_id: "A" },
+        { model_id: "B", max_tokens_effective: 1, anthropic_thinking_requested: true },
+      ),
+    ).toEqual(["max_tokens_effective", "anthropic_thinking_requested"]);
   });
 });

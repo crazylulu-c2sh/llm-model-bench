@@ -3,7 +3,11 @@ import { runtimeToolsToAnthropic, runtimeToolsToOpenAi, stripThinkingBlocks } fr
 import { openAiChatPostWithUsage } from "./openai-fetch.js";
 import { consumeOpenAiChatStream } from "./openai-stream.js";
 import { consumeAnthropicMessagesStream } from "./anthropic-stream.js";
-import { anthropicExtrasFromMeta, openAiExtrasFromMeta } from "./profile.js";
+import {
+  anthropicExtrasFromMeta,
+  anthropicThinkingFromMeta,
+  openAiExtrasFromMeta,
+} from "./profile.js";
 
 /**
  * #79: 멀티턴 agent_loop mock-tool 하네스.
@@ -461,6 +465,9 @@ export async function* runAgentLoopAnthropic(
       ...(tools.length ? { tools } : {}),
       ...anthropicExtrasFromMeta(meta),
     };
+    // #173: 사고를 요청하지 않으면 LM Studio가 추론을 스트림에 내보내지 않아 TTFT가 추론 구간을 삼킨다.
+    const thinking = anthropicThinkingFromMeta(meta, args.maxTokens);
+    if (thinking) body.thinking = thinking;
     const requestT0 = args.requestStartedAt;
     const response = await fetchImpl(`${base}/v1/messages`, {
       method: "POST",
