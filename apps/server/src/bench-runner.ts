@@ -592,7 +592,11 @@ export async function* runBench(
       fitPolicy: input.fitPolicy,
       detect,
       fetchImpl,
-      systemInfoImpl: opts.systemInfoImpl,
+      // 주입된 스냅샷의 freeMemBytes 는 이 판정에서 "available" 로 읽는다.
+      // 실제 경로는 getAvailableMemBytes()(캐시·페이지 회수분 포함)를 쓴다.
+      availableMemImpl: opts.systemInfoImpl
+        ? async () => opts.systemInfoImpl!().freeMemBytes
+        : undefined,
     });
     yield { type: "preflight_memory_fit", ...fit.event };
     if (fit.action === "skip") {
