@@ -138,15 +138,35 @@ git fetch
 git pull
 pnpm ci
 pnpm build
-pm2 reload ecosystem.config.cjs
+pm2 reload ecosystem.config.cjs --update-env
 ```
 
 또는 한줄인 경우
 ```bash
-git fetch && git pull && pnpm ci && pnpm build && pm2 reload ecosystem.config.cjs
+git fetch && git pull && pnpm ci && pnpm build && pm2 reload ecosystem.config.cjs --update-env
 ```
 
 `reload`는 무중단에 가깝게 프로세스를 교체합니다. 환경을 바꿨다면 `pm2 delete llm-bench` 후 다시 `pm2 start ecosystem.config.cjs`를 쓰거나 `pm2 reload ecosystem.config.cjs --update-env`로 반영합니다. 부팅 시 자동 기동은 `pm2 startup` + `pm2 save`입니다.
+
+### macOS: LAN 프로바이더가 `EHOSTUNREACH`로 실패할 때
+
+macOS는 **로그인 세션이 죽은 프로세스의 LAN(비루프백) 접근을 막습니다.** PM2 God Daemon 아래의 프로세스가 정확히 그 상태라, 원격 LM Studio/Ollama 호출이 `fetch failed (EHOSTUNREACH)`로 실패합니다. 루프백 baseUrl은 영향이 없고, `/usr/bin/curl`은 Apple 서명 바이너리라 통과하므로 "curl은 되는데 서버만 안 되는" 모습으로 보입니다.
+
+[`ecosystem.config.cjs`](ecosystem.config.cjs)가 기동 시 **Docker 송신 프록시**를 자동 선택해 우회합니다(컨테이너는 Linux VM 안이라 이 정책이 적용되지 않습니다). 선택 순서는 `BENCH_LAN_PROXY` → 공유 프록시 `127.0.0.1:3128` → 폴백 `127.0.0.1:3129` → 없으면 경고 후 프록시 없이 기동입니다.
+
+프록시는 **존재가 아니라 능력**으로 고릅니다 — `/__health`의 `idleMs`가 서버의 `MAX_REQUEST_TIMEOUT_MS`보다 커야 채택됩니다. 그보다 짧으면 "요청이 너무 느리다"를 프록시가 판단하게 되어, 긴 JIT 모델 로드가 소비자 타임아웃 대신 `UND_ERR_SOCKET`으로 끊깁니다.
+
+공유 프록시가 없으면 저장소 폴백을 띄웁니다:
+
+```bash
+docker compose --profile lan-proxy up -d lan-proxy-fallback   # 127.0.0.1:3129, opt-in
+pm2 reload ecosystem.config.cjs --update-env                   # 프록시 재선택은 여기서만 일어난다
+ps eww -p $(pm2 pid llm-bench) | tr ' ' '\n' | grep -E '^(HTTP_PROXY|NO_PROXY|NODE_USE_ENV_PROXY)='
+```
+
+세 번째 줄을 반드시 확인하십시오 — `pm2 reload`가 성공해도 `--update-env` 없이는 옛 환경이 남습니다. `pm2 restart`는 저장된 env를 재사용하므로 **재선택되지 않습니다.**
+
+> Docker compose 배포에는 이 프록시가 **불필요합니다.** 컨테이너가 이미 Linux VM 안이라 게이트가 없고, 넣으면 불필요한 홉만 생깁니다. macOS 호스트에서 PM2로 돌릴 때만 해당됩니다.
 
 ### 트러블슈팅
 
