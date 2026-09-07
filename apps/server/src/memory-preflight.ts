@@ -1,11 +1,11 @@
-import type { DetectResult, FitPolicy, SystemSnapshot } from "@llm-bench/shared";
+import type { DetectResult, FitPolicy } from "@llm-bench/shared";
 import type { FetchLike } from "./detect.js";
 import {
   lmStudioListModels,
   lmStudioModelSizeBytes,
   lmStudioResidentInstances,
 } from "./lmstudio.js";
-import { getSystemSnapshot } from "./system-info.js";
+import { getAvailableMemBytes } from "./system-info.js";
 
 /** repro(25.71→28.28GB ≈ +10%)에 맞춘 런타임/KV 오버헤드 계수. */
 export const FIT_OVERHEAD_FACTOR = 1.1;
@@ -54,11 +54,17 @@ export async function preflightMemoryFit(args: {
   fitPolicy?: FitPolicy;
   detect: DetectResult;
   fetchImpl: FetchLike;
-  /** 테스트 주입용. 미지정 시 getSystemSnapshot(os.freemem()). */
-  systemInfoImpl?: () => SystemSnapshot;
+  /**
+   * 테스트 주입용. 미지정 시 `getAvailableMemBytes()`.
+   *
+   * **free 가 아니라 available 이다.** `os.freemem()`은 완전히 빈 페이지만 세는데,
+   * 현대 OS는 남는 메모리를 캐시로 쓰므로 그 값은 늘 바닥에 붙어 있다(측정: 이 macOS
+   * 호스트에서 16 GiB 중 0.35 GiB). free 로 판정하면 안전 예약 2 GiB를 빼는 순간
+   * 항상 음수가 되어 `fitPolicy="skip"`이 **모든 모델을 건너뛴다.**
+   */
+  availableMemImpl?: () => Promise<number>;
 }): Promise<FitDecision> {
   const { base, modelId, apiKey, fitPolicy, detect, fetchImpl } = args;
-  const getSystem = args.systemInfoImpl ?? getSystemSnapshot;
 
   const listed = await lmStudioListModels(base, { fetchImpl, apiKey, timeoutMs: 5000 });
   const models = listed.ok ? listed.models : [];
@@ -74,7 +80,7 @@ export async function preflightMemoryFit(args: {
     }
   }
 
-  const free = getSystem().freeMemBytes;
+  const free = args.availableMemImpl ? await args.availableMemImpl() : await getAvailableMemBytes();
   const residents = lmStudioResidentInstances(models, modelId);
   const residentRam = residents.reduce((s, r) => s + (r.ramBytes ?? 0), 0);
 
@@ -113,7 +119,7 @@ export async function preflightMemoryFit(args: {
       event: {
         ...common,
         action: "proceed",
-        reason: `fits — needs ~${gib(requiredWithOverhead)}GB, ${gib(free)}GB free`,
+        reason: `fits — needs ~${gib(requiredWithOverhead)}GB, ${gib(free)}GB available`,
       },
       residentInstances: [],
     };

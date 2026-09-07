@@ -1,4 +1,4 @@
-import type { DetectResult, SystemSnapshot } from "@llm-bench/shared";
+import type { DetectResult } from "@llm-bench/shared";
 import { describe, expect, it } from "vitest";
 import { preflightMemoryFit } from "./memory-preflight.js";
 import type { FetchLike } from "./detect.js";
@@ -16,15 +16,9 @@ function detectWith(models: DetectResult["models"]): DetectResult {
   };
 }
 
-function sys(freeGb: number): () => SystemSnapshot {
-  return () => ({
-    ts: "2026-07-10T00:00:00.000Z",
-    totalMemBytes: 64 * GB,
-    freeMemBytes: freeGb * GB,
-    loadavg: [0, 0, 0],
-    cpuCount: 8,
-    platform: "linux",
-  });
+/** 사용 가능 메모리(GB) 주입 — free 가 아니라 available 이다. */
+function avail(gb: number): () => Promise<number> {
+  return async () => gb * GB;
 }
 
 /** LM Studio `GET /api/v1/models` 응답을 흉내내는 fetchImpl. */
@@ -48,7 +42,7 @@ describe("preflightMemoryFit", () => {
       modelId: "small",
       detect: detectWith([{ id: "small" }]),
       fetchImpl: listFetch([{ key: "small", size_bytes: 1 * GB, loaded_instances: [] }]),
-      systemInfoImpl: sys(8),
+      availableMemImpl: avail(8),
     });
     expect(fit.action).toBe("proceed");
     expect(fit.event.will_fit).toBe(true);
@@ -63,7 +57,7 @@ describe("preflightMemoryFit", () => {
       fitPolicy: "skip",
       detect: detectWith([{ id: "cand" }]),
       fetchImpl: listFetch([{ key: "cand", size_bytes: 26 * GB, loaded_instances: [] }]),
-      systemInfoImpl: sys(14),
+      availableMemImpl: avail(14),
     });
     expect(fit.action).toBe("skip");
     expect(fit.event.will_fit).toBe(false);
@@ -81,7 +75,7 @@ describe("preflightMemoryFit", () => {
         { key: "cand", size_bytes: 26 * GB, loaded_instances: [] },
         { key: "big", size_bytes: 40 * GB, loaded_instances: [{ id: "big:1", ram_usage: 40 * GB }] },
       ]),
-      systemInfoImpl: sys(14),
+      availableMemImpl: avail(14),
     });
     expect(fit.action).toBe("unload_other_models");
     expect(fit.residentInstances.map((r) => r.modelKey)).toContain("big");
@@ -98,7 +92,7 @@ describe("preflightMemoryFit", () => {
         { key: "huge", size_bytes: 50 * GB, loaded_instances: [] },
         { key: "tiny", size_bytes: 4 * GB, loaded_instances: [{ id: "tiny:1", ram_usage: 4 * GB }] },
       ]),
-      systemInfoImpl: sys(8),
+      availableMemImpl: avail(8),
     });
     expect(fit.action).toBe("skip");
     expect(fit.event.reason).toContain("언로드해도 부족");
@@ -111,7 +105,7 @@ describe("preflightMemoryFit", () => {
       fitPolicy: "skip",
       detect: detectWith([{ id: "mystery" }]), // no size_bytes anywhere
       fetchImpl: listFetch([{ key: "mystery", loaded_instances: [] }]),
-      systemInfoImpl: sys(1),
+      availableMemImpl: avail(1),
     });
     expect(fit.action).toBe("proceed");
     expect(fit.event.size_source).toBe("unknown");
@@ -124,7 +118,7 @@ describe("preflightMemoryFit", () => {
       modelId: "cand",
       detect: detectWith([{ id: "cand", size_bytes: 1 * GB }]),
       fetchImpl: listFetch([{ key: "cand", loaded_instances: [] }]),
-      systemInfoImpl: sys(8),
+      availableMemImpl: avail(8),
     });
     expect(fit.event.size_source).toBe("detect");
     expect(fit.action).toBe("proceed");
@@ -136,7 +130,7 @@ describe("preflightMemoryFit", () => {
       modelId: "cand",
       detect: detectWith([{ id: "cand" }]),
       fetchImpl: listFetch([{ key: "cand", size_bytes: 26 * GB, loaded_instances: [] }]),
-      systemInfoImpl: sys(14),
+      availableMemImpl: avail(14),
     });
     // 정책 미지정: 예측(will_fit=false)은 기록하되 막지 않는다.
     expect(fit.action).toBe("proceed");

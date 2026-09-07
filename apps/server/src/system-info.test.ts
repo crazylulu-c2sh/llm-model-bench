@@ -4,6 +4,8 @@ import {
   _setExecFileForTest,
   getGpuSnapshot,
   getSystemSnapshot,
+  parseAvailableFromVmStat,
+  parseMemAvailableFromMeminfo,
   parseNvidiaSmiCsv,
 } from "./system-info";
 
@@ -111,5 +113,39 @@ describe("getGpuSnapshot", () => {
     await getGpuSnapshot();
     await getGpuSnapshot();
     expect(spawned).toBe(1);
+  });
+});
+
+describe("사용 가능 메모리 파서", () => {
+  it("parseMemAvailableFromMeminfo: MemAvailable(kB)을 바이트로 읽는다", () => {
+    const meminfo = [
+      "MemTotal:       65805936 kB",
+      "MemFree:          410324 kB",
+      "MemAvailable:   12345678 kB",
+      "Buffers:          123456 kB",
+    ].join("\n");
+    expect(parseMemAvailableFromMeminfo(meminfo)).toBe(12345678 * 1024);
+  });
+
+  it("parseMemAvailableFromMeminfo: 항목이 없으면 null (MemFree 로 오인하지 않는다)", () => {
+    expect(parseMemAvailableFromMeminfo("MemTotal: 100 kB\nMemFree: 50 kB")).toBeNull();
+  });
+
+  it("parseAvailableFromVmStat: free+inactive+speculative+purgeable 를 페이지 크기로 곱한다", () => {
+    const vmstat = [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                                    60478.",
+      "Pages active:                                 251643.",
+      "Pages inactive:                               247969.",
+      "Pages speculative:                              3310.",
+      "Pages wired down:                             221767.",
+      "Pages purgeable:                                1269.",
+    ].join("\n");
+    // active/wired 는 회수 대상이 아니므로 빠져야 한다
+    expect(parseAvailableFromVmStat(vmstat)).toBe((60478 + 247969 + 3310 + 1269) * 16384);
+  });
+
+  it("parseAvailableFromVmStat: 페이지 크기를 못 읽으면 null", () => {
+    expect(parseAvailableFromVmStat("Pages free: 100.")).toBeNull();
   });
 });
