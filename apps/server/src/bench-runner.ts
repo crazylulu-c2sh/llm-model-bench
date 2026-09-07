@@ -15,6 +15,7 @@ import {
   approxOutputTokens,
   defaultMaxTokensForVisionScenario,
   getScenarioDef,
+  resolveEffectiveMaxTokens,
   isRegisteredScenario,
   isVisionScenario,
   normalizeScenarioIdsForBench,
@@ -858,16 +859,27 @@ export async function* runBench(
           const visionMaxTokens = visionThisRun
             ? defaultMaxTokensForVisionScenario(scenarioId)
             : null;
-          if (visionMaxTokens) {
-            // vision default는 *floor*로만 작동. 세 source 중 가장 큰 값을 사용:
-            //   1) `BenchRequest.max_tokens` (UI top-level 입력)
-            //   2) `scenarioMeta.max_tokens` (profile augmentation 후 — profileMaxTokens 또는
-            //      프로파일 권장값)
-            //   3) vision default (이 줄의 floor)
-            // profile augmentation이 BenchRequest.max_tokens을 무시하므로 (1)을 명시 비교.
-            const userTopLevel = input.max_tokens ?? 0;
-            scenarioMeta.max_tokens = Math.max(userTopLevel, scenarioMeta.max_tokens, visionMaxTokens);
-          }
+          // #174: 상한 소스가 넷(요청·프로필·시나리오·vision floor)이라 우선순위를 shared 의 단일
+          // resolver 에 위임한다. 이전에는 vision 분기 안에서만 `Math.max` 보정을 해서
+          // (1) 텍스트 시나리오는 `BenchRequest.max_tokens` 가 통째로 무시됐고
+          // (2) 명시 상한이 프로파일 권장값(qwen38 = 131_072)보다 작으면 조용히 부풀려졌다.
+          // `scenarioMeta.max_tokens` 는 profile augmentation 결과(= profileMaxTokens 또는 권장값)라
+          // 명시 profileMaxTokens 를 따로 넘겨 "명시 상한"과 "권장 기본값"을 구분한다.
+          const scenarioSampling = getScenarioDef(scenarioId)?.sampling;
+          const resolvedMaxTokens = resolveEffectiveMaxTokens({
+            requestMaxTokens: input.max_tokens,
+            profileMaxTokens:
+              input.profileMaxTokens ?? input.profile?.maxTokensOverride,
+            scenarioMaxTokens: scenarioSampling?.max_tokens,
+            visionFloor: visionMaxTokens,
+            profileRecommended: scenarioMeta.max_tokens,
+          });
+          scenarioMeta.max_tokens = resolvedMaxTokens.value;
+          scenarioMeta.max_tokens_effective = resolvedMaxTokens.value;
+          scenarioMeta.max_tokens_source = resolvedMaxTokens.source;
+          // NOTE: `sampling.temperature`·`top_p`는 이번 범위 밖이다. 요청 레벨 `temperature`조차
+          // 프로파일 프리셋에 덮이는 별개 문제가 있어(`buildProfileAugmentedMeta`), 시나리오 쪽만
+          // 먼저 반영하면 "시나리오는 먹고 요청은 안 먹는" 비대칭이 생긴다. #174는 상한만 다룬다.
           const visionImageDelivery: "base64" | "url" | undefined = visionThisRun
             ? (isLoopbackOrPrivateOrigin(assetOrigin) ? "base64" : "url")
             : undefined;
@@ -1539,6 +1551,11 @@ export async function* runBench(
                 approx_tokens: Math.ceil(text.length / 4),
                 usage_output_tokens: usageOutputTokens,
                 stream_completed: streamCompleted,
+                // #174: 실제로 실린 상한과 그 출처 — SSE만 보는 소비자가 사후 대조할 수 있게 한다.
+                max_tokens_effective: scenarioMeta.max_tokens,
+                ...(scenarioMeta.max_tokens_source
+                  ? { max_tokens_source: scenarioMeta.max_tokens_source }
+                  : {}),
               },
               quality,
             };

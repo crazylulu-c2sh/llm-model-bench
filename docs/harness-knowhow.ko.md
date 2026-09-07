@@ -171,6 +171,7 @@ export function resolveBenchApiRoutes(
 
 - OpenAI는 마지막 비어 있지 않은 `choices[0].finish_reason`을 `finishReason`에 저장합니다. `"length"`는 `max_tokens` 상한에 도달했음(잘림)을 뜻합니다. Anthropic은 `message_delta.delta.stop_reason`을 `stopReason`에 저장하며, `"max_tokens"`가 잘림 신호입니다.
 - OpenAI 호환 서버가 이 필드를 생략할 수 있어 두 값 모두 `null`일 수 있으므로, `null`을 "깨끗한 종료"가 아니라 "알 수 없음"으로 취급하세요. Anthropic은 스트림 *완료*(`message_stop`에서 오는 `sawMessageDelta`)를 *이유*와 별도로 추적한다는 점에 유의하세요.[^oai-compat][^anthropic-stream]
+- **상한 자체가 어디서 왔는지도 기록하세요.** 출력 길이는 TPS를 크게 바꾸므로(짧은 실행일수록 고정비가 희석돼 rate가 부풀려짐), 실행마다 상한이 달라지면 회귀 판정이 모델 변화가 아니라 출력 길이 변화를 잡습니다. 하네스는 상한 소스가 넷(요청 레벨 명시값 · 프로필 명시값 · 시나리오 `sampling.max_tokens` · vision floor/프로필 권장값)이라 우선순위를 `resolveEffectiveMaxTokens()` 한 곳에서만 정하고, 결정된 값과 **출처**를 `scenario_end.metrics`의 `max_tokens_effective`·`max_tokens_source`로 함께 내보냅니다. 요청 레벨 명시값은 하드 상한이라 vision floor보다도 우선합니다 — 조용히 부풀리느니 잘리게 두고 `truncated_at_max_tokens=N`으로 드러내는 편이 낫기 때문입니다. 소스: `packages/shared/src/max-tokens.ts`.
 
 ### 인덱스 기준 `tool_call` 병합
 
