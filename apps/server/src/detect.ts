@@ -7,6 +7,7 @@ import {
   type Reachability,
   type ReachabilityCode,
 } from "@llm-bench/shared";
+import { stripDocumentedApiBaseSuffix } from "./http-shared.js";
 import { providerFetch } from "./provider-fetch.js";
 
 export type FetchLike = typeof fetch;
@@ -27,18 +28,6 @@ const LIST_STEP_NAMES = ["lm_studio_list", "ollama_tags", "openai_models"] as co
  * OpenAI 호환 `…/v1`뿐 아니라 LM Studio가 안내하는 `…/api/v1`·`…/api/v0`도 그대로 두면 경로가 두 번 붙어
  * 죽은 주소를 찌르게 됩니다. LM Studio는 모르는 경로에도 200을 주므로 그 오진이 조용히 성공처럼 보입니다.
  */
-function stripDocumentedApiBaseSuffix(u: string): string {
-  const strip = (path: string): string => path.replace(/\/api\/v[01]$/i, "").replace(/\/v1$/i, "");
-  try {
-    const url = new URL(u);
-    const path = url.pathname.replace(/\/+/g, "/").replace(/\/+$/, "") || "/";
-    url.pathname = strip(path) || "/";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return strip(u);
-  }
-}
-
 function normalizeBaseUrl(raw: string): string {
   let u = raw.trim().replace(/\/+$/, "");
   // `startsWith("http")`는 `HTTP://…`를 스킴 없는 호스트로 봐서 `http://HTTP://…`라는 가짜 호스트를 만든다.

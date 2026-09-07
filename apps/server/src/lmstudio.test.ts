@@ -63,7 +63,8 @@ describe("lmStudioIsModelLoaded", () => {
       const url = requestUrl(input);
       if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
       if (url.endsWith("/api/v0/models")) {
-        return jsonResponse({ models: [{ key: "gemma-4-e2b-it", loaded_instances: [] }] });
+        // 실제 v0 응답은 OpenAI 형태다 — `{models}`가 아니라 `{object, data}`.
+        return jsonResponse({ object: "list", data: [{ key: "gemma-4-e2b-it", loaded_instances: [] }] });
       }
       return jsonResponse({}, 404);
     });
@@ -549,5 +550,55 @@ describe("prepareLmStudioForRun", () => {
     expect(r.prepare).toBe("already_in_memory");
     expect(r.ttlStatus).toBe("not_applied");
     expect(r.loadedByThisRun).toBe(false);
+  });
+});
+
+describe("문서화된 baseUrl 접미사(`/v1`)와 LM Studio의 200-not-404", () => {
+  // LM Studio는 모르는 경로에 404가 아니라 200 + {"error": …}를 준다(실측).
+  // 그래서 `/v1`을 안 벗기면 실패가 조용한 성공으로 둔갑한다.
+  const unknownEndpoint = (url: string) =>
+    jsonResponse({ error: `Unexpected endpoint or method. (${url})` }, 200);
+
+  it("baseUrl에 `/v1`이 붙어도 네이티브 REST 오리진으로 정규화한다", async () => {
+    const seen: string[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      seen.push(url);
+      if (url === "http://localhost:1234/api/v1/models") {
+        return jsonResponse({ models: [{ key: "m", loaded_instances: [{ id: "m" }] }] });
+      }
+      return unknownEndpoint(url);
+    });
+    const r = await lmStudioIsModelLoaded("http://localhost:1234/v1", "m", { fetchImpl });
+    expect(r.loaded).toBe(true);
+    expect(seen).toContain("http://localhost:1234/api/v1/models");
+    expect(seen.some((u) => u.includes("/v1/api/"))).toBe(false);
+  });
+
+  it("목록: 200이지만 error 봉투면 다음 후보로 넘어간다", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return unknownEndpoint(url);
+      if (url.endsWith("/api/v0/models")) {
+        return jsonResponse({ object: "list", data: [{ key: "m", loaded_instances: [{ id: "m" }] }] });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await lmStudioIsModelLoaded("http://localhost:1234", "m", { fetchImpl });
+    expect(r.ok).toBe(true);
+    expect(r.loaded).toBe(true);
+  });
+
+  it("load: 200 + error 봉투를 성공으로 세지 않는다 (로드 안 하고 했다고 보고하면 안 된다)", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => unknownEndpoint(requestUrl(input)));
+    const r = await lmStudioLoad("http://localhost:1234", "m", { fetchImpl });
+    expect(r.ok).toBe(false);
+    expect(r.body).toContain("Unexpected endpoint");
+  });
+
+  it("unload: 200 + error 봉투를 성공으로 세지 않는다", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => unknownEndpoint(requestUrl(input)));
+    const r = await lmStudioUnload("http://localhost:1234", "m", { fetchImpl });
+    expect(r.ok).toBe(false);
   });
 });
