@@ -43,6 +43,10 @@ import {
   loadVisionImageBytes,
   visionImageRefs,
 } from "./vision-assets.js";
+import {
+  anthropicMessagesPostWithThinking,
+  shouldRequestThinking,
+} from "./anthropic-fetch.js";
 import { consumeAnthropicMessagesStream } from "./anthropic-stream.js";
 import {
   consumeOpenAiChatStream,
@@ -80,6 +84,7 @@ import {
 } from "./agent-loop.js";
 import {
   anthropicExtrasFromMeta,
+  anthropicThinkingFromMeta,
   buildProfileAugmentedMeta,
   openAiExtrasFromMeta,
   type BenchProfileRequestFields,
@@ -552,6 +557,13 @@ export async function* runBench(
   const meta = makeBenchRunMeta(input, detect, rid, {
     profileMaxTokensOverride: input.profileMaxTokens ?? null,
   });
+  // #173: `messages` 라우트에 extended thinking을 요청할 의도였는지 기록한다.
+  // 실제 성사 여부는 런 행의 `anthropic_thinking_rejected`가 말해 준다. 이 필드는 compare의
+  // 측정 프로토콜 축이라, 없으면 사고 요청 전/후 런이 조용히 섞여 비교된다.
+  if (meta.api_routes.includes("messages")) {
+    meta.anthropic_thinking_requested =
+      meta.profile_thinking_intent !== "off" && shouldRequestThinking(base);
+  }
   const requestTimeoutMs = clampRequestTimeoutMs(input.requestTimeoutMs);
 
   yield { type: "run_started", run_id: rid, meta };
@@ -736,6 +748,7 @@ export async function* runBench(
           stream_completed: boolean;
           usage_output_tokens: number | null;
           reasoning_hidden?: boolean;
+          anthropic_thinking_rejected?: boolean;
           /** #1922: 스트리밍 tool_call 인자가 연결 손상(`{}{}`)돼 감지된 경우 — LM Studio 엔진 프로토콜 회귀 신호. */
           tool_call_args_corrupted?: boolean;
           /** 추론이 `reasoning_content` 대신 `content`로 새어 들어온 경우(chat 라우트) — 엔진 프로토콜 회귀 신호. */
@@ -944,6 +957,10 @@ export async function* runBench(
             let reasoningChars = 0;
             /** 어느 OpenAI 스트림 라운드에서든 tool_call 인자 연결 손상(#1922)이 한 번이라도 감지되면 true(OR-집계). */
             let toolArgsCorruptedAny = false;
+            /** #173: 업스트림이 `thinking` 요청을 거절해 빼고 재시도했으면 true(OR-집계). */
+            let anthropicThinkingRejected = false;
+            /** #173: Anthropic 스트림이 thinking 블록을 실제로 냈으면 true — reasoning_hidden 판정의 사실 근거. */
+            let sawThinkingBlock = false;
             /** 최종 OpenAI(chat) 스트림 메트릭 — reasoning-누수 판정에 raw assistantText/reasoningText로 사용. */
             let lastOpenAiMetrics: OpenAiStreamMetrics | null = null;
             const invokedBenchTools: string[] = [];
@@ -1153,14 +1170,17 @@ export async function* runBench(
                 if (toolsAnthropic) body.tools = toolsAnthropic;
                 Object.assign(body, anthropicExtrasFromMeta(scenarioMeta));
                 const requestT0 = performance.now();
-                const r = await fetchImpl(`${base}/v1/messages`, {
-                  method: "POST",
-                  headers: headers(input.apiKey, {
-                    "anthropic-version": "2023-06-01",
-                  }),
-                  body: JSON.stringify(body),
-                  signal: reqSignal,
-                });
+                const { response: r, retriedAfterThinkingRejection: rejected } =
+                  await anthropicMessagesPostWithThinking(
+                    fetchImpl,
+                    `${base}/v1/messages`,
+                    base,
+                    headers(input.apiKey, { "anthropic-version": "2023-06-01" }),
+                    body,
+                    anthropicThinkingFromMeta(scenarioMeta, scenarioMeta.max_tokens),
+                    reqSignal,
+                  );
+                if (rejected) anthropicThinkingRejected = true;
                 if (!r.ok || !r.body) {
                   const errText = await r.text().catch(() => "");
                   yield {
@@ -1179,6 +1199,7 @@ export async function* runBench(
                   { requestStartedAt: requestT0 },
                 );
                 lastAnth = m;
+                if (m.sawThinkingBlock) sawThinkingBlock = true;
                 if (m.stopReason === "max_tokens") truncated = true;
                 totalMsAcc += m.totalMs;
                 if (ttft === null) ttft = m.ttftMs;
@@ -1335,14 +1356,17 @@ export async function* runBench(
               Object.assign(body, anthropicExtrasFromMeta(scenarioMeta));
 
               const requestT0 = performance.now();
-              const r = await fetchImpl(`${base}/v1/messages`, {
-                method: "POST",
-                headers: headers(input.apiKey, {
-                  "anthropic-version": "2023-06-01",
-                }),
-                body: JSON.stringify(body),
-                signal: reqSignal,
-              });
+              const { response: r, retriedAfterThinkingRejection: rejected } =
+                await anthropicMessagesPostWithThinking(
+                  fetchImpl,
+                  `${base}/v1/messages`,
+                  base,
+                  headers(input.apiKey, { "anthropic-version": "2023-06-01" }),
+                  body,
+                  anthropicThinkingFromMeta(scenarioMeta, scenarioMeta.max_tokens),
+                  reqSignal,
+                );
+              if (rejected) anthropicThinkingRejected = true;
               if (!r.ok || !r.body) {
                 const errText = await r.text().catch(() => "");
                 if (
@@ -1368,6 +1392,7 @@ export async function* runBench(
                   { requestStartedAt: requestT0 },
                 );
                 // 채점: 추론 제외(가시 본문 + tool JSON). output_text/throughput: 추론 포함(chat 경로와 동일).
+                if (m.sawThinkingBlock) sawThinkingBlock = true;
                 scoreText = m.text;
                 text = m.reasoningText ? `${m.reasoningText}${m.text}` : m.text;
                 ttft = m.ttftMs;
@@ -1480,6 +1505,7 @@ export async function* runBench(
             // TTFT가 "첫 가시 토큰까지(숨은 추론 포함)"임을 UI에 경고. char/4 과소추정 오탐을 K=2로 방어.
             const reasoningHidden =
               api_route === "messages" &&
+              !sawThinkingBlock &&
               usageOutputTokens != null &&
               reasoningChars === 0 &&
               usageOutputTokens >= 2 * approxOutputTokens(text);
@@ -1512,6 +1538,7 @@ export async function* runBench(
                 usage_output_tokens: usageOutputTokens,
                 ...(reasoningHidden ? { reasoning_hidden: true } : {}),
                 ...(toolArgsCorruptedAny ? { tool_call_args_corrupted: true } : {}),
+                ...(anthropicThinkingRejected ? { anthropic_thinking_rejected: true } : {}),
                 ...(reasoningLeaked ? { reasoning_leaked_into_content: true } : {}),
                 ...(reasoningChars > 0 ? { reasoning_chars: reasoningChars } : {}),
                 ...(emptyResponse ? { empty_response: true } : {}),
@@ -1551,6 +1578,9 @@ export async function* runBench(
                 approx_tokens: Math.ceil(text.length / 4),
                 usage_output_tokens: usageOutputTokens,
                 stream_completed: streamCompleted,
+                // #173: 추론이 스트림에 안 실렸다는 신호 — SSE만 보는 소비자가 TTFT의 의미를 알 수 있게 한다.
+                ...(reasoningHidden ? { reasoning_hidden: true } : {}),
+                ...(reasoningChars > 0 ? { reasoning_chars: reasoningChars } : {}),
                 // #174: 실제로 실린 상한과 그 출처 — SSE만 보는 소비자가 사후 대조할 수 있게 한다.
                 max_tokens_effective: scenarioMeta.max_tokens,
                 ...(scenarioMeta.max_tokens_source

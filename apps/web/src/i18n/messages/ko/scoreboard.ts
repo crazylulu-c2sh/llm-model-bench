@@ -67,4 +67,6 @@ export const scoreboard = {
   averageLabel: "평균",
   emptyValues: (group: string, metric: string) =>
     `표시할 ${group} ${metric} 값이 없습니다. 다른 지표/그룹을 선택해 보세요.`,
+  routeBadgeTitle: (route: string, all: string) =>
+    `이 모델은 ${all} 라우트를 측정했지만, 라우트마다 측정값이 비교 불가라 랭킹에는 ${route} 만 씁니다.`,
 };

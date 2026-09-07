@@ -46,6 +46,10 @@ export type ScoringRow = {
 /** 스코어보드 한 행: 한 모델의 품질·속도 3그룹 + text-only. */
 export type ScoreboardRow = {
   model_id: string;
+  /** #173: 랭킹에 실제로 쓴 라우트. 두 라우트를 측정했어도 하나만 쓴다. */
+  api_route?: string;
+  /** #173: 이 모델에서 측정된 라우트 전부(정본이 아닌 것 포함). 1개 초과면 UI가 고지한다. */
+  routes_measured?: string[];
   quality: ModelQualityScore;
   speed: ModelSpeedScore;
   /** vision 미실행 → 두 측 모두 text-only. */
@@ -204,13 +208,63 @@ function emptySpeed(id: string): ModelSpeedScore {
  * 품질·속도 모듈을 모델별로 합쳐 스코어보드 행으로 만든 뒤 정렬한다.
  * 기본 정렬: total 품질 desc → total 속도 desc → 모델 id(alphanumeric). null은 맨 아래.
  */
+/** 정본 라우트 우선순위 — 앞에 있는 것이 있으면 그것만 랭킹에 쓴다. */
+const CANONICAL_ROUTE_ORDER = ["chat_completions", "messages"] as const;
+
+/**
+ * #173: 모델별로 정본 라우트 행만 남긴다.
+ *
+ * 두 라우트는 같은 모델이라도 **비교 가능한 양이 아니다** — 실측에서 `chat_completions`는
+ * TTFT 0.32s·속도 795, `messages`는 19.08s·303이었고 풀링하면 9.70s·549라는 어느 쪽도 아닌 값이
+ * 나온다(TTFT 60배 왜곡). `model_id`로만 풀링하던 `computeSpeedScores`·`computeQualityScores`가
+ * 시나리오를 라우트 수만큼 이중 계상하던 것도 여기서 함께 해소된다.
+ *
+ * 판정은 `reasoning_hidden`(위음성 있는 휴리스틱)이 아니라 `api_route`라는 사실로 한다.
+ * 한 라우트만 측정한 모델은 그 라우트가 정본이므로 랭킹에서 사라지지 않는다.
+ */
+function pickCanonicalRouteRows(rows: readonly ScoringRow[]): ScoringRow[] {
+  const routesByModel = new Map<string, Set<string>>();
+  for (const r of rows) {
+    let set = routesByModel.get(r.model_id);
+    if (!set) {
+      set = new Set();
+      routesByModel.set(r.model_id, set);
+    }
+    set.add(r.api);
+  }
+  const canonicalByModel = new Map<string, string>();
+  for (const [model, routes] of routesByModel) {
+    const preferred = CANONICAL_ROUTE_ORDER.find((c) => routes.has(c));
+    canonicalByModel.set(model, preferred ?? [...routes][0]!);
+  }
+  return rows.filter((r) => canonicalByModel.get(r.model_id) === r.api);
+}
+
 export function computeScoreboard(scoringRows: readonly ScoringRow[]): ScoreboardRow[] {
-  const quality = computeQualityScores(scoringRows);
-  const speed = computeSpeedScores(scoringRows);
+  const routesByModel = new Map<string, Set<string>>();
+  for (const r of scoringRows) {
+    let set = routesByModel.get(r.model_id);
+    if (!set) {
+      set = new Set();
+      routesByModel.set(r.model_id, set);
+    }
+    set.add(r.api);
+  }
+  const canonicalRows = pickCanonicalRouteRows(scoringRows);
+  const canonicalRouteByModel = new Map(canonicalRows.map((r) => [r.model_id, r.api]));
+  const quality = computeQualityScores(canonicalRows);
+  const speed = computeSpeedScores(canonicalRows);
 
   const out: ScoreboardRow[] = quality.map((q) => {
     const s = speed.get(q.model_id) ?? emptySpeed(q.model_id);
-    return { model_id: q.model_id, quality: q, speed: s, textOnly: q.textOnly && s.textOnly };
+    return {
+      model_id: q.model_id,
+      quality: q,
+      speed: s,
+      textOnly: q.textOnly && s.textOnly,
+      api_route: canonicalRouteByModel.get(q.model_id),
+      routes_measured: [...(routesByModel.get(q.model_id) ?? [])].sort(),
+    };
   });
 
   out.sort(

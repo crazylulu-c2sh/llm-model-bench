@@ -359,6 +359,11 @@ export const BenchRunMetaSchema = z.object({
    */
   max_tokens_effective: z.number().optional(),
   max_tokens_source: MaxTokensSourceSchema.optional(),
+  /**
+   * #173: `messages` 라우트에 extended thinking을 요청했는지. 이 값이 다른 두 런은
+   * **다른 워크로드**를 측정한 것이라 `/api/v1/compare`가 회귀 판정에서 제외한다.
+   */
+  anthropic_thinking_requested: z.boolean().optional(),
   /** Applied sampling (subset sent upstream depending on route) */
   effective_sampling: z
     .object({
@@ -510,6 +515,10 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
       /** provider 보고 출력 토큰 수(없으면 null). 있으면 TPS가 이 값을 사용. */
       usage_output_tokens: z.number().nullable().optional(),
       stream_completed: z.boolean(),
+      /** #173: 추론이 스트림에 노출되지 않아 TTFT가 "첫 가시 토큰까지"인 경우 true. */
+      reasoning_hidden: z.boolean().optional(),
+      /** #173: 가시 추론 델타 누적 길이(0이면 필드 없음). */
+      reasoning_chars: z.number().optional(),
       /** #174: 이 시나리오 요청에 실제로 실린 `max_tokens`와 그 출처. */
       max_tokens_effective: z.number().optional(),
       max_tokens_source: MaxTokensSourceSchema.optional(),
@@ -661,6 +670,8 @@ export const BenchResultSchema = z.object({
           usage_output_tokens: z.number().nullable().optional(),
           /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의(서버 계산). */
           reasoning_hidden: z.boolean().optional(),
+          /** #173: 업스트림이 `thinking` 요청을 거절해 빼고 재시도했으면 true. */
+          anthropic_thinking_rejected: z.boolean().optional(),
           /** #1922: 스트리밍 tool_call 인자 연결 손상 감지 → LM Studio 엔진 프로토콜 회귀 의심(서버 계산). */
           tool_call_args_corrupted: z.boolean().optional(),
           /** chat 라우트에서 추론이 content로 새어 들어옴 → 엔진 프로토콜 회귀 의심(서버 계산). */

@@ -141,13 +141,14 @@ export function resolveBenchApiRoutes(
 
 ## 3. ストリーミングメトリクス抽出
 
-両プロバイダーアダプタは SSE の `ReadableStream` を逐次的に消費し（`consumeOpenAiChatStream` はバッファを `\n`（行）ごとに、`consumeAnthropicMessagesStream` は `\n\n`（イベントブロック）ごとに分割）、生テキストではなく単一のフラットなメトリクスオブジェクトを返します。コンシューマは *最初* の content/reasoning/tool デルタで `performance.now()` を 1 回だけサンプリングし、HTTP リクエスト開始時に取得した `origin` からの相対で TTFT を求めます。またモデルの出力を 3 つの並行チャネル（`text` / `assistantText` / `reasoningText`）に分離し、推論トークンが採点対象の回答を汚染することなくスループットに算入されるようにします。再利用可能な考え方は、測定（TTFT、トークン推定、切り詰めフラグ、ツール呼び出しの組み立て、破損ガード）をすべてストリームリーダー内で行うことで、どのベンダーの SSE 方言が生成したかによらず、比較可能でプロバイダー非依存な数値を呼び出し側に渡せる、という点です。要点は (1) 最初のデルタでのみ TTFT を刻み、(2) `usageOutputTokens`（プロバイダー報告）を優先し、なければ `approxOutputTokens`（長さベース推定）にフォールバックし、(3) 推論（reasoning/thinking）チャネルを採点用本文と物理的に分離しておくことです。OpenAI 側はここに反復ループの早期終了と tool_call 引数の破損検出まで加えます。ソース: `apps/server/src/openai-stream.ts`, `apps/server/src/anthropic-stream.ts`。両アダプタは SSE ストリームを直接パースしながら、レイテンシ・スループット・切り詰め・ツール呼び出しを一度に測定します。
+両プロバイダーアダプタは SSE の `ReadableStream` を逐次的に消費し（`consumeOpenAiChatStream` はバッファを `\n`（行）ごとに、`consumeAnthropicMessagesStream` は `\n\n`（イベントブロック、CRLF も許容）ごとに分割）、生テキストではなく単一のフラットなメトリクスオブジェクトを返します。コンシューマは *最初* の content/reasoning/tool デルタで `performance.now()` を 1 回だけサンプリングし、HTTP リクエスト開始時に取得した `origin` からの相対で TTFT を求めます。またモデルの出力を 3 つの並行チャネル（`text` / `assistantText` / `reasoningText`）に分離し、推論トークンが採点対象の回答を汚染することなくスループットに算入されるようにします。再利用可能な考え方は、測定（TTFT、トークン推定、切り詰めフラグ、ツール呼び出しの組み立て、破損ガード）をすべてストリームリーダー内で行うことで、どのベンダーの SSE 方言が生成したかによらず、比較可能でプロバイダー非依存な数値を呼び出し側に渡せる、という点です。要点は (1) 最初のデルタでのみ TTFT を刻み、(2) `usageOutputTokens`（プロバイダー報告）を優先し、なければ `approxOutputTokens`（長さベース推定）にフォールバックし、(3) 推論（reasoning/thinking）チャネルを採点用本文と物理的に分離しておくことです。OpenAI 側はここに反復ループの早期終了と tool_call 引数の破損検出まで加えます。ソース: `apps/server/src/openai-stream.ts`, `apps/server/src/anthropic-stream.ts`。両アダプタは SSE ストリームを直接パースしながら、レイテンシ・スループット・切り詰め・ツール呼び出しを一度に測定します。
 
 ### 最初のデルタでの `performance.now()` による TTFT
 
 - `origin = opts?.requestStartedAt ?? performance.now()` — HTTP 送信側から `requestStartedAt` を渡すことで、TTFT にパース時間だけでなく接続／キュー待ちのレイテンシも含めます。
 - 単一の `markTtft()` クロージャは、`ttft === null` の間だけ `ttft = performance.now() - origin` を設定するので、最初のデルタでラッチし、それ以降は冪等です。
 - 「最初のトークン」とみなす対象は意図的に選ばれています。OpenAI は `reasoning_content`、文字列 `reasoning`、`content`、`tool_calls` でマークし、Anthropic は `content_block_start`(tool_use)、`input_json_delta`、`thinking_delta`、またはテキストデルタでマークします。純粋なメタデータイベント（usage のみのチャンク、`message_delta`）は TTFT を **マークしません**。
+- **サーバーが推論チャネルを開かない場合、この定義は静かに崩れます。** Anthropic 互換 shim の中には、`thinking` を明示的に要求しない限り推論を `thinking_delta` として出力しないものがあります（LM Studio `/v1/messages` で実測）。その場合 TTFT は「最初のトークンまで」ではなく「**最初の可視トークンまで**」 — つまり prefill と推論区間の全体 — になり、同じモデルの OpenAI ルート（`reasoning_content` をストリームする）と比べて実測で最大 60 倍の差が出ました。ハーネスは (1) プロファイルの意図が思考 ON なら `thinking: { type: "enabled", budget_tokens }` を送ってチャネルを開かせ（拒否されたら一度外して再試行し、base URL ごとにキャッシュ）、(2) それでも推論が来なければ `reasoning_hidden` を `scenario_end` に載せて、消費者が TTFT の意味を判断できるようにします。ソース: `apps/server/src/anthropic-fetch.ts`。
 - `totalMs = performance.now() - origin` は読み取りループ終了後に取得します。デルタが 1 つも届かなければ `ttftMs` は `null` のままです。
 
 ### `usageOutputTokens ?? approxOutputTokens` による TPS
@@ -161,7 +162,7 @@ export function resolveBenchApiRoutes(
 | フィールド | OpenAI ソース | Anthropic ソース | 目的 |
 |---|---|---|---|
 | `assistantText` | `delta.content` only | `content_block_delta` text only | 採点対象の可視回答; ツールラウンド履歴 |
-| `reasoningText` | `delta.reasoning_content` + string `delta.reasoning` | `thinking_delta` | 推論履歴として再注入; 採点から除外 |
+| `reasoningText` | `delta.reasoning_content` + string `delta.reasoning` | `thinking_delta`（`thinking` が無ければ `text` にフォールバック） | 推論履歴として再注入; 採点から除外。サーバーが推論を隠すと空になり、そのシグナルが `reasoning_hidden` |
 | `text` | `combined`（推論 + content、到着順）+ `\n` + シリアライズした `tool_calls` | content テキスト + `\n` + シリアライズした `tool_calls`（推論は **含まない**） | スループットの分母 / `output_text` のベース |
 
 - 採点はクリーンなチャネルを優先するヘルパーを使います。`openAiBenchOutputText` は `assistantText` が非空ならそれを返し、なければ `text` にフォールバックします（最終ターンが推論のみのデルタを出す `reasoning_split` のインターリーブケースを保護）。

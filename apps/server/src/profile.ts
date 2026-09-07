@@ -1,4 +1,5 @@
 import type { BenchRunMeta, BenchTaskMode, LlmProfileFamily, ThinkingIntent } from "@llm-bench/shared";
+import { thinkingBudgetTokens } from "./anthropic-fetch.js";
 import {
   resolveBenchProfile,
   type ReasoningEffort,
@@ -111,6 +112,26 @@ export function anthropicExtrasFromMeta(meta: BenchRunMeta): Record<string, unkn
     return { ...out, ...meta.extra_body };
   }
   return out;
+}
+
+/**
+ * #173: Anthropic `messages` 라우트에 실을 extended thinking 요청.
+ *
+ * 이걸 안 보내면 LM Studio의 `/v1/messages`는 추론을 스트림에 내보내지 않는다 — 모델에 따라
+ * 추론을 생성하고 델타를 버리거나(전용 추론 모델), 아예 추론을 하지 않는다(하이브리드). 어느 쪽이든
+ * `chat_completions`(= `reasoning_content`를 흘림)와 **다른 것을 측정**하게 되고, TTFT가 추론
+ * 구간을 통째로 삼켜 60배까지 벌어졌다.
+ *
+ * 프로필이 사고 OFF면 null — 프로필 의도를 뒤집지 않는다.
+ * `max_tokens`가 작아 `1024 ≤ budget_tokens < max_tokens`를 못 맞추면 null(필드 생략).
+ */
+export function anthropicThinkingFromMeta(
+  meta: BenchRunMeta,
+  maxTokens: number,
+): { type: "enabled"; budget_tokens: number } | null {
+  if (meta.profile_thinking_intent === "off") return null;
+  const budget = thinkingBudgetTokens(maxTokens);
+  return budget == null ? null : { type: "enabled", budget_tokens: budget };
 }
 
 export function openAiExtrasFromMeta(meta: BenchRunMeta): Record<string, unknown> {
