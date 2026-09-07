@@ -1,7 +1,7 @@
 import type { LoadTtlStatus } from "@llm-bench/shared";
 import { verifyLmStudioTtlApplied } from "./lms-ttl-verify.js";
 import type { FetchLike } from "./detect.js";
-import { baseUrlCacheKey } from "./http-shared.js";
+import { baseUrlCacheKey, isErrorEnvelope, stripDocumentedApiBaseSuffix } from "./http-shared.js";
 import { providerFetch } from "./provider-fetch.js";
 
 function headers(apiKey?: string): HeadersInit {
@@ -27,8 +27,22 @@ type LmStudioListedModel = {
   loaded_instances?: LmStudioLoadedInstance[];
 };
 
+/**
+ * 네이티브 REST 오리진 루트. 문서화된 baseUrl 기본형은 `http://host:1234/v1`(OpenAI 호환)이라
+ * 접미사를 벗기지 않으면 `/v1/api/v1/models`를 때리게 되고, LM Studio는 그런 경로에
+ * 404가 아니라 200 + `{"error": ...}`를 준다 — 실패가 조용한 성공으로 둔갑한다.
+ */
 function apiRoot(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, "");
+  return stripDocumentedApiBaseSuffix(baseUrl.replace(/\/+$/, ""));
+}
+
+/** 본문이 JSON이면 파싱, 아니면 undefined — error 봉투 판별용. */
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
 
 /** 인스턴스 객체에서 keys를 순서대로 시도해 첫 유한·비음수 값(monitor-collect numberField와 동일 폴백). */
@@ -123,17 +137,21 @@ export async function lmStudioListModels(
     const t = await r.text();
     if (r.status === 404) continue;
     if (!r.ok) return { ok: false, status: r.status, models: [], body: t.slice(0, 2000) };
+    let parsed: unknown;
     try {
-      const j = JSON.parse(t) as { models?: unknown[] };
-      return {
-        ok: true,
-        status: r.status,
-        models: Array.isArray(j.models) ? (j.models as LmStudioListedModel[]) : [],
-        body: t.slice(0, 2000),
-      };
+      parsed = JSON.parse(t);
     } catch {
       return { ok: false, status: r.status, models: [], body: "invalid model list response" };
     }
+    // v1은 `{models:[…]}`, v0는 `{object,data:[…]}` — 형태가 다르다.
+    const j = parsed as { models?: unknown[]; data?: unknown[] };
+    const list = Array.isArray(j.models) ? j.models : Array.isArray(j.data) ? j.data : null;
+    if (list === null) {
+      // 200이지만 목록이 없다 = 이 엔드포인트가 아니다. 다음 후보로 넘어간다.
+      if (isErrorEnvelope(parsed)) continue;
+      return { ok: false, status: r.status, models: [], body: t.slice(0, 2000) };
+    }
+    return { ok: true, status: r.status, models: list as LmStudioListedModel[], body: t.slice(0, 2000) };
   }
   return { ok: false, status: 404, models: [], body: "no list endpoint" };
 }
@@ -172,6 +190,7 @@ export async function lmStudioLoad(
   const root = apiRoot(baseUrl);
   const candidates = [`${root}/api/v1/models/load`, `${root}/api/v0/models/load`];
   const body = JSON.stringify({ model: modelKey });
+  let last = { ok: false, status: 404, body: "no load endpoint" };
   for (const url of candidates) {
     const r = await fetchImpl(url, {
       method: "POST",
@@ -179,9 +198,16 @@ export async function lmStudioLoad(
       body,
     });
     const t = await r.text();
-    if (r.status !== 404) return { ok: r.ok, status: r.status, body: t.slice(0, 2000) };
+    if (r.status === 404) continue;
+    // LM Studio는 모르는 경로에 200 + `{"error":…}`를 준다 — 성공으로 세면 로드하지 않고
+    // 로드했다고 보고한다. 다음 후보를 시도하고, 다 떨어지면 실패로 돌린다.
+    if (r.ok && isErrorEnvelope(safeJson(t))) {
+      last = { ok: false, status: r.status, body: t.slice(0, 2000) };
+      continue;
+    }
+    return { ok: r.ok, status: r.status, body: t.slice(0, 2000) };
   }
-  return { ok: false, status: 404, body: "no load endpoint" };
+  return last;
 }
 
 /**
@@ -426,6 +452,7 @@ export async function lmStudioUnload(
 
   const postUnload = async (payload: Record<string, unknown>) => {
     const body = JSON.stringify(payload);
+    let last = { ok: false, status: 404, body: "no unload endpoint" };
     for (const url of candidates) {
       const r = await fetchImpl(url, {
         method: "POST",
@@ -433,9 +460,14 @@ export async function lmStudioUnload(
         body,
       });
       const t = await r.text();
-      if (r.status !== 404) return { ok: r.ok, status: r.status, body: t.slice(0, 2000) };
+      if (r.status === 404) continue;
+      if (r.ok && isErrorEnvelope(safeJson(t))) {
+        last = { ok: false, status: r.status, body: t.slice(0, 2000) };
+        continue;
+      }
+      return { ok: r.ok, status: r.status, body: t.slice(0, 2000) };
     }
-    return { ok: false, status: 404, body: "no unload endpoint" };
+    return last;
   };
 
   const listed = await lmStudioListModels(baseUrl, opts);
