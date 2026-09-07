@@ -2,16 +2,20 @@
  * #174: 요청한 `max_tokens` 상한이 모델에 전달되지 않던 문제의 단일 해소 지점.
  *
  * 상한 소스가 넷이라 우선순위를 여기 한 곳에서만 정한다:
- *   1. `bench.max_tokens`   — 요청 레벨 명시값(API). **하드 상한**
- *   2. `profileMaxTokens`   — 프로필 패널 명시값(웹 UI가 보내는 것). 하드 상한
- *   3. 시나리오 `sampling.max_tokens` — 시나리오 작성자가 밝힌 의도
- *   4. max(vision floor, 프로필 권장값) — 아무 명시도 없을 때의 기본값
+ *   1. `bench.max_tokens`   — 요청 레벨 명시값(API 전용). **하드 상한**
+ *   2. 시나리오 `sampling.max_tokens` — 시나리오가 정의한 과업 제약
+ *   3. `profileMaxTokens`   — 프로필 패널 명시값(웹 UI가 보내는 것)
+ *   4. max(vision floor, 프로필 권장값) — 아무것도 없을 때의 기본값
  *
- * 1·2는 사용자가 직접 쓴 숫자이므로 vision floor보다도 우선한다 — 상한이 너무 작아 잘리면
- * 기존 `truncated_at_max_tokens=N` 라벨이 붙으므로 조용히 부풀리는 것보다 낫다.
+ * 1이 vision floor보다도 위인 것은, 상한이 너무 작아 잘리면 기존 `truncated_at_max_tokens=N`
+ * 라벨이 붙기 때문이다 — 사용자가 쓴 숫자를 조용히 부풀리는 것보다 낫다.
  *
- * 3이 4보다 위인 것은 agent 경로(`def.sampling?.max_tokens ?? args.maxTokens`)와 맞추기 위해서다.
- * 4의 `max()` 안에 넣으면 권장값이 더 클 때 시나리오 의도가 조용히 무시된다.
+ * **2가 3보다 위인 것이 중요하다.** `profileMaxTokens`는 "일반 `max_tokens`와 분리해 시나리오별
+ * 권장값과 충돌하지 않게" 만든 필드이고(`BenchRequest.profileMaxTokens` 주석), 웹 UI는 이것만
+ * 보낸다. 이걸 시나리오 위에 두면 UI의 max_tokens 칸에 값을 넣는 것만으로 `agent_loop_*`의
+ * per-turn 예산(192/512/640)이 전부 덮인다 — `agent_loop_budget_v1`은 그 192가 과업 자체다.
+ * 2가 4보다 위인 것도 같은 이유이며, agent 경로의 기존 동작(`def.sampling ?? args.maxTokens`)과
+ * 일치한다.
  */
 
 export type MaxTokensSource =
@@ -53,12 +57,13 @@ export function resolveEffectiveMaxTokens(o: ResolveMaxTokensInput): ResolvedMax
   const request = positiveInt(o.requestMaxTokens);
   if (request != null) return { value: request, source: "request" };
 
-  const profile = positiveInt(o.profileMaxTokens);
-  if (profile != null) return { value: profile, source: "profile" };
-
-  // 시나리오가 스스로 밝힌 상한은 프로필 권장값보다 구체적이므로 그대로 존중한다(agent 경로와 동일).
+  // 시나리오가 정의한 제약은 프로필 패널 값·권장값보다 구체적이므로 그대로 존중한다
+  // (agent per-turn 예산이 여기 해당한다 — UI 입력 하나로 덮이면 과업 자체가 바뀐다).
   const scenario = positiveInt(o.scenarioMaxTokens);
   if (scenario != null) return { value: scenario, source: "scenario" };
+
+  const profile = positiveInt(o.profileMaxTokens);
+  if (profile != null) return { value: profile, source: "profile" };
 
   // 아무 명시도 없을 때만 기본값들의 최댓값. 동률이면 구체적인 쪽(vision > 권장값)이 이긴다.
   const candidates: ReadonlyArray<{ value: number | null; source: MaxTokensSource }> = [

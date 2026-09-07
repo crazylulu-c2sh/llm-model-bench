@@ -1853,3 +1853,44 @@ describe("#173: messages 라우트에 thinking 을 실어 TTFT 를 비교 가능
     expect(ends[0]!.metrics.reasoning_chars).toBeUndefined();
   });
 });
+
+describe("agent_loop per-turn 예산은 UI 프로필 값에 덮이지 않는다", () => {
+  // `agent_loop_budget_v1` 의 192 는 과업 자체다(시나리오 이름이 budget). 웹 UI 는 최상위
+  // max_tokens 를 안 보내고 profileMaxTokens 만 보내므로, 이게 시나리오를 이기면 UI 입력 하나로
+  // 모든 agent 예산(192/512/640)이 덮인다.
+  async function perTurnMaxTokens(req: Partial<BenchRequest>) {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    for await (const _ of runBench(
+      baseBenchRequest({
+        skipModelLoad: true,
+        scenarioIds: ["agent_loop_budget_v1" as unknown as ScenarioId],
+        ...req,
+      }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      void _;
+    }
+    return bodies.map((b) => b.max_tokens);
+  }
+
+  it("아무 상한도 없으면 시나리오 예산 192", async () => {
+    expect(await perTurnMaxTokens({})).toEqual([192]);
+  });
+
+  it("profileMaxTokens(UI 칸)로는 덮이지 않는다", async () => {
+    expect(await perTurnMaxTokens({ profileMaxTokens: 8192 })).toEqual([192]);
+  });
+
+  it("요청 레벨 max_tokens 는 하드 상한이라 덮는다 (의도된 동작)", async () => {
+    expect(await perTurnMaxTokens({ max_tokens: 8192 })).toEqual([8192]);
+  });
+});

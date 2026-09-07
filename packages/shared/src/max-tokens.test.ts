@@ -17,10 +17,35 @@ describe("resolveEffectiveMaxTokens: 우선순위", () => {
     ).toEqual({ value: 293, source: "request" });
   });
 
-  it("요청이 없으면 프로필 명시값", () => {
+  it("우선순위 전체: 요청 > 시나리오 > 프로필 > max(vision, 권장값)", () => {
+    const all = { requestMaxTokens: 100, scenarioMaxTokens: 200, profileMaxTokens: 300,
+      visionFloor: 400, profileRecommended: 500 };
+    expect(resolveEffectiveMaxTokens(all)).toEqual({ value: 100, source: "request" });
+    expect(resolveEffectiveMaxTokens({ ...all, requestMaxTokens: null })).toEqual({
+      value: 200, source: "scenario" });
     expect(
-      resolveEffectiveMaxTokens({ ...base, profileMaxTokens: 2048, scenarioMaxTokens: 640 }),
-    ).toEqual({ value: 2048, source: "profile" });
+      resolveEffectiveMaxTokens({ ...all, requestMaxTokens: null, scenarioMaxTokens: null }),
+    ).toEqual({ value: 300, source: "profile" });
+    expect(
+      resolveEffectiveMaxTokens({
+        ...all, requestMaxTokens: null, scenarioMaxTokens: null, profileMaxTokens: null,
+      }),
+    ).toEqual({ value: 500, source: "recommended" });
+  });
+
+  it("시나리오 제약이 프로필 패널 값보다 우선한다", () => {
+    // `profileMaxTokens`는 "시나리오별 권장값과 충돌하지 않게" 만든 필드이고 웹 UI는 이것만 보낸다.
+    // 이게 시나리오 위에 있으면 UI 입력 하나로 agent per-turn 예산이 덮인다.
+    expect(
+      resolveEffectiveMaxTokens({ ...base, profileMaxTokens: 8192, scenarioMaxTokens: 192 }),
+    ).toEqual({ value: 192, source: "scenario" });
+  });
+
+  it("시나리오가 없으면 프로필 명시값", () => {
+    expect(resolveEffectiveMaxTokens({ ...base, profileMaxTokens: 2048 })).toEqual({
+      value: 2048,
+      source: "profile",
+    });
   });
 
   it("요청·프로필이 없으면 시나리오 sampling 이 권장값보다 우선", () => {
