@@ -1019,7 +1019,8 @@ describe("runBench judge integration — 4 cases", () => {
   });
 });
 
-// Section B — vision default acts as floor (Math.max guard).
+// Section B — vision default acts as a floor **only when no explicit cap is given**.
+// #174 이후: 요청 레벨 `max_tokens`는 하드 상한이라 vision floor보다도 우선한다.
 // We inspect the POST body to confirm the actual `max_tokens` sent upstream.
 describe("runBench vision max_tokens — default as floor (B)", () => {
   function capturingFetchImpl(captured: { max_tokens?: number }) {
@@ -1075,7 +1076,9 @@ describe("runBench vision max_tokens — default as floor (B)", () => {
     expect(captured.max_tokens).toBe(4096);
   });
 
-  it("user max_tokens smaller than vision default clamps up to default (256 → 2048)", async () => {
+  // #174: 예전에는 256이 vision floor 2048로 조용히 올라갔다. 사용자가 쓴 상한을 부풀리면
+  // 요청과 다른 것을 측정하게 되므로, 이제는 명시값이 이기고 잘리면 `truncated_at_max_tokens`로 드러낸다.
+  it("user max_tokens smaller than vision default still wins (256 stays 256)", async () => {
     const captured: { max_tokens?: number } = {};
     for await (const _ of runBench(
       baseBenchRequest({
@@ -1089,7 +1092,7 @@ describe("runBench vision max_tokens — default as floor (B)", () => {
     )) {
       void _;
     }
-    expect(captured.max_tokens).toBe(2048);
+    expect(captured.max_tokens).toBe(256);
   });
 });
 
@@ -1599,5 +1602,159 @@ describe("runBench custom single-turn scenario (#83)", () => {
     expect(aggregate!.runs![0]!.quality).toMatchObject({ score: 0.33 });
 
     shared.unregisterScenarioDef("custom_single_turn_test");
+  });
+});
+
+describe("#174: bench.max_tokens 가 실제 업스트림 요청에 실린다", () => {
+  function messagesOnlyDetect(): DetectResult {
+    return {
+      provider: "lm_studio",
+      baseUrl: "http://127.0.0.1:1234/",
+      models: [{ id: MODEL_ID }],
+      steps: [],
+      capabilities: { openaiChat: false, anthropicMessages: true },
+    };
+  }
+  function sseMessagesOk(): Response {
+    const enc = new TextEncoder();
+    const blocks = [
+      `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pong"}}`,
+      `event: message_stop\ndata: {"type":"message_stop"}`,
+    ];
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const b of blocks) controller.enqueue(enc.encode(b + "\n\n"));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
+
+  /** 업스트림에 실제로 나간 바디들을 모아 반환. */
+  async function bodiesFor(req: Partial<BenchRequest>, detect: DetectResult) {
+    const bodies: Record<string, unknown>[] = [];
+    const ends: Extract<StreamEvent, { type: "scenario_end" }>[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions") || url.endsWith("/v1/messages")) {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return url.endsWith("/v1/messages") ? sseMessagesOk() : sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    for await (const ev of runBench(
+      baseBenchRequest({ skipModelLoad: true, ...req }),
+      detect,
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_end") ends.push(ev);
+    }
+    return { bodies, ends };
+  }
+
+  it("chat_completions 요청 바디의 max_tokens 가 요청값과 같다", async () => {
+    const { bodies } = await bodiesFor({ max_tokens: 293 }, lmStudioDetect());
+    expect(bodies).not.toHaveLength(0);
+    for (const b of bodies) expect(b.max_tokens).toBe(293);
+  });
+
+  it("messages 요청 바디의 max_tokens 가 요청값과 같다", async () => {
+    const { bodies } = await bodiesFor({ max_tokens: 293 }, messagesOnlyDetect());
+    expect(bodies).not.toHaveLength(0);
+    for (const b of bodies) expect(b.max_tokens).toBe(293);
+  });
+
+  it("요청 상한이 없으면 프로필 권장값이 쓰이고, 있으면 그것이 이긴다 (회귀 대조)", async () => {
+    // 수정 전에는 두 경우가 모두 권장값이 나왔다 — 대조가 이 테스트의 요점.
+    const { bodies: withoutCap } = await bodiesFor({}, lmStudioDetect());
+    const recommended = withoutCap[0]!.max_tokens as number;
+    expect(recommended).toBeGreaterThan(293);
+
+    const { bodies: withCap } = await bodiesFor({ max_tokens: 293 }, lmStudioDetect());
+    expect(withCap[0]!.max_tokens).toBe(293);
+  });
+
+  it("profileMaxTokens 는 요청 상한 아래에 놓인다", async () => {
+    const { bodies: onlyProfile } = await bodiesFor({ profileMaxTokens: 777 }, lmStudioDetect());
+    expect(onlyProfile[0]!.max_tokens).toBe(777);
+
+    const { bodies: both } = await bodiesFor(
+      { max_tokens: 293, profileMaxTokens: 777 },
+      lmStudioDetect(),
+    );
+    expect(both[0]!.max_tokens).toBe(293);
+  });
+
+  it("scenario_end 에 실효 상한과 출처가 실린다", async () => {
+    const { ends } = await bodiesFor({ max_tokens: 293 }, lmStudioDetect());
+    expect(ends).not.toHaveLength(0);
+    for (const ev of ends) {
+      expect(ev.metrics.max_tokens_effective).toBe(293);
+      expect(ev.metrics.max_tokens_source).toBe("request");
+    }
+  });
+
+  it("요청 상한이 없으면 출처가 request 가 아니다", async () => {
+    const { ends } = await bodiesFor({}, lmStudioDetect());
+    expect(ends[0]!.metrics.max_tokens_source).toBe("recommended");
+  });
+});
+
+describe("#174: 비-agent 커스텀 시나리오의 sampling 이 반영된다", () => {
+  const ID = "custom_sampling_test" as unknown as ScenarioId;
+
+  async function register(sampling: Record<string, number>) {
+    const shared = await import("@llm-bench/shared");
+    shared.registerScenarioDef(
+      shared.ScenarioDefSchema.parse({
+        id: ID,
+        source: "custom",
+        system: "S",
+        user: "U",
+        sampling,
+      }),
+    );
+    return shared;
+  }
+
+  async function chatBodyFor(req: Partial<BenchRequest> = {}) {
+    let body: Record<string, unknown> = {};
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return sseChatOk();
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    for await (const _ of runBench(
+      baseBenchRequest({ skipModelLoad: true, scenarioIds: [ID], ...req }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      void _;
+    }
+    return body;
+  }
+
+  it("sampling.max_tokens 가 프로필 권장값 대신 쓰인다 (예전엔 조용히 무시)", async () => {
+    const shared = await register({ max_tokens: 640, temperature: 0 });
+    try {
+      const body = await chatBodyFor();
+      expect(body.max_tokens).toBe(640);
+    } finally {
+      shared.unregisterScenarioDef(ID);
+    }
+  });
+
+  it("요청 레벨 명시값이 시나리오 sampling 을 이긴다", async () => {
+    const shared = await register({ max_tokens: 640, temperature: 0 });
+    try {
+      // temperature 는 이번 범위 밖 — 요청 레벨 temperature 도 프로파일 프리셋에 덮이는 별개 문제.
+      const body = await chatBodyFor({ max_tokens: 293 });
+      expect(body.max_tokens).toBe(293);
+    } finally {
+      shared.unregisterScenarioDef(ID);
+    }
   });
 });

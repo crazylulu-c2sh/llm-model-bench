@@ -329,8 +329,13 @@ export type AgentLoopArgs = {
   fetchImpl: typeof fetch;
   signal?: AbortSignal;
   requestStartedAt?: number;
-  /** def.sampling가 없을 때 폴백 max_tokens/temperature. */
+  /**
+   * #174: 이미 해소된 실효 상한. bench-runner 의 `resolveEffectiveMaxTokens` 가
+   * 요청·프로필·`def.sampling`·vision floor 우선순위를 접어 넘기므로 여기서 다시
+   * `def.sampling.max_tokens` 를 우선하면 요청 레벨 하드 상한이 덮인다.
+   */
   maxTokens: number;
+  /** def.sampling 가 없을 때 폴백 temperature. */
   temperature: number;
 };
 
@@ -362,7 +367,7 @@ export async function* runAgentLoopOpenAi(
       messages,
       stream: true,
       temperature: def.sampling?.temperature ?? args.temperature,
-      max_tokens: def.sampling?.max_tokens ?? args.maxTokens,
+      max_tokens: args.maxTokens,
       ...(def.sampling?.top_p != null ? { top_p: def.sampling.top_p } : {}),
       ...(tools.length ? { tools, tool_choice: "auto" } : {}),
       ...openAiExtrasFromMeta(meta),
@@ -406,7 +411,7 @@ export async function* runAgentLoopOpenAi(
       combinedText: m.text,
       finishReason: m.finishReason,
     };
-    const decision = stepAgentLoop(turn, def, loop, state, cursor, def.sampling?.max_tokens ?? args.maxTokens);
+    const decision = stepAgentLoop(turn, def, loop, state, cursor, args.maxTokens);
     if (decision.kind === "final") {
       return finalize(state, decision.reason, decision.turnsToCompletion, decision.visible, decision.combined);
     }
@@ -450,7 +455,7 @@ export async function* runAgentLoopAnthropic(
       model,
       system: def.system,
       messages,
-      max_tokens: def.sampling?.max_tokens ?? args.maxTokens,
+      max_tokens: args.maxTokens,
       temperature: def.sampling?.temperature ?? args.temperature,
       stream: true,
       ...(tools.length ? { tools } : {}),
@@ -498,7 +503,7 @@ export async function* runAgentLoopAnthropic(
       combinedText: m.text,
       finishReason: m.stopReason,
     };
-    const decision = stepAgentLoop(turn, def, loop, state, cursor, def.sampling?.max_tokens ?? args.maxTokens);
+    const decision = stepAgentLoop(turn, def, loop, state, cursor, args.maxTokens);
     if (decision.kind === "final") {
       return finalize(state, decision.reason, decision.turnsToCompletion, decision.visible, decision.combined);
     }

@@ -171,6 +171,7 @@ export function resolveBenchApiRoutes(
 
 - OpenAI は最後の非空 `choices[0].finish_reason` を `finishReason` に格納します。`"length"` は `max_tokens` の上限に達した（切り詰め）ことを意味します。Anthropic は `message_delta.delta.stop_reason` を `stopReason` に格納し、`"max_tokens"` が切り詰めのシグナルです。
 - どちらのフィールドも、それらを省略する OpenAI 互換サーバーでは `null` になり得るので、`null` は「クリーンな停止」ではなく「不明」として扱います。なお Anthropic はストリームの *完了*（`message_stop` からの `sawMessageDelta`）を *理由* とは別に追跡します。[^oai-compat][^anthropic-stream]
+- **上限そのものがどこから来たかも記録しましょう。** 出力長は TPS を大きく動かすため（短い実行ほど固定費が薄まりレートが膨らむ）、実行ごとに上限が変わると回帰判定はモデルの変化ではなく出力長の変化を拾ってしまいます。ハーネスは上限のソースが 4 つ（リクエストレベルの明示値・プロファイルの明示値・シナリオの `sampling.max_tokens`・vision floor / プロファイル推奨値）あるため、優先順位を `resolveEffectiveMaxTokens()` の一箇所だけで決め、決定した値と**出典**を `scenario_end.metrics` の `max_tokens_effective`・`max_tokens_source` として一緒に出力します。リクエストレベルの明示値はハード上限であり vision floor よりも優先されます — 黙って膨らませるより、切り詰めさせて `truncated_at_max_tokens=N` で顕在化させるほうが良いからです。ソース: `packages/shared/src/max-tokens.ts`。
 
 ### インデックスによる `tool_call` のマージ
 

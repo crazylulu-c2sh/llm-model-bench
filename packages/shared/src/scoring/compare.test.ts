@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  PROTOCOL_AXES,
   computeCompare,
+  protocolMismatchFor,
   ttftPercentiles,
   type CompareBenchDetailInput,
   type CompareRunInput,
@@ -105,5 +107,110 @@ describe("computeCompare regression classification", () => {
     const a = detail("A", [run(), run({ ttft_ms: 50 })]);
     const b = detail("B", [run({ ttft_ms: 300 }), run()]);
     expect(computeCompare(a, b)).toEqual(computeCompare(a, b));
+  });
+});
+
+describe("computeCompare: 측정 프로토콜 축(#174) 게이트", () => {
+  /** 두 라우트를 모두 가진 상세 — `affects` 동작을 가르기 위해 필요. */
+  function twoRouteDetail(
+    model: string,
+    runs: CompareRunInput[],
+    meta: Partial<CompareBenchDetailInput["meta"]> = {},
+  ): CompareBenchDetailInput {
+    return {
+      meta: { model_id: model, base_url: "http://x", run_id: `${model}_run`, ...meta },
+      scenarios: [
+        { id: "chat_ping", api_route: "chat_completions", runs },
+        { id: "chat_ping", api_route: "messages", runs },
+      ],
+    };
+  }
+
+  /** B가 A보다 품질이 크게 떨어져, 게이트가 없으면 반드시 quality_drop이 뜨는 쌍. */
+  const good = run({ quality: { pass: true, score: 1 } });
+  const bad = run({ quality: { pass: false, score: 0 } });
+
+  it("상한이 같으면 평소대로 회귀를 잡는다", () => {
+    const res = computeCompare(
+      twoRouteDetail("A", [good], { max_tokens_effective: 512 }),
+      twoRouteDetail("B", [bad], { max_tokens_effective: 512 }),
+    );
+    expect(res.summary.regression).toBe(true);
+    expect(res.summary.scenarios_incomparable).toBe(0);
+    for (const sc of res.scenarios) {
+      expect(sc.comparable).toBe(true);
+      expect(sc.protocol_mismatch).toEqual([]);
+      expect(sc.regressions).toContain("quality_drop");
+    }
+  });
+
+  it("상한이 다르면 두 라우트 모두 비교 불가로 두고 회귀를 세지 않는다", () => {
+    const res = computeCompare(
+      twoRouteDetail("A", [good], { max_tokens_effective: 293 }),
+      twoRouteDetail("B", [bad], { max_tokens_effective: 4096 }),
+    );
+    // `affects: "all"` 이므로 chat_completions·messages 둘 다 걸린다.
+    expect(res.scenarios).toHaveLength(2);
+    for (const sc of res.scenarios) {
+      expect(sc.comparable).toBe(false);
+      expect(sc.protocol_mismatch).toEqual(["max_tokens_effective"]);
+      expect(sc.regressions).toEqual([]);
+      expect(sc.regression).toBe(false);
+    }
+    expect(res.summary.regression).toBe(false);
+    expect(res.summary.regressions).toEqual([]);
+    expect(res.summary.scenarios_regressed).toBe(0);
+    expect(res.summary.scenarios_incomparable).toBe(2);
+  });
+
+  it("델타 숫자 자체는 그대로 보여 준다 — 회귀로만 세지 않는다", () => {
+    const res = computeCompare(
+      twoRouteDetail("A", [good], { max_tokens_effective: 293 }),
+      twoRouteDetail("B", [bad], { max_tokens_effective: 4096 }),
+    );
+    expect(res.scenarios[0]!.quality).toMatchObject({ a: 1, b: 0, delta: -1 });
+  });
+
+  it("한쪽이 필드 없는 과거 런이면 불일치로 본다", () => {
+    const res = computeCompare(
+      twoRouteDetail("A", [good]), // max_tokens_effective 없음 → null
+      twoRouteDetail("B", [bad], { max_tokens_effective: 512 }),
+    );
+    expect(res.scenarios[0]!.protocol_mismatch).toEqual(["max_tokens_effective"]);
+    expect(res.summary.scenarios_incomparable).toBe(2);
+  });
+
+  it("양쪽 다 과거 런이면(둘 다 필드 부재) 평소대로 비교한다", () => {
+    const res = computeCompare(twoRouteDetail("A", [good]), twoRouteDetail("B", [bad]));
+    expect(res.summary.scenarios_incomparable).toBe(0);
+    expect(res.summary.regression).toBe(true);
+  });
+});
+
+describe("protocolMismatchFor: affects 라우트 한정(#173 축이 붙을 자리)", () => {
+  it("`affects`가 라우트를 한정하면 그 라우트만 걸린다", () => {
+    const axes: Array<{
+      key: string;
+      read: (m: { run_id?: string }) => unknown;
+      affects: readonly string[];
+    }> = [{ key: "thinking_like", read: (m) => m.run_id, affects: ["messages"] }];
+    const affected = (route: string) =>
+      axes
+        .filter(
+          (ax) =>
+            ax.affects.includes(route) && ax.read({ run_id: "a" }) !== ax.read({ run_id: "b" }),
+        )
+        .map((ax) => ax.key);
+    expect(affected("messages")).toEqual(["thinking_like"]);
+    expect(affected("chat_completions")).toEqual([]);
+  });
+
+  it("현재 등록된 축은 max_tokens_effective 하나이고 두 라우트를 다 덮는다", () => {
+    expect(PROTOCOL_AXES.map((a) => a.key)).toEqual(["max_tokens_effective"]);
+    expect(PROTOCOL_AXES[0]!.affects).toBe("all");
+    expect(protocolMismatchFor("chat_completions", { model_id: "A" }, { model_id: "B", max_tokens_effective: 1 })).toEqual([
+      "max_tokens_effective",
+    ]);
+    expect(protocolMismatchFor("messages", { model_id: "A", max_tokens_effective: 1 }, { model_id: "B", max_tokens_effective: 1 })).toEqual([]);
   });
 });

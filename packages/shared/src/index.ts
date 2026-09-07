@@ -147,6 +147,13 @@ export {
   tpsSourceFromUsage,
 } from "./tps";
 
+export {
+  resolveEffectiveMaxTokens,
+  type MaxTokensSource,
+  type ResolveMaxTokensInput,
+  type ResolvedMaxTokens,
+} from "./max-tokens";
+
 export { formatTtftMs, formatTps } from "./metrics-display";
 
 export {
@@ -323,6 +330,15 @@ export type DetectResult = z.infer<typeof DetectResultSchema>;
 export const FitPolicySchema = z.enum(["skip", "unload_other_models"]).optional();
 export type FitPolicy = z.infer<typeof FitPolicySchema>;
 
+/** #174: `max_tokens` 실효값이 어느 소스에서 왔는지. `resolveEffectiveMaxTokens`와 값 집합 동일. */
+export const MaxTokensSourceSchema = z.enum([
+  "request",
+  "profile",
+  "scenario",
+  "vision",
+  "recommended",
+]);
+
 export const BenchRunMetaSchema = z.object({
   run_id: z.string(),
   app_version: z.string().optional(),
@@ -337,6 +353,12 @@ export const BenchRunMetaSchema = z.object({
   scenario_bundle_version: z.string(),
   temperature: z.number(),
   max_tokens: z.number(),
+  /**
+   * #174: 실제로 업스트림 요청에 실린 `max_tokens`와 그 출처.
+   * `max_tokens`는 프로필 증강 후 값이라 요청 명시값과 다를 수 있어, 사후 대조용으로 따로 남긴다.
+   */
+  max_tokens_effective: z.number().optional(),
+  max_tokens_source: MaxTokensSourceSchema.optional(),
   /** Applied sampling (subset sent upstream depending on route) */
   effective_sampling: z
     .object({
@@ -488,6 +510,9 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
       /** provider 보고 출력 토큰 수(없으면 null). 있으면 TPS가 이 값을 사용. */
       usage_output_tokens: z.number().nullable().optional(),
       stream_completed: z.boolean(),
+      /** #174: 이 시나리오 요청에 실제로 실린 `max_tokens`와 그 출처. */
+      max_tokens_effective: z.number().optional(),
+      max_tokens_source: MaxTokensSourceSchema.optional(),
     }),
     quality: z
       .object({
