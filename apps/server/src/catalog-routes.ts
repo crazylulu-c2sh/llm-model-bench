@@ -100,8 +100,12 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
   });
 
   app.get(`${prefix}/catalog`, (c) => {
+    // #165: `/scenarios`와 달리 `set`을 무시하고 PUBLIC_SCENARIO_IDS로 고정돼 있었다 —
+    // 이 엔드포인트를 쓰는 MCP list_capabilities(apps/mcp/src/tools.ts)에 agent_loop 등
+    // 비공개 세트가 영구히 안 보이는 원인이었다. `/scenarios`와 동일한 idsForSet()으로 통일.
+    const set = c.req.query("set");
     return c.json({
-      scenarios: buildScenarioCatalog(PUBLIC_SCENARIO_IDS),
+      scenarios: buildScenarioCatalog(idsForSet(set)),
       profiles: LLM_PROFILE_DEFINITIONS,
       stressWorkloads: STRESS_WORKLOAD_IDS,
     });

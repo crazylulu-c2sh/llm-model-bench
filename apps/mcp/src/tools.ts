@@ -252,8 +252,10 @@ export function registerTools(server: McpServer, client: BenchClient, cfg: McpCo
     {
       title: "카탈로그(시나리오+프로파일+워크로드)",
       description: "무엇을 벤치할 수 있고 어떻게 채점되는지 한 번에.",
+      // #165: list_scenarios와 동일 — set 미지정 시 서버 기본(public)으로 하위 호환 유지.
+      inputSchema: { set: z.enum(["public", "default", "vision", "agent", "custom", "all"]).optional() },
     },
-    async () => ok(await client.getJson("/catalog")),
+    async ({ set }) => ok(await client.getJson(`/catalog${set ? `?set=${set}` : ""}`)),
   );
 
   server.registerTool(
