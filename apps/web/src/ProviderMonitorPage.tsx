@@ -266,7 +266,11 @@ function SystemCard({
           <div className="flex flex-col gap-1">
             {gpu.devices.map((d) => (
               <div key={d.index} className="font-mono">
-                #{d.index} {d.name} — {d.memoryUsedMiB.toFixed(0)} / {d.memoryTotalMiB.toFixed(0)} MiB ·{" "}
+                {/* #185: macOS(ioreg) 소스는 memory*MiB가 없다(통합 메모리라 GPU 전용량 개념이 없음). */}
+                #{d.index} {d.name} —{" "}
+                {d.memoryUsedMiB != null && d.memoryTotalMiB != null
+                  ? `${d.memoryUsedMiB.toFixed(0)} / ${d.memoryTotalMiB.toFixed(0)} MiB · `
+                  : ""}
                 {d.utilizationPct}% util
               </div>
             ))}

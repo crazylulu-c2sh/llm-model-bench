@@ -467,6 +467,12 @@ export type GateResult = {
   waitedMs: number;
   effective: boolean;
   gpuSignalAvailable: boolean;
+  /**
+   * #185: `!effective`(신호 소스가 0개라 "확인해서 유휴"가 아니라 "확인할 방법이 없어 통과")일
+   * 때의 구체적 사유(`no_contention_signal_available` 등, `ContentionProbe.sampleIdle`의
+   * `reasons[0]`). 진단용 — DB `meta_json`/`contention_summary`로 노출된다.
+   */
+  noSignalReason?: string;
   baseline?: InFlightBaseline;
   /** 실패 시 오류 코드. */
   code?: "pre_bench_wait_timeout" | "between_iteration_wait_timeout" | "total_wait_budget_exceeded";
@@ -500,11 +506,13 @@ export async function* runIdleGate(
   let polls = 0;
   let effective = false;
   let gpuSignalAvailable = false;
+  let noSignalReason: string | undefined;
 
   for (;;) {
     const s = await probe.sampleIdle();
     effective = s.hasActiveSignal;
     gpuSignalAvailable = s.gpuSignalAvailable;
+    noSignalReason = s.hasActiveSignal ? undefined : s.reasons[0];
     const waited = clock.now() - start;
 
     if (!s.active) {
@@ -514,6 +522,7 @@ export async function* runIdleGate(
           waitedMs: 0,
           effective,
           gpuSignalAvailable,
+          noSignalReason,
           baseline: await probe.segmentBaseline(),
         };
       }
@@ -531,6 +540,7 @@ export async function* runIdleGate(
           waitedMs: waited,
           effective,
           gpuSignalAvailable,
+          noSignalReason,
           baseline: await probe.segmentBaseline(),
         };
       }
@@ -556,7 +566,14 @@ export async function* runIdleGate(
     polls++;
 
     if (params.waitAccum.total >= cfg.totalWaitBudgetMs) {
-      return { idle: false, waitedMs: waited, effective, gpuSignalAvailable, code: "total_wait_budget_exceeded" };
+      return {
+        idle: false,
+        waitedMs: waited,
+        effective,
+        gpuSignalAvailable,
+        noSignalReason,
+        code: "total_wait_budget_exceeded",
+      };
     }
     if (clock.now() - start >= thisTimeout) {
       return {
@@ -564,6 +581,7 @@ export async function* runIdleGate(
         waitedMs: waited,
         effective,
         gpuSignalAvailable,
+        noSignalReason,
         code:
           params.phase === "pre_bench"
             ? "pre_bench_wait_timeout"

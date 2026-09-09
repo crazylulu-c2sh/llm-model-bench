@@ -287,9 +287,11 @@ describe("runBench contention guard", () => {
     expect(t).not.toContain("iteration_discarded");
     expect(t).toContain("metrics_update");
     const summary = events.find((e) => e.type === "contention_summary") as
-      | { guard_effective: boolean }
+      | { guard_effective: boolean; no_signal_reason?: string }
       | undefined;
     expect(summary?.guard_effective).toBe(false);
+    // #185: 신호 0개로 통과된 사유가 sampleIdle()의 reasons[0]에서 그대로 배선돼야 한다.
+    expect(summary?.no_signal_reason).toBe("idle");
     expect(chatCall).toBe(1);
   });
 });

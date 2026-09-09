@@ -9,7 +9,7 @@ import {
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Search, Square, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowDownUp, ArrowUp, CheckSquare, Search, Square, X } from "lucide-react";
 import { ModelLabel } from "./ModelLabel";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -158,6 +158,12 @@ export function ModelTable({
 }) {
   const { m: t } = useI18n();
   const data = useMemo<ModelRow[]>(() => models.map((m) => ({ ...m })), [models]);
+  // #184: LM Link 등으로 같은 baseUrl이 동일 id를 여러 번 보고할 수 있다 — 표시로 감지되게 카운트.
+  const idCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const m of models) counts.set(m.id, (counts.get(m.id) ?? 0) + 1);
+    return counts;
+  }, [models]);
   const allSelected = models.length > 0 && models.every((m) => selected[m.id]);
   const someSelected = models.some((m) => selected[m.id]);
   const rowPointerRef = useRef<{ x: number; y: number; modelId: string } | null>(null);
@@ -229,16 +235,32 @@ export function ModelTable({
             {sortDirIcon(column)}
           </button>
         ),
-        cell: (info) => (
-          <ModelLabel
-            modelId={info.getValue()}
-            paramsString={info.row.original.params_string}
-            showQuant
-            showTier
-            size={14}
-            className="text-xs"
-          />
-        ),
+        cell: (info) => {
+          const dupCount = idCounts.get(info.getValue()) ?? 1;
+          return (
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <ModelLabel
+                modelId={info.getValue()}
+                paramsString={info.row.original.params_string}
+                showQuant
+                showTier
+                size={14}
+                className="text-xs"
+              />
+              {dupCount > 1 ? (
+                // #184: 같은 baseUrl이 동일 id를 N개 보고 — LM Link 등으로 실제 실행 위치가 모호할 수 있음.
+                <span
+                  role="img"
+                  className="inline-flex items-center text-amber-500"
+                  title={msg().bench.duplicateModelIdTitle(dupCount)}
+                  aria-label={msg().bench.duplicateModelIdAria(dupCount)}
+                >
+                  <AlertTriangle className="size-3 shrink-0" aria-hidden />
+                </span>
+              ) : null}
+            </span>
+          );
+        },
         sortingFn: "alphanumeric",
       }),
       columnHelper.accessor((row) => row.publisher?.trim() ?? "", {
@@ -307,7 +329,17 @@ export function ModelTable({
           </button>
         ),
         cell: ({ row }) => (
-          <span className="whitespace-nowrap font-mono text-xs text-[var(--muted)]">{formatDiskDisplay(row.original)}</span>
+          <span
+            className="whitespace-nowrap font-mono text-xs text-[var(--muted)]"
+            // #184: 반올림 표시가 128바이트 같은 미세한 차이(LM Link 중복 등)를 숨기므로 정확한 바이트를 title로.
+            title={
+              row.original.size_bytes != null && row.original.size_bytes > 0
+                ? `${row.original.size_bytes.toLocaleString()} B`
+                : undefined
+            }
+          >
+            {formatDiskDisplay(row.original)}
+          </span>
         ),
         sortingFn: "basic",
         sortUndefined: "last",
@@ -324,7 +356,16 @@ export function ModelTable({
         enableSorting: false,
       }),
     ],
-    [allVisibleSelected, noVisible, handleSelectAllVisible, onToggle, profileHintByModelId, selected, selectionDisabled],
+    [
+      allVisibleSelected,
+      idCounts,
+      noVisible,
+      handleSelectAllVisible,
+      onToggle,
+      profileHintByModelId,
+      selected,
+      selectionDisabled,
+    ],
   );
 
   const table = useReactTable({

@@ -712,8 +712,13 @@ export function App() {
     const byId = new Map(detect.models.map((m: DetectModel) => [m.id, m]));
     const order = modelOrderIds.length > 0 ? modelOrderIds : detect.models.map((m: DetectModel) => m.id);
     const out: DetectModel[] = [];
+    // #184: LM Link 등으로 같은 id가 목록에 중복될 수 있다. 표시(배지)는 중복을 유지해야 하므로
+    // ModelTable 쪽에서는 그대로 두지만, 실행 큐는 여기서 dedup한다 — 안 하면 같은 모델이
+    // 두 번 벤치돼 실행 시간이 그냥 낭비된다.
+    const seen = new Set<string>();
     for (const id of order) {
-      if (!selected[id]) continue;
+      if (!selected[id] || seen.has(id)) continue;
+      seen.add(id);
       const m = byId.get(id);
       if (m) out.push(m);
     }

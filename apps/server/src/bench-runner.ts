@@ -546,6 +546,8 @@ export async function* runBench(
   const waitAccum = { total: 0 };
   let guardEffective = false;
   let gpuSignalAvailable = false;
+  /** #185: 신호 소스가 0개일 때의 구체적 사유(no_contention_signal_available 등, 진단용). */
+  let noSignalReason: string | undefined;
   let totalDiscarded = 0;
   let maxPreWait = 0;
   let maxBetweenWait = 0;
@@ -702,6 +704,7 @@ export async function* runBench(
     });
     guardEffective = pre.effective;
     gpuSignalAvailable = pre.gpuSignalAvailable;
+    noSignalReason = pre.noSignalReason;
     maxPreWait = Math.max(maxPreWait, pre.waitedMs);
     if (!pre.idle) {
       const code = pre.code ?? "pre_bench_wait_timeout";
@@ -719,6 +722,7 @@ export async function* runBench(
         total_wait_ms: waitAccum.total,
         guard_effective: guardEffective,
         gpu_signal_available: gpuSignalAvailable,
+        ...(noSignalReason ? { no_signal_reason: noSignalReason } : {}),
         abort_reason: code,
       };
       unregisterRunControl(rid);
@@ -1752,6 +1756,7 @@ export async function* runBench(
         total_wait_ms: waitAccum.total,
         guard_effective: guardEffective,
         gpu_signal_available: gpuSignalAvailable,
+        ...(noSignalReason ? { no_signal_reason: noSignalReason } : {}),
         abort_reason: contentionAbortReason,
       };
     }
