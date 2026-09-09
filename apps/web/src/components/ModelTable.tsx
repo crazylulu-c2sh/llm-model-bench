@@ -245,7 +245,7 @@ export function ModelTable({
                 showQuant
                 showTier
                 size={14}
-                className="text-xs"
+                className="max-w-[24rem] text-xs"
               />
               {dupCount > 1 ? (
                 // #184: 같은 baseUrl이 동일 id를 N개 보고 — LM Link 등으로 실제 실행 위치가 모호할 수 있음.
@@ -296,7 +296,14 @@ export function ModelTable({
             {sortDirIcon(column)}
           </button>
         ),
-        cell: (info) => <span className="text-xs">{info.getValue() ?? ""}</span>,
+        cell: (info) => {
+          const v = info.getValue() ?? "";
+          return (
+            <span className="block max-w-[20rem] truncate text-xs" title={v || undefined}>
+              {v}
+            </span>
+          );
+        },
         sortingFn: "alphanumeric",
       }),
       columnHelper.accessor((row) => row.params_string?.trim() ?? "", {

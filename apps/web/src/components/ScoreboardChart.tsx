@@ -23,6 +23,7 @@ import {
 import type { ScoreboardRow } from "../lib/scoreboard";
 import { BackendIcon, VENDOR_BRAND, VendorIcon, backendLabel, vendorGlyphSvg, vendorLabel } from "./VendorIcon";
 import { useI18n, type Messages } from "../i18n";
+import { truncateChartLabel } from "../lib/chart-theme";
 
 /** 카드 내 세그먼트 토글(AppHeader 탭 시각 스타일 재사용). 뷰 토글에서도 import해 쓴다. */
 export function Segmented<T extends string>({
@@ -84,12 +85,6 @@ function vendorBarFill(vendor: VendorKey): string {
   return c === "currentColor" ? "var(--foreground)" : c;
 }
 
-function truncName(s: string): string {
-  // 네임스페이스 보존으로 이름이 길어져 한도를 상향(`LGAI-EXAONE/EXAONE-4.0-1.2B`≈27자까지 온전 노출).
-  // 초과분은 말줄임 + 전체 id는 아래 <title> 툴팁으로 확인.
-  return s.length > 28 ? `${s.slice(0, 27)}…` : s;
-}
-
 /**
  * 회전 X축 틱(레퍼런스 스타일): 막대 아래 미회전 벤더 로고 + 그 아래 45° 회전 정제명(순위 접두).
  * 1~3위는 포디움 색. 전체 id는 `<title>`.
@@ -115,7 +110,7 @@ function ModelTick({
   const rank = d?.rank ?? 0;
   const nameColor = podiumColor(rank) ?? (rank === 1 ? "var(--accent)" : "var(--chart-tick)");
   const display = m ? m.display : id;
-  const label = rank > 0 ? `${rank}. ${truncName(display)}` : truncName(display);
+  const label = rank > 0 ? `${rank}. ${truncateChartLabel(display)}` : truncateChartLabel(display);
   return (
     <g transform={`translate(${x},${y})`}>
       {m ? vendorGlyphSvg(m.vendor, 0, 2, 18, vendorLabel(m.vendor, msgs)) : null}

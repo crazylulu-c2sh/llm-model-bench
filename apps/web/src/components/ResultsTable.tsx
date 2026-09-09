@@ -193,11 +193,11 @@ export function ResultsTable({
         cell: (info) => {
           const c = colorByModel.get(info.getValue());
           return (
-            <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs">
+            <span className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs">
               {multiModel && c ? (
                 <span className="size-2 shrink-0 rounded-full" style={{ background: c }} aria-hidden />
               ) : null}
-              <ModelLabel modelId={info.getValue()} showQuant size={14} />
+              <ModelLabel modelId={info.getValue()} showQuant size={14} className="max-w-[20rem]" />
             </span>
           );
         },
@@ -617,7 +617,7 @@ export function ResultsTable({
                 >
                   <td className="p-2">
                     <span className="whitespace-nowrap text-xs text-[var(--foreground)]">
-                      <ModelLabel modelId={pr.model_id} size={14} />
+                      <ModelLabel modelId={pr.model_id} size={14} className="max-w-[20rem]" />
                     </span>
                   </td>
                   <td className="p-2">

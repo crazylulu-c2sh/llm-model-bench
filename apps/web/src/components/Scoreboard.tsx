@@ -258,12 +258,12 @@ function ScoreboardSkeletonRow({
         {barColor ? (
           <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: barColor }} aria-hidden />
         ) : null}
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-[var(--foreground)]">
+        <span className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-[var(--foreground)]">
           <span className="font-mono">{rank}.</span>
           {multiModel && barColor ? (
             <span className="size-2 shrink-0 rounded-full" style={{ background: barColor }} aria-hidden />
           ) : null}
-          <ModelLabel modelId={modelId} size={14} />
+          <ModelLabel modelId={modelId} size={14} className="max-w-[20rem]" />
         </span>
       </td>
       {Array.from({ length: 12 }, (_, ci) => (
@@ -298,12 +298,19 @@ function ScoreboardDataRow({
         {barColor ? (
           <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: barColor }} aria-hidden />
         ) : null}
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-[var(--foreground)]">
+        <span className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-[var(--foreground)]">
           <span className="font-mono text-[var(--muted)]">{rank}.</span>
           {multiModel && barColor ? (
             <span className="size-2 shrink-0 rounded-full" style={{ background: barColor }} aria-hidden />
           ) : null}
-          <ModelLabel modelId={b.model_id} provider={provider} showBackend showQuant size={14} />
+          <ModelLabel
+            modelId={b.model_id}
+            provider={provider}
+            showBackend
+            showQuant
+            size={14}
+            className="max-w-[24rem]"
+          />
           {b.textOnly ? (
             <span
               className="rounded border border-[var(--border)] px-1 py-px text-[10px] text-[var(--muted)]"

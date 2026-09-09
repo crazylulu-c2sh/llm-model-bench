@@ -36,7 +36,7 @@ import {
   type PivotCompareRow,
 } from "./chart-types";
 import { MetricChartLegend } from "./MetricChartLegend";
-import { niceCeil, rechartsTooltipShell } from "../lib/chart-theme";
+import { niceCeil, rechartsTooltipShell, truncateChartLabel } from "../lib/chart-theme";
 
 function barFill(pass: boolean | undefined, kind: "ttft" | "tps"): string {
   if (pass === false) return "var(--chart-fail)";
@@ -87,7 +87,8 @@ function insertCompareGroupSpacers(rows: FlatBarDatum[], groupSize: number): Fla
     if ((i + 1) % groupSize === 0 && i + 1 < rows.length) {
       out.push({
         categorySpacer: true,
-        barLabel: `__spacer__${seq++}`,
+        barLabel: `__spacer__${seq}`,
+        barLabelShort: `__spacer__${seq++}`,
         scenario: "",
         api: "",
         modelId: undefined,
@@ -190,7 +191,7 @@ function buildSingleRadarData(
     const rawValue = agg && agg.n ? agg.sum / agg.n : 0;
     const [scenario, api] = k.split("\t");
     const fullLabel = `${scenario} (${apiShort(api)})`;
-    const tickLabel = fullLabel.length > 28 ? `${fullLabel.slice(0, 26)}…` : fullLabel;
+    const tickLabel = truncateChartLabel(fullLabel);
     return { axisKey: k, tickLabel, fullLabel, rawValue };
   });
 }
@@ -212,7 +213,7 @@ function buildCompareRadarRows(
   return pivoted.map((p) => {
     const axisKey = `${p.scenario}\t${p.api}`;
     const fullLabel = `${p.scenario} (${apiShort(p.api)})`;
-    const tickLabel = fullLabel.length > 28 ? `${fullLabel.slice(0, 26)}…` : fullLabel;
+    const tickLabel = truncateChartLabel(fullLabel);
     const o: Record<string, string | number> = { axisKey, tickLabel, fullLabel };
     compareSeries.forEach((_s, i) => {
       o[`raw_m${i}`] = pickPivotMetric(p.bySeriesIndex[i], metric);
@@ -719,7 +720,7 @@ export function BenchCharts({
                 <XAxis type="number" tick={{ fill: "var(--chart-tick)", fontSize: 10 }} />
                 <YAxis
                   type="category"
-                  dataKey="barLabel"
+                  dataKey="barLabelShort"
                   width={280}
                   tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
                   tickFormatter={yTickHideSpacer}
@@ -788,7 +789,7 @@ export function BenchCharts({
                 />
                 <YAxis
                   type="category"
-                  dataKey="barLabel"
+                  dataKey="barLabelShort"
                   width={280}
                   tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
                   tickFormatter={yTickHideSpacer}
@@ -912,7 +913,7 @@ export function BenchCharts({
               <XAxis type="number" tick={{ fill: "var(--chart-tick)", fontSize: 10 }} />
               <YAxis
                 type="category"
-                dataKey="fullLabel"
+                dataKey="labelShort"
                 width={280}
                 tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
                 tickFormatter={yTickHideSpacer}
@@ -988,7 +989,7 @@ export function BenchCharts({
               />
               <YAxis
                 type="category"
-                dataKey="fullLabel"
+                dataKey="labelShort"
                 width={280}
                 tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
                 tickFormatter={yTickHideSpacer}

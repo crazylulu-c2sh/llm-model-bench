@@ -1,4 +1,5 @@
 import { compareScenarioBenchOrder, compareStringsPinned, tokensPerSecondFromRun } from "@llm-bench/shared";
+import { truncateChartLabel } from "../lib/chart-theme";
 
 /** 실제 실행 순서(`benchScenarioOrder`) 미전달 시 기본값 — 매 렌더 새 배열 생성으로 인한 참조 불안정 방지용 안정 상수 */
 export const EMPTY_SCENARIO_ORDER: string[] = [];
@@ -144,7 +145,7 @@ export function rowsToChartData(
     const tps = tokensPerSecondFromRun(r.total_ms ?? undefined, r.output_text ?? undefined, r.usage_output_tokens);
     return {
       id: scenarioRowKey(r.scenario, r.api, r.model_id) + `|${i}`,
-      labelShort: fullLabel.slice(0, 28) + (fullLabel.length > 28 ? "…" : ""),
+      labelShort: truncateChartLabel(fullLabel),
       fullLabel,
       scenario: r.scenario,
       api: r.api,
@@ -227,6 +228,8 @@ export function pivotCompareSeries(
 /** 비교 막대: 시나리오+API+모델 단위 행 — `sortChartRowsForBarOrder`와 동일한 정렬 키 */
 export type FlatBarDatum = {
   barLabel: string;
+  /** Y축(가로 차트) 말줄임 라벨 — `barLabel`은 툴팁 전용, 축 틱은 이걸 쓴다. */
+  barLabelShort: string;
   scenario: string;
   api: string;
   modelId?: string;
@@ -250,8 +253,10 @@ export function comparePivotToFlatBarData(
     compareSeries.forEach((s, si) => {
       const v = p.bySeriesIndex[si];
       const modelLabel = s.label || s.modelId || fallbackLabel;
+      const barLabel = `${p.scenario} (${apiShort(p.api)}) · ${modelLabel}`;
       out.push({
-        barLabel: `${p.scenario} (${apiShort(p.api)}) · ${modelLabel}`,
+        barLabel,
+        barLabelShort: truncateChartLabel(barLabel),
         scenario: p.scenario,
         api: p.api,
         modelId: s.modelId || undefined,
