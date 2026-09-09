@@ -39,15 +39,38 @@ export const ScenarioSamplingSchema = z.object({
 export type ScenarioSampling = z.infer<typeof ScenarioSamplingSchema>;
 
 /**
+ * #165: `cases`(단일 필드 값의 **정확 일치**)로는 "정정됐는가"를 잴 수 없는 축 — 수치 상한 준수,
+ * 필수 필드 존재 같은 predicate. `key`가 가리키는 인자 값에 대해 판정한다.
+ */
+export const MockArgRuleSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("lte"), key: z.string().min(1), value: z.number() }),
+  z.object({ kind: z.literal("present"), key: z.string().min(1) }),
+]);
+export type MockArgRule = z.infer<typeof MockArgRuleSchema>;
+
+/**
  * #105: 인자 키 기반 mock 디스패치. 호출 인자의 `argKey` 값으로 응답을 고른다 — 불투명 id를
  * 정확히 복사해야 매칭되므로 "도구 인자 충실도"(hallucinated/truncated arg)를 측정할 수 있다.
  * miss(값이 cases에 없음/인자 파싱 실패)는 `fallback` 또는 `{"error":"unknown_<argKey>"}`.
+ *
+ * #165: `rules`가 있으면 `argKey`/`cases` 대신 이 규칙들을 순서대로 평가한다(첫 매칭 승리) — "도구
+ * 에러를 겪은 뒤 인자를 실제로 정정하는가"처럼 정확 일치로는 못 재는 축을 predicate로 표현한다.
+ * `forceErrorCalls`는 그 앞에서, 인자 값과 무관하게 처음 N번의 호출을 무조건 fallback으로 만든다 —
+ * 인자가 우연히 처음부터 유효해도 최소 1번은 에러를 겪게 강제한다(agent_loop_error_v1과 같은 교훈:
+ * 에러를 만난 적조차 없으면 회복 여부 자체를 잴 수 없다).
  */
-export const MockArgDispatchSchema = z.object({
-  argKey: z.string().min(1),
-  cases: z.record(z.string(), z.string().max(200_000)),
-  fallback: z.string().max(200_000).optional(),
-});
+export const MockArgDispatchSchema = z
+  .object({
+    argKey: z.string().min(1).optional(),
+    cases: z.record(z.string(), z.string().max(200_000)).optional(),
+    fallback: z.string().max(200_000).optional(),
+    rules: z.array(z.object({ test: MockArgRuleSchema, result: z.string().max(200_000) })).min(1).optional(),
+    forceErrorCalls: z.number().int().min(0).max(8).optional(),
+  })
+  .refine((v) => v.rules != null || (v.argKey != null && v.cases != null), {
+    message: "argKey and cases are required unless rules is set",
+    path: ["argKey"],
+  });
 export type MockArgDispatch = z.infer<typeof MockArgDispatchSchema>;
 
 /** #79: 캔드(canned) 도구 결과 큐 — 매칭되는 도구 호출마다 순서대로 소비. */

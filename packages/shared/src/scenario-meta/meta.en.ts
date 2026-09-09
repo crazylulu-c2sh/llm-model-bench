@@ -438,4 +438,37 @@ export const AGENT_META_EN: Record<string, ScenarioBenchMetaText> = {
       "fetch(argDispatch: record_id — even wrong records return a body) (all mock). maxTurns 8, max_tokens 512.",
     routes: "chat_completions / messages, common.",
   },
+  agent_loop_tool_error_recovery_v1: {
+    purpose:
+      "Tool-error correction recovery rate (opaque variant): both search_context (numeric bound exceeded) and write_section " +
+      "(required field missing) fail unconditionally on the first call regardless of arguments (forceErrorCalls:1), and only " +
+      "succeed afterward if the model actually sends a corrected value (argDispatch rules — a blind retry does not pass). " +
+      "The error message is the exact generic string from the production baseline this scenario is modeled on: " +
+      "\"An error occurred while running the tool. Please try again. Error: Invalid JSON input for tool\". " +
+      "Pairs with the structured variant (agent_loop_tool_error_recovery_structured_v1) to compare " +
+      "'error message information content → recovery rate'.",
+    criteria:
+      "The primary signal is tool_arg_hits/attempts — since both tools are argDispatch, hits is literally the 'number of " +
+      "successful corrections' (measured, not self-reported). Deterministic scoring (0-3): given both tools were called at " +
+      "least once (the task itself was not avoided), hits=2 (both recovered) → 3, hits=1 (only one recovered) → 2, " +
+      "hits=0 (kept failing on both) or the answer card schema is incomplete → 1, either tool never called at all → 1 (task avoidance).",
+    toolsSummary:
+      "search_context(argDispatch rules: contextChars<=400, forceErrorCalls:1) / " +
+      "write_section(argDispatch rules: content field present, forceErrorCalls:1) (all mock). maxTurns 8, max_tokens 512.",
+    routes: "chat_completions / messages, common.",
+  },
+  agent_loop_tool_error_recovery_structured_v1: {
+    purpose:
+      "Tool-error correction recovery rate (structured variant): identical tools, workflow, and scoring logic to " +
+      "agent_loop_tool_error_recovery_v1 — only the error message differs. This one names which field is wrong and why, " +
+      "as JSON (issues[] + hint). Example: {\"ok\":false,\"error\":\"invalid arguments for search_context: contextChars:too_big\"," +
+      "\"issues\":[{\"path\":\"contextChars\",\"message\":\"Too big: expected number to be <=400\"}]," +
+      "\"hint\":\"Retry with contextChars <= 400.\"}",
+    criteria: "Same scoring logic as the opaque variant — see agent_loop_tool_error_recovery_v1's criteria above.",
+    toolsSummary:
+      "search_context(argDispatch rules: contextChars<=400, forceErrorCalls:1) / " +
+      "write_section(argDispatch rules: content field present, forceErrorCalls:1) (all mock, structured error message only). " +
+      "maxTurns 8, max_tokens 512.",
+    routes: "chat_completions / messages, common.",
+  },
 };

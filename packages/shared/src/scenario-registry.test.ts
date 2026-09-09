@@ -94,6 +94,72 @@ describe("ScenarioDefSchema validation", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("#165 argDispatch rules: argKey/cases 없이 rules만으로도 유효(둘 중 하나만 있으면 됨)", () => {
+    expect(
+      AgentLoopSchema.safeParse({
+        maxTurns: 3,
+        mockTools: [
+          {
+            tool: "t",
+            responses: ["unused"],
+            argDispatch: {
+              rules: [{ test: { kind: "lte", key: "n", value: 400 }, result: "ok" }],
+              fallback: '{"error":"x"}',
+            },
+          },
+        ],
+        completion: { type: "no_tool_calls" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("#165 argDispatch: rules도 argKey/cases도 없으면 거부(어느 쪽이든 하나는 있어야)", () => {
+    expect(
+      AgentLoopSchema.safeParse({
+        maxTurns: 3,
+        mockTools: [{ tool: "t", responses: ["a"], argDispatch: { fallback: '{"error":"x"}' } }],
+        completion: { type: "no_tool_calls" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("#165 argDispatch rules: forceErrorCalls·present kind 파싱, 범위 밖 값은 거부", () => {
+    expect(
+      AgentLoopSchema.safeParse({
+        maxTurns: 3,
+        mockTools: [
+          {
+            tool: "t",
+            responses: ["unused"],
+            argDispatch: {
+              rules: [{ test: { kind: "present", key: "content" }, result: "ok" }],
+              forceErrorCalls: 1,
+              fallback: '{"error":"x"}',
+            },
+          },
+        ],
+        completion: { type: "no_tool_calls" },
+      }).success,
+    ).toBe(true);
+    expect(
+      AgentLoopSchema.safeParse({
+        maxTurns: 3,
+        mockTools: [
+          {
+            tool: "t",
+            responses: ["unused"],
+            argDispatch: {
+              rules: [{ test: { kind: "lte", key: "n", value: 1 }, result: "ok" }],
+              forceErrorCalls: 9, // max 8
+              fallback: '{"error":"x"}',
+            },
+          },
+        ],
+        completion: { type: "no_tool_calls" },
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("registry", () => {

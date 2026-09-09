@@ -399,3 +399,63 @@ describe("agent_loop_chain_v1 (방해 후보 + 기권)", () => {
     expect(rubricOf(SELECT_OK, ABSTAIN)).toBeGreaterThan(rubricOf(SELECT_OK, HALLUCINATED));
   });
 });
+
+// #165: opaque/structured 두 변종이 채점 로직을 공유하므로 한 번만 돈다(두 id 모두에 대해 확인).
+describe.each(["agent_loop_tool_error_recovery_v1", "agent_loop_tool_error_recovery_structured_v1"] as const)(
+  "%s (도구 에러 정정 회복 — hits=정정 성공 횟수)",
+  (id) => {
+    const CARD = { title: "Findings", context_summary: "…", section_written: true };
+    const ctx = (
+      hits: number | null,
+      counts: { search_context: number; write_section: number } = { search_context: 2, write_section: 2 },
+    ): AgentScoreContext => ({
+      completionReason: "completed",
+      toolArgAttempts: hits == null ? null : counts.search_context + counts.write_section,
+      toolArgHits: hits,
+      toolCallCounts: counts,
+    });
+
+    it("두 도구 모두 정정 성공(hits=2) → 3", () => {
+      const r = scoreAgentScenario(id, json(CARD), ctx(2));
+      expect(r?.rubric).toBe(3);
+      expect(r?.reason).toContain("2/2");
+    });
+
+    it("한 도구만 정정 성공(hits=1) → 2", () => {
+      const r = scoreAgentScenario(id, json(CARD), ctx(1));
+      expect(r?.rubric).toBe(2);
+    });
+
+    it("둘 다 계속 에러(hits=0) → 1", () => {
+      const r = scoreAgentScenario(id, json(CARD), ctx(0));
+      expect(r?.rubric).toBe(1);
+      expect(r?.reason).toContain("no correction");
+    });
+
+    it("도구 중 하나라도 아예 호출 안 함 → 1(과업 회피, hits와 무관)", () => {
+      const r = scoreAgentScenario(id, json(CARD), ctx(2, { search_context: 0, write_section: 2 }));
+      expect(r?.rubric).toBe(1);
+      expect(r?.reason).toContain("not called");
+    });
+
+    it("카드 스키마 미완(section_written 누락) → 1", () => {
+      const { section_written: _drop, ...incomplete } = CARD;
+      const r = scoreAgentScenario(id, json(incomplete), ctx(2));
+      expect(r?.rubric).toBe(1);
+      expect(r?.reason).toContain("schema incomplete");
+    });
+
+    it("카운터 부재(레거시 런) → 2(스키마는 통과, 회복 여부는 확인 불가)", () => {
+      const r = scoreAgentScenario(id, json(CARD), ctx(null));
+      expect(r?.rubric).toBe(2);
+      expect(r?.reason).toContain("unverified");
+    });
+
+    it("정체·예산소진은 본문 무관 0", () => {
+      for (const reason of ["stall", "budget_exhausted"] as const) {
+        const r = scoreAgentScenario(id, json(CARD), { ...ctx(2), completionReason: reason });
+        expect(r?.rubric).toBe(0);
+      }
+    });
+  },
+);

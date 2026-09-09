@@ -438,5 +438,36 @@ export const AGENT_META_KO: Record<string, ScenarioBenchMetaText> = {
       "fetch(argDispatch: record_id — 오답 레코드도 본문 반환) (모두 mock). maxTurns 8, max_tokens 512.",
     routes: "chat_completions / messages 공통.",
   },
+  agent_loop_tool_error_recovery_v1: {
+    purpose:
+      "도구 에러 정정 회복률(opaque 변종): search_context(수치 상한 초과)·write_section(필수 필드 누락) 두 도구 모두 " +
+      "첫 호출은 인자와 무관하게 무조건 실패(forceErrorCalls:1)하고, 그 뒤로는 실제로 정정된 값을 보내야만 성공한다 " +
+      "(argDispatch rules — 단순 재시도로는 안 통함). 에러 메시지는 프로덕션 baseline 그대로의 제너릭 문자열이다: " +
+      "\"An error occurred while running the tool. Please try again. Error: Invalid JSON input for tool\". " +
+      "structured 변종(agent_loop_tool_error_recovery_structured_v1)과 짝을 이뤄 '에러 메시지 정보량 → 회복률'을 비교한다.",
+    criteria:
+      "1차 신호는 tool_arg_hits/attempts — 두 도구 모두 argDispatch라 hits가 곧 '정정 성공 횟수'다(자기신고 아님, " +
+      "실측). 결정론 채점(0-3): 두 도구 모두 최소 1회는 호출했는데(과업 자체를 회피하지 않았는데) " +
+      "hits=2(둘 다 회복)면 3, hits=1(하나만 회복)면 2, hits=0(둘 다 계속 에러)이거나 카드 스키마 미완이면 1, " +
+      "두 도구 중 하나라도 아예 호출 안 하면 1(과업 회피).",
+    toolsSummary:
+      "search_context(argDispatch rules: contextChars≤400, forceErrorCalls:1) / " +
+      "write_section(argDispatch rules: content 필드 존재, forceErrorCalls:1) (모두 mock). maxTurns 8, max_tokens 512.",
+    routes: "chat_completions / messages 공통.",
+  },
+  agent_loop_tool_error_recovery_structured_v1: {
+    purpose:
+      "도구 에러 정정 회복률(structured 변종): agent_loop_tool_error_recovery_v1과 도구·워크플로·판정 로직이 " +
+      "완전히 동일하고, 에러 메시지만 다르다 — 어느 필드가 왜 틀렸는지 명시한 JSON(`issues[]` + `hint`)을 준다. " +
+      "예: {\"ok\":false,\"error\":\"invalid arguments for search_context: contextChars:too_big\"," +
+      "\"issues\":[{\"path\":\"contextChars\",\"message\":\"Too big: expected number to be <=400\"}]," +
+      "\"hint\":\"Retry with contextChars <= 400.\"}",
+    criteria: "채점 로직은 opaque 변종과 동일 — 위 agent_loop_tool_error_recovery_v1의 criteria 참고.",
+    toolsSummary:
+      "search_context(argDispatch rules: contextChars≤400, forceErrorCalls:1) / " +
+      "write_section(argDispatch rules: content 필드 존재, forceErrorCalls:1) (모두 mock, 에러 메시지만 structured). " +
+      "maxTurns 8, max_tokens 512.",
+    routes: "chat_completions / messages 공통.",
+  },
 };
 

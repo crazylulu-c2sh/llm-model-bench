@@ -93,6 +93,7 @@ export {
   ScenarioSamplingSchema,
   MockToolSchema,
   MockArgDispatchSchema,
+  MockArgRuleSchema,
   CompletionPredicateSchema,
   AgentLoopSchema,
   ScenarioDefSchema,
@@ -111,6 +112,7 @@ export {
   type ScenarioSampling,
   type MockTool,
   type MockArgDispatch,
+  type MockArgRule,
   type CompletionPredicate,
   type AgentLoop,
   type ScenarioDef,
@@ -124,6 +126,8 @@ export {
   AGENT_LOOP_ERROR_V1,
   AGENT_LOOP_GROUNDING_V1,
   AGENT_LOOP_MOCK_V1,
+  AGENT_LOOP_TOOL_ERROR_RECOVERY_V1,
+  AGENT_LOOP_TOOL_ERROR_RECOVERY_STRUCTURED_V1,
   BUILTIN_AGENT_LOOP_IDS,
 } from "./agent-loop-builtin";
 

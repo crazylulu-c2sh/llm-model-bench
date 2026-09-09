@@ -1,4 +1,4 @@
-import type { AgentLoop, BenchRunMeta, MockTool, ScenarioDef, StreamEvent } from "@llm-bench/shared";
+import type { AgentLoop, BenchRunMeta, MockArgRule, MockTool, ScenarioDef, StreamEvent } from "@llm-bench/shared";
 import { runtimeToolsToAnthropic, runtimeToolsToOpenAi, stripThinkingBlocks } from "@llm-bench/shared";
 import { openAiChatPostWithUsage } from "./openai-fetch.js";
 import { consumeOpenAiChatStream } from "./openai-stream.js";
@@ -141,6 +141,17 @@ function jsonParses(s: string): boolean {
   }
 }
 
+/** #165: `MockArgRule` 판정 — 순수 함수. 파싱된 인자 객체에 대해 규칙 하나를 평가한다. */
+function evalMockArgRule(rule: MockArgRule, args: Record<string, unknown>): boolean {
+  const v = args[rule.key];
+  switch (rule.kind) {
+    case "lte":
+      return typeof v === "number" && Number.isFinite(v) && v <= rule.value;
+    case "present":
+      return v != null && !(typeof v === "string" && v.trim() === "");
+  }
+}
+
 /**
  * 도구 호출에 대한 mock 응답을 고른다. argDispatch 도구면 인자 값으로 디스패치하고
  * 그 결과(hit/miss)를 함께 돌려준다(인자 충실도 집계용); 아니면 순서 큐에서 뽑고 dispatch=null.
@@ -161,16 +172,37 @@ function pullMock(
   }
 
   if (mt.argDispatch) {
-    const { argKey, cases, fallback } = mt.argDispatch;
-    let key: string | undefined;
+    const { argKey, cases, fallback, rules, forceErrorCalls } = mt.argDispatch;
+    // #165: forceErrorCalls 창 안이면(호출 순번 무관하게) 인자를 보지 않고 강제로 miss —
+    // 인자가 처음부터 유효해도 최소 1번은 에러를 겪게 한다(안 그러면 회복 여부를 못 잰다).
+    const callIndex = cursor.get(toolName) ?? 0;
+    cursor.set(toolName, callIndex + 1);
+    const forced = forceErrorCalls != null && callIndex < forceErrorCalls;
+
+    let parsed: Record<string, unknown> | null = null;
     try {
-      const parsed = JSON.parse(argsJson || "{}") as Record<string, unknown>;
-      const v = parsed?.[argKey];
-      if (v != null) key = String(v);
+      parsed = JSON.parse(argsJson || "{}") as Record<string, unknown>;
     } catch {
-      // 인자 파싱 실패 → miss(잘린/깨진 인자).
+      // 인자 파싱 실패 → miss(잘린/깨진 인자). parsed=null로 아래 두 경로 모두 자연히 miss 처리.
     }
-    if (key != null && Object.prototype.hasOwnProperty.call(cases, key)) {
+
+    if (rules && rules.length > 0) {
+      if (!forced && parsed) {
+        for (const rule of rules) {
+          if (evalMockArgRule(rule.test, parsed)) {
+            return { result: rule.result, dispatch: "hit", matched: true };
+          }
+        }
+      }
+      return { result: fallback ?? JSON.stringify({ error: "unmet_constraint" }), dispatch: "miss", matched: true };
+    }
+
+    let key: string | undefined;
+    if (!forced && parsed != null) {
+      const v = parsed[argKey!];
+      if (v != null) key = String(v);
+    }
+    if (key != null && cases && Object.prototype.hasOwnProperty.call(cases, key)) {
       return { result: cases[key]!, dispatch: "hit", matched: true };
     }
     return { result: fallback ?? JSON.stringify({ error: `unknown_${argKey}` }), dispatch: "miss", matched: true };
