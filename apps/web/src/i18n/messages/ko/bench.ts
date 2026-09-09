@@ -65,10 +65,12 @@ export const bench = {
   customAgentScenariosNote: "(agent_loop · 사용자 등록 — 서버에 등록된 것)",
 
   // 로드/언로드·메모리·오염 가드 토글
-  unloadOthersTitleLmStudio: "감지된 모델 목록에 있는 다른 모델에 대해 unload를 시도합니다. 목록에 없는 로드는 건드리지 못합니다.",
+  unloadOthersTitleLmStudio:
+    "감지된 모델 목록에 있는 다른 모델에 대해 unload를 시도합니다. 다른 클라이언트가 지금 추론 중이어도 구분 없이 강제 종료됩니다. 목록에 없는 로드는 건드리지 못합니다.",
   onlyLmStudio: "LM Studio에서만 적용됩니다.",
   unloadOthersLabel: "벤치 대상 외 모델 언로드 (LM Studio)",
-  unloadOthersHint: "켜면 각 벤치 시작 전 감지된 다른 모델 키에 대해 unload를 베스트 에포트로 호출합니다. 실패해도 벤치는 계속됩니다.",
+  unloadOthersHint:
+    "켜면 각 벤치 시작 전 감지된 다른 모델 키에 대해 unload를 베스트 에포트로 호출합니다. 다른 클라이언트/프로세스가 그 모델로 지금 추론 중이어도 활동 여부를 확인하지 않고 강제 종료됩니다. 실패해도 벤치는 계속됩니다.",
   inactiveOnCurrentProvider: " 현재 프로바이더에서는 비활성입니다.",
   autoUnloadTitleLmStudio: "시작 시점에 이미 VRAM에 있던 모델은 언로드하지 않고, 이번 실행이 load로 올린 경우에만 끝날 때 unload를 시도합니다.",
   autoUnloadLabel: "벤치 후 대상 모델 자동 언로드 (LM Studio)",
@@ -80,6 +82,7 @@ export const bench = {
   memFitHintB: "는 다른 로드된 모델을 비워 자리를 만들고, ",
   memFitSkip: "건너뛰기",
   memFitHintC: "는 raw 400 대신 사유를 기록하고 스킵합니다. 기본(예측만)은 그대로 진행합니다.",
+  memFitUnloadRiskHint: "다른 클라이언트/프로세스가 지금 사용 중인 모델도 활동 여부를 확인하지 않고 강제 언로드될 수 있습니다.",
   memFitOptionLog: "예측만(로그)",
   memFitOptionSkip: "안 맞으면 건너뛰기",
   loadTtlTitle:
@@ -166,7 +169,10 @@ export const bench = {
   confirmReorderHint: "위/아래로 직렬 실행 순서를 바꿀 수 있습니다.",
   moveUpAria: (modelId: string) => `${modelId} 위로 이동`,
   moveDownAria: (modelId: string) => `${modelId} 아래로 이동`,
-  confirmUnloadOthersOn: "벤치 대상 외 모델 언로드가 켜져 있습니다(감지 목록 기준).",
+  confirmUnloadOthersOn:
+    "벤치 대상 외 모델 언로드가 켜져 있습니다(감지 목록 기준). 다른 클라이언트가 지금 사용 중인 모델도 구분 없이 강제 종료될 수 있습니다.",
+  confirmMemFitUnloadOn:
+    "메모리-핏 정책이 '언로드-해서-맞추기'로 설정되어 있습니다. 메모리가 부족하면 다른 로드된 모델을(다른 클라이언트가 사용 중이어도 구분 없이) 강제 언로드할 수 있습니다.",
   confirmAutoUnloadOn: "이번 벤치에서 로드한 대상 모델만 끝날 때 자동 언로드합니다(이미 로드된 모델은 유지).",
   confirmLoadTtl: (seconds: number, via: string) =>
     `모델 로드 TTL ${seconds}초를 적용합니다(${via}). 모델이 이미 상주 중이면 적용되지 않을 수 있습니다.`,

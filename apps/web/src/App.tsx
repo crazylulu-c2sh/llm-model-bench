@@ -2317,6 +2317,9 @@ export function App() {
               {unloadOtherModels && detect.provider === "lm_studio" ? (
                 <li>{msg().bench.confirmUnloadOthersOn}</li>
               ) : null}
+              {fitPolicy === "unload_other_models" && detect.provider === "lm_studio" ? (
+                <li>{msg().bench.confirmMemFitUnloadOn}</li>
+              ) : null}
               {autoUnloadAfterBench && detect.provider === "lm_studio" ? (
                 <li>{msg().bench.confirmAutoUnloadOn}</li>
               ) : null}
@@ -2910,6 +2913,12 @@ export function App() {
                       {msg().bench.memFitHintA}<b>{msg().bench.memFitUnload}</b>{msg().bench.memFitHintB}<b>{msg().bench.memFitSkip}</b>{msg().bench.memFitHintC}
                       {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
                     </span>
+                    {fitPolicy === "unload_other_models" && detect?.provider === "lm_studio" ? (
+                      <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
+                        <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
+                        {msg().bench.memFitUnloadRiskHint}
+                      </span>
+                    ) : null}
                   </span>
                   <select
                     className="mt-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
