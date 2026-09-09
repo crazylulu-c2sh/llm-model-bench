@@ -1563,7 +1563,8 @@ export function App() {
           ev.total_iterations_discarded > 0 ||
           ev.max_pre_bench_wait_ms > 0 ||
           ev.max_between_iteration_wait_ms > 0 ||
-          ev.abort_reason
+          ev.abort_reason ||
+          !ev.guard_effective
         ) {
           const maxWait = Math.max(ev.max_pre_bench_wait_ms, ev.max_between_iteration_wait_ms);
           const eff = ev.guard_effective ? "" : msg().bench.guardIneffective;
