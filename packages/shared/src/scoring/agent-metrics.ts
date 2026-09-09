@@ -12,7 +12,13 @@ import { AGENT_EXPECTED_TOOLS, AGENT_EXPECTED_TOOL_CALLS } from "../scenario-sco
 
 /** per-run 에이전트 신호(agent-loop 하네스가 저장). 대부분 선택(레거시 런엔 없을 수 있음). */
 export type AgentRunInput = {
-  agent_completion_reason?: "completed" | "stall" | "budget_exhausted" | null;
+  /**
+   * #143: `upstream_error`(요청 자체 실패)는 아래 집계에서 completed/stall/budget 어디로도
+   * 카운트되지 않는다 — 모델의 정체/예산소진과 원인이 다른데 그 둘 중 하나로 오분류하면
+   * stall_rate/budget_exhausted_rate가 인프라 문제를 모델 문제처럼 보이게 만든다. `n`에는
+   * 포함되므로 세 rate의 합이 1보다 작을 수 있다(그 차이가 곧 업스트림 실패 비율).
+   */
+  agent_completion_reason?: "completed" | "stall" | "budget_exhausted" | "upstream_error" | null;
   total_ms?: number | null;
   turns_to_completion?: number | null;
   valid_tool_call_rate?: number | null;

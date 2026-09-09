@@ -777,7 +777,7 @@ export async function* runBench(
           final_turn_output_tokens?: number;
           /** #108 후속: 도구별 실제 호출 횟수(재시도 실측·워크플로 준수율). */
           tool_call_counts?: Record<string, number>;
-          agent_completion_reason?: "completed" | "stall" | "budget_exhausted";
+          agent_completion_reason?: "completed" | "stall" | "budget_exhausted" | "upstream_error";
           quality?: { pass: boolean; score?: number; reason?: string };
         }[] = [];
 
@@ -993,6 +993,9 @@ export async function* runBench(
               let step = await gen.next();
               while (!step.done) {
                 yield step.value;
+                // #143: 업스트림 요청 실패(upstream_error)를 forward만 하고 지나치면 이
+                // iteration 이 실패로 카운트되지 않는다 — non-agent 분기들과 동일하게 세운다.
+                if (step.value.type === "error") iterationFailed = true;
                 step = await gen.next();
               }
               const ar = step.value;
@@ -1005,6 +1008,10 @@ export async function* runBench(
               reasoningChars = ar.reasoningChars;
               toolArgsCorruptedAny = ar.toolArgsCorruptedAny;
               agentMetrics = ar.metrics;
+              // #143: agent_loop 경로에도 non-agent 분기와 동일하게 절단 라벨을 붙인다 —
+              // 최종 턴이 max_tokens 로 잘렸으면 budget_v1 처럼 설계상 절단인 시나리오도
+              // 예외 없이 표시한다(사후 분석은 scenario_id 로 걸러보면 된다).
+              if (agentMetrics.final_turn_truncated) truncated = true;
             } else if (
               api_route === "chat_completions" &&
               isTranslateNistFips197PdfToolsScenario(scenarioId)

@@ -154,6 +154,20 @@ describe("agent_loop_chain_v1 — 방해 후보 + 기권 (#110 후속)", () => {
   const resolveTool = () => loop().mockTools.find((m) => m.tool === "resolve")!;
   const fetchTool = () => loop().mockTools.find((m) => m.tool === "fetch")!;
 
+  it("#143: 프롬프트가 topic 을 몰라도 된다고 명시하고, 되묻기 없이 최종 JSON을 내라고 지시한다", () => {
+    const system = AGENT_LOOP_CHAIN_V1.system;
+    // "실제 주제를 몰라 되물어야 한다"는 정체를 막는 두 축: topic 무평가 고지 + 되묻기 금지.
+    expect(system).toMatch(/free-text label/i);
+    expect(system).toMatch(/do not need to know the real subject/i);
+    expect(system).toMatch(/do not ask a clarifying question/i);
+    const topicParam = (
+      AGENT_LOOP_CHAIN_V1.tools.find((t) => t.name === "search")!.parameters as {
+        properties: { topic: { description?: string } };
+      }
+    ).properties.topic;
+    expect(topicParam.description).toMatch(/content is not evaluated/i);
+  });
+
   it("1차 search 는 active 후보가 정확히 하나(= 정답), 2차는 전부 superseded(= 기권)", () => {
     const [first, second] = searchTool().responses as [string, string];
     const parse = (b: string) => JSON.parse(b) as { ref: string; status: string }[];

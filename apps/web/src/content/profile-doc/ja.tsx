@@ -333,20 +333,31 @@ export const ja: ProfileDocContent = {
         <code className="font-mono text-xs">false</code> を明示する必要があります — 常に明示的な boolean で送ります。
       </li>,
       <li key="max_tokens">
-        推奨 <code className="font-mono text-xs">max_tokens</code> はモデルカードの値(思考 262,144 / 非思考 131,072)です。
-        コンテキストを短く起動したバックエンド(vLLM <code className="font-mono text-xs">--max-model-len</code> など)では UI の{" "}
-        <code className="font-mono text-xs">max_tokens</code> で下げてください。
+        モデルカードの値は思考 262,144 / 非思考 131,072 ですが、ランタイムの{" "}
+        <code className="font-mono text-xs">complex</code> 推奨値は{" "}
+        <strong className="text-[var(--foreground)]">81,920</strong> に下げてあります —
+        実行時間を支配するのは <code className="font-mono text-xs">max_tokens</code> 自体ではなく思考量・量子化
+        帯域幅なので、カード値のままでもスループットは改善せず、<code className="font-mono text-xs">messages</code>{" "}
+        ルートの <code className="font-mono text-xs">thinking.budget_tokens</code> が不必要に膨らむだけです。さらに
+        コンテキストを短く起動したバックエンド(vLLM <code className="font-mono text-xs">--max-model-len</code> など)
+        では UI の <code className="font-mono text-xs">max_tokens</code> でさらに下げてください。
       </li>,
       <li key="multimodal">27B は画像・動画入力をネイティブに扱えるため、ビジョンシナリオでもそのまま使えます。</li>,
+      <li key="agent_loop">
+        <code className="font-mono text-xs">agent_loop</code> シナリオは UI の{" "}
+        <code className="font-mono text-xs">max_tokens</code> では短くできません — ターンごとの予算はシナリオ自体が
+        定め、要求 &gt; シナリオ &gt; プロファイルの順で解決されて常に UI 値より優先されます。実測初期に{" "}
+        <code className="font-mono text-xs">chain_v1</code> が <code className="font-mono text-xs">stall</code> で
+        一貫して失敗した原因は予算ではなくプロンプトの曖昧さ(実際の調査対象を知らないので聞き返すべきだと
+        モデルが合理的だが誤った結論に至っていた)で、その後プロンプトを修正済みです。
+      </li>,
       <li key="measured">
         <strong className="text-[var(--foreground)]">実測</strong>(LM Studio・27B・5 ラン、オーバーライド未適用の素の
         テンプレート)— レンダリング失敗は <strong className="text-[var(--foreground)]">0 件</strong>で、テンプレートの
         差し替えは不要です。ただし{" "}
         <code className="font-mono text-xs">effort=low</code> でも{" "}
         <code className="font-mono text-xs">chat_completions</code> の単一シナリオが最長約 15 分、ラン全体で 115〜175 分
-        かかり、agent_loop シナリオは <code className="font-mono text-xs">stall</code>・
-        <code className="font-mono text-xs">budget_exhausted</code> が 3/3 再現します。短く回すには UI の{" "}
-        <code className="font-mono text-xs">max_tokens</code> を下げてください。
+        かかりました。
       </li>,
     ],
     nemotron3: [

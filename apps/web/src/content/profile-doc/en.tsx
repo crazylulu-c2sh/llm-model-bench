@@ -340,21 +340,32 @@ export const en: ProfileDocContent = {
         <code className="font-mono text-xs">false</code> — it is always sent as an explicit boolean.
       </li>,
       <li key="max_tokens">
-        The recommended <code className="font-mono text-xs">max_tokens</code> are the model-card values (262,144 thinking /
-        131,072 non-thinking). On a backend started with a short context (vLLM{" "}
-        <code className="font-mono text-xs">--max-model-len</code>, …), lower it via the UI{" "}
+        The model-card values are 262,144 thinking / 131,072 non-thinking, but the runtime{" "}
+        <code className="font-mono text-xs">complex</code> recommendation is lowered to{" "}
+        <strong className="text-[var(--foreground)]">81,920</strong> — the dominant factor in run time is reasoning
+        volume and quant bandwidth, not <code className="font-mono text-xs">max_tokens</code> itself, so keeping the
+        card value doesn't improve throughput and only inflates{" "}
+        <code className="font-mono text-xs">thinking.budget_tokens</code> on the{" "}
+        <code className="font-mono text-xs">messages</code> route. On a backend started with an even shorter context
+        (vLLM <code className="font-mono text-xs">--max-model-len</code>, …), lower it further via the UI{" "}
         <code className="font-mono text-xs">max_tokens</code> field.
       </li>,
       <li key="multimodal">The 27B natively accepts image and video input, so vision scenarios work as-is.</li>,
+      <li key="agent_loop">
+        <code className="font-mono text-xs">agent_loop</code> scenarios cannot be shortened via the UI{" "}
+        <code className="font-mono text-xs">max_tokens</code> field — the per-turn budget is set by the scenario
+        itself and resolved request &gt; scenario &gt; profile, which always outranks the UI value. Early on,{" "}
+        <code className="font-mono text-xs">chain_v1</code> reproduced <code className="font-mono text-xs">stall</code>{" "}
+        consistently for a different reason: prompt ambiguity (the model reasonably but incorrectly concluded it had
+        to ask what the lookup subject was) rather than budget — the prompt has since been fixed.
+      </li>,
       <li key="measured">
         <strong className="text-[var(--foreground)]">Measured</strong> (LM Studio · 27B · 5 runs, stock template with no
         override applied) — render failures: <strong className="text-[var(--foreground)]">zero</strong>, so no template
         override is needed. But even at{" "}
         <code className="font-mono text-xs">effort=low</code> a single{" "}
         <code className="font-mono text-xs">chat_completions</code> scenario took up to ~15 minutes and a full run
-        115–175 minutes, and the agent_loop scenarios reproduce{" "}
-        <code className="font-mono text-xs">stall</code> / <code className="font-mono text-xs">budget_exhausted</code> 3/3.
-        Lower the UI <code className="font-mono text-xs">max_tokens</code> for shorter runs.
+        115–175 minutes.
       </li>,
     ],
     nemotron3: [

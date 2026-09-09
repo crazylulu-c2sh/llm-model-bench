@@ -331,18 +331,27 @@ export const ko: ProfileDocContent = {
         끄려면 <code className="font-mono text-xs">false</code>를 명시해야 합니다 — 항상 명시적 boolean으로 보냅니다.
       </li>,
       <li key="max_tokens">
-        권장 <code className="font-mono text-xs">max_tokens</code>는 모델 카드 값(사고 262,144 / 비사고 131,072)입니다.
-        컨텍스트를 짧게 띄운 백엔드(vLLM <code className="font-mono text-xs">--max-model-len</code> 등)에서는 UI{" "}
-        <code className="font-mono text-xs">max_tokens</code>로 낮춰 쓰세요.
+        모델 카드 값은 사고 262,144 / 비사고 131,072지만, 런타임 <code className="font-mono text-xs">complex</code> 권장
+        기본값은 <strong className="text-[var(--foreground)]">81,920</strong>로 낮춰져 있습니다 — 실행시간의 지배 항이{" "}
+        <code className="font-mono text-xs">max_tokens</code> 자체가 아니라 사고량·양자화 대역폭이라 카드 값을 그대로 써도
+        성능이 개선되지 않고, <code className="font-mono text-xs">messages</code> 라우트의{" "}
+        <code className="font-mono text-xs">thinking.budget_tokens</code>만 불필요하게 커집니다. 컨텍스트를 더 짧게 띄운
+        백엔드(vLLM <code className="font-mono text-xs">--max-model-len</code> 등)에서는 UI{" "}
+        <code className="font-mono text-xs">max_tokens</code>로 더 낮춰 쓰세요.
       </li>,
       <li key="multimodal">27B는 이미지·영상 입력을 네이티브 지원하므로 비전 시나리오에도 그대로 쓸 수 있습니다.</li>,
+      <li key="agent_loop">
+        <code className="font-mono text-xs">agent_loop</code> 시나리오는 UI <code className="font-mono text-xs">max_tokens</code>
+        로 짧게 만들 수 없습니다 — per-turn 예산은 시나리오 자체가 정하고, 요청 &gt; 시나리오 &gt; 프로필 순으로 해석되어 UI 값보다
+        항상 우선합니다. 실측 초기에 <code className="font-mono text-xs">chain_v1</code>이{" "}
+        <code className="font-mono text-xs">stall</code>로 일관 실패한 원인은 예산이 아니라 프롬프트 모호성(모델이 실제 조회
+        주제를 몰라 되물어야 한다고 오판)이었고, 이후 프롬프트를 정정했습니다.
+      </li>,
       <li key="measured">
         <strong className="text-[var(--foreground)]">실측</strong>(LM Studio · 27B · 5개 런, 오버라이드 미적용 스톡 템플릿) —
         렌더 실패 <strong className="text-[var(--foreground)]">0건</strong>이라 템플릿 교체가 필요 없습니다. 다만{" "}
         <code className="font-mono text-xs">effort=low</code>에서도 <code className="font-mono text-xs">chat_completions</code>{" "}
-        단일 시나리오가 최장 약 15분, 런 전체 115~175분이었고, agent_loop 시나리오는{" "}
-        <code className="font-mono text-xs">stall</code>·<code className="font-mono text-xs">budget_exhausted</code>로 3/3
-        재현됩니다. 짧게 돌리려면 UI <code className="font-mono text-xs">max_tokens</code>를 낮추세요.
+        단일 시나리오가 최장 약 15분, 런 전체 115~175분이었습니다.
       </li>,
     ],
     nemotron3: [

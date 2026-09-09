@@ -367,20 +367,32 @@ export const AGENT_LOOP_CHAIN_V1: ScenarioDef = {
   system: [
     "You are an autonomous agent. Run TWO lookups, then produce a FINAL answer.",
     "For each lookup: call search to list candidates, pick the ONE candidate whose status is \"active\" (ignore \"superseded\" ones), call resolve with that EXACT ref to get a record id, then call fetch with that EXACT record id to get the fact.",
+    // #143: search.topic 은 조회 키가 아니라 자유 텍스트 라벨일 뿐이다 — 이걸 명시하지 않으면
+    // 모델이 "실제 주제를 모르니 먼저 물어봐야 한다"는 합리적이지만 잘못된 결론에 빠져 정체한다.
+    "The search tool's topic argument is a free-text label only, not a lookup key — its content is not evaluated and you do not need to know the real subject beforehand. Any short label (e.g. \"lookup 1\", \"lookup 2\") works fine; each call to search simply returns that lookup's candidate list in order.",
     "If a lookup returns NO candidate with status \"active\", you MUST abstain for that lookup instead of guessing — resolve and fetch will happily return data for superseded refs, so check the status yourself.",
     'The FINAL answer MUST be a single JSON object: {"results": [item, item]} where each item is either {"ref": string, "record_id": string, "fact": string} or {"abstained": true}.',
     "results must have exactly two entries, in lookup order. Do not include any text outside that JSON object.",
+    // #143: mock_v1 과 동일한 취지 — 정보가 다 모였는데도 확인 질문으로 턴을 끝내 정체하는 것을 막는다.
+    "Once both lookups are done, emit the final JSON object directly in the next turn — do not ask a clarifying question, request the lookup subjects, promise to answer later, or end a turn without either a tool call or the final JSON object.",
   ].join(" "),
   user:
-    "Run the two catalog lookups in order and report the results array. " +
-    "These are internal records you have not seen before — rely only on what the tools return, and honour the status field.",
+    "Run two catalog lookups, one after another, and report the results array. " +
+    "You do not need to know the subject in advance — call search with any short label for each lookup " +
+    "(its exact wording does not matter, only the call order does) to get that lookup's candidate list. " +
+    "These are internal records you have not seen before — rely only on what the tools return, and honour each candidate's status field.",
   tools: [
     {
       name: "search",
       description: "List catalog candidates for the next lookup; each has a ref and a status.",
       parameters: {
         type: "object",
-        properties: { topic: { type: "string", description: "topic to search" } },
+        properties: {
+          topic: {
+            type: "string",
+            description: "free-text label for this lookup call — content is not evaluated, any short label works",
+          },
+        },
         required: [],
       },
     },

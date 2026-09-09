@@ -23,7 +23,7 @@ import { extractFirstJsonObject } from "./normalize.js";
  */
 
 export type AgentScoreContext = {
-  completionReason?: "completed" | "stall" | "budget_exhausted" | null;
+  completionReason?: "completed" | "stall" | "budget_exhausted" | "upstream_error" | null;
   /** argDispatch 도구 호출 횟수. `null`/`undefined` = 그런 도구가 없는 시나리오(캡 미적용). */
   toolArgAttempts?: number | null;
   /** 그 중 인자가 정확히 매칭된 횟수. */
@@ -111,7 +111,8 @@ function scoreAesCard(o: Obj): AgentRubric {
  * 총점이 사실상 `sources[]` 인용 형식 하나로 결정되는 왜곡이 생겼다.
  *
  * 이 시나리오의 목적은 #101 회귀 가드 — **과사고 모델이 좁은 예산 하에서 정체하는가**이다.
- * 그건 `completionReason`(래퍼가 stall/budget_exhausted → 0) 과 카드 스키마 충족 여부로 충분하다.
+ * 그건 `completionReason`(래퍼가 stall/budget_exhausted/upstream_error → 0) 과 카드 스키마 충족
+ * 여부로 충분하다.
  * 내용 마커·인용 형식 검사는 같은 스크립트를 쓰는 `mock_v1` 이 이미 재고 있으므로 여기선 보지 않는다.
  */
 function scoreBudgetCard(o: Obj): AgentRubric {
@@ -372,7 +373,8 @@ export function scoreAgentScenario(
   if (!scorer) return null;
 
   const reason = ctx?.completionReason;
-  if (reason === "stall" || reason === "budget_exhausted") {
+  // #143: upstream_error(요청 실패)도 최종 답을 못 낸 런 — stall/budget_exhausted와 같이 0점.
+  if (reason === "stall" || reason === "budget_exhausted" || reason === "upstream_error") {
     return { rubric: 0, reason: `agent_det: ${reason} — no final answer` };
   }
   const obj = parseObject(output);
