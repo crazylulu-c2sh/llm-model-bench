@@ -38,18 +38,39 @@ export async function* runBench(
 ): AsyncGenerator<StreamEvent>
 ```
 
-- **Transport adapter.** The route wraps the generator in a `ReadableStream`, serialising each event as one SSE frame and tee-ing it into a persister (`apps/server/src/routes/register.ts`):
+- **Execution driver (one run).** The point that actually drains the generator isn't the route — it's `runOneBenchModel` (`apps/server/src/bench-run-driver.ts`). It hands each event to the SQLite persister, forwards it verbatim through the caller-supplied `onEvent` callback, and on `run_started` registers the run in the live registry (`apps/server/src/bench-live-registry.ts`) via `startLiveRun` so every subsequent event is also broadcast through `publishLiveEvent`:
 
 ```ts
-const push = (ev: StreamEvent) =>
-  controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
 for await (const ev of runBench(req, detect)) {
   if (ev.type === "run_started") {
-    persister.start(ev.meta ?? makeBenchRunMeta(req, detect, ev.run_id));
+    const meta = ev.meta ?? makeBenchRunMeta(req, detect, ev.run_id);
+    persister.start(meta);
+    liveRunId = ev.run_id;
+    startLiveRun(ev.run_id, { base_url, model_id: req.modelId, provider: req.provider, queue_id });
   }
-  persister.onEvent(ev);   // → SQLite (BenchRunPersistence)
-  push(ev);                // → text/event-stream
+  persister.onEvent(ev);
+  onEvent(ev);
+  if (liveRunId) publishLiveEvent(liveRunId, ev);
 }
+```
+
+- **Two consumers.** `runOneBenchModel` is called from two places — the single-run route `POST /bench/stream` (`apps/server/src/routes/register.ts`) and the server-owned queue runner `runQueue` (`apps/server/src/bench-queue-runner.ts`). The queue runner walks its model list in order, calling `runOneBenchModel` per model and chaining `onEvent` into a queue-level broadcast (`publishQueueEvent`) — **the server is the sole scheduler, and every web tab is just a read-only subscriber.**
+
+- **Transport (single-run route).** `POST /bench/stream` fully decouples the execution loop from the response stream — it fires `runOneBenchModel(...)` with `void ... .finally(...)` (fire-and-forget), so the run keeps going to completion even if the browser drops the connection (e.g. on refresh, via `ReadableStream.cancel()`). A reassignable controller reference is wrapped in `controllerBox` so any `push()` after `cancel()` is silently a no-op, and a 15-second SSE comment-line keepalive (`: ping\n\n`) keeps reverse proxies/browsers from closing the connection on an idle-read timeout during long silent stretches (e.g. while paused):
+
+```ts
+const controllerBox: { ref: ReadableStreamDefaultController<Uint8Array> | null } = { ref: null };
+const push = (ev: StreamEvent) => {
+  if (!controllerBox.ref) return;
+  controllerBox.ref.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+};
+const keepalive = setInterval(() => {
+  controllerBox.ref?.enqueue(encoder.encode(": ping\n\n"));
+}, 15_000);
+void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
+  clearInterval(keepalive);
+  controllerBox.ref?.close();
+});
 ```
   The response is served with `Content-Type: text/event-stream; charset=utf-8`; the web client reads it with `stream.getReader()` + `TextDecoder`, splits on `\n\n`, strips the `data:` prefix per line, and `JSON.parse`s each block back into a `StreamEvent` (`apps/web/src/App.tsx`). The MCP app reaches the identical endpoint via `BenchClient.postStream` (`apps/mcp/src/bench-client.ts`) and an SSE line parser (`apps/mcp/src/sse.ts`).
 
@@ -348,6 +369,8 @@ export async function ollamaKeepAliveLoad(
 - **Signal reach (where each signal is valid).** GPU and `lms ps` are only valid on the server-local host (`isTargetOnServerHost(baseUrl)`); `lms ps` additionally requires `provider === "lm_studio"` + `isLmsCliEnabled()` + the CLI-active toggle. `/metrics` is a network endpoint, so remote targets (`openai_compatible` / `manual`) work too. For an unsupported server, `/metrics` fails once (non-OK or unparseable) and then latches to `metricsUnavailable`, so it is not re-polled.
 - **Idle vs in-flight thresholds.** Idle mode treats `metrics.running >= 1 || metrics.waiting >= 1` as active and waits; in-flight mode subtracts our own single request, so it uses `metrics.running >= 2 || metrics.waiting >= 1` as the contention threshold.
 - **`effective` (did the guard actually have an effect).** If `sampleIdle` observes any signal among GPU / metrics / lms that can judge "currently computing," `hasActiveSignal=true` and the gate promotes it to `effective`. Loaded inventory does not contribute to `effective`; only when no active signal is present at all does it fall back to the `inventory_only_no_active_signal` (another model is loaded) or `no_contention_signal_available` reason label.
+- **The GPU signal is `nvidia-smi`-only — Apple Silicon (macOS) has no such signal natively.** `getGpuSnapshot()` falls back to `ioreg -r -d 1 -c IOAccelerator`'s `Device Utilization %` when `nvidia-smi` fails (on darwin only), needing no sudo or `lms` CLI (`apps/server/src/system-info.ts`). This fallback also catches GPU usage from processes other than LM Studio (Ollama, another bench instance, …) — `lms ps` only sees LM Studio's own internal state.
+- **The `lms ps` signal can silently be dead.** Setting only `ENABLE_LMS_CLI=1` without also pointing `LMS_BIN` (default bare `lms`, PATH lookup) at an absolute path leaves this signal dead under a process manager (pm2, systemd, …), since those don't source an interactive shell's rc file where `lms` normally lands on PATH. If GPU and `/metrics` are unavailable too in that case, the signal source count drops to zero and the guard can silently pass "because it had no way to check" rather than "because it checked and found idle" (checkable after the fact via `guard_effective:false` + `no_signal_reason`).
 
 The Prometheus[^prometheus-fmt] parser sums the gauges of all three engines (no match → `null` = unsupported server):
 

@@ -38,18 +38,39 @@ export async function* runBench(
 ): AsyncGenerator<StreamEvent>
 ```
 
-- **トランスポートアダプタ。** ルートはジェネレータを `ReadableStream` でラップし、各イベントを 1 つの SSE フレームとしてシリアライズしつつ、永続化層へ tee します（`apps/server/src/routes/register.ts`）:
+- **実行ドライバ（1 回の実行）。** ジェネレータを実際に汲み尽くすのはルートではなく `runOneBenchModel`（`apps/server/src/bench-run-driver.ts`）です。各イベントを SQLite の永続化層に渡し、呼び出し元が渡した `onEvent` コールバックへそのまま転送し、`run_started` の時点で `startLiveRun` によりこのランをライブレジストリ（`apps/server/src/bench-live-registry.ts`）に登録して、以降のすべてのイベントも `publishLiveEvent` でブロードキャストします:
 
 ```ts
-const push = (ev: StreamEvent) =>
-  controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
 for await (const ev of runBench(req, detect)) {
   if (ev.type === "run_started") {
-    persister.start(ev.meta ?? makeBenchRunMeta(req, detect, ev.run_id));
+    const meta = ev.meta ?? makeBenchRunMeta(req, detect, ev.run_id);
+    persister.start(meta);
+    liveRunId = ev.run_id;
+    startLiveRun(ev.run_id, { base_url, model_id: req.modelId, provider: req.provider, queue_id });
   }
-  persister.onEvent(ev);   // → SQLite (BenchRunPersistence)
-  push(ev);                // → text/event-stream
+  persister.onEvent(ev);
+  onEvent(ev);
+  if (liveRunId) publishLiveEvent(liveRunId, ev);
 }
+```
+
+- **2 つのコンシューマ。** `runOneBenchModel` は 2 か所から呼ばれます — 単発実行ルート `POST /bench/stream`（`apps/server/src/routes/register.ts`）と、サーバー所有のキューランナー `runQueue`（`apps/server/src/bench-queue-runner.ts`）です。キューランナーはモデル一覧を順番に処理し、モデルごとに `runOneBenchModel` を呼んで `onEvent` をキューレベルのブロードキャスト（`publishQueueEvent`）に接続します — **サーバーが唯一のスケジューラであり、Web タブはすべて読み取り専用の購読者です。**
+
+- **トランスポート（単発実行ルート）。** `POST /bench/stream` は実行ループをレスポンスストリームから完全に切り離します — `void runOneBenchModel(...).finally(...)` で fire-and-forget 実行するため、ブラウザが接続を切っても（更新などで `ReadableStream.cancel()` が呼ばれても）ランは最後まで続行されます。再代入可能なコントローラ参照を `controllerBox` に包んで `cancel()` 後の `push()` を静かに無視させ、一時停止中に数分間イベントが無くてもリバースプロキシ・ブラウザの idle-read タイムアウトで切断されないよう、15 秒間隔の SSE コメント行（`: ping\n\n`）で keepalive を送ります:
+
+```ts
+const controllerBox: { ref: ReadableStreamDefaultController<Uint8Array> | null } = { ref: null };
+const push = (ev: StreamEvent) => {
+  if (!controllerBox.ref) return;
+  controllerBox.ref.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+};
+const keepalive = setInterval(() => {
+  controllerBox.ref?.enqueue(encoder.encode(": ping\n\n"));
+}, 15_000);
+void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
+  clearInterval(keepalive);
+  controllerBox.ref?.close();
+});
 ```
   レスポンスは `Content-Type: text/event-stream; charset=utf-8` で配信されます。Web クライアントは `stream.getReader()` + `TextDecoder` で読み取り、`\n\n` で分割し、行ごとに `data:` プレフィックスを剥がし、各ブロックを `JSON.parse` して `StreamEvent` に戻します（`apps/web/src/App.tsx`）。MCP アプリは `BenchClient.postStream`（`apps/mcp/src/bench-client.ts`）と SSE 行パーサ（`apps/mcp/src/sse.ts`）で同一のエンドポイントに到達します。
 
@@ -348,6 +369,8 @@ export async function ollamaKeepAliveLoad(
 - **信号の到達範囲（どこで有効か）:** GPU と `lms ps` はサーバーマシンのローカルでのみ有効（`isTargetOnServerHost(baseUrl)`）。`lms ps` はさらに `provider === "lm_studio"` + `isLmsCliEnabled()` + CLI 有効トグルのときのみ。`/metrics` はネットワークエンドポイントなので、リモート対象（`openai_compatible`/`manual`）でも可能です。非対応サーバーでは `/metrics` が non-OK またはパース不能で一度失敗すると `metricsUnavailable` にラッチされ、再ポーリングしません。
 - **アイドル vs in-flight のしきい値:** アイドルモードは `metrics.running >= 1 || metrics.waiting >= 1` なら active とみなして待機します。in-flight モードは自分のリクエスト 1 件を差し引くため `metrics.running >= 2 || metrics.waiting >= 1` を競合基準にします。
 - **`effective`（ガードが実際に効いたか）:** `sampleIdle` が GPU/metrics/lms のうち「今まさに演算中」を判定できる信号を 1 つでも観測すれば `hasActiveSignal=true` → ゲートがそれを `effective` に昇格させます。ロード済みの在庫（inventory）は `effective` に寄与せず、アクティブ信号が全く無いときにのみ `inventory_only_no_active_signal`（他のモデルがロードされている）または `no_contention_signal_available` の reason ラベルが残ります。
+- **GPU 信号は `nvidia-smi` 専用 — Apple Silicon（macOS）にはそもそも存在しません。** `getGpuSnapshot()` は `nvidia-smi` が失敗した場合（darwin のみ）、`ioreg -r -d 1 -c IOAccelerator` の `Device Utilization %` に自動フォールバックします（sudo も `lms` CLI も不要、`apps/server/src/system-info.ts`）。このフォールバックは LM Studio 以外のプロセス（Ollama、別のベンチインスタンス等）の GPU 使用も捉えます — `lms ps` は LM Studio プロセス内部の状態しか見ません。
+- **`lms ps` 信号が静かに無効になっている場合があります。** `ENABLE_LMS_CLI=1` だけを有効にして `LMS_BIN`（既定は bare `lms`、PATH 検索）を絶対パスで指定しないと、pm2・systemd 等のプロセスマネージャ下では対話シェルの rc ファイル（`lms` が通常そこで PATH に追加される）を経由しないため、この信号が無効なまま残ります。その場合に GPU・`/metrics` も無効だと信号ソースが 0 個になり、ガードは「確認して idle だった」のではなく「確認する方法が無くて通過した」状態になっているのに気づきにくいです（事後に `guard_effective:false` + `no_signal_reason` で確認可能）。
 
 Prometheus[^prometheus-fmt] パーサは 3 エンジンのゲージを合算します（一致が無ければ `null` = 非対応サーバー）:
 
