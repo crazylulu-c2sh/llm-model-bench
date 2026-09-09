@@ -27,6 +27,12 @@ export type OpenAiStreamMetrics = {
   /** provider가 `stream_options.include_usage` 응답 청크로 보고한 출력 토큰 (없으면 null) */
   usageOutputTokens: number | null;
   /**
+   * #182: `usage.completion_tokens_details.reasoning_tokens` — 텍스트가 `reasoning_content`로
+   * 나가든 `content`로 새든 무관한 백엔드 집계라, reasoning_chars(스트림 텍스트 길이 기반)보다
+   * 누수에 강하다. 필드 자체가 없는 백엔드는 null.
+   */
+  usageReasoningTokens: number | null;
+  /**
    * 마지막으로 보고된 `choices[0].finish_reason` — `"length"`면 max_tokens 도달로 잘림.
    * 일부 OpenAI 호환 서버(LM Studio·vLLM 등)는 이 필드를 보내지 않으므로 null 가능.
    */
@@ -159,6 +165,7 @@ export async function consumeOpenAiChatStream(
       streamCompleted: false,
       approxOutputTokens: 0,
       usageOutputTokens: null,
+      usageReasoningTokens: null,
       finishReason: null,
       repetitionLoopDetected: false,
       toolCallArgsCorrupted: false,
@@ -178,6 +185,7 @@ export async function consumeOpenAiChatStream(
   let ttft: number | null = null;
   let streamCompleted = false;
   let usageOutputTokens: number | null = null;
+  let usageReasoningTokens: number | null = null;
   let finishReason: string | null = null;
   const onDelta = opts?.onDelta;
   const loopGuard = opts?.loopGuard === true;
@@ -208,7 +216,11 @@ export async function consumeOpenAiChatStream(
           /** 마지막 청크에서 "stop" | "length" | "tool_calls" | "content_filter" 등이 채워짐. */
           finish_reason?: string | null;
         }[];
-        usage?: { completion_tokens?: number; output_tokens?: number };
+        usage?: {
+          completion_tokens?: number;
+          output_tokens?: number;
+          completion_tokens_details?: { reasoning_tokens?: number };
+        };
       };
       const fr = j.choices?.[0]?.finish_reason;
       if (typeof fr === "string" && fr.length > 0) {
@@ -219,6 +231,8 @@ export async function consumeOpenAiChatStream(
         const ot = typeof j.usage.output_tokens === "number" ? j.usage.output_tokens : null;
         if (ct != null && ct >= 0) usageOutputTokens = ct;
         else if (ot != null && ot >= 0) usageOutputTokens = ot;
+        const rt = j.usage.completion_tokens_details?.reasoning_tokens;
+        if (typeof rt === "number" && rt >= 0) usageReasoningTokens = rt;
       }
       const delta = j.choices?.[0]?.delta;
       const rc = delta?.reasoning_content;
@@ -302,6 +316,7 @@ export async function consumeOpenAiChatStream(
     approxOutputTokens,
     finishReason,
     usageOutputTokens,
+    usageReasoningTokens,
     repetitionLoopDetected,
     toolCallArgsCorrupted,
   };

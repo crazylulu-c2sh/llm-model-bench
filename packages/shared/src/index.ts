@@ -310,6 +310,12 @@ export const DetectResultSchema = z.object({
       size_bytes: z.number().optional(),
       /** 파라미터 규모 힌트 (예: 7B) — LM Studio `params_string` 등 */
       params_string: z.string().optional(),
+      /** #182: 실행엔진 계열(예: gguf/mlx) — LM Studio `/api/v0/models` 확장에서만 제공. */
+      compatibility_type: z.string().optional(),
+      /** #182: 양자화(예: Q4_K_M) — LM Studio `/api/v0/models` 확장에서만 제공. */
+      quantization: z.string().optional(),
+      /** #182: 아키텍처(예: qwen35) — LM Studio `/api/v0/models` 확장에서만 제공. */
+      arch: z.string().optional(),
     }),
   ),
   steps: z.array(DetectStepSchema),
@@ -348,6 +354,14 @@ export const BenchRunMetaSchema = z.object({
   model_id: z.string(),
   /** 모델 게시자(조직) — detect API publisher ?? model_id 접두. 통계·저장된 모델 표 표시용. */
   publisher: z.string().optional(),
+  /**
+   * #182: 실행엔진/양자화/아키텍처 — detect.models[]에서 modelId로 매칭해 그대로 복사(LM Studio
+   * `/api/v0/models` 확장에서만 제공, 없으면 필드 부재). "어느 백엔드/빌드에서 effort가 먹혔나"를
+   * 사후 대조하는 데 쓴다 — reasoning_effort 미적용이 GGUF 빌드별로 갈리는 사례(#182)가 계기.
+   */
+  compatibility_type: z.string().optional(),
+  quantization: z.string().optional(),
+  arch: z.string().optional(),
   api_routes: z.array(z.enum(["chat_completions", "messages"])),
   scenario_ids: z.array(z.string()),
   scenario_bundle_version: z.string(),
@@ -678,10 +692,23 @@ export const BenchResultSchema = z.object({
           reasoning_leaked_into_content: z.boolean().optional(),
           /** #80: 분리된 reasoning 채널의 raw 문자 수(있으면). thinking_leak_ratio 집계 분자. */
           reasoning_chars: z.number().optional(),
+          /**
+           * #182: provider가 usage로 보고한 사고 토큰 수(있으면, chat_completions 전용).
+           * reasoning_chars(스트림 텍스트 길이)와 달리 텍스트가 어느 필드로 나가든 무관한
+           * 백엔드 집계라 누수에 강하다 — 둘이 어긋나면(예: chars≈0인데 이 값>0) 그 자체가
+           * 사고가 content로 새고 있다는 신호일 수 있다.
+           */
+          usage_reasoning_tokens: z.number().nullable().optional(),
           /** #80: 가시 content가 비었고 tool_call도 없음 → 에이전트 정체(empty_turn) 신호(서버 계산). */
           empty_response: z.boolean().optional(),
           /** #80: 가시 content에 <think>/<|channel|> 태그가 남음 → 채널 태그 누수(라우트 무관, 서버 계산). */
           channel_tag_leak_detected: z.boolean().optional(),
+          /**
+           * #183: 명시적으로 사고를 끄도록 요청했는데(profile_thinking_intent=="off") 사고가
+           * 관측됨(reasoning_chars>0 또는 usage_reasoning_tokens>0) → 커스텀/리팩 GGUF의 임베드
+           * 템플릿이 enable_thinking/reasoning_effort 분기를 아예 안 가져 무시했을 가능성.
+           */
+          reasoning_control_ignored: z.boolean().optional(),
           /** #79: agent_loop — content=="" && tool_calls==0 인 빈 턴 수(정체 신호). */
           empty_turn_count: z.number().int().optional(),
           /** #79: agent_loop — 완료까지 걸린 턴 수(미완료면 null). */

@@ -224,6 +224,8 @@ export function makeBenchRunMeta(
     contentionServerMetricsEnabled: input.contentionServerMetricsEnabled,
     contentionLmsCliActivityEnabled: input.contentionLmsCliActivityEnabled,
   });
+  // #182: 한 번만 찾아 publisher와 실행엔진/양자화/arch(있으면) 모두에 재사용.
+  const detectedModel = detect.models.find((m) => m.id === input.modelId);
   const baseMeta: BenchRunMeta = {
     run_id: rid,
     app_version: "0.0.1",
@@ -231,10 +233,10 @@ export function makeBenchRunMeta(
     provider: input.provider,
     model_id: input.modelId,
     // 게시자(조직): detect가 만든 것과 같은 규칙으로 해석한다(단일 소스: detect.ts#resolvePublisher).
-    publisher: resolvePublisher(
-      input.modelId,
-      detect.models.find((m) => m.id === input.modelId)?.publisher,
-    ),
+    publisher: resolvePublisher(input.modelId, detectedModel?.publisher),
+    compatibility_type: detectedModel?.compatibility_type,
+    quantization: detectedModel?.quantization,
+    arch: detectedModel?.arch,
     api_routes: routes,
     scenario_ids: scenarioIds,
     // #105: docs/grounding corpus 를 가상 개체로 재작성 + agent 채점을 결정론으로 전환.
@@ -751,6 +753,8 @@ export async function* runBench(
           output_text: string;
           stream_completed: boolean;
           usage_output_tokens: number | null;
+          /** #182: provider가 usage로 보고한 사고 토큰 수(chat_completions 전용, 없으면 null). */
+          usage_reasoning_tokens: number | null;
           reasoning_hidden?: boolean;
           anthropic_thinking_rejected?: boolean;
           /** #1922: 스트리밍 tool_call 인자가 연결 손상(`{}{}`)돼 감지된 경우 — LM Studio 엔진 프로토콜 회귀 신호. */
@@ -763,6 +767,8 @@ export async function* runBench(
           empty_response?: boolean;
           /** #80: 가시 content에 <think>/<|channel|> 태그 잔존(라우트 무관). */
           channel_tag_leak_detected?: boolean;
+          /** #183: 사고 끄기를 요청했는데 사고가 관측됨 — 커스텀 GGUF 템플릿이 무시했을 가능성. */
+          reasoning_control_ignored?: boolean;
           /** #79: agent_loop 메트릭. */
           empty_turn_count?: number;
           turns_to_completion?: number | null;
@@ -959,6 +965,12 @@ export async function* runBench(
             let usageOutputTokens: number | null = null;
             /** 가시 추론(reasoning/thinking 델타) 누적 길이. 0이면 추론이 스트림에 노출되지 않음. */
             let reasoningChars = 0;
+            /**
+             * #182: provider 가 usage 로 보고한 사고 토큰 수(있으면). 텍스트가 어느 필드로 나가든
+             * 무관한 백엔드 집계라 reasoningChars(스트림 텍스트 길이)보다 누수에 강하다.
+             * OpenAI 호환(chat_completions) 경로에서만 채워짐 — Anthropic usage 에는 이 필드가 없다.
+             */
+            let usageReasoningTokens: number | null = null;
             /** 어느 OpenAI 스트림 라운드에서든 tool_call 인자 연결 손상(#1922)이 한 번이라도 감지되면 true(OR-집계). */
             let toolArgsCorruptedAny = false;
             /** #173: 업스트림이 `thinking` 요청을 거절해 빼고 재시도했으면 true(OR-집계). */
@@ -1142,6 +1154,7 @@ export async function* runBench(
                 if (lastOpen) {
                   usageOutputTokens = lastOpen.usageOutputTokens;
                   reasoningChars = lastOpen.reasoningText.length;
+                  usageReasoningTokens = lastOpen.usageReasoningTokens;
                   if (!text.trim()) text = openAiBenchOutputText(lastOpen);
                 }
               }
@@ -1329,6 +1342,7 @@ export async function* runBench(
                 streamCompleted = m.streamCompleted;
                 usageOutputTokens = m.usageOutputTokens;
                 reasoningChars = m.reasoningText.length;
+                usageReasoningTokens = m.usageReasoningTokens;
                 lastOpenAiMetrics = m;
                 if (m.toolCallArgsCorrupted) toolArgsCorruptedAny = true;
                 if (openAiLikelyTruncated(m, scenarioMeta.max_tokens)) truncated = true;
@@ -1533,6 +1547,13 @@ export async function* runBench(
             const emptyResponse =
               stripThinkingBlocks(visibleText) === "" && invokedBenchTools.length === 0;
 
+            // #183: 명시적으로 사고 끄기(enable_thinking:false 등)를 요청했는데 사고가 관측되면,
+            // 커스텀/리팩 GGUF의 임베드 템플릿이 그 분기 자체를 안 갖고 있어 무시했을 가능성.
+            // 라우트 무관 — extra_body(chat_template_kwargs)는 messages 라우트에도 그대로 실린다.
+            const reasoningControlIgnored =
+              scenarioMeta.profile_thinking_intent === "off" &&
+              (reasoningChars > 0 || (usageReasoningTokens ?? 0) > 0);
+
             if (!isWarmup) {
               runs.push({
                 ttft_ms: ttft,
@@ -1540,6 +1561,7 @@ export async function* runBench(
                 output_text: text,
                 stream_completed: streamCompleted,
                 usage_output_tokens: usageOutputTokens,
+                usage_reasoning_tokens: usageReasoningTokens,
                 ...(reasoningHidden ? { reasoning_hidden: true } : {}),
                 ...(toolArgsCorruptedAny ? { tool_call_args_corrupted: true } : {}),
                 ...(anthropicThinkingRejected ? { anthropic_thinking_rejected: true } : {}),
@@ -1547,6 +1569,7 @@ export async function* runBench(
                 ...(reasoningChars > 0 ? { reasoning_chars: reasoningChars } : {}),
                 ...(emptyResponse ? { empty_response: true } : {}),
                 ...(channelTagLeak ? { channel_tag_leak_detected: true } : {}),
+                ...(reasoningControlIgnored ? { reasoning_control_ignored: true } : {}),
                 ...(agentMetrics
                   ? {
                       empty_turn_count: agentMetrics.empty_turn_count,
@@ -1638,6 +1661,7 @@ export async function* runBench(
                 output_text: "",
                 stream_completed: false,
                 usage_output_tokens: null,
+                usage_reasoning_tokens: null,
                 quality,
               });
               yield {

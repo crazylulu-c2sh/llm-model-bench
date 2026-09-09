@@ -553,7 +553,10 @@ export function resolveBenchProfile(input: {
     extraBody = deepMergeObjects(extraBody, { chat_template_kwargs: { preserve_thinking: true } });
   }
   if (family === "qwen38") {
-    // LM Studio/llama.cpp는 chat_template_kwargs 경로로만 effort를 받는다(Ollama는 최상위 필드).
+    // #182: 어느 경로가 실제로 effort를 읽는지는 백엔드가 아니라 빌드/임베드 템플릿에 달려 있다
+    // (MLX에서는 최상위 필드가 먹고 템플릿 kwargs가 무효인 실측이 있는 반면, 같은 스택의 다른
+    // GGUF 빌드에서는 정반대이거나 최상위·템플릿 어느 경로도 안 먹는 사례가 관측됐다 — #144/#182).
+    // 하네스는 어느 경로가 유효한지 알 수 없으므로 두 경로 모두 방어적으로(belt-and-suspenders) 싣는다.
     // 사고 끄기는 `enable_thinking: false`(위)로만 표현하고 effort는 싣지 않는다 —
     // 공식 템플릿이 xhigh|medium|low 외의 값에 raise_exception을 던지기 때문.
     if (!thinkingOff) {

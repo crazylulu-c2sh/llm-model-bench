@@ -33,6 +33,8 @@ export type ScenarioDetailPayload = {
   toolCallArgsCorrupted?: boolean;
   /** chat 라우트에서 추론이 content로 새어 들어옴 → 엔진 프로토콜 회귀 경고 */
   reasoningLeakedIntoContent?: boolean;
+  /** #183: 사고 끄기를 요청했는데 사고가 관측됨 — 커스텀/리팩 GGUF 템플릿이 무시했을 가능성 */
+  reasoningControlIgnored?: boolean;
   /** 마지막으로 표시 중인 측정 런(1-based) / 총 측정 런 수 */
   measuredRunIndex?: number;
   measuredRunTotal?: number;
@@ -151,6 +153,17 @@ export function ScenarioDetailDrawer({
                     {m.results.actionGuide}
                     <span className="sr-only"> {m.results.newWindowSuffix}</span>
                   </a>
+                </p>
+              </div>
+            </div>
+          ) : null}
+          {payload.reasoningControlIgnored ? (
+            <div className="flex items-start gap-2 rounded border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2 text-xs leading-snug text-[var(--warning)]">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <div className="space-y-1">
+                <p>
+                  <strong>{m.results.reasoningControlIgnored}</strong>
+                  {m.results.detail.reasoningControlIgnoredDesc}
                 </p>
               </div>
             </div>
