@@ -100,8 +100,8 @@ describe("buildProfileAugmentedMeta", () => {
       preserve_thinking: false,
     });
     expect(meta.stop).toEqual(["<|im_end|>"]);
-    // 모델카드 권장: 사고 262,144 / 최종 응답 131,072.
-    expect(meta.max_tokens).toBe(262_144);
+    // 모델카드 권장은 262,144이지만 런타임 기본값은 81,920로 맞춘다(#144).
+    expect(meta.max_tokens).toBe(81_920);
 
     const extras = openAiExtrasFromMeta(meta);
     expect(extras.reasoning_effort).toBe("low");

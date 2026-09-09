@@ -214,9 +214,13 @@ export const LLM_PROFILE_DEFINITIONS: LlmProfileDefinition[] = [
         repetition_penalty: 1.0,
       },
     },
-    // 모델카드 권장: reasoning 262,144 / 최종 응답 131,072.
-    // 컨텍스트가 짧은 백엔드(vLLM --max-model-len 등)에서는 UI max_tokens로 낮춰 쓸 것.
-    recommendedMaxTokens: { default: 131_072, complex: 262_144 },
+    // 모델카드 권장값은 reasoning 262,144 / 최종 응답 131,072이지만, complex(사고 ON) 런타임
+    // 기본값으로는 그대로 쓰지 않는다(#144) — 실행시간의 지배 항은 max_tokens 자체가 아니라
+    // 사고량/양자화 대역폭이라 모델카드 값을 쓴다고 성능이 개선되지 않고, messages 라우트의
+    // thinking.budget_tokens(anthropic-fetch.ts)만 불필요하게 커진다. qwen3.5/3.6과 동일한
+    // 81,920으로 맞춘다. 모델카드 원값은 contextNativeMax/contextRecommendedStart로 남긴다.
+    // 컨텍스트가 짧은 백엔드(vLLM --max-model-len 등)에서는 UI max_tokens로 더 낮춰 쓸 것.
+    recommendedMaxTokens: { default: 131_072, complex: 81_920 },
     contextNativeMax: 262_144,
     contextRecommendedStart: 131_072,
     promptRules: { stripThinkingFromAssistantHistory: true },
