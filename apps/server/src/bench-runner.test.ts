@@ -216,6 +216,63 @@ describe("normalizeScenarioIdsForBench", () => {
   });
 });
 
+describe("runBench LM Studio load context_length (#194 후속 — 컨텍스트 기본값 인시던트 조사)", () => {
+  it("계산된 안전 context_length 를 명시적 load 요청 body 에 싣는다", async () => {
+    let loadSent: unknown = null;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [] }] });
+      }
+      if (url.endsWith("/api/v1/models/load")) {
+        loadSent = init?.body ? JSON.parse(String(init.body)) : null;
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/v1/chat/completions")) return sseChatOk();
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    const detect: DetectResult = {
+      ...lmStudioDetect(),
+      models: [{ id: MODEL_ID, max_context_length: 4_096 }],
+    };
+    for await (const _ev of runBench(baseBenchRequest({ max_tokens: 512 }), detect, { fetchImpl })) {
+      // drain
+    }
+
+    // computeSafeLoadContextLength(512, 4096) — 512*4=2048은 FLOOR(8192) 미만이라 8192로
+    // 끌어올려지지만, 모델 자체 상한(4096)이 그보다 작으므로 최종적으로 4096으로 잘린다.
+    expect(loadSent).toMatchObject({ model: MODEL_ID, context_length: 4_096 });
+  });
+
+  it("모델의 max_context_length 가 없으면(구버전 LM Studio) 안전 상한(CAP)으로 클램프한다", async () => {
+    let loadSent: unknown = null;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [] }] });
+      }
+      if (url.endsWith("/api/v1/models/load")) {
+        loadSent = init?.body ? JSON.parse(String(init.body)) : null;
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/v1/chat/completions")) return sseChatOk();
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    // max_tokens 를 크게(예: 262144 — 모델카드 값) 줘도 CAP(65536)에서 잘린다 —
+    // 인시던트에서 관측된 무설정 기본값(4×262144)의 1/4 이하로 항상 억제된다.
+    for await (const _ev of runBench(
+      baseBenchRequest({ max_tokens: 262_144 }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      // drain
+    }
+    expect(loadSent).toMatchObject({ model: MODEL_ID, context_length: 65_536 });
+  });
+});
+
 describe("runBench LM Studio autoUnloadAfterBench", () => {
   it("calls unload after run only when this bench performed a successful load", async () => {
     let postUnloadCount = 0;

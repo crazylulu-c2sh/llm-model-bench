@@ -78,6 +78,29 @@ describe("collectLmStudioLoaded — HTTP path", () => {
     expect(r.loaded[0].vramBytes).toBe(2048);
     expect(r.loaded[0].contextLength).toBe(8192);
   });
+
+  it("#194 후속(실측): 실제 LM Studio 응답은 context_length 가 최상위가 아니라 config 안에 있다", async () => {
+    // 실기 실측: `{"config":{"context_length":32768,"parallel":4,...}}` — 최상위에는 없다.
+    // 이 형태를 못 읽으면 모니터 스냅샷의 contextLength가 항상 undefined로 남는다.
+    const mockResponse = {
+      models: [
+        {
+          key: "publisher/model",
+          loaded_instances: [
+            { id: "inst-1", config: { context_length: 32_768, parallel: 4 } },
+          ],
+        },
+      ],
+    };
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(mockResponse),
+    })) as unknown as typeof fetch;
+
+    const r = await collectLmStudioLoaded("http://127.0.0.1:1234", { allowCli: true });
+    expect(r.loaded[0].contextLength).toBe(32_768);
+  });
 });
 
 describe("collectLmStudioLoaded — CLI fallback gating", () => {

@@ -18,7 +18,19 @@ type LmStudioLoadedInstance = {
   ram_usage?: number;
   ram?: number;
   ram_bytes?: number;
+  /**
+   * 실측(`GET /api/v1/models`): 실제로 잡힌 값은 이 최상위가 아니라 `config.context_length`에
+   * 있다(예: `{"config":{"context_length":8192,"parallel":4,...}}`). 이 최상위 필드는 실제
+   * 응답에서 관측되지 않아 죽은 정의였다 — 지우지 않고 `config`를 정확히 추가한다.
+   */
   context_length?: number;
+  config?: {
+    context_length?: number;
+    /** 병렬 슬롯 수. 총 KV 캐시 = parallel × context_length × bytes/token — 진단용으로만 읽는다. */
+    parallel?: number;
+  };
+  /** JIT prime으로 건 TTL이 남은 시간(초). `lms ps`가 아니라 HTTP로 TTL을 확인할 수 있는 유일한 경로. */
+  remaining_ttl_seconds?: number;
 };
 type LmStudioListedModel = {
   key?: string;
@@ -176,20 +188,66 @@ export async function lmStudioIsModelLoaded(
 }
 
 /**
+ * 저장된 모델별 설정이 없는 모델을 안전하게 로드하기 위한 `context_length` 상한.
+ * (배경) 저장 설정이 없으면 LM Studio가 내장 기본값으로 뜬다 — 관측된 사례는 4×262144.
+ * 명시적 load에 이 값을 실으면 실제로 그대로 잡힌다(실측 확인, `lmStudioLoad` 주석 참고).
+ *
+ * 262,144(무설정 관측 최댓값)의 1/4 — 대부분의 벤치 시나리오를 커버하면서 위험한 상한과는
+ * 확실히 거리를 둔다. 이보다 큰 컨텍스트가 필요한 시나리오가 실측되면 조정 대상이다.
+ */
+export const SAFE_LOAD_CONTEXT_LENGTH_CAP = 65_536;
+/** 일반적인 chat 시나리오가 여유롭게 도는 최소 하한 — 이보다 낮추지 않는다. */
+export const SAFE_LOAD_CONTEXT_LENGTH_FLOOR = 8_192;
+/** 실효 max_tokens(출력 상한)에 곱해 프롬프트 여유분을 확보하는 배수. */
+const CONTEXT_LENGTH_HEADROOM_MULTIPLIER = 4;
+
+/**
+ * 로드 시 요청할 안전한 `context_length`를 계산한다 — 이 런의 실효 max_tokens에 여유 배수를 곱한
+ * 값을, [FLOOR, CAP] 범위로 자르고, 모델 자체가 지원하는 상한(`modelMaxContextLength`, 있으면)을
+ * 넘지 않게 한다. 순수 함수 — 어떤 IO도 하지 않는다.
+ */
+export function computeSafeLoadContextLength(
+  effectiveMaxTokens: number,
+  modelMaxContextLength?: number | null,
+): number {
+  const desired = Math.max(
+    SAFE_LOAD_CONTEXT_LENGTH_FLOOR,
+    Math.min(
+      SAFE_LOAD_CONTEXT_LENGTH_CAP,
+      Number.isFinite(effectiveMaxTokens) && effectiveMaxTokens > 0
+        ? Math.ceil(effectiveMaxTokens * CONTEXT_LENGTH_HEADROOM_MULTIPLIER)
+        : SAFE_LOAD_CONTEXT_LENGTH_FLOOR,
+    ),
+  );
+  if (modelMaxContextLength != null && Number.isFinite(modelMaxContextLength) && modelMaxContextLength > 0) {
+    return Math.min(desired, Math.floor(modelMaxContextLength));
+  }
+  return desired;
+}
+
+/**
  * LM Studio REST load — tries common paths; body uses model key from List API.
  * 명시적 load는 `ttl`을 **지원하지 않는다**(공식 문서: Idle TTL은 JIT 로딩에만 적용,
  * https://lmstudio.ai/docs/developer/core/ttl-and-auto-evict). `ttl`을 실으면 구버전이
  * 400/422로 거부해 로드 자체가 실패한다. TTL이 필요하면 {@link lmStudioJitTtlPrime}을 사용하라.
+ *
+ * `opts.contextLength`(공식 REST 최상위 필드 `context_length`, https://lmstudio.ai/docs/developer/rest/load) —
+ * 저장된 모델별 설정이 없는 모델은 LM Studio 내장 기본값으로 뜬다. 실측(이 저장소 개발 중 컨텍스트
+ * 기본값 인시던트 조사)으로 4096을 보내면 실제로 4096이 잡히는 것을 확인했다 — 안 보내면 이 안전장치가
+ * 없다. 호출자(`prepareLmStudioForRun`)가 넘기지 않으면 이전과 동일하게 필드 자체를 생략한다.
  */
 export async function lmStudioLoad(
   baseUrl: string,
   modelKey: string,
-  opts: { fetchImpl?: FetchLike; apiKey?: string } = {},
+  opts: { fetchImpl?: FetchLike; apiKey?: string; contextLength?: number } = {},
 ): Promise<{ ok: boolean; status: number; body: string }> {
   const fetchImpl = opts.fetchImpl ?? providerFetch;
   const root = apiRoot(baseUrl);
   const candidates = [`${root}/api/v1/models/load`, `${root}/api/v0/models/load`];
-  const body = JSON.stringify({ model: modelKey });
+  const body = JSON.stringify({
+    model: modelKey,
+    ...(opts.contextLength != null ? { context_length: opts.contextLength } : {}),
+  });
   let last = { ok: false, status: 404, body: "no load endpoint" };
   for (const url of candidates) {
     const r = await fetchImpl(url, {
@@ -337,7 +395,56 @@ export type LmStudioPrepareResult = {
   loadedByThisRun: boolean;
   /** 로드 자체가 실패. 호출자가 load_failed를 내고 중단한다. */
   error?: { status: number; body: string };
+  /**
+   * `contextLength`를 요청했는데 실제로 잡힌 컨텍스트가 그보다 크게 확인된 경우에만 채워진다.
+   * JIT 경로(TTL 요청 시)는 `context_length`를 body에 실을 방법이 없어(실측 확인, chat completions
+   * 요청의 임의 필드는 조용히 무시된다) 강제할 수 없다 — 대신 로드 후 사후 확인으로 감지한다.
+   * 이미 상주 중이던 모델(다른 프로세스·이전 런이 올린 경우)도 같은 이유로 사후 확인한다.
+   */
+  contextLengthWarning?: { requestedContextLength: number; actualContextLength: number };
 };
+
+/**
+ * `GET /api/v1/models`의 `loaded_instances[0].config.context_length`로 실제 잡힌 값을 읽는다.
+ * (요청 필드가 조용히 무시될 수 있어 "줬다고 생각한 값"이 아니라 "실제로 잡힌 값"을 확인하는 것이
+ * 유일하게 신뢰 가능한 방법이다.) 확인 불가(목록 조회 실패·미로드·필드 없음)면 `null` — 판단 보류.
+ */
+async function readActualLmStudioContextLength(
+  baseUrl: string,
+  modelId: string,
+  opts: { fetchImpl?: FetchLike; apiKey?: string },
+): Promise<number | null> {
+  try {
+    const listed = await lmStudioListModels(baseUrl, { ...opts, timeoutMs: 5000 });
+    if (!listed.ok) return null;
+    const wanted = baseKey(modelId);
+    for (const m of listed.models) {
+      if (!m || typeof m.key !== "string" || baseKey(m.key) !== wanted) continue;
+      const inst = m.loaded_instances?.[0];
+      const ctx = inst?.config?.context_length;
+      return typeof ctx === "number" && Number.isFinite(ctx) && ctx > 0 ? ctx : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `contextLength`(요청한 안전 상한)가 주어졌을 때만 실제 값을 확인해 경고 필드를 만든다.
+ * 명시적 load 직후(신뢰 가능 — 실측 확인됨)에는 부르지 않는다; JIT·이미 상주 경로에서만 쓴다.
+ */
+async function checkContextLengthWarning(
+  baseUrl: string,
+  modelId: string,
+  requestedContextLength: number | undefined,
+  opts: { fetchImpl?: FetchLike; apiKey?: string },
+): Promise<{ contextLengthWarning?: LmStudioPrepareResult["contextLengthWarning"] }> {
+  if (requestedContextLength == null) return {};
+  const actual = await readActualLmStudioContextLength(baseUrl, modelId, opts);
+  if (actual == null || actual <= requestedContextLength) return {};
+  return { contextLengthWarning: { requestedContextLength, actualContextLength: actual } };
+}
 
 /**
  * 런 시작 전 LM Studio 모델 준비 — 상주 확인 → (필요 시) 언로드 후 JIT prime 또는 명시적 load.
@@ -359,8 +466,14 @@ export async function prepareLmStudioForRun(opts: {
   fetchImpl?: FetchLike;
   apiKey?: string;
   signal?: AbortSignal;
+  /**
+   * 저장된 모델별 설정이 없을 때 내장 기본값(관측 사례: 4×262144)으로 뜨는 것을 막는 안전
+   * 상한(`computeSafeLoadContextLength` 참고). 명시적 load에는 그대로 강제된다(실측 확인).
+   * JIT/이미 상주 경로는 강제할 수 없어 사후 확인 후 `contextLengthWarning`으로만 알린다.
+   */
+  contextLength?: number;
 }): Promise<LmStudioPrepareResult> {
-  const { baseUrl, modelId, skipModelLoad, ttlSeconds, fetchImpl, apiKey, signal } = opts;
+  const { baseUrl, modelId, skipModelLoad, ttlSeconds, fetchImpl, apiKey, signal, contextLength } = opts;
   const wantsTtl = ttlSeconds != null;
 
   if (skipModelLoad) {
@@ -378,10 +491,14 @@ export async function prepareLmStudioForRun(opts: {
     // 다만 **앞선 런이 걸어둔 TTL이 이미 살아 있을 수 있다** — 읽을 수 있으면 그걸 그대로 보고한다.
     // 그러지 않으면 TTL이 멀쩡히 걸린 모델에도 "미적용" 경고가 뜬다.
     const resident = wantsTtl ? await verifyLmStudioTtlApplied({ baseUrl, modelId }) : null;
+    // 이미 상주 중인 모델은 우리가 로드 파라미터를 지정할 수 없었다(다른 프로세스·이전 런이
+    // 올렸을 수 있다) — context_length가 위험하게 크지 않은지 사후로만 확인해 알린다.
+    const warn = await checkContextLengthWarning(baseUrl, modelId, contextLength, { fetchImpl, apiKey });
     return {
       prepare: "already_in_memory",
       loadedByThisRun: false,
       ...(wantsTtl ? { ttlStatus: resident ?? ("not_applied" as const) } : {}),
+      ...warn,
     };
   }
 
@@ -394,7 +511,8 @@ export async function prepareLmStudioForRun(opts: {
   await lmStudioUnload(baseUrl, modelId, { fetchImpl, apiKey });
 
   if (!wantsTtl) {
-    const load = await lmStudioLoad(baseUrl, modelId, { fetchImpl, apiKey });
+    // 명시적 load — context_length 를 그대로 실어 보낸다(실측 확인: 요청한 값이 정확히 잡힘).
+    const load = await lmStudioLoad(baseUrl, modelId, { fetchImpl, apiKey, contextLength });
     if (!load.ok) return { prepare: "loaded", loadedByThisRun: false, error: load };
     return { prepare: "loaded", loadedByThisRun: true };
   }
@@ -411,10 +529,15 @@ export async function prepareLmStudioForRun(opts: {
     // 2xx는 적용을 증명하지 않는다 — 로컬 대상이면 `lms ps`로 실제 ttl을 읽어 확정한다.
     // 확인이 불가능하면(원격·CLI 미사용·형식 미상) 기존의 보수적인 값을 그대로 둔다.
     const verified = await verifyLmStudioTtlApplied({ baseUrl, modelId });
+    // JIT prime(chat completions 요청)은 context_length 를 강제할 수단이 없다(실측 확인 — 보내도
+    // 무시된다). TTL 기능을 유지하기 위해 이 경로는 그대로 두고, 대신 로드 후 실제 값을 확인해
+    // 위험하면 경고만 표면화한다 — 인시던트 조사에서 나온 "실제로 잡힌 값을 확인하라"는 교훈.
+    const warn = await checkContextLengthWarning(baseUrl, modelId, contextLength, { fetchImpl, apiKey });
     return {
       prepare: "jit_load_with_ttl",
       loadedByThisRun: true,
       ttlStatus: verified ?? primed.ttl_status,
+      ...warn,
     };
   }
 
@@ -429,7 +552,7 @@ export async function prepareLmStudioForRun(opts: {
 
   // prime 실패(네트워크 등) — 명시적 load로 폴백해 로드 자체는 보장한다.
   // 명시적 load는 ttl 미지원이므로 TTL은 확실히 걸리지 않았고, 라벨도 JIT가 아니다.
-  const load = await lmStudioLoad(baseUrl, modelId, { fetchImpl, apiKey });
+  const load = await lmStudioLoad(baseUrl, modelId, { fetchImpl, apiKey, contextLength });
   if (!load.ok) {
     return { prepare: "loaded", loadedByThisRun: false, ttlStatus: "not_applied", error: load };
   }
