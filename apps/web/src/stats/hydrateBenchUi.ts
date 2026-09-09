@@ -22,12 +22,14 @@ export type MetricsAgg = {
     output_text: string;
     stream_completed: boolean;
     usage_output_tokens?: number | null;
+    usage_reasoning_tokens?: number | null;
     reasoning_hidden?: boolean;
     tool_call_args_corrupted?: boolean;
     reasoning_leaked_into_content?: boolean;
     reasoning_chars?: number;
     empty_response?: boolean;
     channel_tag_leak_detected?: boolean;
+    reasoning_control_ignored?: boolean;
     thinking_exhausted_budget?: boolean;
     empty_turn_count?: number;
     turns_to_completion?: number | null;
@@ -95,6 +97,7 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
         tool_call_args_corrupted: last.tool_call_args_corrupted,
         reasoning_leaked_into_content: last.reasoning_leaked_into_content,
         channel_tag_leak_detected: last.channel_tag_leak_detected,
+        reasoning_control_ignored: last.reasoning_control_ignored,
         agent_completion_reason: last.agent_completion_reason,
         turns_to_completion: last.turns_to_completion,
         empty_turn_count: last.empty_turn_count,

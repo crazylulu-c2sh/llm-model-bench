@@ -50,6 +50,64 @@ describe("detectProvider", () => {
     expect(r.reachability?.state).toBe("ok");
   });
 
+  it("#182: merges compatibility_type/quantization/arch from /api/v0/models when available", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({
+          models: [{ key: "m1", type: "llm", display_name: "M1", loaded_instances: [] }],
+        });
+      }
+      if (url.endsWith("/api/v0/models")) {
+        return jsonResponse({
+          data: [{ id: "m1", compatibility_type: "gguf", quantization: "Q4_K_M", arch: "qwen35" }],
+        });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:1234", { fetchImpl });
+    expect(r.models[0]?.compatibility_type).toBe("gguf");
+    expect(r.models[0]?.quantization).toBe("Q4_K_M");
+    expect(r.models[0]?.arch).toBe("qwen35");
+  });
+
+  it("#182: v0 enrichment failing (non-2xx) does not break the v1-only result", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({
+          models: [{ key: "m1", type: "llm", display_name: "M1", loaded_instances: [] }],
+        });
+      }
+      if (url.endsWith("/api/v0/models")) {
+        return jsonResponse({}, 500);
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:1234", { fetchImpl });
+    expect(r.provider).toBe("lm_studio");
+    expect(r.models[0]?.id).toBe("m1");
+    expect(r.models[0]?.compatibility_type).toBeUndefined();
+  });
+
+  it("#182: v0 enrichment throwing (network error) does not break the v1-only result", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({
+          models: [{ key: "m1", type: "llm", display_name: "M1", loaded_instances: [] }],
+        });
+      }
+      if (url.endsWith("/api/v0/models")) {
+        throw new Error("network down");
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:1234", { fetchImpl });
+    expect(r.provider).toBe("lm_studio");
+    expect(r.models[0]?.id).toBe("m1");
+  });
+
   it("filters imatrix / MTP draft / mmproj artifacts from LM Studio list", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestUrl(input);

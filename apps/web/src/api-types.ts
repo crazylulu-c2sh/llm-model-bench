@@ -8,6 +8,8 @@ export type BenchScenarioRun = {
   stream_completed: boolean;
   /** provider 보고 출력 토큰 수(없으면 null/미존재). 있으면 TPS가 이 값을 사용. */
   usage_output_tokens?: number | null;
+  /** #182: provider 보고 사고 토큰 수(chat_completions 전용, 없으면 null). */
+  usage_reasoning_tokens?: number | null;
   /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의. */
   reasoning_hidden?: boolean;
   /** #1922: 스트리밍 tool_call 인자 연결 손상 감지 → LM Studio 엔진 프로토콜 회귀 의심. */
@@ -20,6 +22,8 @@ export type BenchScenarioRun = {
   empty_response?: boolean;
   /** #80: 가시 content에 <think>/<|channel|> 태그 잔존(라우트 무관) → 채널 태그 누수. */
   channel_tag_leak_detected?: boolean;
+  /** #183: 사고 끄기를 요청했는데 사고가 관측됨 — 커스텀/리팩 GGUF 템플릿이 무시했을 가능성. */
+  reasoning_control_ignored?: boolean;
   /** #101: agent_loop — 사고가 per-turn max_tokens를 소진해 빈 content로 끝난 턴(no_signal 시그니처). */
   thinking_exhausted_budget?: boolean;
   /** #79: agent_loop — content=="" && tool_calls==0 인 빈 턴 수. */

@@ -44,6 +44,8 @@ export type ResultRow = {
   reasoning_leaked_into_content?: boolean;
   /** #80: 가시 content에 <think>/<|channel|> 태그 잔존(라우트 무관) → 추론 누수 배지의 일반화 신호 */
   channel_tag_leak_detected?: boolean;
+  /** #183: 사고 끄기를 요청했는데 사고가 관측됨 — 커스텀/리팩 GGUF 템플릿이 무시했을 가능성 */
+  reasoning_control_ignored?: boolean;
   /** #105: agent_loop 마지막 측정 런의 종료 사유(에이전트 컬럼 배지). */
   agent_completion_reason?: "completed" | "stall" | "budget_exhausted" | "upstream_error";
   /** #105: agent_loop 완료까지 턴 수(완료 배지 부제). */
@@ -134,6 +136,11 @@ export function ResultsTable({
       ),
     [rows],
   );
+  // #183: 원인이 엔진 프로토콜 회귀가 아니라 커스텀 GGUF 템플릿 한계라 별도 문단으로 안내한다.
+  const hasReasoningControlIgnored = useMemo(
+    () => rows.some((r) => r.reasoning_control_ignored),
+    [rows],
+  );
   const colorByModel = useMemo(() => buildModelColorMap(rows.map((r) => r.model_id)), [rows]);
   const winners = useMemo(
     () =>
@@ -214,10 +221,12 @@ export function ResultsTable({
           // #80: 배지의 "추론 누수"를 일반화된 channel_tag_leak(라우트 무관)로 구동. 구버전 런 호환을 위해
           // 기존 reasoning_leaked_into_content(LM Studio 0.4.14–0.4.18 버그 신호)를 OR 폴백으로 유지.
           const leaked = r.channel_tag_leak_detected === true || r.reasoning_leaked_into_content === true;
-          const contaminated = corrupted || leaked;
+          const controlIgnored = r.reasoning_control_ignored === true;
+          const contaminated = corrupted || leaked || controlIgnored;
           const detail = [
             corrupted ? m.results.toolArgsCorrupted : null,
             leaked ? m.results.reasoningLeak : null,
+            controlIgnored ? m.results.reasoningControlIgnored : null,
           ]
             .filter(Boolean)
             .join(" · ");
@@ -665,6 +674,13 @@ export function ResultsTable({
             <span className="sr-only">{m.results.newWindowSuffix}</span>
           </a>
           {m.results.table.engineWarnTail}
+        </p>
+      ) : null}
+      {hasReasoningControlIgnored ? (
+        <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
+          <span className="text-amber-500">⚠</span> {m.results.table.reasoningControlIgnoredNoteLead}
+          <strong>{m.results.reasoningControlIgnored}</strong>
+          {m.results.table.reasoningControlIgnoredNoteTail}
         </p>
       ) : null}
     </div>

@@ -8,6 +8,7 @@ export const results = {
   failBadge: "불합격",
   toolArgsCorrupted: "도구 인자 손상",
   reasoningLeak: "추론 누수",
+  reasoningControlIgnored: "사고 제어 무시됨",
   actionGuide: "조치 안내",
   newWindowTitle: "새 창에서 열림",
   newWindowSuffix: "(새 창)",
@@ -152,6 +153,9 @@ export const results = {
     engineWarnMid:
       "가 감지됐습니다 — LM Studio 엔진 프로토콜 회귀(bug-tracker #1922 등)일 수 있어 점수가 오염됐을 수 있습니다. LM Studio를 0.4.19+로 올리거나 \"Use LM Studio Engine Protocol\"을 끄고 재측정하세요(",
     engineWarnTail: ").",
+    reasoningControlIgnoredNoteLead: "시나리오 옆 표시 행에 ",
+    reasoningControlIgnoredNoteTail:
+      "가 감지됐습니다 — 사고를 끄도록 요청했는데 사고가 관측됐습니다. 커뮤니티 리팩/커스텀 GGUF는 임베드 chat_template이 enable_thinking·reasoning_effort 분기 자체를 갖지 않아 이 요청을 무시할 수 있습니다(하네스 버그 아님).",
   },
 
   // ScenarioDetailDrawer.tsx
@@ -165,6 +169,8 @@ export const results = {
     toolArgsCorruptedLead: " — 스트리밍 tool_calls 인자가 연결·손상돼(",
     toolArgsCorruptedTail: ") 도구 실행이 실패했을 수 있습니다.",
     reasoningLeakDesc: " — 사고(reasoning) 블록이 응답 content로 섞여 들어와 채점이 흐려질 수 있습니다.",
+    reasoningControlIgnoredDesc:
+      " — 사고를 끄도록 요청했는데(enable_thinking:false 등) 사고가 관측됐습니다. 커뮤니티 리팩/커스텀 GGUF의 임베드 chat_template이 enable_thinking·reasoning_effort 분기를 아예 갖지 않아 이 설정을 무시했을 가능성이 큽니다 — LM Studio 엔진 프로토콜 문제가 아니라 모델 쪽 템플릿 한계입니다.",
     engineNoteLead: "LM Studio 엔진 프로토콜 회귀일 수 있습니다. ",
     engineNoteStrong: "LM Studio를 0.4.19+로 올리거나",
     engineNoteMid: " Developer의 \"Use LM Studio Engine Protocol\"을 끄고 재측정하세요. ",

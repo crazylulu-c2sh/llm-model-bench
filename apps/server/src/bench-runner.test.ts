@@ -161,6 +161,29 @@ describe("makeBenchRunMeta publisher", () => {
   });
 });
 
+describe("makeBenchRunMeta engine info (#182)", () => {
+  it("copies compatibility_type/quantization/arch from the matching detect.models entry", () => {
+    const detect: DetectResult = {
+      ...lmStudioDetect(),
+      models: [
+        { id: MODEL_ID, compatibility_type: "gguf", quantization: "Q4_K_M", arch: "qwen35" },
+      ],
+    };
+    const meta = makeBenchRunMeta(baseBenchRequest(), detect, "run_engine_1");
+    expect(meta.compatibility_type).toBe("gguf");
+    expect(meta.quantization).toBe("Q4_K_M");
+    expect(meta.arch).toBe("qwen35");
+  });
+
+  it("leaves the fields undefined when detect doesn't carry them (older LM Studio / other providers)", () => {
+    const detect: DetectResult = { ...lmStudioDetect(), models: [{ id: MODEL_ID }] };
+    const meta = makeBenchRunMeta(baseBenchRequest(), detect, "run_engine_2");
+    expect(meta.compatibility_type).toBeUndefined();
+    expect(meta.quantization).toBeUndefined();
+    expect(meta.arch).toBeUndefined();
+  });
+});
+
 describe("normalizeScenarioIdsForBench", () => {
   it("moves translate_nist_fips197_pdf_tools to the end of the text block while preserving other text order", () => {
     const input: ScenarioId[] = [
@@ -1297,7 +1320,11 @@ describe("runBench chat route — LM Studio engine-protocol regression flags", (
     return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
   }
 
-  async function lastRunFor(scenario: ScenarioId, resp: Response): Promise<Record<string, unknown> | undefined> {
+  async function lastRunFor(
+    scenario: ScenarioId,
+    resp: Response,
+    overrides: Partial<BenchRequest> = {},
+  ): Promise<Record<string, unknown> | undefined> {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestUrl(input);
       if (url.endsWith("/v1/chat/completions")) return resp;
@@ -1305,7 +1332,7 @@ describe("runBench chat route — LM Studio engine-protocol regression flags", (
     });
     let run: Record<string, unknown> | undefined;
     for await (const ev of runBench(
-      baseBenchRequest({ skipModelLoad: true, scenarioIds: [scenario] }),
+      baseBenchRequest({ skipModelLoad: true, scenarioIds: [scenario], ...overrides }),
       lmStudioDetect(),
       { fetchImpl },
     )) {
@@ -1342,6 +1369,56 @@ describe("runBench chat route — LM Studio engine-protocol regression flags", (
       ]),
     );
     expect(run?.tool_call_args_corrupted).toBe(true);
+  });
+
+  it("#183 flags reasoning_control_ignored when thinkingIntent=off but reasoning_content is still streamed", async () => {
+    const run = await lastRunFor(
+      "chat_ping",
+      sseChatDeltas([{ reasoning_content: "still thinking despite off" }, { content: "final answer" }]),
+      { profile: { profileId: "auto", taskMode: "general", thinkingIntent: "off" } },
+    );
+    expect(run?.reasoning_control_ignored).toBe(true);
+  });
+
+  it("#183 does NOT flag reasoning_control_ignored when thinkingIntent=off and no reasoning is observed", async () => {
+    const run = await lastRunFor(
+      "chat_ping",
+      sseChatDeltas([{ content: "final answer" }]),
+      { profile: { profileId: "auto", taskMode: "general", thinkingIntent: "off" } },
+    );
+    expect(run?.reasoning_control_ignored).toBeUndefined();
+  });
+
+  it("#183 does NOT flag reasoning_control_ignored when thinkingIntent=on (expected reasoning)", async () => {
+    const run = await lastRunFor(
+      "chat_ping",
+      sseChatDeltas([{ reasoning_content: "thinking..." }, { content: "final answer" }]),
+      { profile: { profileId: "auto", taskMode: "general", thinkingIntent: "on" } },
+    );
+    expect(run?.reasoning_control_ignored).toBeUndefined();
+  });
+
+  it("#182(b)/#183: usage.completion_tokens_details.reasoning_tokens alone (no streamed reasoning_content) also trips the flag", async () => {
+    // sseChatDeltas 는 delta 만 감싸 usage 청크를 못 실으므로 여기서는 raw SSE 를 직접 구성한다.
+    const enc = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "final answer" } }] })}\n\n`));
+        controller.enqueue(
+          enc.encode(
+            `data: ${JSON.stringify({ choices: [], usage: { completion_tokens: 50, completion_tokens_details: { reasoning_tokens: 30 } } })}\n\n`,
+          ),
+        );
+        controller.enqueue(enc.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+    const resp = new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+    const run = await lastRunFor("chat_ping", resp, {
+      profile: { profileId: "auto", taskMode: "general", thinkingIntent: "off" },
+    });
+    expect(run?.reasoning_control_ignored).toBe(true);
+    expect(run?.usage_reasoning_tokens).toBe(30);
   });
 });
 

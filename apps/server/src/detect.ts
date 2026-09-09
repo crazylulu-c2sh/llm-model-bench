@@ -103,6 +103,49 @@ type LmStudioNativeModel = {
   params_string?: string | null;
 };
 
+/** `/api/v0/models`(OpenAI 호환 확장) 응답 항목 — 네이티브 `/api/v1/models`에는 없는 실행엔진 필드. */
+type LmStudioV0Model = {
+  id?: string;
+  compatibility_type?: string;
+  quantization?: string;
+  arch?: string;
+};
+
+type LmStudioCompatExtras = { compatibility_type?: string; quantization?: string; arch?: string };
+
+/**
+ * #182: best-effort 보강 — `/api/v0/models`는 `compatibility_type`/`quantization`/`arch`를 주지만
+ * 네이티브 `/api/v1/models`에는 없다. 이 조회가 실패해도(구버전 LM Studio, 타임아웃 등) v1 detect
+ * 결과 자체는 절대 훼손하지 않는다 — 실패 시 빈 맵을 반환한다.
+ */
+async function fetchLmStudioCompatExtras(
+  fetchImpl: FetchLike,
+  baseUrl: string,
+  apiKey: string | undefined,
+  timeoutMs: number,
+): Promise<Map<string, LmStudioCompatExtras>> {
+  const out = new Map<string, LmStudioCompatExtras>();
+  try {
+    const r = await fetchImpl(`${baseUrl}/api/v0/models`, {
+      headers: headers(apiKey),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!r.ok) return out;
+    const body = (await r.json()) as { data?: LmStudioV0Model[] };
+    for (const m of body.data ?? []) {
+      if (typeof m.id !== "string" || !m.id) continue;
+      out.set(m.id, {
+        compatibility_type: typeof m.compatibility_type === "string" ? m.compatibility_type : undefined,
+        quantization: typeof m.quantization === "string" ? m.quantization : undefined,
+        arch: typeof m.arch === "string" ? m.arch : undefined,
+      });
+    }
+  } catch {
+    // best-effort — v1 성공 결과를 이걸로 망치지 않는다.
+  }
+  return out;
+}
+
 /** 이미 쌓은 step에 사유만 덧붙인다 — 새 step을 push하면 도달성 계산이 어긋난다. */
 function annotateLastStep(steps: DetectStep[], detail: string): void {
   const i = steps.length - 1;
@@ -227,6 +270,9 @@ export async function detectProvider(
       // "모델 0개인 정상 연결"이라는 가짜 성공이 만들어진다. 네이티브 `models` 배열이 있어야 한다.
       const modelsArr = Array.isArray(body?.models) ? body.models : undefined;
       if (modelsArr) {
+        // #182: 실행엔진(gguf/mlx)·양자화·arch는 네이티브 v1에 없고 v0(OpenAI 호환 확장)에만 있다.
+        // best-effort — 실패해도 빈 맵이라 아래 models 자체는 그대로 성공한다.
+        const compatExtras = await fetchLmStudioCompatExtras(fetchImpl, baseUrl, opts.apiKey, timeoutMs);
         const models = modelsArr
           .map((m) => m as LmStudioNativeModel)
           .filter((m) => typeof m.key === "string" && m.key)
@@ -242,6 +288,7 @@ export async function detectProvider(
               typeof m.params_string === "string" && m.params_string.trim()
                 ? m.params_string.trim()
                 : undefined,
+            ...compatExtras.get(m.key as string),
           }));
         if (models.length === 0) {
           annotateLastStep(steps, modelsArr.length === 0 ? "empty_model_list" : "no_benchable_model");

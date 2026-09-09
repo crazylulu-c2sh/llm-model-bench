@@ -9,6 +9,7 @@ export const results: Messages["results"] = {
   failBadge: "不合格",
   toolArgsCorrupted: "ツール引数の破損",
   reasoningLeak: "推論リーク",
+  reasoningControlIgnored: "推論制御の無視",
   actionGuide: "対処ガイド",
   newWindowTitle: "新しいウィンドウで開く",
   newWindowSuffix: "（新しいウィンドウ）",
@@ -149,6 +150,9 @@ export const results: Messages["results"] = {
     engineWarnMid:
       " が検出されました — LM Studio エンジンプロトコル回帰（bug-tracker #1922 など）の可能性があり、スコアが汚染されているかもしれません。LM Studio を 0.4.19+ に上げるか、\"Use LM Studio Engine Protocol\" をオフにして再測定してください（",
     engineWarnTail: "）。",
+    reasoningControlIgnoredNoteLead: "シナリオ横の表示行に ",
+    reasoningControlIgnoredNoteTail:
+      " が検出されました — 思考をオフにするよう要求しましたが、思考が観測されました。コミュニティのリパック・カスタム GGUF は埋め込み chat_template に enable_thinking・reasoning_effort の分岐自体を持たないことがあり、その場合この設定は無視されます（ハーネスのバグではありません）。",
   },
 
   detail: {
@@ -161,6 +165,8 @@ export const results: Messages["results"] = {
     toolArgsCorruptedLead: " — ストリーミングの tool_calls 引数が連結・破損し（",
     toolArgsCorruptedTail: "）ツール実行が失敗した可能性があります。",
     reasoningLeakDesc: " — 思考（reasoning）ブロックが応答 content に混入し、採点が不鮮明になった可能性があります。",
+    reasoningControlIgnoredDesc:
+      " — 思考をオフにするよう要求しました（enable_thinking:false 等）が、思考が観測されました。コミュニティのリパック・カスタム GGUF の埋め込み chat_template が enable_thinking・reasoning_effort の分岐自体を持たず、この設定を無視した可能性が高いです — LM Studio のエンジンプロトコル問題ではなく、モデル側テンプレートの限界です。",
     engineNoteLead: "LM Studio エンジンプロトコル回帰の可能性があります。 ",
     engineNoteStrong: "LM Studio を 0.4.19+ に上げるか、",
     engineNoteMid: " Developer の \"Use LM Studio Engine Protocol\" をオフにして再測定してください。 ",

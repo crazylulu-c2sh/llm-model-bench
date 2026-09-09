@@ -9,6 +9,7 @@ export const results: Messages["results"] = {
   failBadge: "Fail",
   toolArgsCorrupted: "Tool args corrupted",
   reasoningLeak: "Reasoning leak",
+  reasoningControlIgnored: "Reasoning control ignored",
   actionGuide: "How to fix",
   newWindowTitle: "Opens in a new window",
   newWindowSuffix: "(new window)",
@@ -149,6 +150,9 @@ export const results: Messages["results"] = {
     engineWarnMid:
       " detected — it may be an LM Studio engine protocol regression (bug-tracker #1922 etc.) that contaminated the score. Upgrade LM Studio to 0.4.19+ or turn off \"Use LM Studio Engine Protocol\" and re-measure (",
     engineWarnTail: ").",
+    reasoningControlIgnoredNoteLead: "Rows next to the scenario show ",
+    reasoningControlIgnoredNoteTail:
+      " — reasoning was requested off but was observed anyway. Community re-pack / custom GGUFs may not have an enable_thinking/reasoning_effort branch in their embedded chat_template at all, so the request is silently ignored (not a harness bug).",
   },
 
   detail: {
@@ -161,6 +165,8 @@ export const results: Messages["results"] = {
     toolArgsCorruptedLead: " — streaming tool_calls args were concatenated/corrupted (",
     toolArgsCorruptedTail: ") so tool execution may have failed.",
     reasoningLeakDesc: " — the thinking block leaked into the response content and may have blurred scoring.",
+    reasoningControlIgnoredDesc:
+      " — reasoning was requested off (enable_thinking:false, etc.) but was observed anyway. The embedded chat_template of a community re-pack / custom GGUF likely doesn't have an enable_thinking/reasoning_effort branch at all, so it ignored the setting — this is a model-side template limitation, not an LM Studio engine-protocol issue.",
     engineNoteLead: "This may be an LM Studio engine protocol regression. ",
     engineNoteStrong: "Upgrade LM Studio to 0.4.19+ or",
     engineNoteMid: " turn off Developer's \"Use LM Studio Engine Protocol\" and re-measure. ",

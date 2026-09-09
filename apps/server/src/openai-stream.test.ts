@@ -194,6 +194,7 @@ describe("openAiBenchOutputText", () => {
         streamCompleted: true,
         approxOutputTokens: 1,
         usageOutputTokens: null,
+        usageReasoningTokens: null,
         finishReason: null,
         repetitionLoopDetected: false,
         toolCallArgsCorrupted: false,
@@ -213,6 +214,7 @@ describe("openAiBenchOutputText", () => {
         streamCompleted: true,
         approxOutputTokens: 4,
         usageOutputTokens: null,
+        usageReasoningTokens: null,
         finishReason: null,
         repetitionLoopDetected: false,
         toolCallArgsCorrupted: false,
@@ -240,6 +242,38 @@ describe("usage capture & onDelta", () => {
     ]);
     const m = await consumeOpenAiChatStream(stream);
     expect(m.usageOutputTokens).toBeNull();
+  });
+
+  it("#182: captures usage.completion_tokens_details.reasoning_tokens from terminal usage chunk", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+      'data: {"choices":[],"usage":{"completion_tokens":141,"completion_tokens_details":{"reasoning_tokens":0}}}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.usageReasoningTokens).toBe(0);
+  });
+
+  it("#182: captures a positive reasoning_tokens count independent of usageOutputTokens", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+      'data: {"choices":[],"usage":{"completion_tokens":521,"completion_tokens_details":{"reasoning_tokens":319}}}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.usageOutputTokens).toBe(521);
+    expect(m.usageReasoningTokens).toBe(319);
+  });
+
+  it("#182: leaves usageReasoningTokens null when provider omits completion_tokens_details", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+      'data: {"choices":[],"usage":{"completion_tokens":7}}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.usageOutputTokens).toBe(7);
+    expect(m.usageReasoningTokens).toBeNull();
   });
 
   it("captures finish_reason='length' for max_tokens truncation", async () => {
@@ -338,6 +372,7 @@ describe("openAiLiveTokenStreamText", () => {
         streamCompleted: true,
         approxOutputTokens: 1,
         usageOutputTokens: null,
+        usageReasoningTokens: null,
         finishReason: null,
         repetitionLoopDetected: false,
         toolCallArgsCorrupted: false,

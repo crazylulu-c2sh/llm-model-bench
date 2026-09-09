@@ -157,3 +157,29 @@ gemma-4·nemotron이 깨지는 바로 그 경로 — 도 정상 렌더됐다.
 > 그쪽은 패치 스크립트를 돌리면 된다.
 
 > 교체는 **관측된 실패가 있을 때만** 한다. 예방 목적의 선제 교체는 벤치 비교 가능성만 잃는다.
+
+---
+
+## 6. 사례: 커뮤니티 리팩/커스텀 GGUF는 클라이언트 클램프가 안 통할 수 있다 (#183)
+
+§5의 "클라이언트에서 해결" 전략은 **공식 템플릿이 조건 분기를 가지고 있다**는 전제에 기댄다 —
+`qwen38TemplateEffort`가 값을 클램프해도, 애초에 템플릿에 `enable_thinking`/`reasoning_effort`를
+읽는 분기 자체가 없으면 클램프한 값도 무시된다.
+
+커뮤니티가 파인튜닝·언센서링한 리팩 GGUF(예: `HauhauCS/*-Uncensored-*` 계열)는 자체 chat_template을
+갖고 있어, 공식 템플릿에 있는 조건 분기가 통째로 빠져 있는 경우가 관측됐다. LM Studio 로그에
+다음과 같은 경고가 남는다:
+
+```
+[WARN][...] No valid custom reasoning fields found in model '...'. Reasoning setting 'off' cannot be converted to any custom KVs.
+```
+
+하네스는 정상적으로 `reasoning_effort:"none"` + `chat_template_kwargs:{"enable_thinking":false,...}`를
+보내지만, 모델 쪽에 그 값을 해석할 조건 분기가 없어 **요청이 조용히 무시된다** — `thinkingIntent:"off"`로
+설정했는데 `reasoning_chars`가 0이 아닌 형태로 나타난다.
+
+**이건 §5와 달리 클라이언트에서 해결할 수 없다** — 템플릿 자체를 리팩 GGUF에 맞게 교체하거나
+(§2 참고), 최소한 감지라도 해야 한다. 후자를 `reasoning_control_ignored` 배지(#183, `bench-runner.ts`)로
+구현했다 — `profile_thinking_intent === "off"`인데 `reasoning_chars > 0` 또는
+`usage.completion_tokens_details.reasoning_tokens > 0`이 관측되면 결과 표·상세 드로어에 경고를 띄운다.
+LM Studio 로그를 파싱하지 않아도 하네스가 이미 갖고 있는 두 값만 대조하면 되는 결정론적 신호다.

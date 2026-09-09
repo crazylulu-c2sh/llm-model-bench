@@ -122,7 +122,7 @@ preserveThinking `true` 시 `extra_body`에 추가:
 | promptRules.stripThinkingFromAssistantHistory | true |
 | 모달리티 | 텍스트 + 이미지 + 영상 (27B 네이티브 멀티모달) |
 
-`reasoning_effort`는 백엔드마다 읽는 위치가 달라 **두 경로 모두**에 실립니다 — 최상위 필드는 Ollama의 OpenAI 호환 라우트가, `chat_template_kwargs`는 LM Studio·llama.cpp가 읽습니다. **모델카드 기본은 `xhigh`**지만 간단한 질문에도 사고 토큰이 2만+로 폭주해 타임아웃·오염 가드 재시도를 유발하므로 하네스 기본은 `low`입니다.
+`reasoning_effort`는 **두 경로 모두**(최상위 필드 + `chat_template_kwargs`)에 실립니다. 어느 경로가 실제로 읽히는지는 백엔드 종류가 아니라 **빌드/임베드 템플릿에 달려 있습니다** — MLX에서는 최상위 필드가 먹고 템플릿 kwargs가 무효인 실측이 있는 반면, 같은 스택의 다른 GGUF 빌드에서는 정반대이거나 어느 경로도 안 먹는 사례가 관측됐습니다(#144·#182). 하네스는 어느 쪽이 유효한지 알 수 없으므로 두 경로 모두 방어적으로(belt-and-suspenders) 보냅니다. **모델카드 기본은 `xhigh`**지만 간단한 질문에도 사고 토큰이 2만+로 폭주해 타임아웃·오염 가드 재시도를 유발하므로 하네스 기본은 `low`입니다.
 
 > ⚠️ **공식 `chat_template.jinja`가 받는 값은 `xhigh` · `medium` · `low` 뿐입니다.** 그 외 값이 오면 템플릿이 곧바로 예외를 던져 프롬프트 렌더링 자체가 실패합니다.
 >
@@ -163,6 +163,7 @@ thinkingIntent `off` 시 — 최상위 `reasoning_effort`는 `"none"`(Ollama가 
 - **실행 시간이 깁니다.** `reasoning_effort: low`에서도 `chat_completions` 단일 시나리오가 최장 **약 15분(894초)**, 런 전체 115~175분이었습니다. 지배 항은 `max_tokens` 자체가 아니라 사고량·양자화 대역폭입니다(#144·#182) — 같은 effort를 보내도 GGUF 빌드별로 실제 사고량이 최대 4.3배 갈리는 사례가 관측됐습니다(#182). 더 짧게 돌려야 하면 UI `max_tokens`를 낮추세요.
 - **`agent_loop_chain_v1`이 `stall`로 일관 재현되던 문제는 프롬프트 모호성이 원인이었고 수정됐습니다(#143)** — 예산이 아니라, 모델이 실제 조회 주제를 몰라 되물어야 한다고 오판하는 구조였습니다. `agent_loop` 시나리오는 애초에 UI `max_tokens`로 짧게 만들 수 없습니다 — per-turn 예산은 시나리오 자체가 정하고 request > scenario > profile 순으로 해석되어 UI 값보다 항상 우선합니다.
 - 참고: `messages` 라우트의 `reasoning_chars`가 0인 것은 Qwen3.8 고유 현상이 아니라 **모든 모델 공통**(라우트 차원 특성)입니다.
+- **같은 `reasoning_effort`를 보내도 GGUF 빌드별로 실제 사고량이 최대 4.3배까지 갈립니다(#182).** `max_tokens=262144`·`reasoning_effort=low`·`temperature=1`·`profile=qwen38/thinking_general`로 전부 고정한 6개 런의 `chat_completions` 평균 `reasoning_chars`가 863~3,722자로 관측됐고, 양자화 등급과 단조 관계가 아니었습니다(같은 Q4_K_M 두 빌드가 양 끝에 위치). effort가 실제로 템플릿에 반영되는지는 하네스가 보장할 수 없는 빌드별 성질이라, 벤치가 재는 것이 "지정한 effort에서의 성능"이 아니라 "각 빌드 템플릿 기본값에서의 성능"일 수 있습니다. `usage.completion_tokens_details.reasoning_tokens`(#182에서 적재 시작)를 지정 effort와 대조하면 사후에 감지할 수 있습니다.
 
 > **max_tokens 주의**: 위 표의 `recommendedMaxTokens.complex`는 모델카드 원값(262144)이 아니라 런타임 기본값(81920)입니다 — 모델카드 값을 그대로 쓴다고 성능이 개선되지 않고 `messages` 라우트의 `thinking.budget_tokens`만 커지기 때문입니다(#144). 실제 요청 `max_tokens`는 **`request > scenario > profile > max(vision floor, recommended)`** 순으로 해석됩니다(`resolveEffectiveMaxTokens`, `packages/shared/src/max-tokens.ts`) — 시나리오 자체가 상한을 정의하면(agent_loop 등) UI 값도 그걸 못 덮습니다. 컨텍스트를 더 짧게 띄운 백엔드(vLLM `--max-model-len` 등)에서는 UI `max_tokens`로 명시해 낮추세요.
 
