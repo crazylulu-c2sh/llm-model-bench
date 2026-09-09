@@ -317,7 +317,7 @@ pnpm test
 | `BENCH_DB_PATH` | SQLite 파일 경로(미지정 시 `data/bench.sqlite`, **프로세스 cwd** 기준) |
 | `WEB_DIST_PATH` | Vite 빌드 출력 디렉터리(`index.html` 포함). 설정 시 같은 프로세스에서 `/`·`/assets/*` 등을 서빙하고, 그 외 GET은 SPA용으로 `index.html`을 돌려줍니다(**프로세스 cwd** 기준 상대 경로 가능) |
 | `ENABLE_LMS_CLI` | `1`일 때만 `lms` CLI 호출 활성 (load/unload/log-stream + snapshot의 `lms ps` fallback). 기본 off. 활성 시 서버 시작 시 stderr 경고 출력 |
-| `LMS_BIN` | `lms` 바이너리 경로 (기본 `lms`, PATH 검색) |
+| `LMS_BIN` | `lms` 바이너리 경로 (기본 `lms`, PATH 검색). **pm2/systemd/launchd 등 프로세스 매니저 하위에서는 대화형 셸 rc(`.zshrc` 등)를 거치지 않아 PATH만으론 못 찾을 수 있습니다** — `ENABLE_LMS_CLI=1`만 켜고 이 경우를 놓치면 CLI 신호(오염 가드의 `lms ps` 등)가 조용히 비활성 상태로 남습니다. 그 경우 절대경로(예: `~/.lmstudio/bin/lms`)를 직접 지정하세요 |
 | `LLM_JUDGE_ENABLED` | `1`/`true`일 때만 비전 시나리오의 LLM-as-Judge(`vision_meme_explain_*` / `vision_wireframe_html_*`) 호출. 기본 off — prefilter 통과 시 rubric 1(`pass: false`)로 기록 |
 | `LLM_JUDGE_MODEL` | judge 모델 ID (기본 `claude-opus-4-7`) |
 | `ANTHROPIC_API_KEY` | judge 호출에 필요(현재 Anthropic Messages만 지원) |
