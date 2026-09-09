@@ -277,7 +277,14 @@ export async function detectProvider(
           .map((m) => m as LmStudioNativeModel)
           .filter((m) => typeof m.key === "string" && m.key)
           .filter((m) => m.type === "llm" || !m.type)
-          .filter((m) => !isBenchExcludedModelArtifact(m.key as string, m.display_name))
+          .filter(
+            (m) =>
+              !isBenchExcludedModelArtifact(
+                m.key as string,
+                m.display_name,
+                compatExtras.get(m.key as string)?.arch,
+              ),
+          )
           .map((m) => ({
             id: m.key as string,
             label: m.display_name ?? (m.key as string),

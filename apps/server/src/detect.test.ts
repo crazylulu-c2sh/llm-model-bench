@@ -71,6 +71,44 @@ describe("detectProvider", () => {
     expect(r.models[0]?.arch).toBe("qwen35");
   });
 
+  it("#159 후속: v0의 arch(_mtp 접미사)로 id/label만으로는 놓치는 진짜 MTP 드래프트를 거른다", async () => {
+    // 실측(로컬 LM Studio 카탈로그) 재현 — qwen3.8-27b-mtp@8bit 는 id에 `-mtp@`가 있어
+    // 본체크포인트 예외에 걸리므로 id/label 규칙만으로는 계속 살아남는다. arch가
+    // qwen3_5_mtp 로 v0에서 오면 걸러져야 한다. 나란히 있는 진짜 본체(정상 arch)는 유지.
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({
+          models: [
+            { key: "qwen/qwen3.8-27b", type: "llm", display_name: "Qwen3.8 27B", loaded_instances: [] },
+            {
+              key: "qwen3.8-27b-mtp@8bit",
+              type: "llm",
+              display_name: "Qwen3.8 27B MTP",
+              loaded_instances: [],
+            },
+          ],
+        });
+      }
+      if (url.endsWith("/api/v0/models")) {
+        return jsonResponse({
+          data: [
+            { id: "qwen/qwen3.8-27b", compatibility_type: "mlx", quantization: "4bit", arch: "qwen3_5" },
+            {
+              id: "qwen3.8-27b-mtp@8bit",
+              compatibility_type: "mlx",
+              quantization: "8bit",
+              arch: "qwen3_5_mtp",
+            },
+          ],
+        });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:1234", { fetchImpl });
+    expect(r.models.map((m) => m.id)).toEqual(["qwen/qwen3.8-27b"]);
+  });
+
   it("#182: v0 enrichment failing (non-2xx) does not break the v1-only result", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestUrl(input);

@@ -55,4 +55,39 @@ describe("isBenchExcludedModelArtifact", () => {
       isBenchExcludedModelArtifact("org/qwen3.6-35b-a3b-mtp", "Qwen3.6 MTP 35B A3B"),
     ).toBe(false);
   });
+
+  it("excludes real MTP drafts that id/label rules miss, via the arch signal (#159 실측)", () => {
+    // 실측(LM Studio, 로컬 카탈로그 38건): 진짜 27B 본체(16GB)와 나란히 떠 있는 이 두 항목은
+    // 266~478MB인데 params_string은 "27B"로 본체를 사칭 — id에 `-mtp@`가 있어 기존
+    // "본체크포인트 예외"에 걸려 id/label 규칙만으로는 계속 keep됐다.
+    expect(isBenchExcludedModelArtifact("qwen3.8-27b-mtp@8bit", "Qwen3.8 27B MTP", "qwen3_5_mtp")).toBe(
+      true,
+    );
+    expect(isBenchExcludedModelArtifact("qwen3.8-27b-mtp@4bit", "Qwen3.8 27B MTP", "qwen3_5_mtp")).toBe(
+      true,
+    );
+  });
+
+  it("excludes gemma MTP drafts via the -assistant arch suffix (#159 이슈 코멘트)", () => {
+    expect(
+      isBenchExcludedModelArtifact("qwen3.8-27b@q4_0", "Mtp Gemma 4 26B A4B Instruct", "gemma4-assistant"),
+    ).toBe(true);
+  });
+
+  it("arch signal is an end-anchor only — a model literally named 'assistant' is not excluded", () => {
+    expect(isBenchExcludedModelArtifact("some/my-assistant-model", "My Assistant Model", "llama")).toBe(
+      false,
+    );
+  });
+
+  it("real full checkpoints stay kept when arch is a plain family name or absent (no regression)", () => {
+    // #159 코멘트: 정상 모델의 arch 는 전부 맨 패밀리명 — qwen3.8-27b@q4_0(label "Mtp Qwen3.8 27B")의
+    // arch 는 평범한 qwen35 다(label 선두 토큰 규칙으로 이미 제외되지만, arch 신호도 오탐 안 시켜야 함).
+    expect(isBenchExcludedModelArtifact("qwen3.6-35b-a3b-mtp@q4_k_m", "Qwen3.6 35B A3B UD", "qwen35moe")).toBe(
+      false,
+    );
+    expect(isBenchExcludedModelArtifact("qwen/qwen3.8-27b", "Qwen3.8 27B", "qwen3_5")).toBe(false);
+    // arch 를 안 주는 백엔드(Ollama·openai_compatible)는 undefined — 필요조건이 아니므로 통과.
+    expect(isBenchExcludedModelArtifact("qwen/qwen3.8-27b", "Qwen3.8 27B", undefined)).toBe(false);
+  });
 });
