@@ -316,6 +316,11 @@ export const DetectResultSchema = z.object({
       quantization: z.string().optional(),
       /** #182: 아키텍처(예: qwen35) — LM Studio `/api/v0/models` 확장에서만 제공. */
       arch: z.string().optional(),
+      /**
+       * 이 모델이 지원하는 최대 컨텍스트(토큰) — LM Studio `/api/v0/models` 확장에서만 제공.
+       * 로드 시 안전한 `context_length` 상한을 계산하는 입력으로만 쓴다(#194 후속).
+       */
+      max_context_length: z.number().optional(),
     }),
   ),
   steps: z.array(DetectStepSchema),

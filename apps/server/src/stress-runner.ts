@@ -38,6 +38,7 @@ import { openAiChatPostWithUsage } from "./openai-fetch.js";
 import { providerFetch } from "./provider-fetch.js";
 import { detectScript } from "./scenarios.js";
 import {
+  computeSafeLoadContextLength,
   lmStudioUnload,
   prepareLmStudioForRun,
   type LmStudioPrepareLabel,
@@ -336,6 +337,12 @@ export async function* runStress(
   let lmStudioTtlStatus: LoadTtlStatus | undefined;
   let lmStudioPrepare: LmStudioPrepareLabel | undefined;
   if (input.provider === "lm_studio") {
+    // 저장된 모델별 설정이 없으면 LM Studio 내장 기본값(관측 사례: 4×262144)으로 뜰 수 있다 —
+    // 안전 상한을 계산해 로드 요청에 강제한다(컨텍스트 기본값 인시던트 조사 계기, `lmstudio.ts` 주석 참고).
+    const contextLength = computeSafeLoadContextLength(
+      meta.max_tokens,
+      detect.models.find((m) => m.id === input.modelId)?.max_context_length,
+    );
     const prepared = await prepareLmStudioForRun({
       baseUrl: base,
       modelId: input.modelId,
@@ -344,6 +351,7 @@ export async function* runStress(
       fetchImpl,
       apiKey: input.apiKey,
       signal: externalSignal,
+      contextLength,
     });
     if (prepared.error) {
       yield {
@@ -352,6 +360,17 @@ export async function* runStress(
         message: `LM Studio load failed: ${prepared.error.status} ${prepared.error.body}`,
       };
       return;
+    }
+    if (prepared.contextLengthWarning) {
+      const { requestedContextLength, actualContextLength } = prepared.contextLengthWarning;
+      yield {
+        type: "error",
+        code: "lm_studio_context_length_unconfirmed",
+        message:
+          `LM Studio가 요청한 context_length(${requestedContextLength})보다 큰 값` +
+          `(${actualContextLength})으로 모델을 로드한 것으로 보입니다 — TTL 경로(JIT 로드)는 ` +
+          `context_length를 강제할 수 없어 사후 확인만 가능합니다.`,
+      };
     }
     modelLoadedByThisRun = prepared.loadedByThisRun;
     lmStudioTtlStatus = prepared.ttlStatus;

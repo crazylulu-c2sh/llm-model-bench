@@ -46,7 +46,14 @@ export async function collectLmStudioLoaded(
         const id = typeof inst.id === "string" ? inst.id : m.key;
         const vram = numberField(inst, ["vram_usage", "vram", "vram_bytes"]);
         const ram = numberField(inst, ["ram_usage", "ram", "ram_bytes"]);
-        const ctx = numberField(inst, ["context_length", "context", "ctx"]);
+        // 실측(`GET /api/v1/models`): 실제 잡힌 값은 최상위가 아니라 `config.context_length`에
+        // 있다(`{"config":{"context_length":8192,...}}`) — 최상위만 보던 이전 코드는 이 필드를
+        // 늘 못 읽었다. config를 우선 보고, 없으면 최상위(혹시 그런 형식도 있을까 봐)로 폴백한다.
+        const instConfig = inst.config;
+        const ctx =
+          (instConfig && typeof instConfig === "object"
+            ? numberField(instConfig as LmStudioInstance, ["context_length", "context", "ctx"])
+            : undefined) ?? numberField(inst, ["context_length", "context", "ctx"]);
         loaded.push({
           id,
           name: m.key,

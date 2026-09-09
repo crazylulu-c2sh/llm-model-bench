@@ -71,6 +71,23 @@ describe("detectProvider", () => {
     expect(r.models[0]?.arch).toBe("qwen35");
   });
 
+  it("#194 후속: merges max_context_length from /api/v0/models — 로드 시 안전 상한 계산 입력", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({
+          models: [{ key: "m1", type: "llm", display_name: "M1", loaded_instances: [] }],
+        });
+      }
+      if (url.endsWith("/api/v0/models")) {
+        return jsonResponse({ data: [{ id: "m1", max_context_length: 262_144 }] });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:1234", { fetchImpl });
+    expect(r.models[0]?.max_context_length).toBe(262_144);
+  });
+
   it("#159 후속: v0의 arch(_mtp 접미사)로 id/label만으로는 놓치는 진짜 MTP 드래프트를 거른다", async () => {
     // 실측(로컬 LM Studio 카탈로그) 재현 — qwen3.8-27b-mtp@8bit 는 id에 `-mtp@`가 있어
     // 본체크포인트 예외에 걸리므로 id/label 규칙만으로는 계속 살아남는다. arch가

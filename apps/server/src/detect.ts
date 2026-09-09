@@ -109,14 +109,21 @@ type LmStudioV0Model = {
   compatibility_type?: string;
   quantization?: string;
   arch?: string;
+  /** 이 모델이 지원하는 최대 컨텍스트(토큰). 로드 시 안전한 context_length 상한 계산에 쓴다(#194 후속). */
+  max_context_length?: number;
 };
 
-type LmStudioCompatExtras = { compatibility_type?: string; quantization?: string; arch?: string };
+type LmStudioCompatExtras = {
+  compatibility_type?: string;
+  quantization?: string;
+  arch?: string;
+  max_context_length?: number;
+};
 
 /**
- * #182: best-effort 보강 — `/api/v0/models`는 `compatibility_type`/`quantization`/`arch`를 주지만
- * 네이티브 `/api/v1/models`에는 없다. 이 조회가 실패해도(구버전 LM Studio, 타임아웃 등) v1 detect
- * 결과 자체는 절대 훼손하지 않는다 — 실패 시 빈 맵을 반환한다.
+ * #182: best-effort 보강 — `/api/v0/models`는 `compatibility_type`/`quantization`/`arch`/
+ * `max_context_length`를 주지만 네이티브 `/api/v1/models`에는 없다. 이 조회가 실패해도(구버전
+ * LM Studio, 타임아웃 등) v1 detect 결과 자체는 절대 훼손하지 않는다 — 실패 시 빈 맵을 반환한다.
  */
 async function fetchLmStudioCompatExtras(
   fetchImpl: FetchLike,
@@ -138,6 +145,10 @@ async function fetchLmStudioCompatExtras(
         compatibility_type: typeof m.compatibility_type === "string" ? m.compatibility_type : undefined,
         quantization: typeof m.quantization === "string" ? m.quantization : undefined,
         arch: typeof m.arch === "string" ? m.arch : undefined,
+        max_context_length:
+          typeof m.max_context_length === "number" && m.max_context_length > 0
+            ? m.max_context_length
+            : undefined,
       });
     }
   } catch {

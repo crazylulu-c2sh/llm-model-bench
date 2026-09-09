@@ -3,12 +3,15 @@ import { _setExecFileForTest } from "./lms-cli.js";
 import { _setLocalAddressesForTest } from "./util/localhost.js";
 import {
   _resetLmStudioJitTtlCacheForTests,
+  computeSafeLoadContextLength,
   lmStudioIsModelLoaded,
   prepareLmStudioForRun,
   lmStudioJitTtlPrime,
   lmStudioLoad,
   lmStudioUnload,
   looksLikeLmStudioTtlRejection,
+  SAFE_LOAD_CONTEXT_LENGTH_CAP,
+  SAFE_LOAD_CONTEXT_LENGTH_FLOOR,
 } from "./lmstudio.js";
 
 function jsonResponse(obj: unknown, status = 200) {
@@ -103,6 +106,68 @@ describe("lmStudioLoad", () => {
     const r = await lmStudioLoad("http://localhost:1234", "my-model", { fetchImpl });
     expect(r.ok).toBe(true);
     expect(sent).toEqual({ model: "my-model" });
+  });
+
+  it("#194 후속(컨텍스트 기본값 인시던트 조사): contextLength 를 주면 body 에 context_length 로 실린다", async () => {
+    // 실측 확인(LM Studio 실기): 이 필드를 보내면 요청한 값이 정확히 그대로 잡힌다.
+    let sent: unknown = null;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models/load")) {
+        sent = init?.body ? JSON.parse(String(init.body)) : null;
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await lmStudioLoad("http://localhost:1234", "my-model", {
+      fetchImpl,
+      contextLength: 65_536,
+    });
+    expect(r.ok).toBe(true);
+    expect(sent).toEqual({ model: "my-model", context_length: 65_536 });
+  });
+
+  it("contextLength 를 안 주면 이전과 동일하게 필드 자체가 생략된다(회귀 없음)", async () => {
+    let sent: unknown = null;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models/load")) {
+        sent = init?.body ? JSON.parse(String(init.body)) : null;
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({}, 404);
+    });
+    await lmStudioLoad("http://localhost:1234", "my-model", { fetchImpl });
+    expect(sent).toEqual({ model: "my-model" });
+    expect(Object.prototype.hasOwnProperty.call(sent, "context_length")).toBe(false);
+  });
+});
+
+describe("computeSafeLoadContextLength (#194 후속)", () => {
+  it("작은 max_tokens 는 FLOOR(8192)까지 끌어올린다", () => {
+    expect(computeSafeLoadContextLength(100)).toBe(SAFE_LOAD_CONTEXT_LENGTH_FLOOR);
+  });
+
+  it("큰 max_tokens(예: 모델카드의 262144)는 CAP(65536)에서 잘린다 — 이게 인시던트의 관측값이다", () => {
+    expect(computeSafeLoadContextLength(262_144)).toBe(SAFE_LOAD_CONTEXT_LENGTH_CAP);
+  });
+
+  it("중간 값은 HEADROOM_MULTIPLIER(4배)로 프롬프트 여유를 확보한다", () => {
+    expect(computeSafeLoadContextLength(4_096)).toBe(16_384);
+  });
+
+  it("모델 자체의 max_context_length 가 계산값보다 작으면 그쪽으로 더 좁힌다", () => {
+    expect(computeSafeLoadContextLength(262_144, 4_096)).toBe(4_096);
+  });
+
+  it("모델의 max_context_length 가 계산값보다 크면 계산값(CAP 등)을 그대로 쓴다", () => {
+    expect(computeSafeLoadContextLength(262_144, 131_072)).toBe(SAFE_LOAD_CONTEXT_LENGTH_CAP);
+  });
+
+  it("유효하지 않은 max_tokens(0·음수·NaN)는 FLOOR로 처리한다", () => {
+    expect(computeSafeLoadContextLength(0)).toBe(SAFE_LOAD_CONTEXT_LENGTH_FLOOR);
+    expect(computeSafeLoadContextLength(-5)).toBe(SAFE_LOAD_CONTEXT_LENGTH_FLOOR);
+    expect(computeSafeLoadContextLength(Number.NaN)).toBe(SAFE_LOAD_CONTEXT_LENGTH_FLOOR);
   });
 });
 
@@ -550,6 +615,123 @@ describe("prepareLmStudioForRun", () => {
     expect(r.prepare).toBe("already_in_memory");
     expect(r.ttlStatus).toBe("not_applied");
     expect(r.loadedByThisRun).toBe(false);
+  });
+
+  it("#194 후속: 명시적 load(TTL 미사용)는 contextLength 를 그대로 body 에 실어 보낸다", async () => {
+    let loadSent: unknown = null;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({ models: [{ key: "m1", loaded_instances: [] }] });
+      }
+      if (url.endsWith("/api/v1/models/load")) {
+        loadSent = init?.body ? JSON.parse(String(init.body)) : null;
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ ok: true });
+    }) as unknown as typeof fetch;
+    const r = await prepareLmStudioForRun({
+      baseUrl: "http://x:1234",
+      modelId: "m1",
+      skipModelLoad: false,
+      fetchImpl,
+      contextLength: 32_768,
+    });
+    expect(r.prepare).toBe("loaded");
+    expect(loadSent).toMatchObject({ model: "m1", context_length: 32_768 });
+    expect(r.contextLengthWarning).toBeUndefined();
+  });
+
+  it("#194 후속: 이미 상주 중인 모델이 요청 상한보다 큰 컨텍스트로 떠 있으면 경고를 채운다", async () => {
+    // 다른 프로세스·이전 런이 올린 모델은 우리가 로드 파라미터를 지정할 수 없었다 —
+    // 사후 확인만 가능하다는 걸 검증한다.
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({
+          models: [
+            {
+              key: "m1",
+              loaded_instances: [{ id: "m1", config: { context_length: 262_144, parallel: 4 } }],
+            },
+          ],
+        });
+      }
+      return jsonResponse({ ok: true });
+    }) as unknown as typeof fetch;
+    const r = await prepareLmStudioForRun({
+      baseUrl: "http://x:1234",
+      modelId: "m1",
+      skipModelLoad: false,
+      fetchImpl,
+      contextLength: 65_536,
+    });
+    expect(r.prepare).toBe("already_in_memory");
+    expect(r.contextLengthWarning).toEqual({
+      requestedContextLength: 65_536,
+      actualContextLength: 262_144,
+    });
+  });
+
+  it("#194 후속: 이미 상주 중인 모델이 요청 상한 이하면 경고를 채우지 않는다", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({
+          models: [
+            { key: "m1", loaded_instances: [{ id: "m1", config: { context_length: 8_192 } }] },
+          ],
+        });
+      }
+      return jsonResponse({ ok: true });
+    }) as unknown as typeof fetch;
+    const r = await prepareLmStudioForRun({
+      baseUrl: "http://x:1234",
+      modelId: "m1",
+      skipModelLoad: false,
+      fetchImpl,
+      contextLength: 65_536,
+    });
+    expect(r.contextLengthWarning).toBeUndefined();
+  });
+
+  it("#194 후속: JIT prime(TTL 경로)은 context_length 를 강제할 수 없어 로드 후 사후 확인으로 경고한다", async () => {
+    let listCallCount = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) {
+        listCallCount++;
+        // 1번째 조회(prepare 진입 시): 미로드. 2번째 조회(prime 이후 사후 확인): 큰 컨텍스트로 로드됨.
+        if (listCallCount === 1) {
+          return jsonResponse({ models: [{ key: "m1", loaded_instances: [] }] });
+        }
+        return jsonResponse({
+          models: [
+            {
+              key: "m1",
+              loaded_instances: [{ id: "m1", config: { context_length: 262_144, parallel: 4 } }],
+            },
+          ],
+        });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        return jsonResponse({ choices: [{ message: { content: "." } }] });
+      }
+      return jsonResponse({ ok: true });
+    }) as unknown as typeof fetch;
+    const r = await prepareLmStudioForRun({
+      baseUrl: "http://x:1234",
+      modelId: "m1",
+      skipModelLoad: false,
+      ttlSeconds: 3600,
+      fetchImpl,
+      contextLength: 65_536,
+    });
+    expect(r.prepare).toBe("jit_load_with_ttl");
+    expect(r.contextLengthWarning).toEqual({
+      requestedContextLength: 65_536,
+      actualContextLength: 262_144,
+    });
   });
 });
 
