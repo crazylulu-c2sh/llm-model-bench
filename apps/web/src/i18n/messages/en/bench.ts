@@ -62,11 +62,11 @@ export const bench: Messages["bench"] = {
 
   // Load/unload · memory · contention guard toggles
   unloadOthersTitleLmStudio:
-    "Attempts to unload other models in the detected model list. Loads not in the list can't be touched.",
+    "Attempts to unload other models in the detected model list. This force-stops them even if another client is generating with them right now. Loads not in the list can't be touched.",
   onlyLmStudio: "Applies only to LM Studio.",
   unloadOthersLabel: "Unload models other than the bench target (LM Studio)",
   unloadOthersHint:
-    "When on, before each bench it best-effort calls unload on other detected model keys. The bench continues even if it fails.",
+    "When on, before each bench it best-effort calls unload on other detected model keys. It force-stops them without checking whether another client/process is generating with that model right now. The bench continues even if it fails.",
   inactiveOnCurrentProvider: " Inactive on the current provider.",
   autoUnloadTitleLmStudio:
     "Models already in VRAM at start are not unloaded; only models this run loaded are unloaded when it finishes.",
@@ -81,6 +81,8 @@ export const bench: Messages["bench"] = {
   memFitHintB: " frees other loaded models to make room, and ",
   memFitSkip: "Skip",
   memFitHintC: " records the reason and skips instead of a raw 400. The default (predict only) proceeds as usual.",
+  memFitUnloadRiskHint:
+    "A model another client/process is using right now can be force-unloaded without checking whether it's active.",
   memFitOptionLog: "Predict only (log)",
   memFitOptionSkip: "Skip if it doesn't fit",
   loadTtlTitle:
@@ -169,7 +171,10 @@ export const bench: Messages["bench"] = {
   confirmReorderHint: "Use up/down to change the serial run order.",
   moveUpAria: (modelId) => `Move ${modelId} up`,
   moveDownAria: (modelId) => `Move ${modelId} down`,
-  confirmUnloadOthersOn: "Unloading models other than the bench target is on (based on the detected list).",
+  confirmUnloadOthersOn:
+    "Unloading models other than the bench target is on (based on the detected list). A model another client is using right now can be force-stopped without distinction.",
+  confirmMemFitUnloadOn:
+    "The memory-fit policy is set to 'Unload-to-fit'. If memory is tight, other loaded models can be force-unloaded (even if another client is using them) without distinction.",
   confirmAutoUnloadOn:
     "Only target models loaded in this bench are auto-unloaded when it finishes (already-loaded models are kept).",
   confirmLoadTtl: (seconds, via) =>

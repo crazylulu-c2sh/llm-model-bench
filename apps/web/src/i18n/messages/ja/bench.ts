@@ -62,11 +62,11 @@ export const bench: Messages["bench"] = {
 
   // ロード/アンロード · メモリ · 競合ガードのトグル
   unloadOthersTitleLmStudio:
-    "検出したモデル一覧にある他のモデルに対して unload を試みます。一覧にないロードは操作できません。",
+    "検出したモデル一覧にある他のモデルに対して unload を試みます。他のクライアントが今まさに推論中でも区別せず強制終了します。一覧にないロードは操作できません。",
   onlyLmStudio: "LM Studio でのみ適用されます。",
   unloadOthersLabel: "ベンチ対象以外のモデルをアンロード (LM Studio)",
   unloadOthersHint:
-    "オンにすると各ベンチ開始前に、検出した他のモデルキーへ unload をベストエフォートで呼び出します。失敗してもベンチは続行します。",
+    "オンにすると各ベンチ開始前に、検出した他のモデルキーへ unload をベストエフォートで呼び出します。他のクライアント/プロセスがそのモデルで今まさに推論中でも、稼働状況を確認せずに強制終了します。失敗してもベンチは続行します。",
   inactiveOnCurrentProvider: " 現在のプロバイダーでは無効です。",
   autoUnloadTitleLmStudio:
     "開始時点ですでに VRAM にあったモデルはアンロードせず、今回の実行が load で載せた場合のみ終了時に unload を試みます。",
@@ -81,6 +81,8 @@ export const bench: Messages["bench"] = {
   memFitHintB: " は他のロード済みモデルをアンロードして空きを作り、",
   memFitSkip: "スキップ",
   memFitHintC: " は raw 400 の代わりに理由を記録してスキップします。デフォルト(予測のみ)はそのまま進めます。",
+  memFitUnloadRiskHint:
+    "他のクライアント/プロセスが今まさに使用中のモデルも、稼働状況を確認せずに強制アンロードされることがあります。",
   memFitOptionLog: "予測のみ(ログ)",
   memFitOptionSkip: "合わなければスキップ",
   loadTtlTitle:
@@ -169,7 +171,10 @@ export const bench: Messages["bench"] = {
   confirmReorderHint: "上/下で直列実行の順序を変更できます。",
   moveUpAria: (modelId) => `${modelId} を上へ移動`,
   moveDownAria: (modelId) => `${modelId} を下へ移動`,
-  confirmUnloadOthersOn: "ベンチ対象以外のモデルのアンロードがオンです(検出一覧基準)。",
+  confirmUnloadOthersOn:
+    "ベンチ対象以外のモデルのアンロードがオンです(検出一覧基準)。他のクライアントが今使用中のモデルも区別なく強制終了される場合があります。",
+  confirmMemFitUnloadOn:
+    "メモリフィット ポリシーが「アンロードして合わせる」に設定されています。メモリが不足すると、他のロード済みモデルが(他のクライアントが使用中でも区別なく)強制アンロードされる場合があります。",
   confirmAutoUnloadOn:
     "今回のベンチでロードした対象モデルのみ、終了時に自動アンロードします(すでにロード済みのモデルは維持)。",
   confirmLoadTtl: (seconds, via) =>
