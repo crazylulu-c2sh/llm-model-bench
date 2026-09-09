@@ -66,6 +66,11 @@ function mockFetch(input: string | URL | Request, init?: RequestInit): Promise<R
   const method = init?.method ?? "GET";
   if (url.endsWith("/api/v1/health")) return Promise.resolve(Response.json({ ok: true, service: "mock" }));
   if (url.includes("/api/v1/scenarios")) return Promise.resolve(Response.json({ scenarios: [{ id: "chat_hello" }] }));
+  if (url.includes("/api/v1/catalog")) {
+    // #165: set 쿼리가 실제로 전달됐는지 테스트가 확인할 수 있도록 그대로 되돌려준다.
+    const set = new URL(url, "http://mock").searchParams.get("set");
+    return Promise.resolve(Response.json({ scenarios: [{ id: "chat_hello" }], receivedSet: set }));
+  }
   if (url.endsWith("/api/v1/detect")) return Promise.resolve(Response.json({ provider: "lm_studio" }));
   if (url.includes("/api/v1/bench/running")) {
     return Promise.resolve(Response.json({ runs: [], queues: nextRunningQueues() }));
@@ -147,6 +152,21 @@ describe("MCP server (in-memory client)", () => {
     const client = await connectClient();
     const res = (await client.callTool({ name: "list_scenarios", arguments: {} })) as any;
     expect(parseText(res).scenarios[0].id).toBe("chat_hello");
+  });
+
+  it("#165 list_capabilities proxies GET /catalog without set when omitted", async () => {
+    const client = await connectClient();
+    const res = (await client.callTool({ name: "list_capabilities", arguments: {} })) as any;
+    expect(parseText(res).receivedSet).toBeNull();
+  });
+
+  it("#165 list_capabilities forwards set=agent to GET /catalog?set=agent", async () => {
+    const client = await connectClient();
+    const res = (await client.callTool({
+      name: "list_capabilities",
+      arguments: { set: "agent" },
+    })) as any;
+    expect(parseText(res).receivedSet).toBe("agent");
   });
 
   it("run_bench drains SSE, fetches canonical, returns compact result", async () => {
