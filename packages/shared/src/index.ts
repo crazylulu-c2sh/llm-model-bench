@@ -616,6 +616,8 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     total_wait_ms: z.number(),
     guard_effective: z.boolean(),
     gpu_signal_available: z.boolean(),
+    /** #185: guard_effective=false일 때의 구체적 사유(no_contention_signal_available 등, 진단용). */
+    no_signal_reason: z.string().optional(),
     abort_reason: z.string().optional(),
   }),
 ]);

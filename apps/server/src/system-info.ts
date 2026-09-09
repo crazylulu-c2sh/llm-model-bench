@@ -79,6 +79,17 @@ export async function getGpuSnapshot(timeoutMs = 3000): Promise<GpuSnapshot> {
       gpuCache = { data: snap, expires: Date.now() + GPU_TTL_MS };
       return snap;
     } catch (e) {
+      // #185: nvidia-smi 부재는 Apple Silicon에서 항상 일어난다 — 그 경우에만(darwin) macOS
+      // 대안(ioreg)을 시도한다. 플랫폼으로 먼저 분기하지 않는 이유: `_setExecFileForTest`가
+      // 바이너리명을 구분하지 않고 모든 execFile 호출을 가로채므로, 먼저 분기하면 이 저장소의
+      // darwin 개발 머신에서 기존 nvidia-smi 테스트가 실제로 ioreg 파서를 타 깨진다.
+      if (process.platform === "darwin") {
+        const macSnap = await getMacGpuSnapshot(timeoutMs);
+        if (macSnap) {
+          gpuCache = { data: macSnap, expires: Date.now() + GPU_TTL_MS };
+          return macSnap;
+        }
+      }
       const error = (e as ExecFileException).message ?? String(e);
       const snap: GpuSnapshot = { available: false, devices: [], error };
       gpuCache = { data: snap, expires: Date.now() + GPU_TTL_MS };
@@ -88,6 +99,32 @@ export async function getGpuSnapshot(timeoutMs = 3000): Promise<GpuSnapshot> {
     }
   })();
   return gpuInflight;
+}
+
+/** #185: macOS(Apple Silicon 포함) GPU util 대안 — sudo도 lms CLI도 필요 없다. */
+async function getMacGpuSnapshot(timeoutMs: number): Promise<GpuSnapshot | null> {
+  try {
+    const { stdout } = await execFile(
+      "ioreg",
+      ["-r", "-d", "1", "-c", "IOAccelerator"],
+      { timeout: timeoutMs },
+    );
+    const devices = parseIoregAccelerator(stdout);
+    return devices.length > 0 ? { available: true, devices } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `ioreg -r -d 1 -c IOAccelerator` 출력에서 "Device Utilization %"·모델명을 뽑는다. */
+export function parseIoregAccelerator(stdout: string): GpuSnapshot["devices"] {
+  const utilMatches = [...stdout.matchAll(/"Device Utilization %"\s*=\s*(\d+)/g)];
+  const modelMatches = [...stdout.matchAll(/"model"\s*=\s*"([^"]+)"/g)];
+  return utilMatches.map((m, i) => ({
+    index: i,
+    name: modelMatches[i]?.[1] ?? "Apple GPU",
+    utilizationPct: Number(m[1]),
+  }));
 }
 
 export function parseNvidiaSmiCsv(stdout: string): GpuSnapshot["devices"] {

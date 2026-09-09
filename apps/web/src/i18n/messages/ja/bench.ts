@@ -302,6 +302,9 @@ export const bench: Messages["bench"] = {
   colParams: "規模",
   colDisk: "ディスク",
   colPublisher: "配信元",
+  duplicateModelIdTitle: (n) =>
+    `この baseUrl で同一 id のモデルが ${n} 件検出されました — LM Link 等で実際の実行先が曖昧な可能性があります`,
+  duplicateModelIdAria: (n) => `同一 id のモデルが ${n} 件検出 — 実行先が曖昧な可能性`,
   modelFilterPlaceholder: "モデル id·label を検索 (例: mtp)",
   modelFilterAria: "モデルフィルター",
   clearFilter: "フィルターをクリア",

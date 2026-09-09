@@ -25,8 +25,12 @@ export type SystemSnapshot = z.infer<typeof SystemSnapshotSchema>;
 export const GpuDeviceSnapshotSchema = z.object({
   index: z.number().int().nonnegative(),
   name: z.string(),
-  memoryTotalMiB: z.number(),
-  memoryUsedMiB: z.number(),
+  /**
+   * #185: nvidia-smi 등 디스크리트 GPU 소스에서만 제공. macOS ioreg 소스(Apple Silicon 통합
+   * 메모리, GPU 전용 메모리 개념이 없음)는 utilization만 주고 이 둘은 없다.
+   */
+  memoryTotalMiB: z.number().optional(),
+  memoryUsedMiB: z.number().optional(),
   utilizationPct: z.number(),
 });
 export type GpuDeviceSnapshot = z.infer<typeof GpuDeviceSnapshotSchema>;

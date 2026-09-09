@@ -5,6 +5,7 @@ import {
   getGpuSnapshot,
   getSystemSnapshot,
   parseAvailableFromVmStat,
+  parseIoregAccelerator,
   parseMemAvailableFromMeminfo,
   parseNvidiaSmiCsv,
 } from "./system-info";
@@ -56,6 +57,28 @@ describe("parseNvidiaSmiCsv", () => {
 
   it("returns [] for empty", () => {
     expect(parseNvidiaSmiCsv("")).toEqual([]);
+  });
+});
+
+describe("parseIoregAccelerator (#185 — macOS Device Utilization %)", () => {
+  it("extracts utilization + model name from a real ioreg capture", () => {
+    const out = `+-o AGXAcceleratorG13G_B0  <class AGXAcceleratorG13G_B0, id 0x1000006bb, registered, matched, active, busy 0 (133 ms), retain 61>
+    {
+      "IOMatchedAtBoot" = Yes
+      "model" = "Apple M1"
+      "PerformanceStatistics" = {"In use system memory (driver)"=0,"Device Utilization %"=23,"Renderer Utilization %"=22}
+    }`;
+    expect(parseIoregAccelerator(out)).toEqual([{ index: 0, name: "Apple M1", utilizationPct: 23 }]);
+  });
+
+  it("falls back to a generic name when model is missing", () => {
+    expect(parseIoregAccelerator(`"Device Utilization %"=42`)).toEqual([
+      { index: 0, name: "Apple GPU", utilizationPct: 42 },
+    ]);
+  });
+
+  it("returns [] when no accelerator is present", () => {
+    expect(parseIoregAccelerator("")).toEqual([]);
   });
 });
 

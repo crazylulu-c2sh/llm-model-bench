@@ -302,6 +302,9 @@ export const bench: Messages["bench"] = {
   colParams: "Size",
   colDisk: "Disk",
   colPublisher: "Publisher",
+  duplicateModelIdTitle: (n) =>
+    `${n} models with this id detected at this baseUrl — actual execution target may be ambiguous (e.g. LM Link)`,
+  duplicateModelIdAria: (n) => `Duplicate model id, ${n} detected — execution target may be ambiguous`,
   modelFilterPlaceholder: "Search model id·label (e.g. mtp)",
   modelFilterAria: "Model filter",
   clearFilter: "Clear filter",

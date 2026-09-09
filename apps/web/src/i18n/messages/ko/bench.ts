@@ -305,6 +305,9 @@ export const bench = {
   colParams: "규모",
   colDisk: "디스크",
   colPublisher: "게시자",
+  duplicateModelIdTitle: (n: number) =>
+    `이 baseUrl에서 동일 id 모델이 ${n}개 감지됨 — LM Link 등으로 실제 실행 위치가 모호할 수 있습니다`,
+  duplicateModelIdAria: (n: number) => `동일 id 모델 ${n}개 감지 — 실행 위치가 모호할 수 있음`,
   modelFilterPlaceholder: "모델 id·label 검색 (예: mtp)",
   modelFilterAria: "모델 필터",
   clearFilter: "필터 지우기",
