@@ -476,6 +476,145 @@ export const AGENT_LOOP_CHAIN_V1: ScenarioDef = {
 
 registerScenarioDef(AGENT_LOOP_CHAIN_V1);
 
+/**
+ * #165: 도구 에러 메시지 정보량 → 정정 회복률. 프로덕션 로그(706건 실패 툴콜) 실측이 근거 —
+ * 제너릭 에러 문자열만 받은 모델의 자가수정률은 위반 유형에 따라 0~29%였다.
+ *
+ * 도구 두 개, 각각 다른 위반 축을 시험한다(실측에서 회복률이 가장 크게 갈린 두 유형):
+ * - `search_context` — **수치 상한 초과**. `contextChars`가 스키마에 명시된 상한(400)을 넘으면 실패.
+ * - `write_section` — **필수 필드 누락**. `content`가 비어 있으면 실패.
+ *
+ * 두 도구 모두 `argDispatch.forceErrorCalls: 1`로 **첫 호출은 인자값과 무관하게 무조건 에러**를
+ * 만든다(agent_loop_error_v1과 같은 교훈 — 인자가 우연히 처음부터 유효하면 회복 여부 자체를 못 잰다).
+ * 그 뒤는 `rules`로 **실제로 정정된 값을 보냈을 때만** 성공한다(단순 재시도로는 안 통함) —
+ * `tool_arg_hits/attempts`(그라운딩 시나리오들과 동일 카운터, 여기서는 "정정 성공 횟수"로 재사용됨)가
+ * 자기신고 없이 회복 여부를 실측한다.
+ *
+ * ⚠ **수치 상한은 스키마에 명시(disclosed)한 상태만 시험한다.** 원 이슈는 "상한이 스키마에서
+ * 아예 빠진 상태"도 발견했지만, 그건 이 하네스 자신의 배선 버그였지 모델의 특성이 아니다 —
+ * 재현하면 모델이 아니라 우리 배선을 재는 시나리오가 된다. 미고지 변종이 필요해지면 별도 이슈로.
+ *
+ * 메시지 정보량 축은 **두 변종**으로 비교한다(prose 3변종째는 스코프 밖 — 필요해지면 후속):
+ * - `agent_loop_tool_error_recovery_v1` — opaque(제너릭 문자열, 프로덕션 baseline 그대로).
+ * - `agent_loop_tool_error_recovery_structured_v1` — structured(JSON + issues[] + hint).
+ */
+const TOOL_ERROR_RECOVERY_TOOLS = [
+  {
+    name: "search_context",
+    description: "Search the internal knowledge base and retrieve surrounding context for each match.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "search query" },
+        contextChars: {
+          type: "integer",
+          description: "number of context characters to retrieve around each match",
+          maximum: 400,
+        },
+      },
+      required: ["query", "contextChars"],
+    },
+  },
+  {
+    name: "write_section",
+    description: "Write a findings section of the report to the given path.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: 'report section path, e.g. "findings/context"' },
+        content: { type: "string", description: "section content" },
+      },
+      required: ["path", "content"],
+    },
+  },
+];
+
+const TOOL_ERROR_RECOVERY_OPAQUE_ERROR =
+  "An error occurred while running the tool. Please try again. Error: Invalid JSON input for tool";
+
+function toolErrorRecoveryMockTools(errorVariant: "opaque" | "structured") {
+  const searchContextError =
+    errorVariant === "opaque"
+      ? TOOL_ERROR_RECOVERY_OPAQUE_ERROR
+      : JSON.stringify({
+          ok: false,
+          error: "invalid arguments for search_context: contextChars:too_big",
+          issues: [{ path: "contextChars", message: "Too big: expected number to be <=400" }],
+          hint: "Retry with contextChars <= 400.",
+        });
+  const writeSectionError =
+    errorVariant === "opaque"
+      ? TOOL_ERROR_RECOVERY_OPAQUE_ERROR
+      : JSON.stringify({
+          ok: false,
+          error: "invalid arguments for write_section: content:required",
+          issues: [{ path: "content", message: "Required field is missing" }],
+          hint: "Retry and include a non-empty content field.",
+        });
+  return [
+    {
+      tool: "search_context",
+      // argDispatch(rules) 사용 시 responses는 무시되지만 스키마상 필수 — 안내 문자열 placeholder.
+      responses: ['{"error":"call search_context with query and contextChars"}'],
+      repeatLast: true,
+      argDispatch: {
+        rules: [{ test: { kind: "lte" as const, key: "contextChars", value: 400 }, result: '{"ok":true,"matches":[{"id":"m1","snippet":"...harness telemetry pipeline batches events every 30s..."}]}' }],
+        fallback: searchContextError,
+        forceErrorCalls: 1,
+      },
+    },
+    {
+      tool: "write_section",
+      responses: ['{"error":"call write_section with path and content"}'],
+      repeatLast: true,
+      argDispatch: {
+        rules: [{ test: { kind: "present" as const, key: "content" }, result: '{"ok":true,"bytes_written":128}' }],
+        fallback: writeSectionError,
+        forceErrorCalls: 1,
+      },
+    },
+  ];
+}
+
+const TOOL_ERROR_RECOVERY_SYSTEM = [
+  "You are an autonomous agent. Use the provided tools to research a topic, then write up a findings section.",
+  "Workflow: call search_context to look up the topic, then call write_section to record what you found, then stop calling tools and output the final answer.",
+  "A tool call can fail because an argument violates that tool's documented constraints (see each tool's parameter schema, e.g. a declared maximum or a required field). If a tool call fails, read the error, fix the SPECIFIC argument it complains about, and retry that same tool call — do not give up, ask the user what to do, retry with the exact same arguments, or move on without a successful call.",
+  'The FINAL answer MUST be a single JSON object: {"title": string, "context_summary": string, "section_written": boolean}.',
+  "Do not include any text, markdown, or commentary outside that JSON object in your final answer.",
+].join(" ");
+
+export const AGENT_LOOP_TOOL_ERROR_RECOVERY_V1: ScenarioDef = {
+  id: "agent_loop_tool_error_recovery_v1",
+  source: "builtin",
+  system: TOOL_ERROR_RECOVERY_SYSTEM,
+  user:
+    'Research "harness telemetry" using the tools, write a findings section about it, then answer. ' +
+    "Recover from any tool argument errors by fixing the specific argument the tool complains about.",
+  tools: TOOL_ERROR_RECOVERY_TOOLS,
+  sampling: { temperature: 0, max_tokens: 512 },
+  agentLoop: {
+    maxTurns: 8,
+    mockTools: toolErrorRecoveryMockTools("opaque"),
+    completion: { type: "no_tool_calls" },
+  },
+};
+
+registerScenarioDef(AGENT_LOOP_TOOL_ERROR_RECOVERY_V1);
+
+/** structured 변종 — opaque와 도구·워크플로는 동일, 에러 메시지만 issues[]/hint가 있는 JSON. */
+export const AGENT_LOOP_TOOL_ERROR_RECOVERY_STRUCTURED_V1: ScenarioDef = {
+  ...AGENT_LOOP_TOOL_ERROR_RECOVERY_V1,
+  id: "agent_loop_tool_error_recovery_structured_v1",
+  agentLoop: {
+    maxTurns: 8,
+    mockTools: toolErrorRecoveryMockTools("structured"),
+    completion: { type: "no_tool_calls" },
+  },
+};
+
+registerScenarioDef(AGENT_LOOP_TOOL_ERROR_RECOVERY_STRUCTURED_V1);
+
 /** 기본 제공 agent_loop id 목록(catalog set=agent 등). agent-loop-builtin.test.ts 가 레지스트리와의 드리프트를 가드. */
 export const BUILTIN_AGENT_LOOP_IDS: readonly string[] = [
   AGENT_LOOP_MOCK_V1.id,
@@ -484,4 +623,6 @@ export const BUILTIN_AGENT_LOOP_IDS: readonly string[] = [
   AGENT_LOOP_ERROR_V1.id,
   AGENT_LOOP_GROUNDING_V1.id,
   AGENT_LOOP_CHAIN_V1.id,
+  AGENT_LOOP_TOOL_ERROR_RECOVERY_V1.id,
+  AGENT_LOOP_TOOL_ERROR_RECOVERY_STRUCTURED_V1.id,
 ];

@@ -138,6 +138,8 @@ export const AGENT_EXPECTED_TOOLS: Record<string, readonly string[]> = {
   agent_loop_docs_v1: ["list_documents", "read_document"],
   agent_loop_grounding_v1: ["catalog_search", "catalog_read"],
   agent_loop_chain_v1: ["search", "resolve", "fetch"],
+  agent_loop_tool_error_recovery_v1: ["search_context", "write_section"],
+  agent_loop_tool_error_recovery_structured_v1: ["search_context", "write_section"],
 };
 
 /**
@@ -157,4 +159,7 @@ export const AGENT_EXPECTED_TOOL_CALLS: Record<string, number> = {
   agent_loop_docs_v1: 4,
   agent_loop_grounding_v1: 3,
   agent_loop_chain_v1: 4,
+  // forceErrorCalls:1로 두 도구 모두 최소 2회씩(강제 에러 1 + 정정 성공 1) — #165.
+  agent_loop_tool_error_recovery_v1: 4,
+  agent_loop_tool_error_recovery_structured_v1: 4,
 };

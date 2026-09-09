@@ -45,7 +45,7 @@ describe("builtin agent_loop scenarios (#79/#101)", () => {
     const read = loop.mockTools.find((m) => m.tool === "read_document")!;
     expect(read.argDispatch?.argKey).toBe("id");
     // #105: 가상 corpus — 공개 canon(AES/DES/RSA)이면 도구 없이 회상만으로 답이 나와 그라운딩을 못 잰다.
-    expect(Object.keys(read.argDispatch!.cases)).toEqual(["doc_kestrel", "doc_marlin", "doc_quartz"]);
+    expect(Object.keys(read.argDispatch!.cases!)).toEqual(["doc_kestrel", "doc_marlin", "doc_quartz"]);
     expect(AGENT_LOOP_DOCS_V1.sampling?.max_tokens).toBe(512);
   });
 
@@ -85,14 +85,15 @@ describe("builtin agent_loop scenarios (#79/#101)", () => {
     expect(isRegisteredScenario("agent_loop_grounding_v1")).toBe(true);
     const read = AGENT_LOOP_GROUNDING_V1.agentLoop!.mockTools.find((m) => m.tool === "catalog_read")!;
     expect(read.argDispatch?.argKey).toBe("id");
-    expect(Object.keys(read.argDispatch!.cases)).toEqual(["rec_9f3a1c77-4b2e", "rec_0d84e2ab-77f1"]);
+    expect(Object.keys(read.argDispatch!.cases!)).toEqual(["rec_9f3a1c77-4b2e", "rec_0d84e2ab-77f1"]);
     expect(read.argDispatch?.fallback).toContain("copy the id exactly");
   });
 
   // #105 가드: 각 문서의 1차 마커가 **다른 문서 본문에는 없어야** 교차오염 판정이 성립한다.
   // (초판의 `AES`·`1977` 처럼 여러 문서에 걸치는 토큰이 다시 들어오는 것을 막는다.)
   it("docs 배타 마커는 실제로 배타적이다", () => {
-    const cases = AGENT_LOOP_DOCS_V1.agentLoop!.mockTools.find((m) => m.tool === "read_document")!.argDispatch!.cases;
+    const cases = AGENT_LOOP_DOCS_V1.agentLoop!.mockTools.find((m) => m.tool === "read_document")!.argDispatch!
+      .cases!;
     const markers: Record<string, string[]> = {
       doc_kestrel: ["halcyon"],
       doc_marlin: ["vela"],
@@ -116,7 +117,7 @@ describe("builtin agent_loop scenarios (#79/#101)", () => {
       .filter((d) => d.agentLoop)
       .map((d) => d.id);
     expect(new Set(BUILTIN_AGENT_LOOP_IDS)).toEqual(new Set(registered));
-    expect(BUILTIN_AGENT_LOOP_IDS.length).toBe(6);
+    expect(BUILTIN_AGENT_LOOP_IDS.length).toBe(8);
   });
 });
 
@@ -189,7 +190,7 @@ describe("agent_loop_chain_v1 — 방해 후보 + 기권 (#110 후속)", () => {
    * 알려주면 "그럴듯하지만 틀린 답"이 불가능해지고, 스위트는 다시 생존만 재게 된다.
    */
   it("resolve 는 superseded ref 도 성공시킨다 — 오답 경로에 안전망이 없다", () => {
-    const cases = resolveTool().argDispatch!.cases;
+    const cases = resolveTool().argDispatch!.cases!;
     expect(resolveTool().argDispatch?.argKey).toBe("ref");
     const refs = [AGENT_CHAIN_GROUND_TRUTH.activeRef, ...AGENT_CHAIN_GROUND_TRUTH.supersededRefs];
     for (const ref of refs) {
@@ -204,7 +205,7 @@ describe("agent_loop_chain_v1 — 방해 후보 + 기권 (#110 후속)", () => {
   });
 
   it("fetch 는 오답 레코드에도 자연스러운 본문을 준다(마커 없이)", () => {
-    const cases = fetchTool().argDispatch!.cases;
+    const cases = fetchTool().argDispatch!.cases!;
     expect(fetchTool().argDispatch?.argKey).toBe("record_id");
     const ok = cases[AGENT_CHAIN_GROUND_TRUTH.activeRecordId]!.toLowerCase();
     for (const m of AGENT_CHAIN_GROUND_TRUTH.factMarkers) expect(ok).toContain(m);
@@ -220,7 +221,7 @@ describe("agent_loop_chain_v1 — 방해 후보 + 기권 (#110 후속)", () => {
   });
 
   it("resolve 매핑은 ground truth 의 record id 집합과 일치한다", () => {
-    const mapped = Object.values(resolveTool().argDispatch!.cases).map(
+    const mapped = Object.values(resolveTool().argDispatch!.cases!).map(
       (v) => (JSON.parse(v) as { record_id: string }).record_id,
     );
     expect(mapped.sort()).toEqual(

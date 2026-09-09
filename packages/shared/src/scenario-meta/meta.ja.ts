@@ -438,4 +438,38 @@ export const AGENT_META_JA: Record<string, ScenarioBenchMetaText> = {
       "fetch(argDispatch: record_id — 誤答レコードも本文を返す) (すべて mock)。maxTurns 8、max_tokens 512。",
     routes: "chat_completions / messages 共通。",
   },
+  agent_loop_tool_error_recovery_v1: {
+    purpose:
+      "ツールエラー訂正の回復率(opaque 変種): search_context(数値上限超過)と write_section(必須フィールド欠落)の " +
+      "両ツールとも、最初の呼び出しは引数と無関係に必ず失敗し(forceErrorCalls:1)、その後は実際に訂正された値を " +
+      "送った場合のみ成功する(argDispatch rules — 単純な再試行では通らない)。エラーメッセージは、このシナリオの " +
+      "元になった本番 baseline そのままの汎用文字列: " +
+      "\"An error occurred while running the tool. Please try again. Error: Invalid JSON input for tool\"。 " +
+      "structured 変種(agent_loop_tool_error_recovery_structured_v1)と対になり、" +
+      "「エラーメッセージの情報量 → 回復率」を比較する。",
+    criteria:
+      "1 次信号は tool_arg_hits/attempts — 両ツールとも argDispatch なので hits がそのまま「訂正成功回数」になる " +
+      "(自己申告ではなく実測)。決定論的採点(0-3): 両ツールとも最低 1 回は呼び出した(タスク自体を回避していない)上で、 " +
+      "hits=2(両方回復)なら 3、hits=1(片方のみ回復)なら 2、hits=0(両方ともエラーのまま)またはカードスキーマ不完全なら 1、 " +
+      "いずれかのツールを一度も呼ばなければ 1(タスク回避)。",
+    toolsSummary:
+      "search_context(argDispatch rules: contextChars≤400、forceErrorCalls:1) / " +
+      "write_section(argDispatch rules: content フィールドの存在、forceErrorCalls:1) (すべて mock)。maxTurns 8、max_tokens 512。",
+    routes: "chat_completions / messages 共通。",
+  },
+  agent_loop_tool_error_recovery_structured_v1: {
+    purpose:
+      "ツールエラー訂正の回復率(structured 変種): ツール・ワークフロー・採点ロジックは " +
+      "agent_loop_tool_error_recovery_v1 と完全に同一で、エラーメッセージだけが異なる — " +
+      "どのフィールドがなぜ間違っているかを明示した JSON(issues[] + hint)を返す。例: " +
+      "{\"ok\":false,\"error\":\"invalid arguments for search_context: contextChars:too_big\"," +
+      "\"issues\":[{\"path\":\"contextChars\",\"message\":\"Too big: expected number to be <=400\"}]," +
+      "\"hint\":\"Retry with contextChars <= 400.\"}",
+    criteria: "採点ロジックは opaque 変種と同一 — 上記 agent_loop_tool_error_recovery_v1 の criteria を参照。",
+    toolsSummary:
+      "search_context(argDispatch rules: contextChars≤400、forceErrorCalls:1) / " +
+      "write_section(argDispatch rules: content フィールドの存在、forceErrorCalls:1) (すべて mock、エラーメッセージのみ structured)。" +
+      "maxTurns 8、max_tokens 512。",
+    routes: "chat_completions / messages 共通。",
+  },
 };

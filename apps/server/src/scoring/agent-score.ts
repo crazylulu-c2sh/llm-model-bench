@@ -345,6 +345,37 @@ function scoreChain(o: Obj, ctx: AgentScoreContext): AgentRubric {
   return { rubric: 1, reason };
 }
 
+/**
+ * `{title, context_summary, section_written}` 도구 에러 정정 회복 — tool_error_recovery_v1
+ * (+ structured 변종, 도구·판정 로직 공유). #165.
+ *
+ * search_context/write_section 둘 다 argDispatch(rules)라 `toolArgHits`가 곧 "정정 성공 횟수"다
+ * (자기신고 아님, 실측) — docs/grounding과 같은 철학이지만 여긴 hits가 "id를 그대로 복사했는가"가
+ * 아니라 "도구 에러를 겪은 뒤 인자를 실제로 고쳤는가"를 잰다.
+ */
+function scoreToolErrorRecovery(o: Obj, ctx: AgentScoreContext): AgentRubric {
+  const searchCalls = callCount(ctx.toolCallCounts, "search_context");
+  const writeCalls = callCount(ctx.toolCallCounts, "write_section");
+  // 둘 중 하나라도 아예 안 부르고 답했다 = 과업 회피(에러를 만난 적도 없어 회복을 잴 수 없다).
+  if (searchCalls === 0 || writeCalls === 0) {
+    return { rubric: 1, reason: "agent_det: tool not called — recovery not exercised" };
+  }
+  if (
+    !nonEmptyString(o.title) ||
+    !nonEmptyString(o.context_summary) ||
+    typeof o.section_written !== "boolean"
+  ) {
+    return { rubric: 1, reason: "agent_det: schema incomplete" };
+  }
+  const hits = typeof ctx.toolArgHits === "number" ? ctx.toolArgHits : null;
+  if (hits == null) {
+    return { rubric: 2, reason: "agent_det: schema ok (unverified — no arg-fidelity counter)" };
+  }
+  if (hits >= 2) return { rubric: 3, reason: `agent_det: recovered ${hits}/2 tools` };
+  if (hits === 1) return { rubric: 2, reason: `agent_det: recovered ${hits}/2 tools` };
+  return { rubric: 1, reason: `agent_det: recovered ${hits}/2 tools (no correction after error)` };
+}
+
 const SCORERS: Record<string, (o: Obj, ctx: AgentScoreContext) => AgentRubric> = {
   agent_loop_mock_v1: (o) => scoreAesCard(o),
   agent_loop_budget_v1: (o) => scoreBudgetCard(o),
@@ -352,6 +383,8 @@ const SCORERS: Record<string, (o: Obj, ctx: AgentScoreContext) => AgentRubric> =
   agent_loop_docs_v1: scoreDocsDigest,
   agent_loop_grounding_v1: scoreGrounding,
   agent_loop_chain_v1: scoreChain,
+  agent_loop_tool_error_recovery_v1: scoreToolErrorRecovery,
+  agent_loop_tool_error_recovery_structured_v1: scoreToolErrorRecovery,
 };
 
 /** 이 시나리오에 결정론 채점기가 있는가(가드 테스트가 BUILTIN_AGENT_LOOP_IDS 전수 검사에 사용). */

@@ -3,6 +3,7 @@ import {
   AGENT_LOOP_CHAIN_V1,
   AGENT_LOOP_ERROR_V1,
   AGENT_LOOP_GROUNDING_V1,
+  AGENT_LOOP_TOOL_ERROR_RECOVERY_V1,
   ScenarioDefSchema,
 } from "@llm-bench/shared";
 import { describe, expect, it, vi } from "vitest";
@@ -133,6 +134,63 @@ function argDispatchDef(): ScenarioDef {
             argKey: "id",
             cases: { doc_aes: "AES-BODY", doc_des: "DES-BODY" },
             fallback: '{"error":"unknown_document_id"}',
+          },
+        },
+      ],
+      completion: { type: "no_tool_calls" },
+    },
+  });
+}
+
+/** #165: argDispatch(rules: lte) + forceErrorCalls 시나리오 def. */
+function argDispatchRulesDef(): ScenarioDef {
+  return ScenarioDefSchema.parse({
+    id: "al_argdispatch_rules",
+    system: "You are an agent. Call search_context, then answer JSON.",
+    user: "Search.",
+    tools: [
+      { name: "search_context", parameters: { type: "object", properties: { contextChars: { type: "number" } } } },
+    ],
+    agentLoop: {
+      maxTurns: 5,
+      mockTools: [
+        {
+          tool: "search_context",
+          responses: ["UNUSED-SEQUENCE-BODY"],
+          argDispatch: {
+            rules: [{ test: { kind: "lte", key: "contextChars", value: 400 }, result: '{"ok":true}' }],
+            fallback: '{"error":"too_big"}',
+            forceErrorCalls: 1,
+          },
+        },
+      ],
+      completion: { type: "no_tool_calls" },
+    },
+  });
+}
+
+/** #165: argDispatch(rules: present) 시나리오 def. */
+function argDispatchPresentDef(): ScenarioDef {
+  return ScenarioDefSchema.parse({
+    id: "al_argdispatch_present",
+    system: "You are an agent. Call write_section, then answer JSON.",
+    user: "Write.",
+    tools: [
+      {
+        name: "write_section",
+        parameters: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } } },
+      },
+    ],
+    agentLoop: {
+      maxTurns: 5,
+      mockTools: [
+        {
+          tool: "write_section",
+          responses: ["UNUSED-SEQUENCE-BODY"],
+          argDispatch: {
+            rules: [{ test: { kind: "present", key: "content" }, result: '{"ok":true}' }],
+            fallback: '{"error":"content_required"}',
+            forceErrorCalls: 1,
           },
         },
       ],
@@ -348,6 +406,55 @@ describe("runAgentLoopOpenAi", () => {
     expect(result.metrics.tool_arg_hits).toBeNull();
   });
 
+  // ─── #165: argDispatch rules(predicate) + forceErrorCalls ────────────────────
+  it("#165 rules(lte) + forceErrorCalls=1: 첫 호출은 규칙을 이미 만족해도 강제로 miss(fallback)", async () => {
+    const { fetchImpl, bodies } = queueFetch([
+      oaToolCall("search_context", '{"contextChars":100}'), // 규칙(≤400) 자체는 만족
+      oaText('{"ok":true}'),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: argDispatchRulesDef() }));
+    expect(result.metrics.tool_arg_attempts).toBe(1);
+    expect(result.metrics.tool_arg_hits).toBe(0); // forceErrorCalls 창 안 — 인자와 무관하게 miss
+    const turn2 = bodies[1]!.messages as Array<{ role: string; content?: string }>;
+    expect(turn2.filter((m) => m.role === "tool").map((m) => m.content).join()).toContain("too_big");
+  });
+
+  it("#165 rules(lte): forceErrorCalls 창 이후엔 실제로 정정된 값만 hit", async () => {
+    const { fetchImpl, bodies } = queueFetch([
+      oaToolCall("search_context", '{"contextChars":900}'), // 1차: forceErrorCalls로 어차피 miss
+      oaToolCall("search_context", '{"contextChars":400}'), // 2차: 규칙 충족 → hit
+      oaText('{"ok":true}'),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: argDispatchRulesDef() }));
+    expect(result.metrics.tool_arg_attempts).toBe(2);
+    expect(result.metrics.tool_arg_hits).toBe(1);
+    const turn3 = bodies[2]!.messages as Array<{ role: string; content?: string }>;
+    expect(turn3.filter((m) => m.role === "tool").map((m) => m.content)).toContain('{"ok":true}');
+  });
+
+  it("#165 rules(lte): 창 이후에도 계속 규칙을 어기면 계속 miss(단순 재시도로는 안 통함)", async () => {
+    const { fetchImpl } = queueFetch([
+      oaToolCall("search_context", '{"contextChars":900}'),
+      oaToolCall("search_context", '{"contextChars":900}'), // 정정 안 함 — 여전히 초과
+      oaText('{"ok":true}'),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: argDispatchRulesDef() }));
+    expect(result.metrics.tool_arg_attempts).toBe(2);
+    expect(result.metrics.tool_arg_hits).toBe(0);
+  });
+
+  it("#165 rules(present): 필드가 비어있으면 miss, 채우면 hit", async () => {
+    const { fetchImpl } = queueFetch([
+      oaToolCall("write_section", '{"path":"p"}'), // content 없음 → forceErrorCalls로 어차피 1차는 miss
+      oaToolCall("write_section", '{"path":"p","content":""}'), // 빈 문자열도 미충족
+      oaToolCall("write_section", '{"path":"p","content":"x"}'), // 채움 → hit
+      oaText('{"ok":true}'),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: argDispatchPresentDef() }));
+    expect(result.metrics.tool_arg_attempts).toBe(3);
+    expect(result.metrics.tool_arg_hits).toBe(1);
+  });
+
   it("#105 final_turn_output_tokens = 최종(무도구) 턴 usage(전 턴 합계가 아님)", async () => {
     const { fetchImpl } = queueFetch([oaToolCallUsage("read_document", "{}", 40), oaTextUsage('{"ok":true}', 50)]);
     const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
@@ -561,5 +668,30 @@ describe("agent_loop_chain_v1 방해 후보 + 기권 (#113 후속)", () => {
     ]);
     await drive(runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: AGENT_LOOP_CHAIN_V1 }));
     expect(JSON.stringify(bodies[2]!.messages)).toContain("unknown_ref");
+  });
+});
+
+// #165: 실제 등록 def(로컬 미러가 아니라 진짜 시나리오 상수)로 전체 흐름을 한 번 더 확인.
+describe("agent_loop_tool_error_recovery_v1 (실제 등록 def, #165)", () => {
+  it("두 도구 모두 강제 에러 뒤 정정된 값으로 재시도하면 완주 + hits=2", async () => {
+    const { fetchImpl, bodies } = queueFetch([
+      oaToolCall("search_context", '{"query":"harness telemetry","contextChars":900}'), // 강제 에러(창 안)
+      oaToolCall("search_context", '{"query":"harness telemetry","contextChars":300}'), // 정정 → hit
+      oaToolCall("write_section", '{"path":"findings/context"}'), // content 없음 → 강제 에러(창 안)
+      oaToolCall("write_section", '{"path":"findings/context","content":"harness telemetry batches every 30s"}'), // 정정 → hit
+      oaText('{"title":"t","context_summary":"s","section_written":true}'),
+    ]);
+    const { result } = await drive(
+      runAgentLoopOpenAi({ ...argsBase(fetchImpl), def: AGENT_LOOP_TOOL_ERROR_RECOVERY_V1 }),
+    );
+    expect(result.metrics.completion_reason).toBe("completed");
+    expect(result.metrics.tool_arg_attempts).toBe(4);
+    expect(result.metrics.tool_arg_hits).toBe(2);
+    // 1차 시도는 두 도구 모두 opaque 제너릭 에러를 받는다(값과 무관하게 forceErrorCalls).
+    expect(JSON.stringify(bodies[1]!.messages)).toContain("Invalid JSON input for tool");
+    expect(JSON.stringify(bodies[3]!.messages)).toContain("Invalid JSON input for tool");
+    // 정정 후에는 실제 성공 페이로드를 받는다.
+    expect(JSON.stringify(bodies[2]!.messages)).toContain("matches");
+    expect(JSON.stringify(bodies[4]!.messages)).toContain("bytes_written");
   });
 });
