@@ -36,7 +36,7 @@ export function ModelLabel({
   return (
     <span className={`inline-flex min-w-0 items-center gap-1.5 ${className ?? ""}`}>
       <VendorIcon vendor={vendor} size={size} className="shrink-0" />
-      <span className="truncate font-mono" title={modelId}>
+      <span className="min-w-0 truncate font-mono" title={modelId}>
         {display}
       </span>
       {quant ? (

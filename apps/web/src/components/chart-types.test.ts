@@ -88,6 +88,23 @@ describe("comparePivotToFlatBarData", () => {
     const flat = comparePivotToFlatBarData(pivoted, series, "fallback", realOrder);
     expect(flat.map((r) => r.scenario)).toEqual(["code_sort_js", "chat_hello"]);
   });
+
+  it("barLabelShort는 짧은 라벨이면 barLabel과 같고, 긴 라벨이면 말줄임된다 — Y축은 이 필드를 써야 함", () => {
+    const longSeries: CompareSeries[] = [
+      {
+        modelId: "esatapedico/qwen3.8-27b-nvfp4-mtp-gguf/qwen3.8-27b-nvfp4-mtp-compact-low.gguf",
+        label: "esatapedico/qwen3.8-27b-nvfp4-mtp-gguf/qwen3.8-27b-nvfp4-mtp-compact-low.gguf",
+        rows: [row("chat_hello", "chat_completions", "m1")],
+      },
+    ];
+    const pivoted = pivotCompareSeries(longSeries);
+    const flat = comparePivotToFlatBarData(pivoted, longSeries, "fallback");
+    expect(flat[0]!.barLabelShort.length).toBeLessThan(flat[0]!.barLabel.length);
+    expect(flat[0]!.barLabelShort.endsWith("…")).toBe(true);
+
+    const shortFlat = comparePivotToFlatBarData(pivotCompareSeries(series), series, "fallback");
+    expect(shortFlat[0]!.barLabelShort).toBe(shortFlat[0]!.barLabel);
+  });
 });
 
 describe("apiRouteRank", () => {

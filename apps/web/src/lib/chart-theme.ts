@@ -27,3 +27,8 @@ export function niceCeil(x: number): number {
   const nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
   return nice * base;
 }
+
+/** 차트 레이블(축 틱·범례) 말줄임 — 뒤에서부터 자르고 "…" 부착. 전체 텍스트는 별도 툴팁으로. */
+export function truncateChartLabel(label: string, max = 28): string {
+  return label.length > max ? `${label.slice(0, max - 1)}…` : label;
+}

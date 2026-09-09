@@ -235,7 +235,9 @@ export function StatsModelTable({
             {sortDirIcon(column)}
           </button>
         ),
-        cell: (info) => <ModelLabel modelId={info.getValue()} showQuant size={14} className="text-xs" />,
+        cell: (info) => (
+          <ModelLabel modelId={info.getValue()} showQuant size={14} className="max-w-[20rem] text-xs" />
+        ),
         sortingFn: "alphanumeric",
       }),
       columnHelper.accessor((row) => itemPublisher(row), {
