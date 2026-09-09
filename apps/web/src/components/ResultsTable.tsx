@@ -45,7 +45,7 @@ export type ResultRow = {
   /** #80: 가시 content에 <think>/<|channel|> 태그 잔존(라우트 무관) → 추론 누수 배지의 일반화 신호 */
   channel_tag_leak_detected?: boolean;
   /** #105: agent_loop 마지막 측정 런의 종료 사유(에이전트 컬럼 배지). */
-  agent_completion_reason?: "completed" | "stall" | "budget_exhausted";
+  agent_completion_reason?: "completed" | "stall" | "budget_exhausted" | "upstream_error";
   /** #105: agent_loop 완료까지 턴 수(완료 배지 부제). */
   turns_to_completion?: number | null;
   /** #105: agent_loop 빈 턴 수. */
@@ -475,15 +475,25 @@ export function ResultsTable({
                     </span>
                   );
                 }
+                // #143: upstream_error(요청 실패)는 stall/budget_exhausted와 원인이 달라
+                // "정체"로 오해하지 않도록 별도 라벨을 쓴다.
                 const isBudget = agent_completion_reason === "budget_exhausted";
-                const label = isBudget ? m.results.table.agentBudget : m.results.table.agentStall;
-                const colorClass = isBudget
-                  ? "text-[var(--chart-fail)] border-[var(--chart-fail)]"
-                  : "text-[var(--tier-okay)] border-[var(--tier-okay)]";
-                const title =
-                  (isBudget ? m.results.table.agentBudgetTitle : m.results.table.agentStallTitle) +
-                  (thinking_exhausted_budget ? m.results.table.agentThinkingExhausted : "") +
-                  (empty_turn_count ? m.results.table.agentEmptyTurns(empty_turn_count) : "");
+                const isUpstreamError = agent_completion_reason === "upstream_error";
+                const label = isUpstreamError
+                  ? m.results.table.agentUpstream
+                  : isBudget
+                    ? m.results.table.agentBudget
+                    : m.results.table.agentStall;
+                const colorClass = isUpstreamError
+                  ? "text-[var(--muted)] border-[var(--border)]"
+                  : isBudget
+                    ? "text-[var(--chart-fail)] border-[var(--chart-fail)]"
+                    : "text-[var(--tier-okay)] border-[var(--tier-okay)]";
+                const title = isUpstreamError
+                  ? m.results.table.agentUpstreamTitle
+                  : (isBudget ? m.results.table.agentBudgetTitle : m.results.table.agentStallTitle) +
+                    (thinking_exhausted_budget ? m.results.table.agentThinkingExhausted : "") +
+                    (empty_turn_count ? m.results.table.agentEmptyTurns(empty_turn_count) : "");
                 return (
                   <span
                     className={`inline-flex items-center gap-1 rounded border bg-[var(--surface)] px-1.5 py-0.5 text-xs ${colorClass}`}

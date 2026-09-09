@@ -55,7 +55,15 @@ export type AgentLoopMetrics = {
    * "재시도했는데 안 한 것으로" 오판한다. 인자 품질은 valid_tool_call_rate·tool_arg_* 가 따로 잰다.
    */
   tool_call_counts: Record<string, number>;
-  completion_reason: "completed" | "stall" | "budget_exhausted";
+  /**
+   * #143: `upstream_error`는 서버가 non-2xx/빈 body로 응답한 경우 — 모델이 정체하거나
+   * 예산을 다 쓴 게 아니라 요청 자체가 실패한 것이라 `stall`/`budget_exhausted`와는
+   * 원인이 다르다. 이전에는 둘 다 `budget_exhausted`로 뭉뚱그려져, 재현 실험에서
+   * "모델이 정체했다"와 "서버가 죽었다"를 구분할 수 없었다.
+   */
+  completion_reason: "completed" | "stall" | "budget_exhausted" | "upstream_error";
+  /** #143: 최종(무도구) 턴이 finish_reason=length/max_tokens 로 잘렸는지. */
+  final_turn_truncated: boolean;
 };
 
 export type AgentLoopResult = {
@@ -110,6 +118,8 @@ type LoopState = {
   finalTurnUsageTokens: number | null;
   /** #108 후속: 도구별 실제 호출 횟수(mock 매칭된 것만). */
   toolCallCounts: Map<string, number>;
+  /** #143: 최종(무도구) 턴이 finish_reason=length/max_tokens 로 잘렸는지. 최종 턴 미도달이면 false. */
+  finalTurnTruncated: boolean;
 };
 
 type StepDecision =
@@ -242,6 +252,15 @@ function stepAgentLoop(
 
   // 도구 호출 없음 → 최종 턴. 효율 분자로 이 턴의 출력 토큰을 기록.
   state.finalTurnUsageTokens = turn.usageOutputTokens;
+  // #143: 빈 턴이 아니어도(stall이 아니어도) 최종 턴 자체가 잘렸을 수 있다 —
+  // thinkingExhaustedBudget과 같은 판정을 isEmpty 조건 없이 적용.
+  state.finalTurnTruncated =
+    turn.finishReason === "length" ||
+    turn.finishReason === "max_tokens" ||
+    (turn.finishReason == null &&
+      turn.usageOutputTokens != null &&
+      maxTokens > 0 &&
+      turn.usageOutputTokens >= maxTokens);
 
   // 빈 content면 정체(empty_turn_loop:no_signal), 아니면 완료.
   if (isEmpty) {
@@ -276,6 +295,7 @@ function initState(): LoopState {
     dispatchHits: 0,
     finalTurnUsageTokens: null,
     toolCallCounts: new Map(),
+    finalTurnTruncated: false,
   };
 }
 
@@ -306,6 +326,7 @@ function finalize(
       final_turn_output_tokens: state.finalTurnUsageTokens,
       tool_call_counts: Object.fromEntries(state.toolCallCounts),
       completion_reason: reason,
+      final_turn_truncated: state.finalTurnTruncated,
     },
   };
 }
@@ -393,7 +414,10 @@ export async function* runAgentLoopOpenAi(
         message: errText.slice(0, 500),
         partial: { scenarioId, api_route: "chat_completions" },
       };
-      return finalize(state, "budget_exhausted", null, state.lastVisible, state.lastCombined);
+      // #143: 요청 자체가 실패한 것이지 모델이 정체/예산소진한 게 아니다 — budget_exhausted와
+      // 뭉뚱그리지 않는다. 직전 성공 턴의 streamCompleted가 잔존하지 않도록 무효화.
+      state.streamCompleted = false;
+      return finalize(state, "upstream_error", null, state.lastVisible, state.lastCombined);
     }
     const m = await consumeOpenAiChatStream(response.body, signal);
     for (const ch of chunk(m.assistantText)) {
@@ -484,7 +508,10 @@ export async function* runAgentLoopAnthropic(
         message: errText.slice(0, 500),
         partial: { scenarioId, api_route: "messages" },
       };
-      return finalize(state, "budget_exhausted", null, state.lastVisible, state.lastCombined);
+      // #143: 요청 자체가 실패한 것이지 모델이 정체/예산소진한 게 아니다 — budget_exhausted와
+      // 뭉뚱그리지 않는다. 직전 성공 턴의 streamCompleted가 잔존하지 않도록 무효화.
+      state.streamCompleted = false;
+      return finalize(state, "upstream_error", null, state.lastVisible, state.lastCombined);
     }
     const m = await consumeAnthropicMessagesStream(
       response.body,

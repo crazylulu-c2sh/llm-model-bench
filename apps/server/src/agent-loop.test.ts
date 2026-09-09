@@ -215,6 +215,25 @@ describe("runAgentLoopOpenAi", () => {
     expect(result.metrics.turns_to_completion).toBeNull();
   });
 
+  it("#143 upstream_error: 서버가 non-2xx 를 주면 budget_exhausted 로 뭉뚱그리지 않는다", async () => {
+    const { fetchImpl } = queueFetch([new Response("boom", { status: 500 })]);
+    const { events, result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.completion_reason).toBe("upstream_error");
+    expect(result.metrics.turns_to_completion).toBeNull();
+    expect(result.streamCompleted).toBe(false);
+    expect(events.some((e) => e.type === "error" && e.layer === "upstream")).toBe(true);
+  });
+
+  it("#143 upstream_error: 첫 턴이 성공한 뒤 두 번째 턴이 실패해도 직전 streamCompleted 가 잔존하지 않는다", async () => {
+    const { fetchImpl } = queueFetch([
+      oaToolCall("read_document"),
+      new Response("boom", { status: 503 }),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.completion_reason).toBe("upstream_error");
+    expect(result.streamCompleted).toBe(false);
+  });
+
   it("intermediate_turn_leak: think tags in an intermediate (tool) turn's content", async () => {
     const { fetchImpl } = queueFetch([
       oaToolCall("read_document", "{}", "<think>let me plan</think>"),
@@ -257,6 +276,30 @@ describe("runAgentLoopOpenAi", () => {
     const { fetchImpl } = queueFetch([oaReasoningFinish("x".repeat(40), null, { usageTokens: 512 })]);
     const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
     expect(result.metrics.thinking_exhausted_budget).toBe(true);
+  });
+
+  it("#143 final_turn_truncated: 최종 턴에 content 가 있어도 finish_reason=length 면 잘림으로 표시한다", async () => {
+    const { fetchImpl } = queueFetch([
+      oaReasoningFinish("", "length", { content: '{"title":"x","summary":"s","sources":[]}' }),
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.completion_reason).toBe("completed");
+    expect(result.metrics.final_turn_truncated).toBe(true);
+  });
+
+  it("#143 final_turn_truncated: 정상 종료(finish_reason=stop)면 false", async () => {
+    const { fetchImpl } = queueFetch([oaTextUsage('{"title":"x","summary":"s","sources":[]}', 10)]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.completion_reason).toBe("completed");
+    expect(result.metrics.final_turn_truncated).toBe(false);
+  });
+
+  it("#143 final_turn_truncated: 최종 턴 미도달(budget_exhausted)이면 false로 남는다", async () => {
+    const { fetchImpl } = queueFetch([oaToolCall("read_document"), oaToolCall("read_document")]);
+    const args = { ...argsBase(fetchImpl), def: def({ agentLoop: { ...def().agentLoop!, maxTurns: 2 } }) };
+    const { result } = await drive(runAgentLoopOpenAi(args));
+    expect(result.metrics.completion_reason).toBe("budget_exhausted");
+    expect(result.metrics.final_turn_truncated).toBe(false);
   });
 
   // ─── #105: argDispatch 인자 충실도 ───────────────────────────────────────────
@@ -395,6 +438,14 @@ describe("runAgentLoopAnthropic", () => {
     const flat = JSON.stringify(turn2);
     expect(flat).toContain("tool_result");
     expect(flat).toContain("DOC-BODY");
+  });
+
+  it("#143 upstream_error: 서버가 non-2xx 를 주면 budget_exhausted 로 뭉뚱그리지 않는다", async () => {
+    const { fetchImpl } = queueFetch([new Response("boom", { status: 500 })]);
+    const { events, result } = await drive(runAgentLoopAnthropic(argsBase(fetchImpl)));
+    expect(result.metrics.completion_reason).toBe("upstream_error");
+    expect(result.streamCompleted).toBe(false);
+    expect(events.some((e) => e.type === "error" && e.layer === "upstream")).toBe(true);
   });
 
   it("#105 argDispatch hit (messages 라우트): 인자 매칭 → 해당 응답 + hits/attempts=1/1", async () => {

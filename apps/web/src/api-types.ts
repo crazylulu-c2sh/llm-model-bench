@@ -38,7 +38,7 @@ export type BenchScenarioRun = {
   /** #108 후속: agent_loop — 도구별 실제 호출 횟수. */
   tool_call_counts?: Record<string, number>;
   /** #79: agent_loop — 루프 종료 사유. */
-  agent_completion_reason?: "completed" | "stall" | "budget_exhausted";
+  agent_completion_reason?: "completed" | "stall" | "budget_exhausted" | "upstream_error";
   quality?: { pass: boolean; score?: number; reason?: string };
 };
 

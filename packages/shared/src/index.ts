@@ -699,8 +699,13 @@ export const BenchResultSchema = z.object({
           final_turn_output_tokens: z.number().int().optional(),
           /** #108 후속: agent_loop — 도구별 실제 호출 횟수(재시도 실측·워크플로 준수율). */
           tool_call_counts: z.record(z.string(), z.number().int()).optional(),
-          /** #79: agent_loop — 루프 종료 사유. */
-          agent_completion_reason: z.enum(["completed", "stall", "budget_exhausted"]).optional(),
+          /**
+           * #79: agent_loop — 루프 종료 사유. `upstream_error`(#143)는 서버가 non-2xx/빈
+           * body로 응답한 경우 — 모델이 정체/예산소진한 게 아니라 요청 자체가 실패한 것.
+           */
+          agent_completion_reason: z
+            .enum(["completed", "stall", "budget_exhausted", "upstream_error"])
+            .optional(),
           quality: z
             .object({
               pass: z.boolean(),

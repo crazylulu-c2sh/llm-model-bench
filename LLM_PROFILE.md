@@ -117,7 +117,7 @@ preserveThinking `true` 시 `extra_body`에 추가:
 | contextNativeMax | 262144 (YaRN로 ~1000000) |
 | contextRecommendedStart | 131072 |
 | recommendedMaxTokens.default | 131072 |
-| recommendedMaxTokens.complex | 262144 |
+| recommendedMaxTokens.complex | 81920 (모델카드 값은 262144 — 런타임 기본값으로는 쓰지 않음, #144) |
 | reasoning_effort (미지정 시) | low |
 | promptRules.stripThinkingFromAssistantHistory | true |
 | 모달리티 | 텍스트 + 이미지 + 영상 (27B 네이티브 멀티모달) |
@@ -160,11 +160,11 @@ thinkingIntent `off` 시 — 최상위 `reasoning_effort`는 `"none"`(Ollama가 
 ### qwen3.8 실측 (LM Studio · Qwen3.8-27B · 5개 런: bf16 · q4_k_xl · q8_k_xl · unsloth q8_0 + 초기 런)
 
 - **템플릿 렌더 실패 0건** — **템플릿 오버라이드를 적용하지 않은 스톡 상태**에서의 측정입니다. 도구 시나리오의 Anthropic `messages` 라우트 — gemma-4·nemotron이 깨지는 바로 그 경로 — 도 정상 렌더됐고, 하드 실패(`stream_completed=false`)도 0건. 즉 패치해서 고쳐진 게 아니라 **애초에 [템플릿 교체](docs/chat-template-override.md)가 필요 없습니다.**
-- **실행 시간이 깁니다.** `reasoning_effort: low` + `max_tokens: 262144`에서 `chat_completions` 단일 시나리오가 최장 **약 15분(894초)**, 런 전체 115~175분이었습니다. 짧게 돌려야 하면 UI `max_tokens`를 낮추세요.
-- **agent_loop 시나리오가 일관되게 실패합니다** — `agent_loop_chain_v1`은 `stall`, `agent_loop_budget_v1`·`agent_loop_mock_v1`은 `budget_exhausted`로 3/3 재현. 비결정적 흔들림이 아닙니다.
+- **실행 시간이 깁니다.** `reasoning_effort: low`에서도 `chat_completions` 단일 시나리오가 최장 **약 15분(894초)**, 런 전체 115~175분이었습니다. 지배 항은 `max_tokens` 자체가 아니라 사고량·양자화 대역폭입니다(#144·#182) — 같은 effort를 보내도 GGUF 빌드별로 실제 사고량이 최대 4.3배 갈리는 사례가 관측됐습니다(#182). 더 짧게 돌려야 하면 UI `max_tokens`를 낮추세요.
+- **`agent_loop_chain_v1`이 `stall`로 일관 재현되던 문제는 프롬프트 모호성이 원인이었고 수정됐습니다(#143)** — 예산이 아니라, 모델이 실제 조회 주제를 몰라 되물어야 한다고 오판하는 구조였습니다. `agent_loop` 시나리오는 애초에 UI `max_tokens`로 짧게 만들 수 없습니다 — per-turn 예산은 시나리오 자체가 정하고 request > scenario > profile 순으로 해석되어 UI 값보다 항상 우선합니다.
 - 참고: `messages` 라우트의 `reasoning_chars`가 0인 것은 Qwen3.8 고유 현상이 아니라 **모든 모델 공통**(라우트 차원 특성)입니다.
 
-> **max_tokens 주의**: 위 권장값은 모델카드 그대로(사고 262144 / 최종 응답 131072)입니다. 실제 요청 `max_tokens`는 사용자 값·프로파일 값·비전 floor 중 **최댓값**이 쓰이므로, 컨텍스트를 짧게 띄운 백엔드(vLLM `--max-model-len` 등)에서는 UI `max_tokens`로 명시해 낮추세요. llama.cpp·LM Studio는 대개 컨텍스트에 맞춰 클램프합니다.
+> **max_tokens 주의**: 위 표의 `recommendedMaxTokens.complex`는 모델카드 원값(262144)이 아니라 런타임 기본값(81920)입니다 — 모델카드 값을 그대로 쓴다고 성능이 개선되지 않고 `messages` 라우트의 `thinking.budget_tokens`만 커지기 때문입니다(#144). 실제 요청 `max_tokens`는 **`request > scenario > profile > max(vision floor, recommended)`** 순으로 해석됩니다(`resolveEffectiveMaxTokens`, `packages/shared/src/max-tokens.ts`) — 시나리오 자체가 상한을 정의하면(agent_loop 등) UI 값도 그걸 못 덮습니다. 컨텍스트를 더 짧게 띄운 백엔드(vLLM `--max-model-len` 등)에서는 UI `max_tokens`로 명시해 낮추세요.
 
 | preset | temperature | top_p | top_k | min_p | presence_penalty | repetition_penalty |
 |--------|---------------|-------|-------|-------|-------------------|---------------------|

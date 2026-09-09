@@ -1492,12 +1492,17 @@ describe("runBench agent_loop scenario (#79)", () => {
       { status: 200, headers: { "content-type": "text/event-stream" } },
     );
   }
-  function sseFinal(text: string): Response {
+  function sseFinal(text: string, finishReason: string | null = null): Response {
     const enc = new TextEncoder();
     return new Response(
       new ReadableStream<Uint8Array>({
         start(c) {
           c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`));
+          if (finishReason != null) {
+            c.enqueue(
+              enc.encode(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: finishReason }] })}\n\n`),
+            );
+          }
           c.enqueue(enc.encode("data: [DONE]\n\n"));
           c.close();
         },
@@ -1548,6 +1553,73 @@ describe("runBench agent_loop scenario (#79)", () => {
     expect(run.empty_turn_count).toBe(0);
     expect(typeof run.valid_tool_call_rate).toBe("number");
     expect(run.valid_tool_call_rate).toBeCloseTo(3 / 4, 6); // 3 tool turns / 4 total
+  });
+
+  it("#143: 최종 턴이 finish_reason=length 로 잘리면 completed 런에도 truncated_at_max_tokens 라벨이 붙는다", async () => {
+    const chatTurns = [
+      sseTool("read_document"),
+      sseTool("wiki_search"),
+      sseTool("wiki_read"),
+      sseFinal('{"title":"AES","summary":"symmetric cipher","sources":["aes"]}', "length"),
+    ];
+    let chatIdx = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [] }] });
+      }
+      if (url.endsWith("/api/v1/models/load") || url.endsWith("/api/v1/models/unload")) {
+        return jsonResponse({}, 200);
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        return chatTurns[Math.min(chatIdx++, chatTurns.length - 1)]!;
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    let aggregate: { runs?: Array<Record<string, unknown>> } | null = null;
+    for await (const ev of runBench(
+      baseBenchRequest({ scenarioIds: ["agent_loop_mock_v1"] as unknown as ScenarioId[] }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "metrics_update") aggregate = ev.aggregate as { runs?: Array<Record<string, unknown>> };
+    }
+
+    const run = aggregate!.runs![0]! as { agent_completion_reason?: string; quality?: { reason?: string } };
+    expect(run.agent_completion_reason).toBe("completed");
+    expect(run.quality?.reason).toMatch(/^truncated_at_max_tokens=/);
+  });
+
+  it("#143 upstream_error: agent_loop 이 non-2xx 를 받으면 stall/budget_exhausted 로 오분류되지 않는다", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models") && (init?.method ?? "GET") === "GET") {
+        // canProceedAfterIterationError 가 loaded:false 로 판정해 재시도 없이 바로 중단하도록.
+        return jsonResponse({ models: [{ key: MODEL_ID, loaded_instances: [] }] });
+      }
+      if (url.endsWith("/v1/chat/completions")) {
+        return new Response("boom", { status: 500 });
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+
+    const events: string[] = [];
+    let aggregate: { runs?: Array<Record<string, unknown>> } | null = null;
+    for await (const ev of runBench(
+      baseBenchRequest({ scenarioIds: ["agent_loop_mock_v1"] as unknown as ScenarioId[] }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      events.push(ev.type);
+      if (ev.type === "metrics_update") aggregate = ev.aggregate as { runs?: Array<Record<string, unknown>> };
+    }
+
+    // 업스트림 실패 후 canProceedAfterIterationError 가 false → orchestrator 에러로 중단(재시도 무한루프 아님).
+    expect(events).toContain("error");
+    // 실패한 iteration 은 완료 런으로 집계되지 않는다 — budget_exhausted/stall 오분류로 completed 처리되지도 않는다.
+    const runs = aggregate?.runs ?? [];
+    expect(runs.every((r) => r.agent_completion_reason !== "completed")).toBe(true);
   });
 });
 
