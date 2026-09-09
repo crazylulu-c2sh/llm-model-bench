@@ -104,7 +104,7 @@ describe("resolveBenchProfile", () => {
       repetition_penalty: 1.0,
     });
     expect(r.stopSequences).toEqual(["<|im_end|>"]);
-    expect(r.maxTokensRecommended).toBe(262_144);
+    expect(r.maxTokensRecommended).toBe(81_920);
   });
 
   it("defaults Qwen3.8 reasoning_effort to low on both transports", () => {
