@@ -33,4 +33,26 @@ describe("isBenchExcludedModelArtifact", () => {
     expect(isBenchExcludedModelArtifact("qwen/qwen3.8-27b", "Qwen3.8 27B")).toBe(false);
     expect(isBenchExcludedModelArtifact("gemma-4-12b-it@q4_k_xl", "Gemma 4 12B")).toBe(false);
   });
+
+  it("keeps real imatrix-quantized checkpoints (id/label contain but don't start with imatrix) (#159)", () => {
+    expect(
+      isBenchExcludedModelArtifact("bartowski/Meta-Llama-3-8B-Instruct-imatrix-GGUF", undefined),
+    ).toBe(false);
+    expect(
+      isBenchExcludedModelArtifact(
+        "Nexesenex/Llama-3-8B-imatrix-IQ4_XS",
+        "Llama 3 8B imatrix IQ4_XS",
+      ),
+    ).toBe(false);
+    expect(isBenchExcludedModelArtifact("qwen2.5-7b-instruct-imatrix-iq4_xs", undefined)).toBe(
+      false,
+    );
+  });
+
+  it("keeps full checkpoints whose label ends with MTP but doesn't start with it (#159)", () => {
+    expect(isBenchExcludedModelArtifact("qwen3.6-35b-a3b-mtp", "Qwen3.6 35B A3B MTP")).toBe(false);
+    expect(
+      isBenchExcludedModelArtifact("org/qwen3.6-35b-a3b-mtp", "Qwen3.6 MTP 35B A3B"),
+    ).toBe(false);
+  });
 });
