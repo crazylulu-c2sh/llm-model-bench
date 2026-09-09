@@ -18,7 +18,7 @@
     "@hono/node-server": "^2.0.11",
     "@llm-bench/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.19.1",
-    "hono": "^4.12.34",
+    "hono": "^4.13.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
