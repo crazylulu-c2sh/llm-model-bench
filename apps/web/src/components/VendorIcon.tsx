@@ -152,13 +152,15 @@ export function vendorGlyphSvg(vendor: VendorKey, cx: number, top: number, size:
   );
 }
 
-/** 백엔드 표시명 — LM Studio/Ollama는 고유명사, openai_compatible/manual만 로케일 카탈로그. */
+/** 백엔드 표시명 — LM Studio/Ollama/Unsloth Studio는 고유명사, openai_compatible/manual만 로케일 카탈로그. */
 export function backendLabel(provider: ProviderKind, m: Messages): string {
   switch (provider) {
     case "lm_studio":
       return "LM Studio";
     case "ollama":
       return "Ollama";
+    case "unsloth_studio":
+      return "Unsloth Studio";
     case "openai_compatible":
       return m.common.backendOpenaiCompatible;
     case "manual":

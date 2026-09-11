@@ -281,6 +281,7 @@ describe("detectProvider", () => {
       const url = requestUrl(input);
       if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
       if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/models/list")) return jsonResponse({}, 404);
       if (url.endsWith("/v1/models")) {
         return jsonResponse({ data: [{ id: "gpt-test" }] });
       }
@@ -294,6 +295,76 @@ describe("detectProvider", () => {
     expect(r.capabilities.openaiChat).toBe(true);
     expect(r.capabilities.anthropicMessages).toBe(true);
     expect(r.reachability?.state).toBe("ok");
+  });
+
+  it("detects Unsloth Studio from /api/models/list (before OpenAI /v1/models)", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/models/list")) {
+        return jsonResponse({
+          models: [
+            { id: "unsloth/Qwen3.8-27B-GGUF", name: "Qwen3.8 27B", is_gguf: true },
+            { id: "tts-model", name: "TTS", is_audio: true },
+          ],
+          default_models: ["unsloth/Qwen3.8-27B-GGUF"],
+        });
+      }
+      if (url.endsWith("/v1/models")) {
+        return jsonResponse({ data: [{ id: "only-loaded" }] });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:8888", {
+      fetchImpl,
+      apiKey: "sk-unsloth-test",
+    });
+    expect(r.provider).toBe("unsloth_studio");
+    expect(r.models.map((m) => m.id)).toEqual(["unsloth/Qwen3.8-27B-GGUF"]);
+    expect(r.capabilities.openaiChat).toBe(true);
+    expect(r.capabilities.anthropicMessages).toBe(true);
+    expect(r.reachability?.state).toBe("ok");
+  });
+
+  it("does not claim Unsloth Studio on 401 from /api/models/list", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/models/list")) return jsonResponse({ detail: "Unauthorized" }, 401);
+      if (url.endsWith("/v1/models")) {
+        return jsonResponse({ data: [{ id: "loaded-only" }] });
+      }
+      if (url.includes("/v1/chat/completions")) return jsonResponse({ error: "x" }, 400);
+      if (url.includes("/v1/messages")) return jsonResponse({ error: "x" }, 400);
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:8888", { fetchImpl });
+    expect(r.provider).toBe("openai_compatible");
+    expect(r.steps.find((s) => s.name === "unsloth_models")?.detail).toBe("unauthorized");
+    expect(r.models[0]?.id).toBe("loaded-only");
+  });
+
+  it("requires default_models fingerprint for Unsloth Studio", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      // models만 있고 default_models 없음 → Unsloth로 단정하지 않음
+      if (url.endsWith("/api/models/list")) {
+        return jsonResponse({ models: [{ id: "fake" }] });
+      }
+      if (url.endsWith("/v1/models")) {
+        return jsonResponse({ data: [{ id: "gpt-test" }] });
+      }
+      if (url.includes("/v1/chat/completions")) return jsonResponse({ error: "x" }, 400);
+      if (url.includes("/v1/messages")) return jsonResponse({ error: "x" }, 400);
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:8000", { fetchImpl });
+    expect(r.provider).toBe("openai_compatible");
+    expect(r.steps.find((s) => s.name === "unsloth_models")?.detail).toBe("unrecognized_model_shape");
   });
 
   it("treats Ollama-style 404 JSON model-not-found as chat route available", async () => {
@@ -403,7 +474,7 @@ describe("detectProvider", () => {
       return jsonResponse({}, 404);
     });
     await detectProvider("http://localhost:8000", { fetchImpl, timeoutMs: 1_000 });
-    expect(signals).toHaveLength(5);
+    expect(signals).toHaveLength(6);
     expect(signals.every((s) => s instanceof AbortSignal)).toBe(true);
   });
 

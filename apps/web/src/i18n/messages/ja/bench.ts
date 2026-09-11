@@ -63,14 +63,14 @@ export const bench: Messages["bench"] = {
   // ロード/アンロード · メモリ · 競合ガードのトグル
   unloadOthersTitleLmStudio:
     "検出したモデル一覧にある他のモデルに対して unload を試みます。他のクライアントが今まさに推論中でも区別せず強制終了します。一覧にないロードは操作できません。",
-  onlyLmStudio: "LM Studio でのみ適用されます。",
-  unloadOthersLabel: "ベンチ対象以外のモデルをアンロード (LM Studio)",
+  onlyLmStudio: "LM Studio・Unsloth Studio でのみ適用されます。",
+  unloadOthersLabel: "ベンチ対象以外のモデルをアンロード (LM Studio · Unsloth Studio)",
   unloadOthersHint:
     "オンにすると各ベンチ開始前に、検出した他のモデルキーへ unload をベストエフォートで呼び出します。他のクライアント/プロセスがそのモデルで今まさに推論中でも、稼働状況を確認せずに強制終了します。失敗してもベンチは続行します。",
   inactiveOnCurrentProvider: " 現在のプロバイダーでは無効です。",
   autoUnloadTitleLmStudio:
     "開始時点ですでに VRAM にあったモデルはアンロードせず、今回の実行が load で載せた場合のみ終了時に unload を試みます。",
-  autoUnloadLabel: "ベンチ後に対象モデルを自動アンロード (LM Studio)",
+  autoUnloadLabel: "ベンチ後に対象モデルを自動アンロード (LM Studio · Unsloth Studio)",
   autoUnloadHint:
     "すでにロード済みのモデルはそのままにし、今回のベンチがロードした場合のみ、ラン終了時に unload をベストエフォートで呼び出します。",
   memFitTitle:
@@ -168,6 +168,8 @@ export const bench: Messages["bench"] = {
   confirmOrderLabel: "実行順 · モデル ",
   confirmOrderUnit: "個",
   confirmLmStudioLoadNote: " · LM Studio でロード/アンロードが動作する場合があります。",
+  confirmUnslothLoadNote:
+    " · Unsloth Studio でロード/アンロードが動作する場合があります（sk-unsloth API キーが必要）。",
   confirmReorderHint: "上/下で直列実行の順序を変更できます。",
   moveUpAria: (modelId) => `${modelId} を上へ移動`,
   moveDownAria: (modelId) => `${modelId} を下へ移動`,

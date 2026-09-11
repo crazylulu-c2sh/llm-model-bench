@@ -23,6 +23,7 @@ import { providerFetch } from "./provider-fetch.js";
 export type ContentionProviderKind =
   | "lm_studio"
   | "ollama"
+  | "unsloth_studio"
   | "openai_compatible"
   | "manual";
 

@@ -19,8 +19,10 @@ import { hasValidBenchApiKey } from "./middleware/api-key-auth.js";
 import {
   collectLmStudioLoaded,
   collectOllamaLoaded,
+  collectUnslothStudioLoaded,
   type ProviderLoadedResult,
 } from "./monitor-collect.js";
+import { unslothLoad, unslothUnload } from "./unsloth-studio.js";
 import { getGpuSnapshot, getSystemSnapshot } from "./system-info.js";
 import {
   getClientRemoteAddr,
@@ -244,6 +246,37 @@ export function registerMonitorRoutes(app: Hono, prefix = "/api"): void {
     }
   });
 
+  // Unsloth Studio native REST — load/unload (모니터 수동; force_cancel_active=false로 채팅 보호).
+  app.post(`${prefix}/monitor/unsloth/load`, async (c) => {
+    const gate = remoteMgmtGate(c);
+    if (!gate.allow) return c.json({ error: gate.error }, gate.status);
+    const parsed = LmsNativeModelBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "invalid_body" }, 400);
+    const { baseUrl, model, apiKey } = parsed.data;
+    try {
+      const r = await unslothLoad(baseUrl, model, { apiKey, forceCancelActive: false });
+      if (!r.ok) return c.json({ ok: false, upstream_status: r.status, error: r.body }, 502);
+      return c.json({ ok: true, status: r.status, body: r.body });
+    } catch (e) {
+      return c.json({ ok: false, error: "unsloth_unreachable", detail: String(e).slice(0, 500) }, 502);
+    }
+  });
+
+  app.post(`${prefix}/monitor/unsloth/unload`, async (c) => {
+    const gate = remoteMgmtGate(c);
+    if (!gate.allow) return c.json({ error: gate.error }, gate.status);
+    const parsed = LmsNativeModelBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "invalid_body" }, 400);
+    const { baseUrl, model, apiKey } = parsed.data;
+    try {
+      const r = await unslothUnload(baseUrl, model, { apiKey, forceCancelActive: false });
+      if (!r.ok) return c.json({ ok: false, upstream_status: r.status, error: r.body }, 502);
+      return c.json({ ok: true, status: r.status, body: r.body });
+    } catch (e) {
+      return c.json({ ok: false, error: "unsloth_unreachable", detail: String(e).slice(0, 500) }, 502);
+    }
+  });
+
   app.get(`${prefix}/monitor/lms/log-stream`, (c) => {
     const remote = getClientRemoteAddr(c);
     if (!isLoopbackRemoteAddr(remote)) {
@@ -403,6 +436,9 @@ async function collectForProvider(
   }
   if (kind === "ollama") {
     return collectOllamaLoaded(baseUrl);
+  }
+  if (kind === "unsloth_studio") {
+    return collectUnslothStudioLoaded(baseUrl, { apiKey });
   }
   return { source: "none", loaded: [] };
 }

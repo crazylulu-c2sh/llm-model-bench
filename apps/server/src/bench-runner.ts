@@ -77,6 +77,11 @@ import {
 } from "./lmstudio.js";
 import { resolvePublisher } from "./detect.js";
 import { ollamaKeepAliveLoad } from "./ollama.js";
+import {
+  prepareUnslothStudioForRun,
+  unslothUnload,
+  type UnslothPrepareLabel,
+} from "./unsloth-studio.js";
 import { preflightMemoryFit } from "./memory-preflight.js";
 import {
   runAgentLoopAnthropic,
@@ -657,6 +662,7 @@ export async function* runBench(
   let modelLoadedByThisBench = false;
   let lmStudioTtlStatus: LoadTtlStatus | undefined;
   let lmStudioPrepare: LmStudioPrepareLabel | undefined;
+  let unslothPrepare: UnslothPrepareLabel | undefined;
   if (input.provider === "lm_studio") {
     // 저장된 모델별 설정이 없으면 LM Studio 내장 기본값(관측 사례: 4×262144)으로 뜰 수 있다 —
     // 안전 상한을 계산해 로드 요청에 강제한다(컨텍스트 기본값 인시던트 조사 계기, `lmstudio.ts` 주석 참고).
@@ -699,6 +705,29 @@ export async function* runBench(
     modelLoadedByThisBench = prepared.loadedByThisRun;
     lmStudioTtlStatus = prepared.ttlStatus;
     lmStudioPrepare = prepared.prepare;
+  } else if (input.provider === "unsloth_studio") {
+    const prepared = await prepareUnslothStudioForRun({
+      baseUrl: base,
+      modelId: input.modelId,
+      skipModelLoad: !!input.skipModelLoad,
+      unloadOtherModels: !!input.unloadOtherModels,
+      fetchImpl,
+      apiKey: input.apiKey,
+      signal: cancelSignal,
+      forceCancelActive: true,
+    });
+    if (prepared.error) {
+      yield {
+        type: "error",
+        layer: "orchestrator",
+        code: "load_failed",
+        message: `Unsloth Studio load failed: ${prepared.error.status} ${prepared.error.body}`,
+      };
+      unregisterRunControl(rid);
+      return;
+    }
+    modelLoadedByThisBench = prepared.loadedByThisRun;
+    unslothPrepare = prepared.prepare;
   } else if (input.provider === "ollama" && loadTtlSeconds != null) {
     // Ollama: 명시적 load 단계가 없으므로 네이티브 /api/generate(빈 prompt)로 preload +
     // keep_alive TTL 적용. skipModelLoad와 무관하게 동작한다(웹은 ollama에 skipModelLoad=true를 보냄).
@@ -714,6 +743,7 @@ export async function* runBench(
     model_id: input.modelId,
     provider: input.provider,
     ...(lmStudioPrepare != null ? { lm_studio_prepare: lmStudioPrepare } : {}),
+    ...(unslothPrepare != null ? { unsloth_prepare: unslothPrepare } : {}),
     ...(lmStudioTtlStatus !== undefined ? { load_ttl_status: lmStudioTtlStatus } : {}),
   };
 
@@ -1816,15 +1846,22 @@ export async function* runBench(
   } finally {
     unregisterRunControl(rid);
     if (
-      input.provider === "lm_studio" &&
+      (input.provider === "lm_studio" || input.provider === "unsloth_studio") &&
       !input.skipModelLoad &&
       input.autoUnloadAfterBench &&
       modelLoadedByThisBench
     ) {
-      const u = await lmStudioUnload(base, input.modelId, {
-        fetchImpl,
-        apiKey: input.apiKey,
-      });
+      const u =
+        input.provider === "lm_studio"
+          ? await lmStudioUnload(base, input.modelId, {
+              fetchImpl,
+              apiKey: input.apiKey,
+            })
+          : await unslothUnload(base, input.modelId, {
+              fetchImpl,
+              apiKey: input.apiKey,
+              forceCancelActive: true,
+            });
       yield {
         type: "model_unloaded",
         model_id: input.modelId,

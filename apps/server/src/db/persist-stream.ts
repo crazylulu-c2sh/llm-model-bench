@@ -111,14 +111,15 @@ export class BenchRunPersistence {
       case "model_loaded": {
         // 라이브 이벤트에만 있던 값이라 런이 끝나고 나면 "TTL이 실제로 걸렸는가"를 알 방법이 없었다.
         // meta_json에 남겨 /runs/:id로 사후 확인이 되게 한다.
-        if (ev.load_ttl_status != null || ev.lm_studio_prepare != null) {
+        if (ev.load_ttl_status != null || ev.lm_studio_prepare != null || ev.unsloth_prepare != null) {
           updateRunMetaJson(this.db, this.runId, {
             ...(ev.load_ttl_status != null ? { load_ttl_status: ev.load_ttl_status } : {}),
             ...(ev.lm_studio_prepare != null ? { lm_studio_prepare: ev.lm_studio_prepare } : {}),
+            ...(ev.unsloth_prepare != null ? { unsloth_prepare: ev.unsloth_prepare } : {}),
           });
         }
         this.logLine(
-          `model_loaded ${ev.model_id} prepare=${ev.lm_studio_prepare ?? "-"} ttl=${ev.load_ttl_status ?? "-"}`,
+          `model_loaded ${ev.model_id} prepare=${ev.lm_studio_prepare ?? ev.unsloth_prepare ?? "-"} ttl=${ev.load_ttl_status ?? "-"}`,
         );
         break;
       }

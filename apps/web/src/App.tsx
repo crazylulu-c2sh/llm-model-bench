@@ -22,6 +22,7 @@ import {
   normalizeBaseUrl,
   normalizeScenarioIdsForBench,
   outputTokensFromRun,
+  providerSupportsExplicitLoadUnload,
   providerSupportsLoadTtl,
   resolveBenchApiRoutes,
   resolveBenchProfile,
@@ -1811,7 +1812,7 @@ export function App() {
             baseUrl: detect.baseUrl,
             apiKey: apiKey || undefined,
             provider: detect.provider,
-            skipModelLoad: detect.provider !== "lm_studio",
+            skipModelLoad: !providerSupportsExplicitLoadUnload(detect.provider),
             unloadOtherModels,
             autoUnloadAfterBench,
             ...(loadTtlSecondsNum ? { loadTtlSeconds: loadTtlSecondsNum } : {}),
@@ -2245,7 +2246,11 @@ export function App() {
               {msg().bench.confirmOrderLabel}
               <strong className="text-[var(--foreground)]">{benchQueueDraft.length}</strong>
               {msg().bench.confirmOrderUnit}
-              {detect.provider === "lm_studio" ? msg().bench.confirmLmStudioLoadNote : ""}
+              {detect.provider === "lm_studio"
+                ? msg().bench.confirmLmStudioLoadNote
+                : detect.provider === "unsloth_studio"
+                  ? msg().bench.confirmUnslothLoadNote
+                  : ""}
             </p>
             <p className="mt-1 text-xs text-[var(--muted)]">{msg().bench.confirmReorderHint}</p>
             {preRunQueueTotal.covered > 0 ? (
@@ -2314,13 +2319,13 @@ export function App() {
               })}
             </ol>
             <ul className="mt-2 space-y-1 text-xs">
-              {unloadOtherModels && detect.provider === "lm_studio" ? (
+              {unloadOtherModels && providerSupportsExplicitLoadUnload(detect.provider) ? (
                 <li>{msg().bench.confirmUnloadOthersOn}</li>
               ) : null}
               {fitPolicy === "unload_other_models" && detect.provider === "lm_studio" ? (
                 <li>{msg().bench.confirmMemFitUnloadOn}</li>
               ) : null}
-              {autoUnloadAfterBench && detect.provider === "lm_studio" ? (
+              {autoUnloadAfterBench && providerSupportsExplicitLoadUnload(detect.provider) ? (
                 <li>{msg().bench.confirmAutoUnloadOn}</li>
               ) : null}
               {loadTtlSecondsNum && providerSupportsLoadTtl(detect.provider) ? (
@@ -2866,13 +2871,17 @@ export function App() {
                   ) : null}
                 <label
                   className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-                  title={detect?.provider === "lm_studio" ? msg().bench.unloadOthersTitleLmStudio : msg().bench.onlyLmStudio}
+                  title={
+                    detect && providerSupportsExplicitLoadUnload(detect.provider)
+                      ? msg().bench.unloadOthersTitleLmStudio
+                      : msg().bench.onlyLmStudio
+                  }
                 >
                   <input
                     type="checkbox"
                     className="mt-1"
                     checked={unloadOtherModels}
-                    disabled={detect?.provider !== "lm_studio"}
+                    disabled={!detect || !providerSupportsExplicitLoadUnload(detect.provider)}
                     onChange={(e) => setUnloadOtherModels(e.target.checked)}
                   />
                   <span>
@@ -2880,26 +2889,34 @@ export function App() {
                     <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
                       <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
                       {msg().bench.unloadOthersHint}
-                      {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
+                      {detect && !providerSupportsExplicitLoadUnload(detect.provider)
+                        ? msg().bench.inactiveOnCurrentProvider
+                        : ""}
                     </span>
                   </span>
                 </label>
                 <label
                   className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-                  title={detect?.provider === "lm_studio" ? msg().bench.autoUnloadTitleLmStudio : msg().bench.onlyLmStudio}
+                  title={
+                    detect && providerSupportsExplicitLoadUnload(detect.provider)
+                      ? msg().bench.autoUnloadTitleLmStudio
+                      : msg().bench.onlyLmStudio
+                  }
                 >
                   <input
                     type="checkbox"
                     className="mt-1"
                     checked={autoUnloadAfterBench}
-                    disabled={detect?.provider !== "lm_studio"}
+                    disabled={!detect || !providerSupportsExplicitLoadUnload(detect.provider)}
                     onChange={(e) => setAutoUnloadAfterBench(e.target.checked)}
                   />
                   <span>
                     <span className="font-medium text-[var(--foreground)]">{msg().bench.autoUnloadLabel}</span>
                     <span className="mt-0.5 block text-xs leading-snug">
                       {msg().bench.autoUnloadHint}
-                      {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
+                      {detect && !providerSupportsExplicitLoadUnload(detect.provider)
+                        ? msg().bench.inactiveOnCurrentProvider
+                        : ""}
                     </span>
                   </span>
                 </label>

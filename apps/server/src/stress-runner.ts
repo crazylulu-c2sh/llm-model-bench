@@ -45,6 +45,11 @@ import {
 } from "./lmstudio.js";
 import { resolvePublisher } from "./detect.js";
 import { ollamaKeepAliveLoad } from "./ollama.js";
+import {
+  prepareUnslothStudioForRun,
+  unslothUnload,
+  type UnslothPrepareLabel,
+} from "./unsloth-studio.js";
 
 export type StressRequest = {
   baseUrl: string;
@@ -326,7 +331,7 @@ export async function* runStress(
 
   yield { type: "run_started", run_id: rid, meta };
 
-  // LM Studio: 다른 모델 unload + 대상 load (bench-runner와 동일 정책)
+  // LM Studio / Unsloth Studio: 다른 모델 unload + 대상 load (bench-runner와 동일 정책)
   let modelLoadedByThisRun = false;
   if (input.provider === "lm_studio" && !meta.skip_model_load && meta.unload_other_models) {
     for (const m of detect.models) {
@@ -336,6 +341,7 @@ export async function* runStress(
   }
   let lmStudioTtlStatus: LoadTtlStatus | undefined;
   let lmStudioPrepare: LmStudioPrepareLabel | undefined;
+  let unslothPrepare: UnslothPrepareLabel | undefined;
   if (input.provider === "lm_studio") {
     // 저장된 모델별 설정이 없으면 LM Studio 내장 기본값(관측 사례: 4×262144)으로 뜰 수 있다 —
     // 안전 상한을 계산해 로드 요청에 강제한다(컨텍스트 기본값 인시던트 조사 계기, `lmstudio.ts` 주석 참고).
@@ -375,6 +381,27 @@ export async function* runStress(
     modelLoadedByThisRun = prepared.loadedByThisRun;
     lmStudioTtlStatus = prepared.ttlStatus;
     lmStudioPrepare = prepared.prepare;
+  } else if (input.provider === "unsloth_studio") {
+    const prepared = await prepareUnslothStudioForRun({
+      baseUrl: base,
+      modelId: input.modelId,
+      skipModelLoad: !!meta.skip_model_load,
+      unloadOtherModels: !!meta.unload_other_models,
+      fetchImpl,
+      apiKey: input.apiKey,
+      signal: externalSignal,
+      forceCancelActive: true,
+    });
+    if (prepared.error) {
+      yield {
+        type: "error",
+        code: "load_failed",
+        message: `Unsloth Studio load failed: ${prepared.error.status} ${prepared.error.body}`,
+      };
+      return;
+    }
+    modelLoadedByThisRun = prepared.loadedByThisRun;
+    unslothPrepare = prepared.prepare;
   } else if (input.provider === "ollama" && meta.load_ttl_seconds != null) {
     // Ollama: 네이티브 /api/generate(빈 prompt) preload + keep_alive TTL 적용(skipModelLoad 무관).
     await ollamaKeepAliveLoad(base, input.modelId, {
@@ -387,6 +414,7 @@ export async function* runStress(
     type: "model_loaded",
     model_id: input.modelId,
     ...(lmStudioPrepare ? { lm_studio_prepare: lmStudioPrepare } : {}),
+    ...(unslothPrepare ? { unsloth_prepare: unslothPrepare } : {}),
     ...(lmStudioTtlStatus !== undefined ? { load_ttl_status: lmStudioTtlStatus } : {}),
   };
 
@@ -732,12 +760,19 @@ export async function* runStress(
     yield { type: "run_finished", run_id: rid, stages };
   } finally {
     if (
-      input.provider === "lm_studio" &&
+      (input.provider === "lm_studio" || input.provider === "unsloth_studio") &&
       !meta.skip_model_load &&
       meta.auto_unload_after_bench &&
       modelLoadedByThisRun
     ) {
-      const u = await lmStudioUnload(base, input.modelId, { fetchImpl, apiKey: input.apiKey });
+      const u =
+        input.provider === "lm_studio"
+          ? await lmStudioUnload(base, input.modelId, { fetchImpl, apiKey: input.apiKey })
+          : await unslothUnload(base, input.modelId, {
+              fetchImpl,
+              apiKey: input.apiKey,
+              forceCancelActive: true,
+            });
       yield { type: "model_unloaded", model_id: input.modelId, phase: "after_bench", ok: u.ok, status: u.status };
     }
     // Ollama: /v1 추론이 keep_alive를 5분 기본으로 리셋하므로 종료 후 지정 TTL 재적용(베스트 에포트).
