@@ -295,6 +295,99 @@ describe("detectProvider", () => {
     expect(r.capabilities.openaiChat).toBe(true);
     expect(r.capabilities.anthropicMessages).toBe(true);
     expect(r.reachability?.state).toBe("ok");
+    expect(r.engine ?? null).toBeNull();
+  });
+
+  it("sets engine sglang from /server_info after openai_compatible", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/models/list")) return jsonResponse({}, 404);
+      if (url.endsWith("/v1/models")) return jsonResponse({ data: [{ id: "qwen" }] });
+      if (url.includes("/v1/chat/completions")) return jsonResponse({ error: "x" }, 400);
+      if (url.includes("/v1/messages")) return jsonResponse({ error: "x" }, 400);
+      if (url.endsWith("/server_info")) {
+        return jsonResponse({
+          version: "0.4.1",
+          mem_fraction_static: 0.88,
+          internal_states: [],
+        });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:30000", { fetchImpl });
+    expect(r.provider).toBe("openai_compatible");
+    expect(r.engine).toBe("sglang");
+    expect(r.steps.some((s) => s.name === "sglang_server_info" && s.ok)).toBe(true);
+    // metrics must not be probed once SGLang is confirmed
+    expect(fetchImpl.mock.calls.some((c) => requestUrl(c[0]).endsWith("/metrics"))).toBe(false);
+  });
+
+  it("falls back to legacy /get_server_info for SGLang", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/models/list")) return jsonResponse({}, 404);
+      if (url.endsWith("/v1/models")) return jsonResponse({ data: [{ id: "m" }] });
+      if (url.includes("/v1/chat/completions")) return jsonResponse({ error: "x" }, 400);
+      if (url.includes("/v1/messages")) return jsonResponse({ error: "x" }, 400);
+      if (url.endsWith("/server_info")) return jsonResponse({}, 404);
+      if (url.endsWith("/get_server_info")) {
+        return jsonResponse({
+          version: "0.3.0",
+          schedule_conservativeness: 1,
+          max_total_num_tokens: 8192,
+        });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:30000", { fetchImpl });
+    expect(r.engine).toBe("sglang");
+    expect(r.steps.find((s) => s.name === "sglang_server_info" && s.ok)?.detail).toBe(
+      "/get_server_info",
+    );
+  });
+
+  it("sets engine vllm from /metrics vllm: gauges", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/models/list")) return jsonResponse({}, 404);
+      if (url.endsWith("/v1/models")) return jsonResponse({ data: [{ id: "llama" }] });
+      if (url.includes("/v1/chat/completions")) return jsonResponse({ error: "x" }, 400);
+      if (url.includes("/v1/messages")) return jsonResponse({ error: "x" }, 400);
+      if (url.endsWith("/server_info") || url.endsWith("/get_server_info")) {
+        return jsonResponse({}, 404);
+      }
+      if (url.endsWith("/metrics")) {
+        return textResponse("# HELP\nvllm:num_requests_running 0.0\nvllm:num_requests_waiting 0\n");
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:8000", { fetchImpl });
+    expect(r.provider).toBe("openai_compatible");
+    expect(r.engine).toBe("vllm");
+    expect(r.steps.some((s) => s.name === "vllm_metrics" && s.ok)).toBe(true);
+  });
+
+  it("leaves engine null when OpenAI-compatible has no SGLang/vLLM fingerprint", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/models/list")) return jsonResponse({}, 404);
+      if (url.endsWith("/v1/models")) return jsonResponse({ data: [{ id: "generic" }] });
+      if (url.includes("/v1/chat/completions")) return jsonResponse({ error: "x" }, 400);
+      if (url.includes("/v1/messages")) return jsonResponse({ error: "x" }, 400);
+      if (url.endsWith("/metrics")) return textResponse("llamacpp:requests_processing 0\n");
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:8080", { fetchImpl });
+    expect(r.provider).toBe("openai_compatible");
+    expect(r.engine).toBeNull();
   });
 
   it("detects Unsloth Studio from /api/models/list (before OpenAI /v1/models)", async () => {

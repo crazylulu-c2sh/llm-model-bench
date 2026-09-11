@@ -331,6 +331,7 @@ export const bench: Messages["bench"] = {
   partialModelList: "Only some of the model-list routes responded.",
   detectStep: (hint) => `Detection step: ${hint}`,
   modelCount: (n) => `${n} model${n === 1 ? "" : "s"}`,
+  engineLabel: (engine) => (engine === "sglang" ? "SGLang" : "vLLM"),
 
   // Scenario guide cards (ScenarioGuideCards)
   scenarioGuideHeading: "Bench scenario guide",
