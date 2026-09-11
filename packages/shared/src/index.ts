@@ -301,6 +301,13 @@ export const LmStudioModelSchema = z.object({
 });
 export type LmStudioModel = z.infer<typeof LmStudioModelSchema>;
 
+/**
+ * OpenAI 호환 서버의 실제 추론 엔진 힌트.
+ * `ProviderKind`는 `openai_compatible`로 유지하고, 연결 시 1회 지문으로만 채운다(구응답은 부재).
+ */
+export const InferenceEngineSchema = z.enum(["sglang", "vllm"]);
+export type InferenceEngine = z.infer<typeof InferenceEngineSchema>;
+
 export const DetectResultSchema = z.object({
   provider: ProviderKindSchema,
   baseUrl: z.string().url(),
@@ -334,6 +341,11 @@ export const DetectResultSchema = z.object({
     anthropicMessages: z.boolean(),
   }),
   reachability: ReachabilitySchema.optional(),
+  /**
+   * OpenAI 호환 백엔드의 엔진 지문(SGLang `/server_info`, vLLM `/metrics`의 `vllm:` 게이지).
+   * 미탐지·구버전 응답은 null/부재.
+   */
+  engine: InferenceEngineSchema.nullable().optional(),
 });
 export type DetectResult = z.infer<typeof DetectResultSchema>;
 
@@ -364,6 +376,10 @@ export const BenchRunMetaSchema = z.object({
   model_id: z.string(),
   /** 모델 게시자(조직) — detect API publisher ?? model_id 접두. 통계·저장된 모델 표 표시용. */
   publisher: z.string().optional(),
+  /**
+   * OpenAI 호환 서버의 추론 엔진 힌트(detect.engine 복사). ProviderKind와 별개 — 재현·라벨용.
+   */
+  engine: InferenceEngineSchema.nullable().optional(),
   /**
    * #182: 실행엔진/양자화/아키텍처 — detect.models[]에서 modelId로 매칭해 그대로 복사(LM Studio
    * `/api/v0/models` 확장에서만 제공, 없으면 필드 부재). "어느 백엔드/빌드에서 effort가 먹혔나"를

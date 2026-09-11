@@ -335,6 +335,8 @@ export const bench = {
   partialModelList: "모델 목록 경로 일부만 응답했습니다.",
   detectStep: (hint: string) => `감지 단계: ${hint}`,
   modelCount: (n: number) => `모델 ${n}개`,
+  /** OpenAI 호환 엔진 힌트 — 고유명사 유지. */
+  engineLabel: (engine: "sglang" | "vllm") => (engine === "sglang" ? "SGLang" : "vLLM"),
 
   // 시나리오 안내 카드 (ScenarioGuideCards)
   scenarioGuideHeading: "벤치 시나리오 안내",

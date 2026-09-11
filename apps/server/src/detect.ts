@@ -3,6 +3,7 @@ import {
   parseModelPublisherFromId,
   type DetectResult,
   type DetectStep,
+  type InferenceEngine,
   type ProviderKind,
   type Reachability,
   type ReachabilityCode,
@@ -465,6 +466,7 @@ export async function detectProvider(
           })
           .filter((m) => !isBenchExcludedModelArtifact(m.id, m.label));
         const caps = await probeCapabilities(fetchImpl, baseUrl, opts.apiKey, timeoutMs);
+        const engine = await probeInferenceEngine(fetchImpl, baseUrl, opts.apiKey, timeoutMs, steps);
         return {
           provider: "openai_compatible",
           baseUrl,
@@ -472,6 +474,7 @@ export async function detectProvider(
           steps,
           capabilities: caps,
           reachability: reachOk,
+          engine,
         };
       }
     }
@@ -499,6 +502,107 @@ function routeLikelyAvailable(status: number, body: string): boolean {
   if (status >= 400 && status < 500 && status !== 404) return true;
   if (status === 404 && body.trimStart().startsWith("{")) return true;
   return false;
+}
+
+/** SGLang `/server_info`·`/get_server_info` 본문 지문 — 일반 OpenAI `/v1`과 겹치지 않는 네이티브 필드. */
+const SGLANG_INFO_MARKERS = [
+  "internal_states",
+  "schedule_conservativeness",
+  "mem_fraction_static",
+  "max_total_num_tokens",
+] as const;
+
+export function isSglangServerInfoBody(body: unknown): boolean {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  const obj = body as Record<string, unknown>;
+  if (typeof obj.version !== "string") return false;
+  return SGLANG_INFO_MARKERS.some((k) => k in obj);
+}
+
+/** Prometheus 텍스트에 vLLM 요청 게이지가 있으면 vLLM로 단정. */
+export function metricsTextLooksLikeVllm(text: string): boolean {
+  return (
+    text.includes("vllm:num_requests_running") || text.includes("vllm:num_requests_waiting")
+  );
+}
+
+/**
+ * `openai_compatible` 확정 후 엔진 힌트만 채운다(연결 시 1회).
+ * 실패해도 null — 목록 성공을 뒤집지 않는다. LIST_STEP_NAMES에는 넣지 않음.
+ */
+async function probeInferenceEngine(
+  fetchImpl: FetchLike,
+  baseUrl: string,
+  apiKey: string | undefined,
+  timeoutMs: number,
+  steps: DetectStep[],
+): Promise<InferenceEngine | null> {
+  const h = headers(apiKey);
+
+  // 1) SGLang: /server_info (정본) → /get_server_info (레거시)
+  for (const path of ["/server_info", "/get_server_info"] as const) {
+    try {
+      const r = await fetchImpl(`${baseUrl}${path}`, {
+        headers: h,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!r.ok) {
+        steps.push({ name: "sglang_server_info", ok: false, status: r.status, detail: path });
+        continue;
+      }
+      let body: unknown;
+      try {
+        body = await r.json();
+      } catch {
+        steps.push({
+          name: "sglang_server_info",
+          ok: false,
+          status: r.status,
+          detail: `${path}:invalid_json`,
+        });
+        continue;
+      }
+      if (isSglangServerInfoBody(body)) {
+        steps.push({ name: "sglang_server_info", ok: true, status: r.status, detail: path });
+        return "sglang";
+      }
+      steps.push({
+        name: "sglang_server_info",
+        ok: false,
+        status: r.status,
+        detail: `${path}:unrecognized_shape`,
+      });
+    } catch (e) {
+      steps.push({
+        name: "sglang_server_info",
+        ok: false,
+        detail: `${path}:${describeFetchError(e)}`,
+      });
+      // origin-dead여도 openai_compatible 반환은 유지 — 엔진만 null.
+      break;
+    }
+  }
+
+  // 2) vLLM: /metrics 의 vllm: 게이지
+  try {
+    const r = await fetchImpl(`${baseUrl}/metrics`, {
+      headers: h,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!r.ok) {
+      steps.push({ name: "vllm_metrics", ok: false, status: r.status });
+      return null;
+    }
+    const text = await r.text().catch(() => "");
+    if (metricsTextLooksLikeVllm(text)) {
+      steps.push({ name: "vllm_metrics", ok: true, status: r.status });
+      return "vllm";
+    }
+    steps.push({ name: "vllm_metrics", ok: false, status: r.status, detail: "no_vllm_gauges" });
+  } catch (e) {
+    steps.push({ name: "vllm_metrics", ok: false, detail: describeFetchError(e) });
+  }
+  return null;
 }
 
 /** Ollama·OpenAI 호환·manual 프로바이더용. LM Studio·Ollama는 네이티브 목록으로 식별 시 고정 caps를 씁니다. */

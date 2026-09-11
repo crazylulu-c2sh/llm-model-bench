@@ -103,7 +103,10 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 - `${base}/api/v1/models` → `provider: "lm_studio"` (`{ models: [{ key, type, display_name, publisher, ... }] }` 기대; `publisher`는 DetectResult로 통과, 없으면 id의 `org/` 접두 폴백). **200이라도 본문에 네이티브 `models` 배열이 없으면 LM Studio로 단정하지 않고 다음 후보로 넘어갑니다** — LM Studio는 모르는 경로에도 `200 + {"error": …}`를 돌려주므로, 상태 코드만 믿으면 "모델 0개인 정상 연결"이라는 가짜 성공이 만들어집니다
 - `${base}/api/tags` → `provider: "ollama"` (`{ models: [{ name, model, size }] }` 기대; publisher는 id의 `org/` 접두만)
 - `${base}/api/models/list` → `provider: "unsloth_studio"` (`{ models: [...], default_models: [...] }` 지문; `is_audio`/`is_diffusion` 제외). **401은 Unsloth로 단정하지 않고** step만 남긴 뒤 `/v1/models`로 계속합니다 — Studio는 `sk-unsloth-…` API 키가 필요합니다
-- `${base}/v1/models` → `provider: "openai_compatible"` (`{ data: [{ id }] }` 기대; publisher는 id의 `org/` 접두만)
+- `${base}/v1/models` → `provider: "openai_compatible"` (`{ data: [{ id }] }` 기대; publisher는 id의 `org/` 접두만). 성공 직후 엔진 힌트만 한 번 더 채웁니다(`ProviderKind`는 바꾸지 않음):
+  - `${base}/server_info`(없으면 레거시 `${base}/get_server_info`) → `version` + SGLang 네이티브 필드(`internal_states`·`mem_fraction_static` 등)면 `engine: "sglang"`
+  - 아니면 `${base}/metrics` 본문에 `vllm:num_requests_running`/`waiting`이 있으면 `engine: "vllm"`
+  - 둘 다 아니면 `engine: null` — 프로브 실패는 `openai_compatible` 반환을 막지 않음
 - 매칭 없음 → `models: []`인 `provider: "manual"`과 계산된 `reachability` — 상태(`ok` | `partial` | `unreachable`)에 더해 분류 코드(`connect_timeout` | `refused` | `dns` | `tls` | `network` | `partial`)를 싣습니다. 서버는 코드와 원문 진단(errno)만 보내고 사람이 읽는 문장은 클라이언트 i18n이 만듭니다 — 서버가 문장을 만들면 다국어 UI에 한 언어가 그대로 샙니다
 
 `base`는 먼저 `normalizeBaseUrl()`로 정규화됩니다. 이 함수는 스킴이 없으면 `http://`를 앞에 붙이고(대소문자 무관 — `HTTP://`를 호스트명으로 오인하지 않습니다), 문서에 적힌 API 베이스 접미사를 (`stripDocumentedApiBaseSuffix()`로) 벗겨냅니다. 대상은 OpenAI 호환 `…/v1`뿐 아니라 LM Studio가 안내하는 `…/api/v1`·`…/api/v0`도 포함합니다 — 하네스가 `base + /v1/...`과 `base + /api/v1/...`을 직접 조합하므로, 벗기지 않으면 경로가 두 번 붙어 죽은 주소를 찌릅니다. WSL2 NAT에서는 대시보드의 `localhost`가 Windows LM Studio에 닿지 않으므로, 기본 `providerFetch()`(`apps/server/src/provider-fetch.ts`)가 루프백 `ECONNREFUSED` 시 Windows 호스트(게이트웨이)로 한 번 재시도합니다(`apps/server/src/util/wsl-windows-host.ts`). UI Base URL은 `localhost`로 두고, 테스트가 넘기는 `fetchImpl`은 이 래퍼를 타지 않습니다.
@@ -111,6 +114,8 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 ```ts
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 // "lm_studio" | "ollama" | "unsloth_studio" | "openai_compatible" | "manual"
+
+export type InferenceEngine = "sglang" | "vllm"; // DetectResult.engine / BenchRunMeta.engine
 
 export async function detectProvider(
   rawBaseUrl: string,
@@ -757,7 +762,7 @@ export async function consumeOpenAiChatStream(
 - 스트림은 두 가지 토큰 수를 반환합니다: `usageOutputTokens` — `usage.completion_tokens`(없으면 `usage.output_tokens`)에서 오는 프로바이더 usage로, `stream_options.include_usage`가 필요하며 없으면 `null` — 그리고 항상 계산되는 `text.length / 4` 추정치인 `approxOutputTokens`. 호출자는 usage를 우선하고 `/ 4` 근사로 폴백하므로, TPS는 자신의 출처를 정직하게 밝힙니다(`tps_source: "usage" | "approx"`).
 - 주석-전용 신호(잘림에 대한 `finishReason === "length"`, 이어붙은-`{}{}` 런타임 버그에 대한 `toolCallArgsCorrupted`)는 채점을 절대 바꾸지 않고 결과에 라벨만 붙입니다.
 
-**프로바이더 추상화 — `detect.ts`.** `detectProvider(rawBaseUrl, opts)`는 base URL을 정규화한 뒤 네이티브 목록 엔드포인트를 순서대로 프로브합니다(LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`). LM Studio·Ollama·Unsloth Studio 히트는 고정 `capabilities`를 받고, OpenAI 호환과 `manual` 폴스루(fall-through)는 `probeCapabilities`를 호출해 `/v1/chat/completions`와 `/v1/messages`에 일회용 `probe-model`을 POST합니다. 반환된 `capabilities: { openaiChat, anthropicMessages }`는 모든 하위 러너가 라우트를 고를 때 쓰는 값이므로(`stress-runner.ts`의 `pickRoute()`, 벤치 러너의 `resolveBenchApiRoutes()`), 호출마다 흩어진 분기 대신 하나의 감지 결과를 얻습니다.
+**프로바이더 추상화 — `detect.ts`.** `detectProvider(rawBaseUrl, opts)`는 base URL을 정규화한 뒤 네이티브 목록 엔드포인트를 순서대로 프로브합니다(LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`). LM Studio·Ollama·Unsloth Studio 히트는 고정 `capabilities`를 받고, OpenAI 호환과 `manual` 폴스루(fall-through)는 `probeCapabilities`를 호출해 `/v1/chat/completions`와 `/v1/messages`에 일회용 `probe-model`을 POST합니다. `/v1/models` 성공 시에는 엔진 힌트만 추가로 채웁니다(SGLang `/server_info` → vLLM `/metrics`의 `vllm:` 게이지 → `DetectResult.engine` / `BenchRunMeta.engine`; `ProviderKind`는 `openai_compatible` 유지). 반환된 `capabilities: { openaiChat, anthropicMessages }`는 모든 하위 러너가 라우트를 고를 때 쓰는 값이므로(`stress-runner.ts`의 `pickRoute()`, 벤치 러너의 `resolveBenchApiRoutes()`), 호출마다 흩어진 분기 대신 하나의 감지 결과를 얻습니다.
 
 - 라우트 가용성 휴리스틱 `routeLikelyAvailable(status, body)`는 잘못된-모델 `4xx`(또는 JSON 본문이 있는 `404`)를 "라우트 존재"로 취급합니다 — "엔드포인트 없음"과 "엔드포인트는 있지만 내 요청이 틀림"을 구분하려면 이걸 훔쳐 쓰세요.
 

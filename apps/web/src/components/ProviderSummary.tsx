@@ -90,7 +90,13 @@ export function ProviderSummary({ detect }: { detect: DetectResult }) {
       <div className="flex flex-wrap items-center gap-2">
         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]">
           <PIcon className="size-4 text-[var(--accent)]" aria-hidden />
-          <span className="font-mono">{detect.provider}</span>
+          <span className="font-mono">
+            {detect.provider}
+            {detect.provider === "openai_compatible" &&
+            (detect.engine === "sglang" || detect.engine === "vllm")
+              ? ` (${m.bench.engineLabel(detect.engine)})`
+              : ""}
+          </span>
         </span>
         <span className="text-[var(--muted)]">·</span>
         <Badge ok={detect.capabilities.openaiChat} label="OpenAI /v1/chat/completions" icon={MessageSquare} />

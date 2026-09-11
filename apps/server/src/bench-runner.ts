@@ -240,6 +240,7 @@ export function makeBenchRunMeta(
     model_id: input.modelId,
     // 게시자(조직): detect가 만든 것과 같은 규칙으로 해석한다(단일 소스: detect.ts#resolvePublisher).
     publisher: resolvePublisher(input.modelId, detectedModel?.publisher),
+    engine: detect.engine ?? null,
     compatibility_type: detectedModel?.compatibility_type,
     quantization: detectedModel?.quantization,
     arch: detectedModel?.arch,
