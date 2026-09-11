@@ -99,6 +99,9 @@ const DEFAULT_API_STUBS: Record<string, (route: Route) => Promise<void>> = {
   "GET /api/health": (route) =>
     json(route, { ok: true, service: "llm-bench-server", wsl_windows_host: null }),
 
+  // apps/web/src/components/UpdateBanner.tsx — 기본은 배너 숨김(a11y 스캔 안정).
+  "GET /api/update-check": (route) => json(route, { status: "unavailable", reason: "e2e_stub" }),
+
   // apps/web/src/lib/base-url-names.ts — 별칭 없는 DB. 별칭이 필요한 스펙은 직접 덮어쓴다.
   // (PUT은 표에 없다 → fallback → 누수로 잡힌다. 저장을 누르는 스펙은 스토어 목업을 직접 건다.)
   "GET /api/base-url-names": (route) => json(route, { items: [], sqlite_available: true }),

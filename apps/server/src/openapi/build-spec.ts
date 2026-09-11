@@ -101,6 +101,17 @@ export function buildOpenApiSpec(): object {
           responses: { "200": { description: "OK" } },
         },
       },
+      "/update-check": {
+        get: {
+          tags: ["discovery"],
+          summary: "로컬 main이 GitHub main보다 뒤처졌는지(업데이트 배너)",
+          description:
+            "항상 200. git 없음·다른 브랜치·GitHub 미도달(오프라인 등)은 status=unavailable|not_main. " +
+            "확인된 behind(또는 diverged+behindBy>0)일 때만 UI 배너를 띄운다. health와 분리.",
+          security: [],
+          responses: { "200": { description: "UpdateCheckResult" } },
+        },
+      },
       "/detect": {
         post: {
           tags: ["discovery"],

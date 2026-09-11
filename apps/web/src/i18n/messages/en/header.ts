@@ -30,4 +30,15 @@ export const header: Messages["header"] = {
   navAria: "Main menu",
   benchProgress: (completed, total, pct) => `Running bench · ${completed}/${total} (${pct}%)`,
   benchProgressShort: "Running bench",
+  updateBanner: {
+    title: (behindBy) =>
+      behindBy === 1
+        ? "An update is available (1 commit behind)"
+        : `An update is available (${behindBy} commits behind)`,
+    hint: "Run git pull in the repo, then rebuild and restart the server.",
+    compareLink: "View changes",
+    compareLinkAria: "View changes on GitHub (opens in a new window)",
+    dismissAria: "Dismiss update notice",
+    newWindowSuffix: "(new window)",
+  },
 };

@@ -43,6 +43,24 @@ describe("dual-prefix routing (/api ≡ /api/v1)", () => {
     expect(await b.json()).toEqual(body);
   });
 
+  it("update-check is served at both prefixes with identical body and always 200", async () => {
+    const a = await req("/api/update-check");
+    const b = await req("/api/v1/update-check");
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    const body = (await a.json()) as { status: string };
+    expect(typeof body.status).toBe("string");
+    expect([
+      "behind",
+      "current",
+      "ahead",
+      "diverged",
+      "not_main",
+      "unavailable",
+    ]).toContain(body.status);
+    expect(await b.json()).toEqual(body);
+  });
+
   it("scenarios served at both prefixes", async () => {
     for (const p of ["/api/scenarios", "/api/v1/scenarios"]) {
       const r = await req(p);
@@ -576,7 +594,7 @@ describe("api-key auth (opt-in) + exemptions", () => {
     expect(r.status).toBe(200);
   });
 
-  it("non-loopback without key → 401; correct Bearer/x-api-key → 200; health/OPTIONS exempt", async () => {
+  it("non-loopback without key → 401; correct Bearer/x-api-key → 200; health/update-check/OPTIONS exempt", async () => {
     process.env.BENCH_API_KEYS = "k1,k2";
     _setRemoteAddrResolverForTest(() => "10.0.0.5"); // non-loopback
 
@@ -592,6 +610,8 @@ describe("api-key auth (opt-in) + exemptions", () => {
     // 면제
     expect((await req("/api/health")).status).toBe(200);
     expect((await req("/api/v1/health")).status).toBe(200);
+    expect((await req("/api/update-check")).status).toBe(200);
+    expect((await req("/api/v1/update-check")).status).toBe(200);
     expect((await req("/api/scenarios", { method: "OPTIONS" })).status).not.toBe(401);
   });
 
@@ -637,6 +657,7 @@ describe("OpenAPI spec", () => {
       expect(spec.openapi).toBe("3.1.0");
       for (const path of [
         "/health",
+        "/update-check",
         "/detect",
         "/scenarios",
         "/scoreboard",

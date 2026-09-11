@@ -30,4 +30,15 @@ export const header: Messages["header"] = {
   navAria: "メインメニュー",
   benchProgress: (completed, total, pct) => `ベンチ実行中 · ${completed}/${total} (${pct}%)`,
   benchProgressShort: "ベンチ実行中",
+  updateBanner: {
+    title: (behindBy) =>
+      behindBy === 1
+        ? "新しいバージョンがあります（1コミット遅れ）"
+        : `新しいバージョンがあります（${behindBy}コミット遅れ）`,
+    hint: "リポジトリで git pull のあと、サーバーを再ビルド・再起動してください。",
+    compareLink: "変更を見る",
+    compareLinkAria: "GitHubで変更を見る（新しいウィンドウ）",
+    dismissAria: "更新のお知らせを閉じる",
+    newWindowSuffix: "（新しいウィンドウ）",
+  },
 };

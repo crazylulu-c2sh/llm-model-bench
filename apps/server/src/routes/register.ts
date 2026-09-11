@@ -58,6 +58,7 @@ import { registerCatalogRoutes } from "../catalog-routes.js";
 import { buildOpenApiSpec } from "../openapi/build-spec.js";
 import { renderDocsHtml } from "../openapi/docs-html.js";
 import { SQLITE_PUBLIC_UNAVAILABLE_MSG, normBaseUrl } from "../http-shared.js";
+import { checkForUpdate } from "../update-check.js";
 
 const RunsQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),
@@ -169,6 +170,15 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       wsl_windows_host: readWindowsHostIp(),
     }),
   );
+
+  // GitHub main vs 로컬 main — 항상 200(fail-closed). health와 분리해 라이브니스를 막지 않는다.
+  app.get(`${prefix}/update-check`, async (c) => {
+    try {
+      return c.json(await checkForUpdate());
+    } catch {
+      return c.json({ status: "unavailable", reason: "internal_error" });
+    }
+  });
 
   // (model_id, base_url)별 최신 finished 런 앵커 + 시나리오별 최신 측정 병합 요약 — 통계 페이지 목록
   app.get(`${prefix}/stats/model-latest`, async (c) => {
