@@ -57,6 +57,14 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
 
   for (const detail of details) {
     const modelId = String(detail.meta.model_id);
+    const publisher =
+      typeof detail.meta.publisher === "string" ? detail.meta.publisher : undefined;
+    const thinkingIntent =
+      detail.meta.profile_thinking_intent === "on" || detail.meta.profile_thinking_intent === "off"
+        ? detail.meta.profile_thinking_intent
+        : undefined;
+    const reasoningEffort =
+      typeof detail.meta.reasoning_effort === "string" ? detail.meta.reasoning_effort : undefined;
     for (const sc of detail.scenarios) {
       const runs = sc.runs ?? [];
       const rowKey = scenarioRowKey(sc.id, sc.api_route, modelId);
@@ -87,6 +95,7 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
       rows.push({
         rowKey,
         model_id: modelId,
+        publisher,
         scenario: sc.id,
         api: sc.api_route,
         ttft_ms: last.ttft_ms ?? null,
@@ -102,6 +111,8 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
         turns_to_completion: last.turns_to_completion,
         empty_turn_count: last.empty_turn_count,
         thinking_exhausted_budget: last.thinking_exhausted_budget,
+        thinking_intent: thinkingIntent,
+        reasoning_effort: reasoningEffort,
         pass: last.quality?.pass,
         score: last.quality?.score,
         reason: last.quality?.reason,

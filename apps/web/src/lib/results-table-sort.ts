@@ -1,5 +1,6 @@
 import type { SortingState } from "@tanstack/react-table";
 import type { Messages } from "../i18n";
+import { cycleColumnSort as cycleColumnSortBase, isSameSorting } from "./column-sort-cycle";
 
 /** 벤치 실행 순서: 모델 큐 → 시나리오 실행 인덱스 → API */
 export const BENCH_EXECUTION_SORT: SortingState = [
@@ -8,25 +9,26 @@ export const BENCH_EXECUTION_SORT: SortingState = [
   { id: "api", desc: false },
 ];
 
+/** ResultsTable에서 내림차순을 먼저 쓰는 열(높을수록 좋음·완료 시각 등). */
+export const RESULTS_FIRST_DESC_IDS = new Set([
+  "tps",
+  "output_tokens",
+  "quality",
+  "agent",
+]);
+
 export function isBenchExecutionSort(sorting: SortingState): boolean {
-  if (sorting.length !== BENCH_EXECUTION_SORT.length) return false;
-  return BENCH_EXECUTION_SORT.every(
-    (expected, i) => sorting[i]!.id === expected.id && sorting[i]!.desc === expected.desc,
-  );
+  return isSameSorting(sorting, BENCH_EXECUTION_SORT);
 }
 
-/** 헤더 클릭: default → asc → desc → default */
+/** 헤더 클릭: default → firstDir → opposite → default */
 export function cycleColumnSort(columnId: string, sorting: SortingState): SortingState {
-  if (isBenchExecutionSort(sorting)) {
-    return [{ id: columnId, desc: false }];
-  }
-  if (sorting.length === 1 && sorting[0]!.id === columnId) {
-    if (!sorting[0]!.desc) {
-      return [{ id: columnId, desc: true }];
-    }
-    return [...BENCH_EXECUTION_SORT];
-  }
-  return [{ id: columnId, desc: false }];
+  return cycleColumnSortBase(
+    columnId,
+    sorting,
+    BENCH_EXECUTION_SORT,
+    RESULTS_FIRST_DESC_IDS.has(columnId),
+  );
 }
 
 // 정렬 라벨·문구는 i18n 카탈로그(m.results.sort)로 이전. 순수 헬퍼라 서브레코드를 파라미터로 받는다.
