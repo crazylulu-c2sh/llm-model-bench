@@ -30,7 +30,8 @@ jobs:
       || github.event.action != 'edited'
       || github.event.changes.base != null
     runs-on: ubuntu-latest
-    timeout-minutes: 25 # 첫 실행(playwright --with-deps apt + e2e webServer 180s + retries) 여유
+    # 캐시 히트 시 Chromium 다운로드 생략(apt deps는 매회). miss·e2e webServer 180s·retries 여유.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 
@@ -61,8 +62,25 @@ jobs:
       - name: Unit tests # Vitest 전체 (LLM_JUDGE_ENABLED 설정 금지 — judge 경로 비활성)
         run: pnpm run test
 
-      - name: Install Playwright (Chromium + system deps)
+      # Chromium만 쓰므로 바이너리 캐시 이득이 있다. apt deps는 캐시 불가 → hit여도 install-deps.
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(pnpm exec playwright --version | sed 's/^Version //' | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright Chromium
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-pw-${{ steps.pw.outputs.version }}-chromium
+
+      - name: Install Playwright Chromium (cache miss)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system deps (cache hit)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
 
       - name: E2E tests # playwright.config가 CI에서 forbidOnly/retries=2/workers=1 적용
         run: pnpm run test:e2e
