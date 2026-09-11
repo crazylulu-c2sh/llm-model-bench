@@ -167,7 +167,13 @@ export function planTotals(
 
 export type PendingUnit = { rowKey: string; model_id: string; scenario: string; api: string };
 
-/** 아직 결과가 없는 (모델 × 시나리오 × 라우트) 조합 — 예약 스켈레톤 행과 ETA의 단위. */
+/**
+ * 아직 결과가 없는 (모델 × 라우트 × 시나리오) 조합 — 예약 스켈레톤 행과 ETA의 단위.
+ *
+ * 중첩 순서는 `bench-runner`와 같아야 한다(라우트 바깥 · 시나리오 안). 시나리오를 바깥에
+ * 두면 chat 구간이 끝나도 예약 표 맨 위가 `chat_hello / messages`가 되어, 다음에 실제로
+ * 도는 비전·에이전트 행이 묻힌다.
+ */
 export function planPendingUnits(
   view: BenchPlanView,
   completedRowKeys: ReadonlySet<string>,
@@ -175,8 +181,8 @@ export function planPendingUnits(
   if (view.apiRoutes.length === 0 || view.scenarioIds.length === 0) return [];
   const out: PendingUnit[] = [];
   for (const modelId of view.modelIds) {
-    for (const scenario of view.scenarioIds) {
-      for (const api of view.apiRoutes) {
+    for (const api of view.apiRoutes) {
+      for (const scenario of view.scenarioIds) {
         const rowKey = scenarioRowKey(scenario, api, modelId);
         if (!completedRowKeys.has(rowKey)) out.push({ rowKey, model_id: modelId, scenario, api });
       }

@@ -1,6 +1,12 @@
 // 스코어보드 계산 코어(품질·속도·랭킹)는 @llm-bench/shared로 이전됨(web·server·mcp 단일 소스).
 // 아래 UI 전용 정렬 헬퍼(헤더 클릭 상호작용)만 web에 남는다.
-import { compareModelIdAlphanumeric, type ScoreboardRow } from "@llm-bench/shared";
+import {
+  compareModelIdAlphanumeric,
+  isAgentScenario,
+  isVisionScenario,
+  type QualityGroupScore,
+  type ScoreboardRow,
+} from "@llm-bench/shared";
 
 export {
   averageRunsToScoringRow,
@@ -97,4 +103,38 @@ export function sortScoreboard(
   sort: ScoreboardSort,
 ): ScoreboardRow[] {
   return [...rows].sort((a, b) => compareScoreboardRows(a, b, sort));
+}
+
+/** 이번 런 계획의 카테고리별 distinct 시나리오 수 — 스코어보드 커버리지 분모 보강용. */
+export type PlannedGroupCounts = { text: number; vision: number; agent: number; total: number };
+
+export function plannedScenarioGroupCounts(ids: readonly string[]): PlannedGroupCounts {
+  const c = { text: 0, vision: 0, agent: 0, total: ids.length };
+  for (const id of ids) {
+    if (isVisionScenario(id)) c.vision += 1;
+    else if (isAgentScenario(id)) c.agent += 1;
+    else c.text += 1;
+  }
+  return c;
+}
+
+/**
+ * 아직 결과가 없는 계획 시나리오를 expected 분모에 넣는다.
+ * 산식(value)은 건드리지 않는다 — 에이전트가 돌고 있거나 중단돼도 열이 "—"만 보이지 않게.
+ */
+export function qualityGroupWithPlannedCoverage(
+  g: QualityGroupScore,
+  planned: number,
+): QualityGroupScore {
+  if (planned <= g.expected) return g;
+  return { ...g, expected: planned };
+}
+
+/** 실행 중이고 이 그룹은 계획에 있는데 아직 값이 없으면 스켈레톤을 그린다. */
+export function scoreboardGroupPending(
+  loading: boolean,
+  planned: number,
+  hasValue: boolean,
+): boolean {
+  return loading && planned > 0 && !hasValue;
 }

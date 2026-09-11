@@ -4,8 +4,11 @@ import {
   computeScoreboard,
   DEFAULT_SCOREBOARD_SORT,
   naturalDir,
+  plannedScenarioGroupCounts,
+  qualityGroupWithPlannedCoverage,
   sameSortKey,
   scoreboardFromRows,
+  scoreboardGroupPending,
   sortEquals,
   sortScoreboard,
   type ScoringRow,
@@ -271,5 +274,39 @@ describe("scoreboardFromRows (end-to-end)", () => {
     expect(board).toHaveLength(1);
     expect(board[0]!.quality.total.value).toBe(100); // averaged 1, not row's 0
     expect(board[0]!.speed.total.score).toBe(1000); // tps 30 -> 1000×30/30 (TTFT 점수 무관)
+  });
+});
+
+describe("plannedScenarioGroupCounts / qualityGroupWithPlannedCoverage", () => {
+  it("카테고리별 distinct 시나리오 수를 센다", () => {
+    const c = plannedScenarioGroupCounts([
+      "chat_hello",
+      "vision_table_ocr_a",
+      "agent_loop_mock_v1",
+      "agent_loop_budget_v1",
+    ]);
+    expect(c).toEqual({ text: 1, vision: 1, agent: 2, total: 4 });
+  });
+
+  it("계획 분모가 더 크면 expected만 올린다(value는 유지)", () => {
+    const g = { value: null as number | null, covered: 0, expected: 0 };
+    expect(qualityGroupWithPlannedCoverage(g, 8)).toEqual({ value: null, covered: 0, expected: 8 });
+    expect(qualityGroupWithPlannedCoverage({ value: 80, covered: 9, expected: 9 }, 10)).toEqual({
+      value: 80,
+      covered: 9,
+      expected: 10,
+    });
+    expect(qualityGroupWithPlannedCoverage({ value: 80, covered: 10, expected: 10 }, 8)).toEqual({
+      value: 80,
+      covered: 10,
+      expected: 10,
+    });
+  });
+
+  it("실행 중·계획 있음·값 없음일 때만 스켈레톤", () => {
+    expect(scoreboardGroupPending(true, 8, false)).toBe(true);
+    expect(scoreboardGroupPending(true, 8, true)).toBe(false);
+    expect(scoreboardGroupPending(false, 8, false)).toBe(false);
+    expect(scoreboardGroupPending(true, 0, false)).toBe(false);
   });
 });

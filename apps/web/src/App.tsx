@@ -854,6 +854,11 @@ export function App() {
     return planPendingUnits(activeRunPlanView, new Set(rows.map((r) => r.rowKey)));
   }, [running, rows, activeRunPlanView]);
 
+  const activeResultRowKey = useMemo(() => {
+    if (!running || !benchCurrent?.scenario || !benchCurrent.api) return null;
+    return scenarioRowKey(benchCurrent.scenario, benchCurrent.api, benchCurrent.modelId);
+  }, [running, benchCurrent]);
+
   // 벤치 예상 실행 시간: 정확 일치용 1차 인덱스 + 같은 베이스 모델의 다른 양자화 폴백용 2차 인덱스.
   const preRunExactIndex = useMemo(() => buildScenarioTimeIndex(preRunEstimateRaw), [preRunEstimateRaw]);
   const preRunBaseIndex = useMemo(() => buildBaseModelTimeIndex(preRunEstimateRaw), [preRunEstimateRaw]);
@@ -3315,6 +3320,7 @@ export function App() {
             detailAggregate={detailAggregate}
             loading={running}
             benchModelOrder={activeRunPlanView.modelIds}
+            plannedScenarioIds={activeRunPlanView.hasPlan ? activeRunPlanView.scenarioIds : []}
             providerByModel={providerByModel}
             headingLevel={3}
           />
@@ -3416,6 +3422,7 @@ export function App() {
               benchModelOrder={activeRunPlanView.modelIds}
               benchScenarioOrder={benchScenarioOrder}
               pendingRows={pendingSkeletonRows}
+              activeRowKey={activeResultRowKey}
               maxRows={activeRunPlanView.scenarioIds.length * Math.max(activeRunPlanView.apiRoutes.length, 1)}
               onRowClick={(r) => openDrawerForRow(r)}
             />

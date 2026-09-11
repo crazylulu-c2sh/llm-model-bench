@@ -1,4 +1,4 @@
-import { compareScenarioBenchOrder, formatTtftMs, isVisionScenario, scoreToRubric } from "@llm-bench/shared";
+import { compareScenarioBenchOrder, formatTtftMs, isAgentScenario, isVisionScenario, scoreToRubric } from "@llm-bench/shared";
 import { apiRouteRank } from "./chart-types";
 import { compareModelBenchQueueOrder, compareStringsPinned } from "../lib/model-sort";
 import { buildModelColorMap } from "../lib/model-color";
@@ -69,6 +69,17 @@ export type ResultRow = {
 
 type PendingSkeletonRow = { rowKey: string; model_id: string; scenario: string; api: string };
 
+/** 에이전트 열: 완료 런뿐 아니라 예약 행·시나리오 id로도 연다. 첫 결과가 올 때까지 숨기면 실행 중이 안 보인다. */
+export function resultsTableShowsAgentColumn(
+  rows: ReadonlyArray<{ scenario: string; agent_completion_reason?: unknown }>,
+  pendingRows: ReadonlyArray<{ scenario: string }> = [],
+): boolean {
+  return (
+    rows.some((r) => r.agent_completion_reason != null || isAgentScenario(r.scenario)) ||
+    pendingRows.some((r) => isAgentScenario(r.scenario))
+  );
+}
+
 // 안정적 기본값: `= []` 기본 파라미터는 매 렌더 새 배열을 만들어 `data` useMemo(및 TanStack에
 // 넘기는 data 참조)를 매 렌더 바꿔 무한 재렌더 루프를 유발한다(모델 2개 선택 시 먹통). 모듈 상수로 고정.
 const EMPTY_MODEL_ORDER: string[] = [];
@@ -100,6 +111,7 @@ export function ResultsTable({
   benchModelOrder = EMPTY_MODEL_ORDER,
   benchScenarioOrder = EMPTY_SCENARIO_ORDER,
   onRowClick,
+  activeRowKey,
 }: {
   rows: ResultRow[];
   pendingRows?: PendingSkeletonRow[];
@@ -110,6 +122,8 @@ export function ResultsTable({
   /** 실제 세션/런의 시나리오 실행 순서(`BenchRunMeta.scenario_ids`) — 미전달 시 정적 카탈로그 순서 폴백 */
   benchScenarioOrder?: string[];
   onRowClick?: (row: ResultRow) => void;
+  /** 지금 측정 중인 (모델×시나리오×라우트) — 예약 행 강조 */
+  activeRowKey?: string | null;
 }) {
   const { m } = useI18n();
   const modelQueue = benchModelOrder;
@@ -164,8 +178,11 @@ export function ResultsTable({
     [rows],
   );
   const multiModel = colorByModel.size >= 2;
-  // #105: 에이전트(멀티턴) 런이 하나라도 있을 때만 에이전트 컬럼 표출 — 비-에이전트 벤치 오염 방지.
-  const anyAgentRow = useMemo(() => rows.some((r) => r.agent_completion_reason != null), [rows]);
+  // #105: 에이전트 시나리오가 계획·결과 중 하나라도 있으면 열을 연다 — 첫 완료를 기다리지 않는다.
+  const anyAgentRow = useMemo(
+    () => resultsTableShowsAgentColumn(rows, pendingRows),
+    [rows, pendingRows],
+  );
   const [sorting, setSorting] = useState<SortingState>(BENCH_EXECUTION_SORT);
 
   const onColumnSort = useCallback((columnId: string) => {
@@ -686,16 +703,22 @@ export function ResultsTable({
                   </tr>
                 );
               })}
-              {pendingRows.map((pr) => (
+              {pendingRows.map((pr) => {
+                const isActive = activeRowKey != null && pr.rowKey === activeRowKey;
+                return (
                 // 예약 행도 "무엇이 남았는지"를 읽는 정보다 — muted @40%는 두 테마 모두 2:1 미만이라
                 // 전경색 @70%(다크 8.2:1 · 라이트 5.7:1)로 흐린 느낌은 유지하되 대비를 지킨다.
                 // Think/Effort(+Agent)는 thead와 열 수를 맞추기 위한 플레이스홀더(예약 시점엔 meta 없음).
+                // 지금 측정 중인 행은 흐리지 않는다 — 에이전트처럼 한 칸이 긴 구간에서 "안 도는 것처럼" 보이지 않게.
                 <tr
                   key={pr.rowKey}
-                  className="border-t border-[var(--border)] opacity-70"
+                  className={`border-t border-[var(--border)]${isActive ? " bg-[var(--surface)]" : " opacity-70"}`}
                   aria-hidden="true"
                 >
-                  <td className="p-2">
+                  <td className="relative p-2">
+                    {isActive ? (
+                      <span className="absolute inset-y-0 left-0 w-[3px] bg-[var(--accent)]" aria-hidden />
+                    ) : null}
                     <span className="whitespace-nowrap text-xs text-[var(--foreground)]">
                       <ModelLabel modelId={pr.model_id} size={14} className="max-w-[20rem]" />
                     </span>
@@ -720,7 +743,8 @@ export function ResultsTable({
                     <td className="p-2"><div className="h-3 w-12 animate-pulse rounded bg-[var(--border)]" /></td>
                   ) : null}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           {onRowClick ? (
