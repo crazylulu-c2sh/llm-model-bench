@@ -211,6 +211,11 @@ export type IdleSample = {
   gpuSignalAvailable: boolean;
   /** "지금 연산 중"을 판정 가능한 활성 신호(GPU/metrics/lms)가 하나라도 관측됐는가 → effective. */
   hasActiveSignal: boolean;
+  /**
+   * 이 샘플에서 이미 가져온 로드 재고.
+   * `runIdleGate`가 성공 시 `segmentBaseline()`을 다시 치지 않고 baseline으로 쓴다.
+   */
+  loaded: LoadedModelInfo[];
 };
 
 export type InFlightBaseline = {
@@ -246,7 +251,8 @@ export function openAiRootFromBaseUrl(u: string): string {
   return u.replace(/\/+$/, "").replace(/\/v1$/i, "");
 }
 
-function loadedToBaseline(loaded: LoadedModelInfo[]): InFlightBaseline {
+/** 로드 재고 → in-flight baseline. `runIdleGate`가 sampleIdle 결과를 재사용할 때 공개. */
+export function loadedToBaseline(loaded: LoadedModelInfo[]): InFlightBaseline {
   const loadedIds = loaded.map((m) => m.id);
   const expiresById: Record<string, number> = {};
   for (const m of loaded) {
@@ -257,6 +263,11 @@ function loadedToBaseline(loaded: LoadedModelInfo[]): InFlightBaseline {
     }
   }
   return { loadedIds, expiresById };
+}
+
+/** HTTP 4xx/5xx면 엔드포인트 자체가 없거나 거부된 것 — 런 단위로 재고 폴링을 접는다. */
+function isHttpHardFailure(status: number | undefined): boolean {
+  return typeof status === "number" && status >= 400 && status < 600;
 }
 
 export function makeContentionProbe(opts: MakeProbeOpts): ContentionProbe {
@@ -278,13 +289,27 @@ export function makeContentionProbe(opts: MakeProbeOpts): ContentionProbe {
   const metricsCapable =
     cfg.serverMetricsEnabled && (provider === "openai_compatible" || provider === "manual");
   let metricsUnavailable = false;
+  // Ollama `/api/ps` · LM Studio `/api/v1/models` 등 재고 HTTP — 4xx/5xx면 런 단위로 접음
+  // (/metrics의 metricsUnavailable과 동일). 전송 실패(status 없음/0)는 일시 오류로 재시도.
+  let loadedUnavailable = false;
 
   async function collectLoaded(): Promise<LoadedModelInfo[]> {
+    if (loadedUnavailable) return [];
     if (provider === "ollama") {
-      return (await collectOllamaLoaded(baseUrl, { fetchImpl })).loaded;
+      const r = await collectOllamaLoaded(baseUrl, { fetchImpl });
+      if (r.http && !r.http.ok && isHttpHardFailure(r.http.status)) {
+        loadedUnavailable = true;
+        return [];
+      }
+      return r.loaded;
     }
     if (provider === "lm_studio") {
-      return (await collectLmStudioLoaded(baseUrl, { apiKey, allowCli: false, fetchImpl })).loaded;
+      const r = await collectLmStudioLoaded(baseUrl, { apiKey, allowCli: false, fetchImpl });
+      if (r.http && !r.http.ok && isHttpHardFailure(r.http.status)) {
+        loadedUnavailable = true;
+        return [];
+      }
+      return r.loaded;
     }
     return [];
   }
@@ -380,7 +405,7 @@ export function makeContentionProbe(opts: MakeProbeOpts): ContentionProbe {
         );
         reasons.push(foreignLoaded ? "inventory_only_no_active_signal" : "no_contention_signal_available");
       }
-      return { active, reasons, gpuUtilPct, gpuSignalAvailable, hasActiveSignal };
+      return { active, reasons, gpuUtilPct, gpuSignalAvailable, hasActiveSignal, loaded };
     },
 
     async segmentBaseline(): Promise<InFlightBaseline> {
@@ -517,6 +542,8 @@ export async function* runIdleGate(
     const waited = clock.now() - start;
 
     if (!s.active) {
+      // sampleIdle이 이미 가져온 재고로 baseline을 만들어 /api/ps 등 중복 HTTP를 피한다.
+      const baseline = loadedToBaseline(s.loaded);
       if (!sawBusy) {
         return {
           idle: true,
@@ -524,7 +551,7 @@ export async function* runIdleGate(
           effective,
           gpuSignalAvailable,
           noSignalReason,
-          baseline: await probe.segmentBaseline(),
+          baseline,
         };
       }
       consecutiveIdle++;
@@ -542,7 +569,7 @@ export async function* runIdleGate(
           effective,
           gpuSignalAvailable,
           noSignalReason,
-          baseline: await probe.segmentBaseline(),
+          baseline,
         };
       }
     } else {
