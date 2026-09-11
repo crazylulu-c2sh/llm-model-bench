@@ -776,7 +776,7 @@ export function ResultsTable({
                 return (
                 // 예약 행도 "무엇이 남았는지"를 읽는 정보다 — muted @40%는 두 테마 모두 2:1 미만이라
                 // 전경색 @70%(다크 8.2:1 · 라이트 5.7:1)로 흐린 느낌은 유지하되 대비를 지킨다.
-                // Think/Effort(+Agent)는 thead와 열 수를 맞추기 위한 플레이스홀더(예약 시점엔 meta 없음).
+                // Think/Effort/Prefill/Decode(+Agent)는 thead와 열 수를 맞추기 위한 플레이스홀더(예약 시점엔 meta 없음).
                 // 지금 측정 중인 행은 흐리지 않는다 — 에이전트처럼 한 칸이 긴 구간에서 "안 도는 것처럼" 보이지 않게.
                 <tr
                   key={pr.rowKey}
@@ -805,6 +805,7 @@ export function ResultsTable({
                   </td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-8 animate-pulse rounded bg-[var(--border)]" /></td>
+                  <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-12 animate-pulse rounded bg-[var(--border)]" /></td>
                   {anyAgentRow ? (
