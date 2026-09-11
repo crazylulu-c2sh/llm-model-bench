@@ -31,7 +31,8 @@ export const results = {
       scenario: "시나리오",
       ttft_ms: "TTFT (ms)",
       output_tokens: "출력 토큰",
-      tps: "TPS (tok/s)",
+      prefill_tps: "프리필 TPS",
+      tps: "디코드 TPS",
       quality: "품질",
       agent: "에이전트",
     },
@@ -49,7 +50,8 @@ export const results = {
       `축은 시나리오·API. 반경은 모델별 실제 ${unit}를 0 기준 공통 스케일로 그립니다. `,
     radarLeadSingle: (unit: string) =>
       `축은 시나리오·API. 반경은 실제 ${unit}를 0 기준 스케일로 그립니다. `,
-    radarLegendTps: "TPS (tok/s · 클수록 좋음)",
+    radarLegendTps: "디코드 TPS (tok/s · 클수록 좋음)",
+    radarLegendPrefill: "프리필 TPS (tok/s · 클수록 좋음)",
     radarLegendTtft: "TTFT (ms · 작을수록 좋음)",
     radarSingleAria: (title: string) =>
       `${title} 레이더 차트(축: 시나리오·API) — 정확한 값은 막대 차트와 표 참조`,
@@ -58,15 +60,19 @@ export const results = {
     radarDenseNote: "항목이 많아 레이더는 요약용입니다. 정확한 값은 지표별 막대 차트를 사용하세요.",
     radarKeyMismatch:
       "모델마다 저장된 시나리오·API(chat/msg) 조합이 다릅니다. 한쪽만 값이 있는 축은 0으로 그려지며, 반원처럼 갈라져 보일 수 있습니다. 같은 벤치 스위트로 최근 런을 맞추거나, 막대 차트로 전체를 확인하세요.",
-    radarTpsEmpty: "TPS 레이더: 표시할 TPS 값이 없습니다.",
+    radarTpsEmpty: "디코드 TPS 레이더: 표시할 값이 없습니다.",
+    radarPrefillEmpty: "프리필 TPS 레이더: 표시할 값이 없습니다(구 런은 usage_prompt_tokens 없음).",
     barCompareTtftAria: (count: number) =>
       `TTFT 모델 비교 막대 차트(모델 ${count}개) — 자세한 값은 아래 결과 표 참조`,
     barCompareTpsAria: (count: number) =>
-      `TPS 모델 비교 막대 차트(모델 ${count}개) — 자세한 값은 아래 결과 표 참조`,
+      `디코드 TPS 모델 비교 막대 차트(모델 ${count}개) — 자세한 값은 아래 결과 표 참조`,
+    barComparePrefillAria: (count: number) =>
+      `프리필 TPS 모델 비교 막대 차트(모델 ${count}개) — 자세한 값은 아래 결과 표 참조`,
     radarCompareTooFew: "비교 레이더는 시나리오가 3개 이상일 때 표시됩니다.",
     noBenchData: "벤치 실행 후 메트릭이 표시됩니다.",
     barSessionTtftAria: "TTFT 시나리오별 막대 차트 — 자세한 값은 아래 결과 표 참조",
-    barSessionTpsAria: "TPS 시나리오별 막대 차트 — 자세한 값은 아래 결과 표 참조",
+    barSessionTpsAria: "디코드 TPS 시나리오별 막대 차트 — 자세한 값은 아래 결과 표 참조",
+    barSessionPrefillAria: "프리필 TPS 시나리오별 막대 차트 — 자세한 값은 아래 결과 표 참조",
     barClickHint: "막대를 클릭하면 해당 시나리오 상세를 엽니다.",
     radarSessionMultiTooFew: "모델 간 레이더 비교는 시나리오가 3개 이상일 때 표시됩니다.",
     radarSingleTooFew: "레이더 차트는 시나리오가 3개 이상일 때 표시됩니다.",
@@ -75,15 +81,16 @@ export const results = {
   // MetricChartLegend.tsx
   legend: {
     ttftDesc: "요청 발신부터 첫 출력 토큰까지",
-    tpsDesc: "출력 길이 기반 근사 토큰 ÷ 총 소요 시간",
+    tpsDesc: "디코드: (출력 토큰 − 1) ÷ (총 시간 − TTFT)",
+    prefillDesc: "프리필: prompt_tokens ÷ TTFT (구 런은 —)",
     tpsDescSession: " (TPS 전용 막대 차트)",
     tpsDescCompare: " (비교 시 TPS 전용 차트)",
     compareLead: "비교 막대: 실행(시나리오·API·모델)마다 ",
-    compareMid: " 막대 차트는 ms 단위로 표시하고, TPS 전용 차트는 같은 순서로",
+    compareMid: " 막대 차트는 ms 단위로 표시하고, 디코드·프리필 TPS 차트는 같은 순서로",
     compareTail:
       "만 표시합니다. TPS 막대 색은 모델별로 구분됩니다. 시나리오·API 묶음(모델 수만큼의 연속 행) 사이에는 빈 띠로 간격을 둡니다.",
     sessionLead: "라이브 막대: ",
-    sessionMid: " 막대 차트는 ms 단위, TPS 전용 차트는 동일 순서의 ",
+    sessionMid: " 막대 차트는 ms 단위, 디코드·프리필 TPS 차트는 동일 순서의 ",
     sessionTail: "입니다. 모델이 2개 이상이면 시나리오·API 블록 사이에 빈 띠로 구분합니다.",
     scenarioTerm: "시나리오",
     scenarioIs: "는 벤치 과제 식별자,",
@@ -94,7 +101,8 @@ export const results = {
     outputTokensTerm: "출력 토큰",
     tokenCountLead: "는 동일한 토큰 수(provider ",
     approxMid: " 또는 글자수/4 근사, 근사 시 ",
-    approxTail: ")를 쓰며, TPS는 이를 요청 발신부터 스트림 완료까지 총 시간(초)으로 나눈 값입니다.",
+    approxTail:
+      ")를 쓰며, 디코드 TPS는 (출력 토큰 − 1)을 (총 시간 − TTFT)로 나눈 값입니다. 프리필 TPS는 prompt_tokens ÷ TTFT이며 구 런은 — 입니다.",
   },
 
   // ResultsTable.tsx
@@ -115,7 +123,12 @@ export const results = {
     colTtftTitle: "Time To First Token — HTTP 요청 발신부터 첫 출력 토큰(텍스트·추론·tool_call)까지(밀리초)",
     colOutputTokens: "출력 토큰",
     colOutputTokensTitle: "출력 토큰 수 — provider usage.completion_tokens 또는 글자수/4 근사(TPS와 동일 기준)",
-    colTpsTitle: "Tokens Per Second (근사) — 출력 텍스트 길이 기반 토큰 추정 ÷ 총 소요 시간(초)",
+    colTpsTitle:
+      "디코드 TPS — (출력 토큰 − 1) ÷ ((총 시간 − TTFT) 초). 첫 토큰은 프리필에 포함. TTFT 없으면 —",
+    colPrefillTpsTitle:
+      "프리필 TPS — prompt_tokens ÷ (TTFT 초). 구 런은 usage.prompt_tokens가 없어 —. 지연(TTFT ms)과 역할이 다름",
+    colPrefillTps: "프리필 TPS",
+    colDecodeTps: "디코드 TPS",
     colQuality: "품질",
     colQualityTitle:
       "텍스트 시나리오는 합격/불합격 이진. 비전 시나리오는 rubric 0~3(score 0/0.33/0.67/1), rubric ≥ 2 가 통과.",
@@ -130,7 +143,12 @@ export const results = {
     reasoningHiddenAria: "추론 숨김 — TTFT 비교 주의",
     outputTokensApproxTitle: "provider가 usage를 보고하지 않아 글자수/4 추정치(approx)",
     outputTokensUsageTitle: "provider 보고 completion_tokens(usage)",
-    tpsWinTitle: "이 시나리오·API 그룹에서 가장 높은 TPS",
+    tpsWinTitle: "이 시나리오·API 그룹에서 가장 높은 디코드 TPS",
+    prefillWinTitle: "이 시나리오·API 그룹에서 가장 높은 프리필 TPS",
+    prefillMissingTitle: "구 런 — prompt_tokens가 저장되지 않아 프리필 TPS를 재계산할 수 없습니다. 재측정하세요.",
+    prefillMissingUsageTitle: "이번 런에 usage.prompt_tokens가 없어 프리필 TPS를 계산할 수 없습니다.",
+    tpsMissingTitle: "TTFT가 없거나 출력 토큰이 1개 이하여 디코드 TPS를 계산할 수 없습니다.",
+    agentTurnSumTitle: "에이전트 시나리오는 턴 합산 벽시계에 같은 산식을 씁니다(턴별 계측은 후속).",
     tpsApproxTitle: "provider가 usage 토큰 수를 안 줘서 글자수/4 추정치로 계산(approx). CJK·코드에서 오차 큼.",
     tpsUsageTitle: "provider 보고 실토큰 기반(usage)",
     qualityVisionAria: (rubric: string | number, score: string, passLabel: string) =>
@@ -186,6 +204,8 @@ export const results = {
     fieldScenario: "시나리오",
     fieldModel: "모델",
     fieldQuality: "품질",
+    fieldPrefillTps: "프리필 TPS",
+    fieldDecodeTps: "디코드 TPS",
     reasoningHiddenNote: "추론 숨김 — TTFT는 첫 가시 토큰까지(숨은 추론 포함). chat·사고 OFF와 직접 비교 주의.",
     purposeTitle: "시나리오 목적",
     criteriaTitle: "합격 / 불합격 기준",

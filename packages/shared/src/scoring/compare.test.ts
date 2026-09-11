@@ -60,13 +60,35 @@ describe("computeCompare regression classification", () => {
     expect(res.scenarios[0]!.regressions).toContain("new_empty_turns");
   });
 
-  it("tps_regression when aggregate TPS drops beyond threshold", () => {
-    // A: 100 tok / 1s = 100 tps; B: 100 tok / 2s = 50 tps (< 85%)
+  it("tps_regression when aggregate decode TPS drops beyond threshold", () => {
+    // decode: (100-1)/(1000-100) vs (100-1)/(2000-100) → 110 vs ~52.1 (< 85%)
     const res = computeCompare(
       detail("A", [run({ total_ms: 1000, usage_output_tokens: 100 })]),
       detail("B", [run({ total_ms: 2000, usage_output_tokens: 100 })]),
     );
     expect(res.scenarios[0]!.regressions).toContain("tps_regression");
+  });
+
+  it("prefill_tps_regression only when both sides have prompt tokens", () => {
+    const res = computeCompare(
+      detail("A", [run({ ttft_ms: 100, usage_prompt_tokens: 100 })]),
+      detail("B", [run({ ttft_ms: 200, usage_prompt_tokens: 100 })]),
+    );
+    expect(res.scenarios[0]!.regressions).toContain("prefill_tps_regression");
+    expect(res.scenarios[0]!.prefill_tps_aggregate.a).toBe(1000);
+    expect(res.scenarios[0]!.prefill_tps_aggregate.b).toBe(500);
+  });
+
+  it("prefill delta is null (not protocol_mismatch) when only one side has prompt tokens", () => {
+    const res = computeCompare(
+      detail("A", [run({ usage_prompt_tokens: 100 })]),
+      detail("B", [run()]),
+    );
+    expect(res.scenarios[0]!.prefill_tps_aggregate.a).toBe(1000);
+    expect(res.scenarios[0]!.prefill_tps_aggregate.b).toBeNull();
+    expect(res.scenarios[0]!.prefill_tps_aggregate.delta).toBeNull();
+    expect(res.scenarios[0]!.regressions).not.toContain("prefill_tps_regression");
+    expect(res.scenarios[0]!.protocol_mismatch).toEqual([]);
   });
 
   it("ttft_regression when p95 rises beyond threshold", () => {

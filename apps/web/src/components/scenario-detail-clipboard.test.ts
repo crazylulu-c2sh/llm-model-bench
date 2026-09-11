@@ -29,6 +29,8 @@ describe("buildScenarioDetailClipboardText", () => {
     expect(text).toContain("- API: chat_completions");
     expect(text).toContain("- 모델: some-model");
     expect(text).toContain("- TTFT: 1234 ms");
+    expect(text).toContain("- 프리필 TPS: —");
+    expect(text).toContain("- 디코드 TPS: —");
     expect(text).toContain("- 품질: 실패");
     expect(text).toContain("- 판정 사유: missing sortNums");
     // 등록 시나리오면 목적/기준을 실제 메타에서 채운다

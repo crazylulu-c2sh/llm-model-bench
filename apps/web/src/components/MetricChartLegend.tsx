@@ -17,8 +17,14 @@ export function MetricChartLegend({ variant }: { variant: "session" | "compare" 
         <span className="inline-flex items-center gap-2">
           <span className="size-3 shrink-0 rounded-sm bg-[var(--chart-tps)]" aria-hidden />
           <span>
-            <strong>TPS</strong> (tok/s) — {l.tpsDesc}
+            <strong>Decode TPS</strong> (tok/s) — {l.tpsDesc}
             {variant === "session" ? l.tpsDescSession : l.tpsDescCompare}
+          </span>
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <span className="size-3 shrink-0 rounded-sm bg-[var(--dir-higher)]" aria-hidden />
+          <span>
+            <strong>Prefill TPS</strong> (tok/s) — {l.prefillDesc}
           </span>
         </span>
       </div>
@@ -27,7 +33,9 @@ export function MetricChartLegend({ variant }: { variant: "session" | "compare" 
           {l.compareLead}
           <strong className="text-[var(--foreground)]">TTFT</strong>
           {l.compareMid}{" "}
-          <strong className="text-[var(--foreground)]">TPS</strong>
+          <strong className="text-[var(--foreground)]">Decode TPS</strong>
+          {" · "}
+          <strong className="text-[var(--foreground)]">Prefill TPS</strong>
           {l.compareTail}
         </p>
       ) : (
@@ -35,7 +43,9 @@ export function MetricChartLegend({ variant }: { variant: "session" | "compare" 
           {l.sessionLead}
           <strong className="text-[var(--foreground)]">TTFT</strong>
           {l.sessionMid}
-          <strong className="text-[var(--foreground)]">TPS</strong>
+          <strong className="text-[var(--foreground)]">Decode TPS</strong>
+          {" · "}
+          <strong className="text-[var(--foreground)]">Prefill TPS</strong>
           {l.sessionTail}
         </p>
       )}
@@ -60,7 +70,8 @@ export function MetricTableIntro() {
         <strong className="text-[var(--foreground)]">TTFT</strong>
         {l.ttftLead}{" "}
         <strong className="text-[var(--foreground)]">{l.outputTokensTerm}</strong>·
-        <strong className="text-[var(--foreground)]">TPS</strong>
+        <strong className="text-[var(--foreground)]">Decode TPS</strong>·
+        <strong className="text-[var(--foreground)]">Prefill TPS</strong>
         {l.tokenCountLead}
         <code className="font-mono text-[11px]">usage.completion_tokens</code>
         {l.approxMid}

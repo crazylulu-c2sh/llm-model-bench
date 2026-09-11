@@ -6,8 +6,10 @@ export type BenchScenarioRun = {
   total_ms: number;
   output_text: string;
   stream_completed: boolean;
-  /** provider 보고 출력 토큰 수(없으면 null/미존재). 있으면 TPS가 이 값을 사용. */
+  /** provider 보고 출력 토큰 수(없으면 null/미존재). 있으면 디코드 TPS가 이 값을 사용. */
   usage_output_tokens?: number | null;
+  /** provider 보고 입력/프롬프트 토큰. 없으면 프리필 TPS는 재계산 불가(구 런). */
+  usage_prompt_tokens?: number | null;
   /** #182: provider 보고 사고 토큰 수(chat_completions 전용, 없으면 null). */
   usage_reasoning_tokens?: number | null;
   /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의. */

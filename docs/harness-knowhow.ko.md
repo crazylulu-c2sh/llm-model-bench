@@ -179,11 +179,21 @@ export function resolveBenchApiRoutes(
 - **서버가 추론 채널을 안 열면 이 정의가 조용히 무너집니다.** Anthropic 호환 shim 중에는 `thinking`을 명시 요청하지 않으면 추론을 `thinking_delta`로 내보내지 않는 것이 있습니다(LM Studio `/v1/messages` 실측). 그러면 TTFT가 "첫 토큰까지"가 아니라 "**첫 가시 토큰까지**" — 즉 prefill + 추론 구간 전체 — 가 되어, 같은 모델의 OpenAI 라우트(`reasoning_content`를 흘림) 대비 실측 60배까지 벌어집니다. 하네스는 (1) 사고 의도가 ON이면 `thinking: { type: "enabled", budget_tokens }`를 실어 채널을 열게 하고(거절하면 한 번 빼고 재시도 후 base URL별 캐시), (2) 그래도 추론이 안 오면 `reasoning_hidden`을 `scenario_end`에 실어 소비자가 TTFT의 의미를 알 수 있게 합니다. 소스: `apps/server/src/anthropic-fetch.ts`.
 - `totalMs = performance.now() - origin`은 read 루프가 끝난 뒤 캡처됩니다. 델타가 하나도 도착하지 않으면 `ttftMs`는 `null`로 남습니다.
 
-### `usageOutputTokens ?? approxOutputTokens`로 재는 TPS
+### 디코드 TPS (`decode_ms = totalMs − ttftMs`)
 
 - 프로바이더 자체 카운트를 우선합니다. OpenAI는 `stream_options.include_usage` 트레일러(`usage.completion_tokens`, 없으면 `usage.output_tokens`)에서 읽고, Anthropic은 `usage.output_tokens`(`message_delta` 이벤트에 실린 누적 합계) 또는 `message.usage.output_tokens`에서 읽습니다. 둘 다 `usageOutputTokens`에 저장되며, 서버가 생략하면 `null`로 남습니다(vLLM / LM Studio에서 흔함).
-- `approxOutputTokens`는 폴백 추정치로, `Math.max(0, Math.ceil(outText.length / 4))` — 고전적인 ~토큰당 4자 휴리스틱입니다. 처리량 소비자는 tokens/sec를 `(usageOutputTokens ?? approxOutputTokens) / (totalMs / 1000)`으로 계산합니다.
+- `approxOutputTokens`는 폴백 추정치로, `Math.max(0, Math.ceil(outText.length / 4))` — 고전적인 ~토큰당 4자 휴리스틱입니다.
 - 두 어댑터 모두 추정치에 추론 토큰을 포함시켜 두 프로바이더가 비교 가능하게 합니다: OpenAI의 `outText`(= `combined`)에는 이미 추론이 들어 있고, Anthropic은 추론을 `text`에서 빼 두는 대신 명시적으로 다시 더합니다: `Math.ceil((reasoningText.length + outText.length) / 4)`.
+- UI·스코어보드의 **디코드 TPS**는 llama.cpp / oMLX 관례입니다: 분모 `decode_ms = total_ms − ttft_ms`, 분자 `max(0, output_tokens − 1)` (첫 토큰은 프리필+샘플에 포함). `ttft` 없음 / `decode_ms ≤ 0` / 출력 토큰 ≤ 1 → `null`(표시 `—`). 소스: `packages/shared/src/tps.ts`의 `decodeTokensPerSecondFromRun`.
+- blended TPS(`output / total_ms`, `tokensPerSecondFromRun`)는 내부 호환·스트레스 `aggregate_tps`용으로 남기고 기본 UI에서는 숨깁니다.
+- 구 런 JSON에는 이미 `ttft_ms`·`total_ms`·`usage_output_tokens`(또는 `output_text` 근사)가 있어 디코드는 SQLite rewrite 없이 읽기 시점에 재계산됩니다.
+- `reasoning_hidden`이면 TTFT가 프리필+숨은 사고를 포함해 두 축이 왜곡됩니다. `agent_*`는 한 런의 `total_ms`가 멀티턴 벽시계라 v1은 같은 산식을 쓰고 툴팁에 턴 합산을 명시합니다(턴별 계측은 후속).
+
+### 프리필 TPS (`usagePromptTokens / TTFT`)
+
+- OpenAI는 `usage.prompt_tokens`(없으면 `usage.input_tokens`), Anthropic은 `usage.input_tokens`를 `usagePromptTokens`에 저장합니다. 요청은 이미 `stream_options.include_usage: true`를 보냅니다. 예전 파서는 입력 토큰을 버리고 있었습니다.
+- 산식: `prompt_tokens / (ttft_ms / 1000)` (`prefillTokensPerSecondFromRun`). `prompt_tokens`가 없으면 근사하지 않고 `null`. `prompt_preview`는 잘린 스냅샷이고 비전 이미지 토큰이 없어 쓰지 않습니다.
+- 구 런은 프리필 칸 `—`. 재실행한 런만 값이 찹니다. DB 마이그레이션 SQL은 없고 `aggregate_json`에 `usage_prompt_tokens` 키가 추가될 뿐입니다.
 
 ### 추론 채널 분리: `text` vs `assistantText` vs `reasoningText`
 
@@ -231,6 +241,7 @@ export type OpenAiStreamMetrics = {
   streamCompleted: boolean;
   approxOutputTokens: number;   // ceil(text.length / 4)
   usageOutputTokens: number | null; // stream_options.include_usage
+  usagePromptTokens: number | null; // usage.prompt_tokens / input_tokens
   finishReason: string | null;  // "length" => truncated
   repetitionLoopDetected: boolean;
   toolCallArgsCorrupted: boolean;
@@ -246,6 +257,7 @@ export type AnthropicStreamMetrics = {
   streamCompleted: boolean;
   approxOutputTokens: number;   // ceil((reasoningText.length + text.length) / 4)
   usageOutputTokens: number | null; // message_delta.usage.output_tokens
+  usagePromptTokens: number | null; // usage.input_tokens
   stopReason: string | null;    // "max_tokens" => truncated
 };
 ```
@@ -689,13 +701,14 @@ type MetricDelta = { a: number|null; b: number|null; delta: number|null; pct: nu
 // delta = b - a  (null if either side null); pct = (b - a) / a (null if a is 0/null)
 ```
 
-- 시나리오별로 방출되는 델타: `ttft_p50`, `ttft_p95`(nearest-rank 백분위), `tps_per_user`(런별 TPS의 평균), `tps_aggregate`(Σtokens / Σseconds), `quality`(점수 평균), `empty_turn_rate`, `channel_tag_leak`.
-- 회귀 신호 타입(`RegressionKind`)과 정확한 규칙 — 방향이 중요하며, TPS는 **aggregate** 지표를 쓰고 TTFT는 **p95만** 쓴다는 점에 유의:
+- 시나리오별로 방출되는 델타: `ttft_p50`, `ttft_p95`(nearest-rank 백분위), `tps_per_user`(런별 **디코드** TPS의 평균), `tps_aggregate`(Σdecode_tokens / Σdecode_seconds), `prefill_tps_per_user` / `prefill_tps_aggregate`(양쪽 모두 `usage_prompt_tokens`가 있을 때만; 한쪽만 있으면 결측이지 `protocol_mismatch`가 아님), `quality`(점수 평균), `empty_turn_rate`, `channel_tag_leak`.
+- 회귀 신호 타입(`RegressionKind`)과 정확한 규칙 — 방향이 중요하며, 디코드·프리필 TPS는 **aggregate** 지표를 쓰고 TTFT는 **p95만** 쓴다는 점에 유의:
 
 | `RegressionKind` | 임계값 키 (기본값) | 발화 조건 |
 | --- | --- | --- |
 | `quality_drop` | `qualityDropAbs` (0.05) | `a.quality - b.quality > qualityDropAbs` (절대 하락) |
-| `tps_regression` | `tpsRegressionPct` (0.15) | `b.tps_aggregate < a.tps_aggregate * (1 - tpsRegressionPct)` |
+| `tps_regression` | `tpsRegressionPct` (0.15) | `b.tps_aggregate < a.tps_aggregate * (1 - tpsRegressionPct)` (디코드) |
+| `prefill_tps_regression` | `tpsRegressionPct` (0.15) | 양쪽 aggregate가 있을 때만; `b.prefill_tps_aggregate < a.prefill_tps_aggregate * (1 - tpsRegressionPct)` |
 | `ttft_regression` | `ttftRegressionPct` (0.25) | `b.ttft_p95 > a.ttft_p95 * (1 + ttftRegressionPct)` |
 | `new_empty_turns` | `flagNewEmptyTurns` (true) | `a.empty_turn_rate === 0 && b.empty_turn_rate > 0` |
 
@@ -754,12 +767,12 @@ export async function consumeOpenAiChatStream(
   signal?: AbortSignal,
   opts?: { onDelta?: (d: OpenAiStreamDelta) => void; loopGuard?: boolean; requestStartedAt?: number },
 ): Promise<OpenAiStreamMetrics>; // { ttftMs, totalMs, text, assistantText, reasoningText, toolCalls,
-                                 //   streamCompleted, approxOutputTokens, usageOutputTokens, finishReason,
+                                 //   streamCompleted, approxOutputTokens, usageOutputTokens, usagePromptTokens, finishReason,
                                  //   repetitionLoopDetected, toolCallArgsCorrupted }
 ```
 
 - TTFT는 **첫** content / `reasoning_content` / 도구 호출 델타에서 `markTtft()`가 찍으며, 기준은 `requestStartedAt ?? performance.now()`입니다.
-- 스트림은 두 가지 토큰 수를 반환합니다: `usageOutputTokens` — `usage.completion_tokens`(없으면 `usage.output_tokens`)에서 오는 프로바이더 usage로, `stream_options.include_usage`가 필요하며 없으면 `null` — 그리고 항상 계산되는 `text.length / 4` 추정치인 `approxOutputTokens`. 호출자는 usage를 우선하고 `/ 4` 근사로 폴백하므로, TPS는 자신의 출처를 정직하게 밝힙니다(`tps_source: "usage" | "approx"`).
+- 스트림은 세 가지 토큰 수를 반환합니다: `usageOutputTokens` — `usage.completion_tokens`(없으면 `usage.output_tokens`)에서 오는 프로바이더 usage로, `stream_options.include_usage`가 필요하며 없으면 `null` — 항상 계산되는 `text.length / 4` 추정치인 `approxOutputTokens` — 그리고 `usagePromptTokens`(`usage.prompt_tokens` / `input_tokens`, 없으면 `null`). 호출자는 출력 usage를 우선하고 `/ 4` 근사로 폴백하므로, 디코드 TPS는 자신의 출처를 정직하게 밝힙니다(`tps_source: "usage" | "approx"`). 프리필은 근사하지 않습니다.
 - 주석-전용 신호(잘림에 대한 `finishReason === "length"`, 이어붙은-`{}{}` 런타임 버그에 대한 `toolCallArgsCorrupted`)는 채점을 절대 바꾸지 않고 결과에 라벨만 붙입니다.
 
 **프로바이더 추상화 — `detect.ts`.** `detectProvider(rawBaseUrl, opts)`는 base URL을 정규화한 뒤 네이티브 목록 엔드포인트를 순서대로 프로브합니다(LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`). LM Studio·Ollama·Unsloth Studio 히트는 고정 `capabilities`를 받고, OpenAI 호환과 `manual` 폴스루(fall-through)는 `probeCapabilities`를 호출해 `/v1/chat/completions`와 `/v1/messages`에 일회용 `probe-model`을 POST합니다. `/v1/models` 성공 시에는 엔진 힌트만 추가로 채웁니다(SGLang `/server_info` → `/metrics`의 vllm/llamacpp/tgi 게이지 → `DetectResult.engine` / `BenchRunMeta.engine`; `ProviderKind`는 `openai_compatible` 유지). 반환된 `capabilities: { openaiChat, anthropicMessages }`는 모든 하위 러너가 라우트를 고를 때 쓰는 값이므로(`stress-runner.ts`의 `pickRoute()`, 벤치 러너의 `resolveBenchApiRoutes()`), 호출마다 흩어진 분기 대신 하나의 감지 결과를 얻습니다.
@@ -796,7 +809,9 @@ export const CompareThresholdsSchema = z.object({
 | 용어 | 설명 |
 |---|---|
 | TTFT | 요청 전송부터 첫 토큰(content / `reasoning_content` / 도구 호출 델타) 도착까지의 ms. |
-| TPS | 초당 출력 토큰 — 출력 토큰 ÷ 경과 시간. `aggregate_tps`는 스테이지를 합산하고, `tps_per_user`는 aggregate ÷ 동시성. |
+| Decode TPS | 디코드 처리량 — `(출력 토큰 − 1) ÷ (총 시간 − TTFT)`. 구 런도 읽기 시점에 재계산 가능. |
+| Prefill TPS | 프리필 처리량 — `prompt_tokens ÷ TTFT`. 구 런은 usage가 없어 재측정 필요. |
+| TPS (stress) | 스트레스 스테이지: 출력 토큰 ÷ 경과 시간. `aggregate_tps`는 스테이지를 합산하고, `tps_per_user`는 aggregate ÷ 동시성. |
 | `approxOutputTokens` | 서버가 usage 카운트를 생략할 때 쓰는 폴백 토큰 추정치(~길이/4). |
 | p50 / p95 | 스테이지 내 지연(또는 TTFT)의 중앙값 / 95백분위. |
 | warmup vs measured | warmup 런은 캐시를 예열하고 버려지며, measured 런만 지표에 반영됩니다. |

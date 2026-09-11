@@ -15,6 +15,8 @@ function response(regression: boolean): CompareResponse {
         ttft_p95: { a: 100, b: 120, delta: 20, pct: 0.2 },
         tps_per_user: { a: 30, b: 28, delta: -2, pct: -0.067 },
         tps_aggregate: { a: 30, b: 28, delta: -2, pct: -0.067 },
+        prefill_tps_per_user: { a: null, b: null, delta: null, pct: null },
+        prefill_tps_aggregate: { a: null, b: null, delta: null, pct: null },
         quality: { a: 1, b: regression ? 0.33 : 1, delta: regression ? -0.67 : 0, pct: null },
         empty_turn_rate: { a: 0, b: 0, delta: 0, pct: null },
         channel_tag_leak: { a: 0, b: 0, delta: 0, pct: null },

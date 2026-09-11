@@ -43,3 +43,47 @@ export function tokensPerSecondFromRun(
   if (at <= 0) return 0;
   return at / (ms / 1000);
 }
+
+/** UI가 어떤 TPS 축을 그리는지. `wall`은 blended(`tokensPerSecondFromRun`) — 기본 UI에서는 숨김. */
+export type TpsKind = "wall" | "decode" | "prefill";
+
+/**
+ * 디코드 TPS — llama.cpp / oMLX 관례.
+ * 분모: `total_ms - ttft_ms`. 분자: `max(0, output_tokens - 1)` (첫 토큰은 프리필+샘플에 포함).
+ * `ttft` 없음 / decode_ms ≤ 0 / 출력 토큰 ≤ 1 → null.
+ */
+export function decodeTokensPerSecondFromRun(input: {
+  totalMs: number | null | undefined;
+  ttftMs: number | null | undefined;
+  outputText?: string | null;
+  usageTokens?: number | null;
+}): number | null {
+  const totalMs = input.totalMs ?? 0;
+  const ttftMs = input.ttftMs;
+  if (ttftMs == null || !Number.isFinite(ttftMs) || ttftMs < 0) return null;
+  if (!totalMs || totalMs <= 0) return null;
+  const decodeMs = totalMs - ttftMs;
+  if (!(decodeMs > 0)) return null;
+  const at = effectiveOutputTokens(input.outputText ?? "", input.usageTokens);
+  if (at <= 1) return null;
+  return (at - 1) / (decodeMs / 1000);
+}
+
+/**
+ * 프리필 TPS — `prompt_tokens / (ttft_ms / 1000)`.
+ * `promptTokens`가 없으면 근사하지 않고 null (구 런·usage 미보고).
+ */
+export function prefillTokensPerSecondFromRun(
+  ttftMs: number | null | undefined,
+  promptTokens: number | null | undefined,
+): number | null {
+  if (ttftMs == null || !Number.isFinite(ttftMs) || ttftMs <= 0) return null;
+  if (promptTokens == null || !Number.isFinite(promptTokens) || promptTokens <= 0) return null;
+  return promptTokens / (ttftMs / 1000);
+}
+
+/** 표·차트 표시용 소수 1자리. 비양수/비유한은 null. */
+export function roundTpsDisplay(n: number | null | undefined): number | null {
+  if (n == null || !Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n * 10) / 10;
+}

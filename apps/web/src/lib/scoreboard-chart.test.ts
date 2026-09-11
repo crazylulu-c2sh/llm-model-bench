@@ -8,7 +8,7 @@ import {
 } from "./scoreboard";
 
 function srow(p: Partial<ScoringRow> & { model_id: string; scenario: string }): ScoringRow {
-  return { api: "chat_completions", ttft_ms: null, tps: null, score: null, judgeCapped: false, ...p };
+  return { api: "chat_completions", ttft_ms: null, tps: null, prefill_tps: null, score: null, judgeCapped: false, ...p };
 }
 
 describe("buildScoreboardChartData 정렬", () => {

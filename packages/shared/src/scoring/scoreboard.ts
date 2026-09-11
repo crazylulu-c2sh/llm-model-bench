@@ -1,5 +1,5 @@
 import { isAgentScenario, isVisionScenario } from "../scenarios-preview";
-import { tokensPerSecondFromRun } from "../tps";
+import { decodeTokensPerSecondFromRun, prefillTokensPerSecondFromRun } from "../tps";
 import { compareModelIdAlphanumeric } from "../model-sort";
 import { computeQualityScores, type ModelQualityScore } from "./quality-score";
 import { computeSpeedScores, type ModelSpeedScore } from "./speed-score";
@@ -10,6 +10,7 @@ export type ScoringRunInput = {
   total_ms: number;
   output_text: string;
   usage_output_tokens?: number | null;
+  usage_prompt_tokens?: number | null;
   quality?: { pass: boolean; score?: number; reason?: string };
 };
 
@@ -28,6 +29,7 @@ export type ScoringResultRow = {
   ttft_ms: number | null;
   tps?: number | null;
   tps_source?: "usage" | "approx";
+  prefill_tps?: number | null;
   score?: number;
 };
 
@@ -37,8 +39,11 @@ export type ScoringRow = {
   scenario: string;
   api: string;
   ttft_ms: number | null;
+  /** 디코드 TPS (평균). */
   tps: number | null;
   tps_source?: "usage" | "approx";
+  /** 프리필 TPS (평균). 구 런은 null. */
+  prefill_tps: number | null;
   score: number | null;
   judgeCapped: boolean;
 };
@@ -89,6 +94,8 @@ export function averageRunsToScoringRow(
   let ttftN = 0;
   let tpsSum = 0;
   let tpsN = 0;
+  let prefillSum = 0;
+  let prefillN = 0;
   let scoreSum = 0;
   let scoreN = 0;
   let anyTps = false;
@@ -100,12 +107,22 @@ export function averageRunsToScoringRow(
       ttftSum += run.ttft_ms;
       ttftN += 1;
     }
-    const tps = tokensPerSecondFromRun(run.total_ms, run.output_text, run.usage_output_tokens);
-    if (tps > 0) {
+    const tps = decodeTokensPerSecondFromRun({
+      totalMs: run.total_ms,
+      ttftMs: run.ttft_ms,
+      outputText: run.output_text,
+      usageTokens: run.usage_output_tokens,
+    });
+    if (tps != null && tps > 0) {
       tpsSum += tps;
       tpsN += 1;
       anyTps = true;
       if (!(run.usage_output_tokens != null && run.usage_output_tokens > 0)) allUsage = false;
+    }
+    const prefill = prefillTokensPerSecondFromRun(run.ttft_ms, run.usage_prompt_tokens);
+    if (prefill != null && prefill > 0) {
+      prefillSum += prefill;
+      prefillN += 1;
     }
     const s = run.quality?.score;
     if (typeof s === "number" && Number.isFinite(s)) {
@@ -122,6 +139,7 @@ export function averageRunsToScoringRow(
     ttft_ms: ttftN > 0 ? ttftSum / ttftN : null,
     tps: tpsN > 0 ? tpsSum / tpsN : null,
     tps_source: anyTps ? (allUsage ? "usage" : "approx") : undefined,
+    prefill_tps: prefillN > 0 ? prefillSum / prefillN : null,
     score: scoreN > 0 ? scoreSum / scoreN : null,
     judgeCapped,
   };
@@ -145,6 +163,7 @@ export function buildScoringRows(
         ttft_ms: r.ttft_ms,
         tps: r.tps ?? null,
         tps_source: r.tps_source,
+        prefill_tps: r.prefill_tps ?? null,
         score: typeof r.score === "number" && Number.isFinite(r.score) ? r.score : null,
         judgeCapped: false,
       };
@@ -200,6 +219,11 @@ function emptySpeed(id: string): ModelSpeedScore {
     tpsMedian: null,
     tpsMin: null,
     tpsMax: null,
+    prefillScore: null,
+    prefillScoredRows: 0,
+    prefillTpsMedian: null,
+    prefillTpsMin: null,
+    prefillTpsMax: null,
   } as const;
   return { model_id: id, text: g, vision: g, agent: g, total: g, textOnly: false, approxCaveat: false };
 }

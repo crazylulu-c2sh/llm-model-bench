@@ -18,6 +18,8 @@ export type AnthropicStreamMetrics = {
   approxOutputTokens: number;
   /** provider 응답의 `message_delta.usage.output_tokens` (없으면 null) */
   usageOutputTokens: number | null;
+  /** provider 응답의 `usage.input_tokens` (없으면 null) */
+  usagePromptTokens: number | null;
   /**
    * `content_block_start`로 thinking(또는 redacted_thinking) 블록이 실제로 왔는지.
    * `reasoningText.length > 0`과 달리 "서버가 추론 채널을 열었다"는 **사실**이라, 추론이 비어 있어도
@@ -61,6 +63,7 @@ export async function consumeAnthropicMessagesStream(
       streamCompleted: false,
       approxOutputTokens: 0,
       usageOutputTokens: null,
+      usagePromptTokens: null,
       sawThinkingBlock: false,
       stopReason: null,
     };
@@ -75,6 +78,7 @@ export async function consumeAnthropicMessagesStream(
   let sawMessageDelta = false;
   let sawThinkingBlock = false;
   let usageOutputTokens: number | null = null;
+  let usagePromptTokens: number | null = null;
   let lastStopReason: string | null = null;
   const onDelta = opts?.onDelta;
 
@@ -117,14 +121,18 @@ export async function consumeAnthropicMessagesStream(
           /** `message_delta` 이벤트에서만 채워짐. `"max_tokens"` 등. */
           stop_reason?: string | null;
         };
-        usage?: { output_tokens?: number };
-        message?: { usage?: { output_tokens?: number } };
+        usage?: { output_tokens?: number; input_tokens?: number };
+        message?: { usage?: { output_tokens?: number; input_tokens?: number } };
       };
 
       const usageOut =
         j.usage?.output_tokens ?? j.message?.usage?.output_tokens ?? null;
       if (typeof usageOut === "number" && usageOut >= 0) {
         usageOutputTokens = usageOut;
+      }
+      const usageIn = j.usage?.input_tokens ?? j.message?.usage?.input_tokens ?? null;
+      if (typeof usageIn === "number" && usageIn >= 0) {
+        usagePromptTokens = usageIn;
       }
 
       // `message_delta` 이벤트의 stop_reason 캡처. `sawMessageDelta`(스트림 완료 신호)와
@@ -254,6 +262,7 @@ export async function consumeAnthropicMessagesStream(
     streamCompleted: sawMessageDelta || outText.length > 0 || reasoningText.length > 0,
     approxOutputTokens,
     usageOutputTokens,
+    usagePromptTokens,
     sawThinkingBlock,
     stopReason: lastStopReason,
   };

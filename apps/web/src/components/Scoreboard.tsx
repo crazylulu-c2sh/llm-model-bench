@@ -36,7 +36,7 @@ import {
 import { cycleKeyedSort } from "../lib/column-sort-cycle";
 import type { QualityGroupScore } from "../lib/quality-score";
 import type { SpeedGroup } from "../lib/speed-score";
-import { BAND_COLOR, qualityBand, type ScoreBand } from "../lib/score-bands";
+import { BAND_COLOR, qualityBand, speedRelativeBand, type ScoreBand } from "../lib/score-bands";
 import { getTpsTier, tpsTierColor } from "../lib/tps-tier";
 import { PARAM_TIER_ORDER, paramTierColor, paramTierLabel } from "../lib/param-tier";
 import { ScoreboardChart, Segmented } from "./ScoreboardChart";
@@ -145,7 +145,37 @@ function SpeedCell({ g, max }: { g: SpeedGroup; max: number }) {
   );
 }
 
-/** 지연 셀: raw TTFT 평균(ms, 낮을수록 좋음). 점수·막대·밴드 없음. */
+/** 프리필 셀: tok/s 중앙값 + 열 최고 대비 상대 막대 + 점수. 구 런은 —. 색만으로 축 구분하지 않음(라벨 병행). */
+function PrefillSpeedCell({ g, max }: { g: SpeedGroup; max: number }) {
+  const { m } = useI18n();
+  if (g.prefillTpsMedian == null) {
+    return (
+      <span className="font-mono text-xs text-[var(--muted)]" title={m.scoreboard.prefillMissingTitle}>
+        —
+      </span>
+    );
+  }
+  const color = BAND_COLOR[speedRelativeBand(g.prefillTpsMedian, max)];
+  const range =
+    g.prefillTpsMin != null && g.prefillTpsMax != null
+      ? m.scoreboard.speedCellRange(formatTps(g.prefillTpsMin), formatTps(g.prefillTpsMax))
+      : "";
+  return (
+    <span
+      className="inline-flex w-full flex-col items-center leading-tight"
+      title={m.scoreboard.speedCellTitle(formatTps(g.prefillTpsMedian), range, g.prefillScore)}
+    >
+      <span className="font-mono text-xs font-semibold" style={{ color }}>
+        {formatTps(g.prefillTpsMedian)}
+        <span className="text-[10px] font-normal text-[var(--muted)]"> tok/s</span>
+      </span>
+      <ScoreBar value={g.prefillTpsMedian} color={color} max={max} />
+      {g.prefillScore != null ? (
+        <span className="mt-0.5 text-[10px] text-[var(--muted)]">{m.scoreboard.scorePoints(g.prefillScore)}</span>
+      ) : null}
+    </span>
+  );
+}
 function TtftCell({ g }: { g: SpeedGroup }) {
   return g.ttftMs == null ? (
     <span className="font-mono text-xs text-[var(--muted)]">—</span>
@@ -232,7 +262,7 @@ function SortHeader({
   );
 }
 
-/** 한 그룹(text|vision|total)의 품질/속도/지연 정렬 헤더 3셀. */
+/** 한 그룹(text|vision|agent|total)의 품질/프리필/디코드/지연 정렬 헤더 4셀. */
 function GroupSortHeaders({
   group,
   sort,
@@ -251,6 +281,14 @@ function GroupSortHeaders({
         title={m.scoreboard.metricTitle.quality}
         thClassName={`${base} ${GROUP_BORDER}`}
         sortKey={{ kind: "metric", group, metric: "quality" }}
+        sort={sort}
+        onSort={onSort}
+      />
+      <SortHeader
+        label={m.scoreboard.metricLabel.prefill}
+        title={m.scoreboard.metricTitle.prefill}
+        thClassName={base}
+        sortKey={{ kind: "metric", group, metric: "prefill" }}
         sort={sort}
         onSort={onSort}
       />
@@ -302,8 +340,8 @@ function ScoreboardSkeletonRow({
           <ModelLabel modelId={modelId} size={14} className="max-w-[20rem]" />
         </span>
       </td>
-      {Array.from({ length: 12 }, (_, ci) => (
-        <td key={ci} className={`p-2 text-center${ci % 3 === 0 ? ` ${GROUP_BORDER}` : ""}`}>
+      {Array.from({ length: 16 }, (_, ci) => (
+        <td key={ci} className={`p-2 text-center${ci % 4 === 0 ? ` ${GROUP_BORDER}` : ""}`}>
           <div className={pulse} />
         </td>
       ))}
@@ -317,6 +355,7 @@ function ScoreboardDataRow({
   barColor,
   multiModel,
   maxSpeed,
+  maxPrefill,
   provider,
   publisher,
   loading = false,
@@ -327,6 +366,7 @@ function ScoreboardDataRow({
   barColor?: string;
   multiModel: boolean;
   maxSpeed: { text: number; vision: number; agent: number; total: number };
+  maxPrefill: { text: number; vision: number; agent: number; total: number };
   provider?: ProviderKind;
   publisher?: string;
   loading?: boolean;
@@ -389,6 +429,9 @@ function ScoreboardDataRow({
         <QualityCell g={qText} capped={false} pending={pText} />
       </td>
       <td className="p-2 text-center">
+        <PrefillSpeedCell g={b.speed.text} max={maxPrefill.text} />
+      </td>
+      <td className="p-2 text-center">
         <SpeedCell g={b.speed.text} max={maxSpeed.text} />
       </td>
       <td className="p-2 text-center">
@@ -396,6 +439,9 @@ function ScoreboardDataRow({
       </td>
       <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(qVision, m.scoreboard.bandLabel)}>
         <QualityCell g={qVision} capped={cap} pending={pVision} />
+      </td>
+      <td className="p-2 text-center">
+        <PrefillSpeedCell g={b.speed.vision} max={maxPrefill.vision} />
       </td>
       <td className="p-2 text-center">
         <SpeedCell g={b.speed.vision} max={maxSpeed.vision} />
@@ -407,6 +453,9 @@ function ScoreboardDataRow({
         <QualityCell g={qAgent} capped={cap} pending={pAgent} />
       </td>
       <td className="p-2 text-center">
+        <PrefillSpeedCell g={b.speed.agent} max={maxPrefill.agent} />
+      </td>
+      <td className="p-2 text-center">
         <SpeedCell g={b.speed.agent} max={maxSpeed.agent} />
       </td>
       <td className="p-2 text-center">
@@ -414,6 +463,9 @@ function ScoreboardDataRow({
       </td>
       <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(qTotal, m.scoreboard.bandLabel)}>
         <QualityCell g={qTotal} capped={cap} pending={pTotal} />
+      </td>
+      <td className="p-2 text-center">
+        <PrefillSpeedCell g={b.speed.total} max={maxPrefill.total} />
       </td>
       <td className="p-2 text-center">
         <SpeedCell g={b.speed.total} max={maxSpeed.total} />
@@ -537,6 +589,16 @@ export function Scoreboard({
       if (b.speed.vision.tpsMedian != null) m.vision = Math.max(m.vision, b.speed.vision.tpsMedian);
       if (b.speed.agent.tpsMedian != null) m.agent = Math.max(m.agent, b.speed.agent.tpsMedian);
       if (b.speed.total.tpsMedian != null) m.total = Math.max(m.total, b.speed.total.tpsMedian);
+    }
+    return m;
+  }, [filteredBoard]);
+  const maxPrefill = useMemo(() => {
+    const m = { text: 0, vision: 0, agent: 0, total: 0 };
+    for (const b of filteredBoard) {
+      if (b.speed.text.prefillTpsMedian != null) m.text = Math.max(m.text, b.speed.text.prefillTpsMedian);
+      if (b.speed.vision.prefillTpsMedian != null) m.vision = Math.max(m.vision, b.speed.vision.prefillTpsMedian);
+      if (b.speed.agent.prefillTpsMedian != null) m.agent = Math.max(m.agent, b.speed.agent.prefillTpsMedian);
+      if (b.speed.total.prefillTpsMedian != null) m.total = Math.max(m.total, b.speed.total.prefillTpsMedian);
     }
     return m;
   }, [filteredBoard]);
@@ -691,7 +753,7 @@ export function Scoreboard({
         <AgentMetricsTable metrics={filteredAgentMetrics} />
       ) : (
       <div className="overflow-x-auto rounded border border-[var(--border)]">
-        <table className="w-full min-w-[58rem] text-left text-sm">
+        <table className="w-full min-w-[72rem] text-left text-sm">
           <caption className="sr-only">{m.scoreboard.tableCaption}</caption>
           <thead className="bg-[var(--surface)] text-[var(--muted)]">
             <tr>
@@ -704,16 +766,16 @@ export function Scoreboard({
                 onSort={onSortClick}
                 rowSpan={2}
               />
-              <th colSpan={3} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+              <th colSpan={4} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
                 {m.scoreboard.groupLabel.text}
               </th>
-              <th colSpan={3} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+              <th colSpan={4} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
                 {m.scoreboard.groupLabel.vision}
               </th>
-              <th colSpan={3} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+              <th colSpan={4} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
                 {m.scoreboard.groupLabel.agent}
               </th>
-              <th colSpan={3} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
+              <th colSpan={4} scope="colgroup" className={`p-2 text-center font-medium ${GROUP_BORDER}`}>
                 {m.scoreboard.groupLabel.total}
               </th>
             </tr>
@@ -738,6 +800,7 @@ export function Scoreboard({
                         barColor={barColor}
                         multiModel={multiModel}
                         maxSpeed={maxSpeed}
+                        maxPrefill={maxPrefill}
                         provider={providerByModel?.get(modelId)}
                         loading={loading}
                         planned={planned}
@@ -762,6 +825,7 @@ export function Scoreboard({
                     barColor={multiModel ? colorByModel.get(b.model_id) : undefined}
                     multiModel={multiModel}
                     maxSpeed={maxSpeed}
+                    maxPrefill={maxPrefill}
                     provider={providerByModel?.get(b.model_id)}
                     publisher={publisherByModel.get(b.model_id)}
                     planned={planned}

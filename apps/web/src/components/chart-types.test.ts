@@ -18,6 +18,7 @@ function row(scenario: string, api: string, modelId?: string): ChartRow {
     api,
     ttft: 1,
     tps: 1,
+    prefillTps: 1,
     modelId,
   };
 }

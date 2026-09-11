@@ -5,7 +5,7 @@ export const scoreboard: Messages["scoreboard"] = {
   title: "Scoreboard",
   vendorOther: "Other",
   groupLabel: { text: "Text", vision: "Vision", agent: "Agent", total: "Total" },
-  metricLabel: { quality: "Quality", speed: "Speed", latency: "Latency" },
+  metricLabel: { quality: "Quality", prefill: "Prefill", speed: "Decode", latency: "Latency" },
   bandLabel: { high: "Excellent", good: "Good", mid: "Fair", low: "Low" },
   capTitle:
     "Rubric-scored scenarios (vision·agent) are capped without LLM_JUDGE_ENABLED=1 — their quality and the total may read low",
@@ -13,8 +13,10 @@ export const scoreboard: Messages["scoreboard"] = {
     "Provider reported no usage tokens, so tokens are estimated as chars/4 (approx) — large error on CJK/code",
   metricTitle: {
     quality: "Accuracy·rubric (0–100)",
+    prefill:
+      "Median prefill TPS (prompt_tokens ÷ TTFT seconds). Older runs have no usage so this is —. The small number below is the score at 150 tok/s = 1000",
     speed: "Median decode TPS (actual tok/s). Sort/color basis. The small number below is the score at 30 tok/s = 1000",
-    latency: "Time-To-First-Token, ms to first token (lower is better, not scored)",
+    latency: "Time-To-First-Token, ms to first token (lower is better, not scored). Distinct from prefill tok/s",
   },
   viewAria: "View",
   viewChart: "Chart",
@@ -33,12 +35,12 @@ export const scoreboard: Messages["scoreboard"] = {
   sortDirSuffix: (dir: string) => ` (${dir})`,
   textOnlyBadgeTitle: "Vision·agent scenarios not run — total equals the text score",
   intro:
-    "Quality is an absolute score (0–100), speed is the median decode TPS (actual tok/s) and color is the absolute tier (comfortable ≥30·usable ≥15·acceptable ≥5); the small number is the score at 30 tok/s = 1000. Latency (TTFT) is ms to first token, lower is better (not scored). Averaged over measured runs · text/vision weight scenarios equally, total pools everything.",
+    "Quality is an absolute score (0–100). Speed has two axes (prefill and decode) that are not combined. Decode is median TPS (actual tok/s) and color is the absolute tier (comfortable ≥30·usable ≥15·acceptable ≥5); the small number is the score at 30 tok/s = 1000. Prefill is prompt_tokens÷TTFT (150 tok/s = 1000). Older runs show — for prefill. Latency (TTFT) is ms to first token, lower is better (not scored). Averaged over measured runs · text/vision weight scenarios equally, total pools everything.",
   introChartHint: " Hover a bar for details.",
   introTableHint: " Click a header to sort.",
   legendQualityBand: "Quality color = absolute score band:",
   legendSpeedLatency:
-    "Speed = median decode TPS (tok/s) · color = absolute tier·bar = relative to column max · latency = TTFT ms (lower is better)",
+    "Prefill = prompt_tokens÷TTFT · Decode = median output TPS (tok/s) · color = absolute tier·bar = relative to column max · latency = TTFT ms (lower is better, distinct from prefill tok/s)",
   vendorFilterLabel: "Vendor:",
   vendorShow: "show",
   vendorHide: "hide",
@@ -48,9 +50,10 @@ export const scoreboard: Messages["scoreboard"] = {
   paramTier: { tiny: "Tiny", small: "Small", medium: "Medium", large: "Large" },
   paramTierUnknown: "Unknown",
   allFilteredOut: "All models are hidden by the filters. Pick a filter above to show them again.",
-  tableCaption: "Per-model text·vision·agent·total quality·speed·latency scoreboard",
+  tableCaption: "Per-model text·vision·agent·total quality·prefill·decode·latency scoreboard",
   qualityTag: "(quality)",
-  speedTag: "(speed)",
+  speedTag: "(decode)",
+  prefillMissingTitle: "Older run — prompt_tokens were not stored, so prefill TPS cannot be recomputed. Re-measure.",
   textOnlyFootnote: "Vision scenarios were not run, so the total is computed from the text score only.",
   modelFallback: "Model",
   chartTextOnlyNote: "text-only — total equals the text score",

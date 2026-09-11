@@ -5,7 +5,7 @@ export const scoreboard: Messages["scoreboard"] = {
   title: "スコアボード",
   vendorOther: "その他",
   groupLabel: { text: "テキスト", vision: "ビジョン", agent: "エージェント", total: "合計" },
-  metricLabel: { quality: "品質", speed: "速度", latency: "レイテンシ" },
+  metricLabel: { quality: "品質", prefill: "プリフィル", speed: "デコード", latency: "レイテンシ" },
   bandLabel: { high: "優秀", good: "良好", mid: "普通", low: "低い" },
   capTitle:
     "ルーブリック採点シナリオ（ビジョン・エージェント）が LLM_JUDGE_ENABLED=1 なしでキャップ — 該当・合計の品質が低く出ることがあります",
@@ -13,8 +13,10 @@ export const scoreboard: Messages["scoreboard"] = {
     "provider が usage トークンを返さず chars/4 で推定（approx）— CJK・コードで誤差が大きい",
   metricTitle: {
     quality: "正答率・ルーブリック（0〜100）",
+    prefill:
+      "プリフィル TPS 中央値（prompt_tokens ÷ TTFT 秒）。旧ランは usage がなく —。下の小さい数字は基準 150 tok/s=1000 のスコア",
     speed: "デコード TPS 中央値（実 tok/s）。ソート・色の基準。下の小さい数字は基準 30 tok/s=1000 のスコア",
-    latency: "Time-To-First-Token、最初のトークンまでの ms（低いほど良い、スコア対象外）",
+    latency: "Time-To-First-Token、最初のトークンまでの ms（低いほど良い、スコア対象外）。プリフィル tok/s とは役割が異なる",
   },
   viewAria: "表示",
   viewChart: "チャート",
@@ -33,12 +35,12 @@ export const scoreboard: Messages["scoreboard"] = {
   sortDirSuffix: (dir: string) => `（${dir}）`,
   textOnlyBadgeTitle: "ビジョン・エージェントのシナリオ未実行 — 合計はテキストスコアと同じ",
   intro:
-    "品質は絶対スコア（0〜100）、速度はデコード TPS 中央値（実 tok/s）で色は絶対 tier（快適≥30・実用的≥15・採用可能≥5）、小さい数字は基準 30 tok/s=1000 のスコア。レイテンシ（TTFT）は最初のトークンまでの ms で低いほど良い（スコア対象外）。測定ラン平均 · テキスト/ビジョンはシナリオ同一重み、合計は全体プーリング。",
+    "品質は絶対スコア（0〜100）。速度はプリフィル・デコードの 2 軸で合算しません。デコードは TPS 中央値（実 tok/s）で色は絶対 tier（快適≥30・実用的≥15・採用可能≥5）、小さい数字は基準 30 tok/s=1000 のスコア。プリフィルは prompt_tokens÷TTFT（基準 150 tok/s=1000）。旧ランのプリフィルは —。レイテンシ（TTFT）は最初のトークンまでの ms で低いほど良い（スコア対象外）。測定ラン平均 · テキスト/ビジョンはシナリオ同一重み、合計は全体プーリング。",
   introChartHint: " バーにカーソルを合わせると詳細。",
   introTableHint: " ヘッダーを押してソート。",
   legendQualityBand: "品質の色 = 絶対スコアのバンド:",
   legendSpeedLatency:
-    "速度 = デコード TPS 中央値（tok/s）· 色=絶対 tier·バー=列最高比の相対 · レイテンシ = TTFT ms（低いほど良い）",
+    "プリフィル = prompt_tokens÷TTFT · デコード = 出力 TPS 中央値（tok/s）· 色=絶対 tier·バー=列最高比の相対 · レイテンシ = TTFT ms（低いほど良い、プリフィル tok/s とは別）",
   vendorFilterLabel: "ベンダー:",
   vendorShow: "表示",
   vendorHide: "非表示",
@@ -48,9 +50,10 @@ export const scoreboard: Messages["scoreboard"] = {
   paramTier: { tiny: "Tiny", small: "Small", medium: "Medium", large: "Large" },
   paramTierUnknown: "Unknown",
   allFilteredOut: "フィルターによってすべてのモデルが非表示です。上のフィルターで選び直して再表示してください。",
-  tableCaption: "モデル別のテキスト・ビジョン・エージェント・合計の品質・速度・レイテンシのスコアボード",
+  tableCaption: "モデル別のテキスト・ビジョン・エージェント・合計の品質・プリフィル・デコード・レイテンシのスコアボード",
   qualityTag: "（品質）",
-  speedTag: "（速度）",
+  speedTag: "（デコード）",
+  prefillMissingTitle: "旧ラン — prompt_tokens が保存されていないためプリフィル TPS を再計算できません。再測定してください。",
   textOnlyFootnote: "ビジョンシナリオを実行していないため、合計はテキストスコアのみで計算されています。",
   modelFallback: "モデル",
   chartTextOnlyNote: "text-only — 合計はテキストスコアと同じ",

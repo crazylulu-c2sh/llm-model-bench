@@ -52,4 +52,17 @@ describe("mergeBenchDetailsToState — #182/#183 field relay", () => {
     const { rows } = mergeBenchDetailsToState([detail()]);
     expect(rows[0]?.reasoning_control_ignored).toBeUndefined();
   });
+
+  it("구 런은 디코드 TPS만 채우고 프리필은 null", () => {
+    const { rows } = mergeBenchDetailsToState([detail()]);
+    // decode: (7 − 1) / ((100 − 10) / 1000) = 66.666… → 66.7
+    expect(rows[0]?.tps).toBe(66.7);
+    expect(rows[0]?.prefill_tps).toBeNull();
+  });
+
+  it("usage_prompt_tokens가 있으면 프리필 TPS를 채운다", () => {
+    const { rows } = mergeBenchDetailsToState([detail({ usage_prompt_tokens: 50 })]);
+    // 50 tok / 0.01s = 5000
+    expect(rows[0]?.prefill_tps).toBe(5000);
+  });
 });

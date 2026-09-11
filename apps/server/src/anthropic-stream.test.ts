@@ -75,6 +75,26 @@ describe("consumeAnthropicMessagesStream", () => {
     const m = await consumeAnthropicMessagesStream(body);
     expect(m.text).toBe("Hello");
     expect(m.usageOutputTokens).toBe(12);
+    expect(m.usagePromptTokens).toBeNull();
+  });
+
+  it("captures usage.input_tokens from message_delta", async () => {
+    const body = streamFrom([
+      block("content_block_delta", {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "Hello" },
+      }),
+      block("message_delta", {
+        type: "message_delta",
+        delta: { stop_reason: "end_turn" },
+        usage: { output_tokens: 12, input_tokens: 40 },
+      }),
+      block("message_stop", { type: "message_stop" }),
+    ]);
+    const m = await consumeAnthropicMessagesStream(body);
+    expect(m.usageOutputTokens).toBe(12);
+    expect(m.usagePromptTokens).toBe(40);
   });
 
   it("leaves usageOutputTokens null when message_delta omits usage", async () => {

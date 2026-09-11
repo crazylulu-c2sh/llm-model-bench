@@ -35,8 +35,10 @@ export type ResultRow = {
   ttft_ms: number | null;
   /** TPS·출력 토큰 산정에 쓴 토큰 수(usage 실토큰 또는 글자수/4 근사); 없으면 null */
   output_tokens?: number | null;
-  /** 초당 출력 토큰(usage 실토큰 또는 글자수/4 근사); 없으면 null */
+  /** 초당 디코드 토큰; 없으면 null */
   tps?: number | null;
+  /** 초당 프리필 토큰. 구 런·usage 없으면 null */
+  prefill_tps?: number | null;
   /** TPS·출력 토큰 산정에 provider 실토큰을 썼는지 — "approx"면 `*`·경고 표기 */
   tps_source?: "usage" | "approx";
   /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의 배지 */
@@ -173,6 +175,7 @@ export function ResultsTable({
           api: r.api,
           ttft_ms: r.ttft_ms,
           tps: r.tps,
+          prefill_tps: r.prefill_tps,
         })),
       ),
     [rows],
@@ -430,6 +433,58 @@ export function ResultsTable({
           return x - y;
         },
       }),
+      columnHelper.accessor("prefill_tps", {
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
+            title={m.results.table.colPrefillTpsTitle}
+            onClick={() => onColumnSort(column.id)}
+          >
+            {m.results.table.colPrefillTps}
+            {sortDirIcon(column, sorting)}
+          </button>
+        ),
+        cell: ({ row, getValue }) => {
+          const v = getValue();
+          const agent = isAgentScenario(row.original.scenario);
+          const hidden = row.original.reasoning_hidden;
+          const extra = [
+            hidden ? m.results.table.reasoningHiddenTitle : "",
+            agent ? m.results.table.agentTurnSumTitle : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+          if (v === null || v === undefined) {
+            const missing = m.results.table.prefillMissingTitle;
+            return (
+              <span
+                className="whitespace-nowrap font-mono text-xs"
+                title={extra ? `${missing} ${extra}` : missing}
+              >
+                —
+              </span>
+            );
+          }
+          const win = winners.get(row.original.rowKey)?.prefill_tps ?? false;
+          const baseTitle = win ? m.results.table.prefillWinTitle : m.results.table.colPrefillTpsTitle;
+          return (
+            <span
+              className={`whitespace-nowrap font-mono text-xs${win ? " font-bold" : ""}`}
+              style={win ? { color: "var(--dir-higher)" } : undefined}
+              title={extra ? `${baseTitle} ${extra}` : baseTitle}
+            >
+              {win ? <span aria-hidden className="mr-0.5">▴</span> : null}
+              {v}
+            </span>
+          );
+        },
+        sortingFn: (a, b) => {
+          const x = a.original.prefill_tps ?? -1;
+          const y = b.original.prefill_tps ?? -1;
+          return x - y;
+        },
+      }),
       columnHelper.accessor("tps", {
         header: ({ column }) => (
           <button
@@ -438,26 +493,39 @@ export function ResultsTable({
             title={m.results.table.colTpsTitle}
             onClick={() => onColumnSort(column.id)}
           >
-            TPS (tok/s)
+            {m.results.table.colDecodeTps}
             {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: ({ row, getValue }) => {
           const v = getValue();
-          if (v === null || v === undefined) return <span className="whitespace-nowrap font-mono text-xs">—</span>;
+          if (v === null || v === undefined) {
+            return (
+              <span className="whitespace-nowrap font-mono text-xs" title={m.results.table.tpsMissingTitle}>
+                —
+              </span>
+            );
+          }
           const approx = row.original.tps_source === "approx";
           const win = winners.get(row.original.rowKey)?.tps ?? false;
+          const agent = isAgentScenario(row.original.scenario);
+          const hidden = row.original.reasoning_hidden;
+          const baseTitle = win
+            ? m.results.table.tpsWinTitle
+            : approx
+              ? m.results.table.tpsApproxTitle
+              : m.results.table.tpsUsageTitle;
+          const extra = [
+            hidden ? m.results.table.reasoningHiddenTitle : "",
+            agent ? m.results.table.agentTurnSumTitle : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
           return (
             <span
               className={`whitespace-nowrap font-mono text-xs${win ? " font-bold" : ""}`}
               style={win ? { color: "var(--dir-higher)" } : undefined}
-              title={
-                win
-                  ? m.results.table.tpsWinTitle
-                  : approx
-                    ? m.results.table.tpsApproxTitle
-                    : m.results.table.tpsUsageTitle
-              }
+              title={extra ? `${baseTitle} ${extra}` : baseTitle}
             >
               {win ? <span aria-hidden className="mr-0.5">▴</span> : null}
               {v}

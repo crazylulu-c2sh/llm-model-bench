@@ -194,6 +194,7 @@ describe("openAiBenchOutputText", () => {
         streamCompleted: true,
         approxOutputTokens: 1,
         usageOutputTokens: null,
+        usagePromptTokens: null,
         usageReasoningTokens: null,
         finishReason: null,
         repetitionLoopDetected: false,
@@ -214,6 +215,7 @@ describe("openAiBenchOutputText", () => {
         streamCompleted: true,
         approxOutputTokens: 4,
         usageOutputTokens: null,
+        usagePromptTokens: null,
         usageReasoningTokens: null,
         finishReason: null,
         repetitionLoopDetected: false,
@@ -233,6 +235,17 @@ describe("usage capture & onDelta", () => {
     const m = await consumeOpenAiChatStream(stream);
     expect(m.text).toBe("hi");
     expect(m.usageOutputTokens).toBe(7);
+    expect(m.usagePromptTokens).toBe(3);
+  });
+
+  it("captures usage.input_tokens when prompt_tokens is absent", async () => {
+    const stream = sse([
+      'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+      'data: {"choices":[],"usage":{"completion_tokens":7,"input_tokens":11}}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.usagePromptTokens).toBe(11);
   });
 
   it("leaves usageOutputTokens null when provider does not send usage", async () => {
@@ -242,6 +255,7 @@ describe("usage capture & onDelta", () => {
     ]);
     const m = await consumeOpenAiChatStream(stream);
     expect(m.usageOutputTokens).toBeNull();
+    expect(m.usagePromptTokens).toBeNull();
   });
 
   it("#182: captures usage.completion_tokens_details.reasoning_tokens from terminal usage chunk", async () => {
@@ -372,6 +386,7 @@ describe("openAiLiveTokenStreamText", () => {
         streamCompleted: true,
         approxOutputTokens: 1,
         usageOutputTokens: null,
+        usagePromptTokens: null,
         usageReasoningTokens: null,
         finishReason: null,
         repetitionLoopDetected: false,
