@@ -1,4 +1,4 @@
-import { compareScenarioBenchOrder, compareStringsPinned, tokensPerSecondFromRun } from "@llm-bench/shared";
+import { compareScenarioBenchOrder, compareStringsPinned, decodeTokensPerSecondFromRun, prefillTokensPerSecondFromRun, tokensPerSecondFromRun } from "@llm-bench/shared";
 import { truncateChartLabel } from "../lib/chart-theme";
 
 /** 실제 실행 순서(`benchScenarioOrder`) 미전달 시 기본값 — 매 렌더 새 배열 생성으로 인한 참조 불안정 방지용 안정 상수 */
@@ -16,8 +16,10 @@ export type ChartRow = {
   scenario: string;
   api: string;
   ttft: number;
-  /** 초당 출력 토큰(usage 있으면 실토큰, 없으면 글자수/4 근사); 0이면 막대 미표시에 가깝게 처리 */
+  /** 디코드 TPS; 0이면 막대 미표시에 가깝게 처리 */
   tps: number;
+  /** 프리필 TPS; 0이면 막대 미표시 */
+  prefillTps: number;
   /** TPS 산정에 provider 실토큰을 썼는지 — 툴팁 표기용 */
   tpsSource?: "usage" | "approx";
   /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의 */
@@ -136,13 +138,21 @@ export function rowsToChartData(
     total_ms?: number | null;
     output_text?: string | null;
     usage_output_tokens?: number | null;
+    usage_prompt_tokens?: number | null;
     reasoning_hidden?: boolean;
   }[],
 ): ChartRow[] {
   return rows.map((r, i) => {
     const modelSuffix = r.model_id ? ` · ${r.model_id}` : "";
     const fullLabel = `${r.scenario} (${apiShort(r.api)})${modelSuffix}`;
-    const tps = tokensPerSecondFromRun(r.total_ms ?? undefined, r.output_text ?? undefined, r.usage_output_tokens);
+    const tps =
+      decodeTokensPerSecondFromRun({
+        totalMs: r.total_ms,
+        ttftMs: r.ttft_ms,
+        outputText: r.output_text,
+        usageTokens: r.usage_output_tokens,
+      }) ?? 0;
+    const prefillTps = prefillTokensPerSecondFromRun(r.ttft_ms, r.usage_prompt_tokens) ?? 0;
     return {
       id: scenarioRowKey(r.scenario, r.api, r.model_id) + `|${i}`,
       labelShort: truncateChartLabel(fullLabel),
@@ -151,6 +161,7 @@ export function rowsToChartData(
       api: r.api,
       ttft: r.ttft_ms ?? 0,
       tps,
+      prefillTps,
       tpsSource: r.usage_output_tokens != null && r.usage_output_tokens > 0 ? "usage" : "approx",
       reasoningHidden: r.reasoning_hidden,
       pass: r.pass,
@@ -169,15 +180,16 @@ export type PivotCompareRow = {
   label: string;
   scenario: string;
   api: string;
-  byModel: Record<string, { ttft: number; tps: number; pass?: boolean }>;
+  byModel: Record<string, { ttft: number; tps: number; prefillTps: number; pass?: boolean }>;
   /** `compareSeries` 배열 인덱스와 동일 순서 — 모델 id 문자열 불일치 시에도 레이더·막대가 안정적으로 조회됨 */
-  bySeriesIndex: Array<{ ttft: number; tps: number; pass?: boolean } | undefined>;
+  bySeriesIndex: Array<{ ttft: number; tps: number; prefillTps: number; pass?: boolean } | undefined>;
 };
 
-function rowMetrics(row: ChartRow): { ttft: number; tps: number; pass?: boolean } {
+function rowMetrics(row: ChartRow): { ttft: number; tps: number; prefillTps: number; pass?: boolean } {
   return {
     ttft: Number(row.ttft) || 0,
     tps: Number(row.tps) || 0,
+    prefillTps: Number(row.prefillTps) || 0,
     pass: row.pass,
   };
 }
@@ -213,7 +225,7 @@ export function pivotCompareSeries(
   });
   return keyOrder.map((k) => {
     const meta = keyMeta.get(k)!;
-    const byModel: Record<string, { ttft: number; tps: number; pass?: boolean }> = {};
+    const byModel: Record<string, { ttft: number; tps: number; prefillTps: number; pass?: boolean }> = {};
     const bySeriesIndex: PivotCompareRow["bySeriesIndex"] = series.map((s) => {
       const row = s.rows.find((r) => r.scenario === meta.scenario && r.api === meta.api);
       if (!row) return undefined;
@@ -237,6 +249,7 @@ export type FlatBarDatum = {
   seriesIndex: number;
   ttft: number;
   tps: number;
+  prefillTps: number;
   pass?: boolean;
   /** 시나리오·API 그룹 사이 빈 Y축 카테고리(비교 멀티 모델 시 삽입) */
   categorySpacer?: true;
@@ -263,6 +276,7 @@ export function comparePivotToFlatBarData(
         seriesIndex: si,
         ttft: v?.ttft ?? 0,
         tps: v?.tps ?? 0,
+        prefillTps: v?.prefillTps ?? 0,
         pass: v?.pass,
       });
     });

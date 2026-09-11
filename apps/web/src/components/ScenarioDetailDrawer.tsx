@@ -20,6 +20,8 @@ export type ScenarioDetailPayload = {
   api: string;
   modelId?: string;
   ttft_ms: number | null;
+  decode_tps?: number | null;
+  prefill_tps?: number | null;
   pass?: boolean;
   /** 0~1 점수. 비전 시나리오에서 rubric 0~3과 함께 표시. */
   score?: number;
@@ -194,6 +196,18 @@ export function ScenarioDetailDrawer({
                   <span>{m.results.detail.reasoningHiddenNote}</span>
                 </p>
               ) : null}
+            </div>
+            <div>
+              <span className="text-[var(--muted)]">{m.results.detail.fieldPrefillTps}</span>
+              <p className="font-mono text-[var(--foreground)]">
+                {payload.prefill_tps != null ? `${payload.prefill_tps} tok/s` : "—"}
+              </p>
+            </div>
+            <div>
+              <span className="text-[var(--muted)]">{m.results.detail.fieldDecodeTps}</span>
+              <p className="font-mono text-[var(--foreground)]">
+                {payload.decode_tps != null ? `${payload.decode_tps} tok/s` : "—"}
+              </p>
             </div>
             <div className="sm:col-span-2">
               <span className="text-[var(--muted)]">{m.results.detail.fieldQuality}</span>

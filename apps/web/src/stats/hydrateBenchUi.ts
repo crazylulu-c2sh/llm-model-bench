@@ -1,11 +1,10 @@
-import { outputTokensFromRun } from "@llm-bench/shared";
+import { decodeTokensPerSecondFromRun, outputTokensFromRun, prefillTokensPerSecondFromRun, roundTpsDisplay } from "@llm-bench/shared";
 import type { BenchRunDetailResponse } from "../api-types";
 import type { ResultRow } from "../components/ResultsTable";
 import {
   rowsToChartData,
   scenarioRowKey,
   sortChartRowsForBarOrder,
-  tokensPerSecondFromRun,
   type ChartRow,
 } from "../components/chart-types";
 
@@ -22,6 +21,7 @@ export type MetricsAgg = {
     output_text: string;
     stream_completed: boolean;
     usage_output_tokens?: number | null;
+    usage_prompt_tokens?: number | null;
     usage_reasoning_tokens?: number | null;
     reasoning_hidden?: boolean;
     tool_call_args_corrupted?: boolean;
@@ -90,8 +90,17 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
       const tpsSource =
         last.usage_output_tokens != null && last.usage_output_tokens > 0 ? "usage" : "approx";
       const outputTokens = outputTokensFromRun(last.output_text, last.usage_output_tokens);
-      const tpsRaw = tokensPerSecondFromRun(last.total_ms, last.output_text, last.usage_output_tokens);
-      const tps = tpsRaw > 0 ? Math.round(tpsRaw * 10) / 10 : null;
+      const tps = roundTpsDisplay(
+        decodeTokensPerSecondFromRun({
+          totalMs: last.total_ms,
+          ttftMs: last.ttft_ms,
+          outputText: last.output_text,
+          usageTokens: last.usage_output_tokens,
+        }),
+      );
+      const prefill_tps = roundTpsDisplay(
+        prefillTokensPerSecondFromRun(last.ttft_ms, last.usage_prompt_tokens),
+      );
       rows.push({
         rowKey,
         model_id: modelId,
@@ -101,6 +110,7 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
         ttft_ms: last.ttft_ms ?? null,
         output_tokens: outputTokens,
         tps,
+        prefill_tps,
         tps_source: tpsSource,
         reasoning_hidden: last.reasoning_hidden,
         tool_call_args_corrupted: last.tool_call_args_corrupted,
@@ -141,6 +151,7 @@ export function buildChartRowsFromBenchState(
           total_ms: last?.total_ms,
           output_text: last?.output_text,
           usage_output_tokens: last?.usage_output_tokens,
+          usage_prompt_tokens: last?.usage_prompt_tokens,
           reasoning_hidden: last?.reasoning_hidden,
         };
       }),

@@ -161,6 +161,11 @@ const SpeedGroupSchema = z.object({
   tpsMedian: z.number().nullable(),
   tpsMin: z.number().nullable(),
   tpsMax: z.number().nullable(),
+  prefillScore: z.number().nullable(),
+  prefillScoredRows: z.number().int(),
+  prefillTpsMedian: z.number().nullable(),
+  prefillTpsMin: z.number().nullable(),
+  prefillTpsMax: z.number().nullable(),
 });
 const ModelSpeedScoreSchema = z.object({
   model_id: z.string(),

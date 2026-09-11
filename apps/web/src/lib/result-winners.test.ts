@@ -7,18 +7,20 @@ function row(p: Partial<WinnerInput> & { rowKey: string; model_id: string }): Wi
     api: "chat_completions",
     ttft_ms: null,
     tps: null,
+    prefill_tps: null,
     ...p,
   };
 }
 
 describe("computeGroupWinners", () => {
-  it("marks min ttft and max tps within a (scenario,api) group", () => {
+  it("marks min ttft, max decode tps, and max prefill tps within a group", () => {
     const w = computeGroupWinners([
-      row({ rowKey: "a", model_id: "A", ttft_ms: 200, tps: 30 }),
-      row({ rowKey: "b", model_id: "B", ttft_ms: 100, tps: 50 }),
+      row({ rowKey: "a", model_id: "A", ttft_ms: 200, tps: 30, prefill_tps: 100 }),
+      row({ rowKey: "b", model_id: "B", ttft_ms: 100, tps: 50, prefill_tps: 80 }),
     ]);
     expect(w.get("b")?.ttft).toBe(true); // 100 < 200
     expect(w.get("b")?.tps).toBe(true); // 50 > 30
+    expect(w.get("a")?.prefill_tps).toBe(true); // 100 > 80
     expect(w.get("a")?.ttft).toBeFalsy();
   });
 

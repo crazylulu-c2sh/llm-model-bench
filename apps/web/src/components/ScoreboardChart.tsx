@@ -196,7 +196,7 @@ function ChartTooltip({
   const provider = providerByModel?.get(d.model_id);
   const val = d.isNull
     ? "—"
-    : metric === "speed"
+    : metric === "speed" || metric === "prefill"
       ? `${formatTps(d.value)} tok/s`
       : Math.round(d.value ?? 0);
   return (
@@ -331,6 +331,7 @@ export function ScoreboardChart({
           onChange={setMetric}
           options={[
             { value: "quality", label: m.scoreboard.metricLabel.quality },
+            { value: "prefill", label: m.scoreboard.metricLabel.prefill },
             { value: "speed", label: m.scoreboard.metricLabel.speed },
           ]}
         />

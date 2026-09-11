@@ -11,6 +11,7 @@ export const BENCH_EXECUTION_SORT: SortingState = [
 /** ResultsTable에서 내림차순을 먼저 쓰는 열(높을수록 좋음·완료 시각 등). */
 export const RESULTS_FIRST_DESC_IDS = new Set([
   "tps",
+  "prefill_tps",
   "output_tokens",
   "quality",
   "agent",

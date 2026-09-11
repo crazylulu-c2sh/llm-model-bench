@@ -808,6 +808,8 @@ export async function* runBench(
           output_text: string;
           stream_completed: boolean;
           usage_output_tokens: number | null;
+          /** provider 보고 입력/프롬프트 토큰(없으면 null). 프리필 TPS. */
+          usage_prompt_tokens: number | null;
           /** #182: provider가 usage로 보고한 사고 토큰 수(chat_completions 전용, 없으면 null). */
           usage_reasoning_tokens: number | null;
           reasoning_hidden?: boolean;
@@ -1018,6 +1020,8 @@ export async function* runBench(
             let streamCompleted = false;
             /** provider 보고 출력 토큰 수(없으면 null). TPS·reasoning_hidden 계산에 사용. */
             let usageOutputTokens: number | null = null;
+            /** provider 보고 입력 토큰 수(없으면 null). 프리필 TPS. 첫 비null을 유지(멀티턴은 첫 턴). */
+            let usagePromptTokens: number | null = null;
             /** 가시 추론(reasoning/thinking 델타) 누적 길이. 0이면 추론이 스트림에 노출되지 않음. */
             let reasoningChars = 0;
             /**
@@ -1072,6 +1076,7 @@ export async function* runBench(
               totalMs = ar.totalMs;
               streamCompleted = ar.streamCompleted;
               usageOutputTokens = ar.usageOutputTokens;
+              usagePromptTokens = ar.usagePromptTokens;
               reasoningChars = ar.reasoningChars;
               toolArgsCorruptedAny = ar.toolArgsCorruptedAny;
               agentMetrics = ar.metrics;
@@ -1143,6 +1148,7 @@ export async function* runBench(
                 );
                 lastOpen = m;
                 lastOpenAiMetrics = m;
+                if (usagePromptTokens == null) usagePromptTokens = m.usagePromptTokens;
                 if (m.toolCallArgsCorrupted) toolArgsCorruptedAny = true;
                 if (openAiLikelyTruncated(m, scenarioMeta.max_tokens)) truncated = true;
                 if (m.repetitionLoopDetected) repetitionLoopAborted = true;
@@ -1215,6 +1221,7 @@ export async function* runBench(
                 totalMs = totalMsAcc;
                 if (lastOpen) {
                   usageOutputTokens = lastOpen.usageOutputTokens;
+                  if (usagePromptTokens == null) usagePromptTokens = lastOpen.usagePromptTokens;
                   reasoningChars = lastOpen.reasoningText.length;
                   usageReasoningTokens = lastOpen.usageReasoningTokens;
                   if (!text.trim()) text = openAiBenchOutputText(lastOpen);
@@ -1278,6 +1285,7 @@ export async function* runBench(
                   { requestStartedAt: requestT0 },
                 );
                 lastAnth = m;
+                if (usagePromptTokens == null) usagePromptTokens = m.usagePromptTokens;
                 if (m.sawThinkingBlock) sawThinkingBlock = true;
                 if (m.stopReason === "max_tokens") truncated = true;
                 totalMsAcc += m.totalMs;
@@ -1337,6 +1345,7 @@ export async function* runBench(
                 totalMs = totalMsAcc;
                 if (lastAnth) {
                   usageOutputTokens = lastAnth.usageOutputTokens;
+                  if (usagePromptTokens == null) usagePromptTokens = lastAnth.usagePromptTokens;
                   reasoningChars = lastAnth.reasoningText.length;
                   if (!text) text = lastAnth.assistantText;
                 }
@@ -1403,6 +1412,7 @@ export async function* runBench(
                 totalMs = m.totalMs;
                 streamCompleted = m.streamCompleted;
                 usageOutputTokens = m.usageOutputTokens;
+                if (usagePromptTokens == null) usagePromptTokens = m.usagePromptTokens;
                 reasoningChars = m.reasoningText.length;
                 usageReasoningTokens = m.usageReasoningTokens;
                 lastOpenAiMetrics = m;
@@ -1479,6 +1489,7 @@ export async function* runBench(
                 totalMs = m.totalMs;
                 streamCompleted = m.streamCompleted;
                 usageOutputTokens = m.usageOutputTokens;
+                if (usagePromptTokens == null) usagePromptTokens = m.usagePromptTokens;
                 reasoningChars = m.reasoningText.length;
                 if (m.stopReason === "max_tokens") truncated = true;
                 for (const ch of chunkTextForUi(text, 24)) {
@@ -1623,6 +1634,7 @@ export async function* runBench(
                 output_text: text,
                 stream_completed: streamCompleted,
                 usage_output_tokens: usageOutputTokens,
+                usage_prompt_tokens: usagePromptTokens,
                 usage_reasoning_tokens: usageReasoningTokens,
                 ...(reasoningHidden ? { reasoning_hidden: true } : {}),
                 ...(toolArgsCorruptedAny ? { tool_call_args_corrupted: true } : {}),
@@ -1666,6 +1678,7 @@ export async function* runBench(
                 output_chars: text.length,
                 approx_tokens: Math.ceil(text.length / 4),
                 usage_output_tokens: usageOutputTokens,
+                usage_prompt_tokens: usagePromptTokens,
                 stream_completed: streamCompleted,
                 // #173: 추론이 스트림에 안 실렸다는 신호 — SSE만 보는 소비자가 TTFT의 의미를 알 수 있게 한다.
                 ...(reasoningHidden ? { reasoning_hidden: true } : {}),
@@ -1723,6 +1736,7 @@ export async function* runBench(
                 output_text: "",
                 stream_completed: false,
                 usage_output_tokens: null,
+                usage_prompt_tokens: null,
                 usage_reasoning_tokens: null,
                 quality,
               });

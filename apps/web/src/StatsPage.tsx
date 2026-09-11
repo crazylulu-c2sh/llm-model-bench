@@ -12,7 +12,7 @@ import { HighlightToggle } from "./components/JsonCodeBlock";
 import type { ResultRow } from "./components/ResultsTable";
 import { ResultsTable } from "./components/ResultsTable";
 import { Scoreboard } from "./components/Scoreboard";
-import { ProviderKindSchema, type ProviderKind } from "@llm-bench/shared";
+import { ProviderKindSchema, roundTpsDisplay, type ProviderKind } from "@llm-bench/shared";
 import { ScenarioDetailDrawer, type ScenarioDetailPayload } from "./components/ScenarioDetailDrawer";
 import { useBaseUrlNames } from "./lib/base-url-names";
 import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from "./lib/scenario-prompt-preview";
@@ -262,6 +262,8 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
         api: row.api,
         modelId: row.model_id,
         ttft_ms: row.ttft_ms,
+        decode_tps: row.tps ?? null,
+        prefill_tps: row.prefill_tps ?? null,
         pass: row.pass,
         score: row.score ?? last?.quality?.score,
         qualityReason: row.reason ?? last?.quality?.reason,
@@ -300,6 +302,8 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
         api: row.api,
         modelId: row.modelId,
         ttft_ms: row.ttft != null && Number.isFinite(row.ttft) ? row.ttft : null,
+        decode_tps: roundTpsDisplay(row.tps),
+        prefill_tps: roundTpsDisplay(row.prefillTps),
         pass: row.pass,
         score: last?.quality?.score,
         qualityReason: last?.quality?.reason,

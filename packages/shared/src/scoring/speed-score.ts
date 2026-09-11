@@ -4,18 +4,27 @@ import { isAgentScenario, isVisionScenario } from "../scenarios-preview";
  * 속도 점수 = 디코드(출력) TPS 절대 점수. 기준 30 tok/s = base점, 성능에 선형 비례, 상한 없음.
  * 60 tok/s에서 100점 포화하던 구 앵커 방식을 대체 — 빠른 모델 차이가 점수에 드러난다.
  *
- * TTFT는 점수에 넣지 않고 "지연" 열에 raw ms로 따로 표시한다. 300/TTFT 역비례를 합성에 넣으면
- * 체감-불가(~150ms 이하)·측정 노이즈 영역이 점수를 지배하기 때문(고정 오버헤드 분리는 후속 prefill 작업).
+ * TTFT는 점수에 넣지 않고 "지연" 열에 raw ms로 따로 표시한다. 프리필 효율은 별도 축
+ * (`PREFILL_SPEED_REFERENCE` / `prefillScore`)이며 디코드와 곱하거나 평균하지 않는다.
  */
 export const SPEED_REFERENCE = { tps: 30, base: 1000 } as const;
+
+/**
+ * 프리필 점수 기준. 텍스트 시나리오 중앙에 맞춘 상수 — 150 tok/s = 1000점.
+ * 디코드 기준(30)과 축이 다르므로 합산·기하평균하지 않는다.
+ */
+export const PREFILL_SPEED_REFERENCE = { tps: 150, base: 1000 } as const;
 
 /** ResultRow(런 평균 후)에서 이 모듈이 읽는 최소 부분집합. */
 export type SpeedInput = {
   model_id: string;
   scenario: string;
   ttft_ms: number | null | undefined;
+  /** 디코드 TPS. 점수 `score` / `tpsMedian`의 입력. */
   tps: number | null | undefined;
   tps_source?: "usage" | "approx";
+  /** 프리필 TPS. 없으면 구 런 — `prefillScore` null. */
+  prefill_tps?: number | null;
 };
 
 /** 한 그룹(text|vision|total)의 절대 속도 점수 + 지연 슬라이스. */
@@ -34,6 +43,12 @@ export type SpeedGroup = {
   /** 시나리오별 tok/s 최소·최대(범위 표기용). null = tps 행 없음. */
   tpsMin: number | null;
   tpsMax: number | null;
+  /** 프리필 점수(150 tok/s = 1000). 구 런·usage 없으면 null. */
+  prefillScore: number | null;
+  prefillScoredRows: number;
+  prefillTpsMedian: number | null;
+  prefillTpsMin: number | null;
+  prefillTpsMax: number | null;
 };
 
 /** 한 모델의 속도 측 4그룹 슬라이스. */
@@ -56,10 +71,21 @@ export function tpsSpeedRatio(tps: number | null | undefined): number | null {
   return tps / SPEED_REFERENCE.tps;
 }
 
+export function prefillTpsSpeedRatio(tps: number | null | undefined): number | null {
+  if (tps == null || !Number.isFinite(tps) || tps <= 0) return null;
+  return tps / PREFILL_SPEED_REFERENCE.tps;
+}
+
 /** 칸 속도 점수 = base × 기준대비비율. tps 없으면 null(TTFT는 점수에 미반영). */
 export function speedScoreForRow(row: SpeedInput): number | null {
   const r = tpsSpeedRatio(row.tps);
   return r == null ? null : SPEED_REFERENCE.base * r;
+}
+
+/** 프리필 칸 점수. `prefill_tps` 없으면 null(구 런). */
+export function prefillSpeedScoreForRow(row: SpeedInput): number | null {
+  const r = prefillTpsSpeedRatio(row.prefill_tps);
+  return r == null ? null : PREFILL_SPEED_REFERENCE.base * r;
 }
 
 type SpeedAccum = {
@@ -70,10 +96,23 @@ type SpeedAccum = {
   ttftN: number;
   /** 점수를 낸 행들의 raw 디코드 tok/s(중앙값/최소/최대 계산용). */
   tpsValues: number[];
+  prefillScoreSum: number;
+  prefillScoreN: number;
+  prefillTpsValues: number[];
 };
 
 function emptySpeed(): SpeedAccum {
-  return { scoreSum: 0, scoreN: 0, approx: 0, ttftSum: 0, ttftN: 0, tpsValues: [] };
+  return {
+    scoreSum: 0,
+    scoreN: 0,
+    approx: 0,
+    ttftSum: 0,
+    ttftN: 0,
+    tpsValues: [],
+    prefillScoreSum: 0,
+    prefillScoreN: 0,
+    prefillTpsValues: [],
+  };
 }
 
 /** 정렬 후 중앙값(짝수 개수는 두 중앙의 평균). 빈 배열 → null. */
@@ -93,6 +132,11 @@ function speedGroup(a: SpeedAccum): SpeedGroup {
     tpsMedian: median(a.tpsValues),
     tpsMin: a.tpsValues.length > 0 ? Math.min(...a.tpsValues) : null,
     tpsMax: a.tpsValues.length > 0 ? Math.max(...a.tpsValues) : null,
+    prefillScore: a.prefillScoreN > 0 ? Math.round(a.prefillScoreSum / a.prefillScoreN) : null,
+    prefillScoredRows: a.prefillScoreN,
+    prefillTpsMedian: median(a.prefillTpsValues),
+    prefillTpsMin: a.prefillTpsValues.length > 0 ? Math.min(...a.prefillTpsValues) : null,
+    prefillTpsMax: a.prefillTpsValues.length > 0 ? Math.max(...a.prefillTpsValues) : null,
   };
 }
 
@@ -149,6 +193,16 @@ export function computeSpeedScores(rows: readonly SpeedInput[]): Map<string, Mod
       m.total.scoreN += 1;
       m.total.approx += approx;
       m.total.tpsValues.push(r.tps!);
+    }
+
+    const ps = prefillSpeedScoreForRow(r);
+    if (ps != null) {
+      grp.prefillScoreSum += ps;
+      grp.prefillScoreN += 1;
+      grp.prefillTpsValues.push(r.prefill_tps!);
+      m.total.prefillScoreSum += ps;
+      m.total.prefillScoreN += 1;
+      m.total.prefillTpsValues.push(r.prefill_tps!);
     }
 
     if (typeof r.ttft_ms === "number" && Number.isFinite(r.ttft_ms) && r.ttft_ms >= 0) {

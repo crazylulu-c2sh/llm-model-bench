@@ -31,7 +31,8 @@ export const results: Messages["results"] = {
       scenario: "Scenario",
       ttft_ms: "TTFT (ms)",
       output_tokens: "Output tokens",
-      tps: "TPS (tok/s)",
+      prefill_tps: "Prefill TPS",
+      tps: "Decode TPS",
       quality: "Quality",
       agent: "Agent",
     },
@@ -48,7 +49,8 @@ export const results: Messages["results"] = {
       `Axes are scenario·API. The radius plots each model's actual ${unit} on a shared 0-based scale. `,
     radarLeadSingle: (unit: string) =>
       `Axes are scenario·API. The radius plots the actual ${unit} on a 0-based scale. `,
-    radarLegendTps: "TPS (tok/s · higher is better)",
+    radarLegendTps: "Decode TPS (tok/s · higher is better)",
+    radarLegendPrefill: "Prefill TPS (tok/s · higher is better)",
     radarLegendTtft: "TTFT (ms · lower is better)",
     radarSingleAria: (title: string) =>
       `${title} radar chart (axes: scenario·API) — see the bar chart and table for exact values`,
@@ -57,15 +59,19 @@ export const results: Messages["results"] = {
     radarDenseNote: "With many items the radar is a summary. Use the per-metric bar charts for exact values.",
     radarKeyMismatch:
       "Each model has a different set of saved scenario·API (chat/msg) combos. Axes with values on only one side are drawn as 0 and may look split into a half-circle. Align recent runs to the same bench suite, or check everything in the bar chart.",
-    radarTpsEmpty: "TPS radar: no TPS values to show.",
+    radarTpsEmpty: "Decode TPS radar: no values to show.",
+    radarPrefillEmpty: "Prefill TPS radar: no values to show (older runs lack usage_prompt_tokens).",
     barCompareTtftAria: (count: number) =>
       `TTFT model comparison bar chart (${count} models) — see the results table below for exact values`,
     barCompareTpsAria: (count: number) =>
-      `TPS model comparison bar chart (${count} models) — see the results table below for exact values`,
+      `Decode TPS model comparison bar chart (${count} models) — see the results table below for exact values`,
+    barComparePrefillAria: (count: number) =>
+      `Prefill TPS model comparison bar chart (${count} models) — see the results table below for exact values`,
     radarCompareTooFew: "The comparison radar appears when there are 3 or more scenarios.",
     noBenchData: "Metrics appear after running a bench.",
     barSessionTtftAria: "TTFT per-scenario bar chart — see the results table below for exact values",
-    barSessionTpsAria: "TPS per-scenario bar chart — see the results table below for exact values",
+    barSessionTpsAria: "Decode TPS per-scenario bar chart — see the results table below for exact values",
+    barSessionPrefillAria: "Prefill TPS per-scenario bar chart — see the results table below for exact values",
     barClickHint: "Click a bar to open that scenario's details.",
     radarSessionMultiTooFew: "Cross-model radar comparison appears when there are 3 or more scenarios.",
     radarSingleTooFew: "The radar chart appears when there are 3 or more scenarios.",
@@ -73,15 +79,16 @@ export const results: Messages["results"] = {
 
   legend: {
     ttftDesc: "from request send to the first output token",
-    tpsDesc: "approx tokens from output length ÷ total elapsed time",
+    tpsDesc: "Decode: (output tokens − 1) ÷ (total time − TTFT)",
+    prefillDesc: "Prefill: prompt_tokens ÷ TTFT (older runs show —)",
     tpsDescSession: " (TPS-only bar chart)",
     tpsDescCompare: " (TPS-only chart when comparing)",
     compareLead: "Comparison bars: for each run (scenario·API·model), ",
-    compareMid: " bar chart shows ms, and the TPS-only chart shows only",
+    compareMid: " bar chart shows ms, and the decode·prefill TPS charts show only",
     compareTail:
       " in the same order. TPS bar color is per model. A blank band separates each scenario·API group (a run of rows, one per model).",
     sessionLead: "Live bars: ",
-    sessionMid: " bar chart is in ms; the TPS-only chart shows ",
+    sessionMid: " bar chart is in ms; the decode·prefill TPS charts show ",
     sessionTail: " in the same order. With 2+ models, a blank band separates each scenario·API block.",
     scenarioTerm: "Scenario",
     scenarioIs: " is the bench task id,",
@@ -92,7 +99,8 @@ export const results: Messages["results"] = {
     outputTokensTerm: "Output tokens",
     tokenCountLead: " use the same token count (provider ",
     approxMid: " or chars/4 approx, marked ",
-    approxTail: " when approximated), and TPS divides it by the total time (s) from request send to stream completion.",
+    approxTail:
+      " when approximated). Decode TPS is (output tokens − 1) ÷ (total time − TTFT). Prefill TPS is prompt_tokens ÷ TTFT; older runs show —.",
   },
 
   table: {
@@ -112,7 +120,12 @@ export const results: Messages["results"] = {
     colTtftTitle: "Time To First Token — from HTTP request send to the first output token (text·reasoning·tool_call) (ms)",
     colOutputTokens: "Output tokens",
     colOutputTokensTitle: "Output token count — provider usage.completion_tokens or chars/4 approx (same basis as TPS)",
-    colTpsTitle: "Tokens Per Second (approx) — token estimate from output text length ÷ total elapsed time (s)",
+    colTpsTitle:
+      "Decode TPS — (output tokens − 1) ÷ ((total time − TTFT) seconds). The first token is counted in prefill. — if TTFT is missing",
+    colPrefillTpsTitle:
+      "Prefill TPS — prompt_tokens ÷ (TTFT seconds). Older runs have no usage.prompt_tokens so this is —. Distinct from latency (TTFT ms)",
+    colPrefillTps: "Prefill TPS",
+    colDecodeTps: "Decode TPS",
     colQuality: "Quality",
     colQualityTitle:
       "Text scenarios are pass/fail binary. Vision scenarios are rubric 0–3 (score 0/0.33/0.67/1); rubric ≥ 2 passes.",
@@ -127,7 +140,12 @@ export const results: Messages["results"] = {
     reasoningHiddenAria: "Reasoning hidden — compare TTFT with care",
     outputTokensApproxTitle: "Provider reported no usage, so chars/4 estimate (approx)",
     outputTokensUsageTitle: "Provider-reported completion_tokens (usage)",
-    tpsWinTitle: "Highest TPS in this scenario·API group",
+    tpsWinTitle: "Highest decode TPS in this scenario·API group",
+    prefillWinTitle: "Highest prefill TPS in this scenario·API group",
+    prefillMissingTitle: "Older run — prompt_tokens were not stored, so prefill TPS cannot be recomputed. Re-measure.",
+    prefillMissingUsageTitle: "This run has no usage.prompt_tokens, so prefill TPS cannot be computed.",
+    tpsMissingTitle: "Decode TPS cannot be computed: TTFT is missing or output tokens ≤ 1.",
+    agentTurnSumTitle: "Agent scenarios apply the same formulas to the summed wall clock (per-turn metrics come later).",
     tpsApproxTitle: "Provider reported no usage token count, so computed with chars/4 estimate (approx). Large error on CJK/code.",
     tpsUsageTitle: "Based on provider-reported real tokens (usage)",
     qualityVisionAria: (rubric: string | number, score: string, passLabel: string) =>
@@ -182,6 +200,8 @@ export const results: Messages["results"] = {
     fieldScenario: "Scenario",
     fieldModel: "Model",
     fieldQuality: "Quality",
+    fieldPrefillTps: "Prefill TPS",
+    fieldDecodeTps: "Decode TPS",
     reasoningHiddenNote: "Reasoning hidden — TTFT is to the first visible token (includes hidden reasoning). Compare directly with chat / thinking OFF carefully.",
     purposeTitle: "Scenario purpose",
     criteriaTitle: "Pass / fail criteria",

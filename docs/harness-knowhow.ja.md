@@ -179,11 +179,21 @@ export function resolveBenchApiRoutes(
 - **サーバーが推論チャネルを開かない場合、この定義は静かに崩れます。** Anthropic 互換 shim の中には、`thinking` を明示的に要求しない限り推論を `thinking_delta` として出力しないものがあります（LM Studio `/v1/messages` で実測）。その場合 TTFT は「最初のトークンまで」ではなく「**最初の可視トークンまで**」 — つまり prefill と推論区間の全体 — になり、同じモデルの OpenAI ルート（`reasoning_content` をストリームする）と比べて実測で最大 60 倍の差が出ました。ハーネスは (1) プロファイルの意図が思考 ON なら `thinking: { type: "enabled", budget_tokens }` を送ってチャネルを開かせ（拒否されたら一度外して再試行し、base URL ごとにキャッシュ）、(2) それでも推論が来なければ `reasoning_hidden` を `scenario_end` に載せて、消費者が TTFT の意味を判断できるようにします。ソース: `apps/server/src/anthropic-fetch.ts`。
 - `totalMs = performance.now() - origin` は読み取りループ終了後に取得します。デルタが 1 つも届かなければ `ttftMs` は `null` のままです。
 
-### `usageOutputTokens ?? approxOutputTokens` による TPS
+### デコード TPS (`decode_ms = totalMs − ttftMs`)
 
 - プロバイダー自身のカウントを優先します。OpenAI は `stream_options.include_usage` トレーラー（`usage.completion_tokens`、なければ `usage.output_tokens`）から読み、Anthropic は `usage.output_tokens`（`message_delta` イベントに載る累計）または `message.usage.output_tokens` を読みます。いずれも `usageOutputTokens` に格納され、サーバーが省略した場合は `null` のまま（vLLM / LM Studio で一般的）です。
-- `approxOutputTokens` はフォールバックの推定値で、`Math.max(0, Math.ceil(outText.length / 4))` — おなじみの約 4 文字/トークンのヒューリスティックです。スループットのコンシューマは `(usageOutputTokens ?? approxOutputTokens) / (totalMs / 1000)` で tokens/sec を計算します。
+- `approxOutputTokens` はフォールバックの推定値で、`Math.max(0, Math.ceil(outText.length / 4))` — おなじみの約 4 文字/トークンのヒューリスティックです。
 - 両アダプタは、2 つのプロバイダーが比較可能になるよう推定値に推論トークンを算入します。OpenAI の `outText`（= `combined`）はすでに推論を含みますが、Anthropic は推論を `text` の外に保つため、明示的に足し戻します: `Math.ceil((reasoningText.length + outText.length) / 4)`。
+- UI・スコアボードの **デコード TPS** は llama.cpp / oMLX の慣例です。分母 `decode_ms = total_ms − ttft_ms`、分子 `max(0, output_tokens − 1)`（最初のトークンはプリフィル+サンプルに含む）。`ttft` なし / `decode_ms ≤ 0` / 出力トークン ≤ 1 → `null`（表示 `—`）。ソース: `packages/shared/src/tps.ts` の `decodeTokensPerSecondFromRun`。
+- blended TPS（`output / total_ms`、`tokensPerSecondFromRun`）は内部互換・ストレス `aggregate_tps` 用に残し、デフォルト UI では隠します。
+- 旧ラン JSON にはすでに `ttft_ms`・`total_ms`・`usage_output_tokens`（または `output_text` 近似）があるので、デコードは SQLite を rewrite せず読み取り時に再計算できます。
+- `reasoning_hidden` だと TTFT がプリフィル+隠れた思考を含み、両軸が歪みます。`agent_*` は 1 ランの `total_ms` がマルチターンの壁時計なので、v1 は同じ式を使いツールチップにターン合算と書きます（ターン別計測は後続）。
+
+### プリフィル TPS (`usagePromptTokens / TTFT`)
+
+- OpenAI は `usage.prompt_tokens`（なければ `usage.input_tokens`）、Anthropic は `usage.input_tokens` を `usagePromptTokens` に保存します。リクエストはすでに `stream_options.include_usage: true` を送っています。以前のパーサは入力トークンを捨てていました。
+- 式: `prompt_tokens / (ttft_ms / 1000)`（`prefillTokensPerSecondFromRun`）。`prompt_tokens` が無ければ近似せず `null`。`prompt_preview` は切れたスナップショットでビジョン画像トークンが無いので使いません。
+- 旧ランのプリフィル欄は `—`。再実行したランだけ値が入ります。DB マイグレーション SQL は無く、`aggregate_json` に `usage_prompt_tokens` キーが増えるだけです。
 
 ### 推論チャネルの分離: `text` vs `assistantText` vs `reasoningText`
 
@@ -231,6 +241,7 @@ export type OpenAiStreamMetrics = {
   streamCompleted: boolean;
   approxOutputTokens: number;   // ceil(text.length / 4)
   usageOutputTokens: number | null; // stream_options.include_usage
+  usagePromptTokens: number | null; // usage.prompt_tokens / input_tokens
   finishReason: string | null;  // "length" => truncated
   repetitionLoopDetected: boolean;
   toolCallArgsCorrupted: boolean;
@@ -246,6 +257,7 @@ export type AnthropicStreamMetrics = {
   streamCompleted: boolean;
   approxOutputTokens: number;   // ceil((reasoningText.length + text.length) / 4)
   usageOutputTokens: number | null; // message_delta.usage.output_tokens
+  usagePromptTokens: number | null; // usage.input_tokens
   stopReason: string | null;    // "max_tokens" => truncated
 };
 ```
@@ -689,13 +701,14 @@ type MetricDelta = { a: number|null; b: number|null; delta: number|null; pct: nu
 // delta = b - a  (null if either side null); pct = (b - a) / a (null if a is 0/null)
 ```
 
-- シナリオごとに発行されるデルタ: `ttft_p50`、`ttft_p95`（nearest-rank パーセンタイル）、`tps_per_user`（実行ごと TPS の平均）、`tps_aggregate`（Σtokens / Σseconds）、`quality`（スコア平均）、`empty_turn_rate`、`channel_tag_leak`。
-- 回帰シグナルの型（`RegressionKind`）と正確なルール — 方向が重要で、TPS は **aggregate** メトリクスを、TTFT は **p95 のみ** を使う点に注意:
+- シナリオごとに発行されるデルタ: `ttft_p50`、`ttft_p95`（nearest-rank パーセンタイル）、`tps_per_user`（実行ごと **デコード** TPS の平均）、`tps_aggregate`（Σdecode_tokens / Σdecode_seconds）、`prefill_tps_per_user` / `prefill_tps_aggregate`（**両側** に `usage_prompt_tokens` があるときだけ。片側欠測はギャップであり `protocol_mismatch` ではない）、`quality`（スコア平均）、`empty_turn_rate`、`channel_tag_leak`。
+- 回帰シグナルの型（`RegressionKind`）と正確なルール — 方向が重要で、デコード・プリフィル TPS は **aggregate** メトリクスを、TTFT は **p95 のみ** を使う点に注意:
 
 | `RegressionKind` | しきい値キー（デフォルト） | 発火条件 |
 | --- | --- | --- |
 | `quality_drop` | `qualityDropAbs` (0.05) | `a.quality - b.quality > qualityDropAbs`（絶対値の低下） |
-| `tps_regression` | `tpsRegressionPct` (0.15) | `b.tps_aggregate < a.tps_aggregate * (1 - tpsRegressionPct)` |
+| `tps_regression` | `tpsRegressionPct` (0.15) | `b.tps_aggregate < a.tps_aggregate * (1 - tpsRegressionPct)`（デコード） |
+| `prefill_tps_regression` | `tpsRegressionPct` (0.15) | 両方の aggregate があるときだけ; `b.prefill_tps_aggregate < a.prefill_tps_aggregate * (1 - tpsRegressionPct)` |
 | `ttft_regression` | `ttftRegressionPct` (0.25) | `b.ttft_p95 > a.ttft_p95 * (1 + ttftRegressionPct)` |
 | `new_empty_turns` | `flagNewEmptyTurns` (true) | `a.empty_turn_rate === 0 && b.empty_turn_rate > 0` |
 
@@ -750,12 +763,12 @@ export async function consumeOpenAiChatStream(
   signal?: AbortSignal,
   opts?: { onDelta?: (d: OpenAiStreamDelta) => void; loopGuard?: boolean; requestStartedAt?: number },
 ): Promise<OpenAiStreamMetrics>; // { ttftMs, totalMs, text, assistantText, reasoningText, toolCalls,
-                                 //   streamCompleted, approxOutputTokens, usageOutputTokens, finishReason,
+                                 //   streamCompleted, approxOutputTokens, usageOutputTokens, usagePromptTokens, finishReason,
                                  //   repetitionLoopDetected, toolCallArgsCorrupted }
 ```
 
 - TTFT は **最初** の content / `reasoning_content` / ツール呼び出しデルタで `markTtft()` により、`requestStartedAt ?? performance.now()` を基準に刻印されます。
-- ストリームは 2 つのトークンカウントを返します: `usageOutputTokens` — `usage.completion_tokens`（なければ `usage.output_tokens`）由来のプロバイダー usage で、`stream_options.include_usage` が必要、なければ `null` — と `approxOutputTokens`、常に計算される `text.length / 4` 推定。呼び出し側は usage を優先し `/ 4` 近似にフォールバックするので、TPS はソースについて正直です（`tps_source: "usage" | "approx"`）。
+- ストリームは 3 つのトークンカウントを返します: `usageOutputTokens` — `usage.completion_tokens`（なければ `usage.output_tokens`）由来のプロバイダー usage で、`stream_options.include_usage` が必要、なければ `null` — `approxOutputTokens`、常に計算される `text.length / 4` 推定 — と `usagePromptTokens`（`usage.prompt_tokens` / `input_tokens`、なければ `null`）。呼び出し側は出力 usage を優先し `/ 4` 近似にフォールバックするので、デコード TPS はソースについて正直です（`tps_source: "usage" | "approx"`）。プリフィルは近似しません。
 - 注釈専用のシグナル（切り詰めの `finishReason === "length"`、連結 `{}{}` ランタイムバグの `toolCallArgsCorrupted`）は採点を決して変えず、結果にラベルを付けるだけです。
 
 **プロバイダー抽象化 — `detect.ts`。** `detectProvider(rawBaseUrl, opts)` は base URL を正規化し、ネイティブのリストエンドポイントを順にプローブします（LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`）。LM Studio・Ollama・Unsloth Studio のヒットには固定の `capabilities` が付き、OpenAI 互換と `manual` のフォールスルーは `probeCapabilities` を呼び、使い捨ての `probe-model` を `/v1/chat/completions` と `/v1/messages` に POST します。`/v1/models` 成功後はエンジンヒントだけを追加で埋めます（SGLang `/server_info` → `/metrics` の vllm/llamacpp/tgi ゲージ → `DetectResult.engine` / `BenchRunMeta.engine`。`ProviderKind` は `openai_compatible` のまま）。返される `capabilities: { openaiChat, anthropicMessages }` を、下流の全ランナーがルート選択に使うので（`stress-runner.ts` の `pickRoute()`、ベンチランナーの `resolveBenchApiRoutes()`）、呼び出しごとに散らばった分岐ではなく 1 つの検出結果を得られます。
@@ -792,7 +805,9 @@ export const CompareThresholdsSchema = z.object({
 | 用語 | 定義 |
 |---|---|
 | TTFT | Time To First Token — 要求送信から最初の content / `reasoning_content` / ツール呼び出しデルタまでの ms。 |
-| TPS | Tokens Per Second — 出力トークン ÷ 経過時間。`aggregate_tps` はステージを合算、`tps_per_user` = aggregate ÷ 同時実行数。 |
+| Decode TPS | デコードスループット — `(出力トークン − 1) ÷ (総時間 − TTFT)`。旧ランも読み取り時に再計算できる。 |
+| Prefill TPS | プリフィルスループット — `prompt_tokens ÷ TTFT`。旧ランは usage が無く再測定が必要。 |
+| TPS (stress) | ストレスステージ: 出力トークン ÷ 経過時間。`aggregate_tps` はステージを合算、`tps_per_user` = aggregate ÷ 同時実行数。 |
 | `approxOutputTokens` | サーバーが usage カウントを省略したときに使うフォールバックのトークン推定（約 len/4）。 |
 | p50 / p95 | ステージ内のレイテンシ（または TTFT）の中央値 / 95 パーセンタイル。 |
 | warmup vs measured | warmup 実行はキャッシュを温めて破棄され、measured 実行だけがメトリクスに入る。 |

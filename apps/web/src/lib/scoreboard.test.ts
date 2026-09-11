@@ -20,7 +20,7 @@ function rrow(p: Partial<ResultRow> & { rowKey: string; model_id: string; scenar
 }
 
 function srow(p: Partial<ScoringRow> & { model_id: string; scenario: string }): ScoringRow {
-  return { api: "chat_completions", ttft_ms: null, tps: null, score: null, judgeCapped: false, ...p };
+  return { api: "chat_completions", ttft_ms: null, tps: null, prefill_tps: null, score: null, judgeCapped: false, ...p };
 }
 
 describe("buildScoringRows", () => {
@@ -44,6 +44,7 @@ describe("buildScoringRows", () => {
     const [sr] = buildScoringRows(rows, {});
     expect(sr!.ttft_ms).toBe(120);
     expect(sr!.tps).toBe(22);
+    expect(sr!.prefill_tps).toBeNull();
     expect(sr!.score).toBe(1);
   });
 
@@ -273,7 +274,10 @@ describe("scoreboardFromRows (end-to-end)", () => {
     const board = scoreboardFromRows(rows, agg);
     expect(board).toHaveLength(1);
     expect(board[0]!.quality.total.value).toBe(100); // averaged 1, not row's 0
-    expect(board[0]!.speed.total.score).toBe(1000); // tps 30 -> 1000×30/30 (TTFT 점수 무관)
+    // decode: (30 − 1) / ((1000 − 300) / 1000) = 41.428… tok/s → round(41.428…/30*1000) = 1381
+    expect(board[0]!.speed.total.score).toBe(1381);
+    expect(board[0]!.speed.total.prefillScore).toBeNull();
+    expect(board[0]!.speed.total.prefillTpsMedian).toBeNull();
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeSpeedScores, speedScoreForRow, tpsSpeedRatio, type SpeedInput } from "./speed-score";
+import { computeSpeedScores, prefillSpeedScoreForRow, speedScoreForRow, tpsSpeedRatio, type SpeedInput } from "./speed-score";
 
 describe("tpsSpeedRatio (기준 30 tok/s 대비)", () => {
   it("기준 대비 비율", () => {
@@ -34,6 +34,22 @@ describe("speedScoreForRow (디코드 TPS-only, 상한 없음, 기준 1000)", ()
     expect(speedScoreForRow(row({ tps: null, ttft_ms: 300 }))).toBeNull();
     expect(speedScoreForRow(row({ tps: 30, ttft_ms: 5000 }))).toBe(1000);
     expect(speedScoreForRow(row({}))).toBeNull();
+  });
+});
+
+describe("prefillSpeedScoreForRow (프리필 TPS, 기준 150 tok/s = 1000)", () => {
+  const row = (p: Partial<SpeedInput>): SpeedInput => ({
+    model_id: "A",
+    scenario: "chat_hello",
+    ttft_ms: null,
+    tps: null,
+    ...p,
+  });
+  it("기준=1000, 선형 비례, 구 런(null)은 점수 없음", () => {
+    expect(prefillSpeedScoreForRow(row({ prefill_tps: 150 }))).toBe(1000);
+    expect(prefillSpeedScoreForRow(row({ prefill_tps: 300 }))).toBe(2000);
+    expect(prefillSpeedScoreForRow(row({ prefill_tps: 75 }))).toBe(500);
+    expect(prefillSpeedScoreForRow(row({}))).toBeNull();
   });
 });
 
@@ -117,5 +133,18 @@ describe("computeSpeedScores: 실제 tok/s 중앙값·범위", () => {
     expect(m.total.tpsMedian).toBeNull();
     expect(m.total.tpsMin).toBeNull();
     expect(m.total.tpsMax).toBeNull();
+    expect(m.total.prefillScore).toBeNull();
+    expect(m.total.prefillTpsMedian).toBeNull();
+  });
+
+  it("prefill_tps는 디코드와 독립 집계하고 합성하지 않는다", () => {
+    const m = computeSpeedScores([
+      { model_id: "A", scenario: "chat_hello", tps: 30, ttft_ms: 300, prefill_tps: 150 },
+      { model_id: "A", scenario: "code_sort_js", tps: 15, ttft_ms: 2000, prefill_tps: 75 },
+    ]).get("A")!;
+    expect(m.total.score).toBe(750);
+    expect(m.total.prefillScore).toBe(750); // (1000+500)/2
+    expect(m.total.prefillTpsMedian).toBe(112.5);
+    expect(m.total.prefillScoredRows).toBe(2);
   });
 });

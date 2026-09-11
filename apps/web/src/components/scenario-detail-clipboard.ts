@@ -48,6 +48,12 @@ export function buildScenarioDetailClipboardText(
   lines.push(`- API: ${payload.api}`);
   if (payload.modelId) lines.push(c.model(payload.modelId));
   lines.push(`- TTFT: ${payload.ttft_ms != null ? `${formatTtftMs(payload.ttft_ms)} ms` : "—"}`);
+  lines.push(
+    `- ${m.results.detail.fieldPrefillTps}: ${payload.prefill_tps != null ? `${payload.prefill_tps} tok/s` : "—"}`,
+  );
+  lines.push(
+    `- ${m.results.detail.fieldDecodeTps}: ${payload.decode_tps != null ? `${payload.decode_tps} tok/s` : "—"}`,
+  );
   lines.push(c.quality(qualityLine(payload, m)));
   if (payload.qualityReason) lines.push(c.reason(payload.qualityReason));
 

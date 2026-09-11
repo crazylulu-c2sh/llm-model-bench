@@ -1,5 +1,5 @@
 import { compareStringsPinned } from "@llm-bench/shared";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useI18n, type Messages } from "../i18n";
 import {
   Bar,
@@ -36,21 +36,23 @@ import {
   type PivotCompareRow,
 } from "./chart-types";
 import { MetricChartLegend } from "./MetricChartLegend";
+import { Segmented } from "./ScoreboardChart";
 import { niceCeil, rechartsTooltipShell, truncateChartLabel } from "../lib/chart-theme";
 
-function barFill(pass: boolean | undefined, kind: "ttft" | "tps"): string {
+function barFill(pass: boolean | undefined, kind: "ttft" | "tps" | "prefill"): string {
   if (pass === false) return "var(--chart-fail)";
   if (pass === true) {
     if (kind === "ttft") return "var(--chart-ttft)";
+    if (kind === "prefill") return "var(--dir-higher)";
     return "var(--chart-tps)";
   }
   return "var(--chart-neutral)";
 }
 
-function modelColor(i: number, kind: "ttft" | "tps"): string {
+function modelColor(i: number, kind: "ttft" | "tps" | "prefill"): string {
   const hues = [200, 145, 280, 35, 12, 320];
   const h = hues[i % hues.length];
-  const l = kind === "ttft" ? 55 : 62;
+  const l = kind === "ttft" ? 55 : kind === "prefill" ? 48 : 62;
   return `hsl(${h} 70% ${l}%)`;
 }
 
@@ -95,6 +97,7 @@ function insertCompareGroupSpacers(rows: FlatBarDatum[], groupSize: number): Fla
         seriesIndex: 0,
         ttft: 0,
         tps: 0,
+        prefillTps: 0,
         pass: undefined,
       });
     }
@@ -128,6 +131,7 @@ function insertSessionGroupSpacers(rows: ChartRow[], multiModel: boolean): Chart
         api: "",
         ttft: 0,
         tps: 0,
+        prefillTps: 0,
         categorySpacer: true,
       });
     }
@@ -135,7 +139,7 @@ function insertSessionGroupSpacers(rows: ChartRow[], multiModel: boolean): Chart
   return out;
 }
 
-type RadarMetric = "ttft" | "tps";
+type RadarMetric = "ttft" | "tps" | "prefill";
 
 type SingleRadarDatum = {
   axisKey: string;
@@ -146,6 +150,7 @@ type SingleRadarDatum = {
 
 function metricRaw(row: ChartRow, metric: RadarMetric): number {
   if (metric === "ttft") return row.ttft;
+  if (metric === "prefill") return row.prefillTps ?? 0;
   return row.tps;
 }
 
@@ -197,11 +202,13 @@ function buildSingleRadarData(
 }
 
 function pickPivotMetric(
-  v: { ttft: number; tps: number } | undefined,
+  v: { ttft: number; tps: number; prefillTps?: number } | undefined,
   metric: RadarMetric,
 ): number {
   if (!v) return 0;
-  return metric === "ttft" ? v.ttft : v.tps;
+  if (metric === "ttft") return v.ttft;
+  if (metric === "prefill") return v.prefillTps ?? 0;
+  return v.tps;
 }
 
 /** 다중 시리즈: 축마다 모델별 실제 측정치(raw_m{i})를 그대로 담는다. 반경 스케일은 도메인에서 0 기준 공통화. */
@@ -263,18 +270,19 @@ function perRadarChartHeight(axisCount: number): number {
 }
 
 function formatRadarRaw(metric: RadarMetric, raw: number): string {
-  if (metric === "tps") return `${Math.round(raw * 10) / 10} tok/s`;
+  if (metric === "tps" || metric === "prefill") return `${Math.round(raw * 10) / 10} tok/s`;
   return `${Math.round(raw)} ms`;
 }
 
 /** 반경 축 눈금: 큰 ms는 'Nk'로 축약(작은 fontSize에서 겹침 방지), TPS·작은 값은 정수. */
 function formatRadarTick(metric: RadarMetric, v: number): string {
-  if (metric !== "tps" && v >= 1000) return `${Math.round(v / 100) / 10}k`;
+  if (metric === "ttft" && v >= 1000) return `${Math.round(v / 100) / 10}k`;
   return String(Math.round(v));
 }
 
 function metricUnitLabel(metric: RadarMetric): string {
-  return metric === "tps" ? "TPS(tok/s)" : "TTFT(ms)";
+  if (metric === "prefill") return "Prefill TPS(tok/s)";
+  return metric === "tps" ? "Decode TPS(tok/s)" : "TTFT(ms)";
 }
 
 /**
@@ -284,7 +292,7 @@ function metricUnitLabel(metric: RadarMetric): string {
 function RadarSubtitle({ metric, scope }: { metric: RadarMetric; scope: "single" | "compare" }) {
   const { m } = useI18n();
   const unit = metricUnitLabel(metric);
-  const higher = metric === "tps";
+  const higher = metric !== "ttft";
   const dirText = higher ? m.results.chart.radarHigher : m.results.chart.radarLower;
   const dirColor = higher ? "var(--dir-higher)" : "var(--dir-lower)";
   const lead =
@@ -385,14 +393,19 @@ function MetricRadarSingle({
   height: number;
 }) {
   const { m } = useI18n();
-  const stroke = metric === "tps" ? "var(--chart-tps)" : "var(--chart-ttft)";
+  const stroke =
+    metric === "tps" ? "var(--chart-tps)" : metric === "prefill" ? "var(--dir-higher)" : "var(--chart-ttft)";
   const tickFmt = useMemo(() => new Map(data.map((d) => [d.axisKey, d.tickLabel])), [data]);
   const domain = useMemo(
     () => radarRawDomain(data as unknown as Record<string, unknown>[], ["rawValue"]),
     [data],
   );
   const legendName =
-    metric === "tps" ? m.results.chart.radarLegendTps : m.results.chart.radarLegendTtft;
+    metric === "tps"
+      ? m.results.chart.radarLegendTps
+      : metric === "prefill"
+        ? m.results.chart.radarLegendPrefill
+        : m.results.chart.radarLegendTtft;
 
   return (
     <div className="min-w-0">
@@ -534,6 +547,7 @@ function RadarPanelsColumn({
   benchScenarioOrder?: string[];
 }) {
   const { m } = useI18n();
+  const [tpsAxis, setTpsAxis] = useState<"tps" | "prefill">("tps");
   const h = perRadarChartHeight(axisCount) + RADAR_LEGEND_HEIGHT_PX;
   const dense = axisCount >= RADAR_DENSE_THRESHOLD;
 
@@ -542,8 +556,8 @@ function RadarPanelsColumn({
     [mode, pivoted, compareSeries],
   );
   const tpsCmp = useMemo(
-    () => (mode === "compare" ? buildCompareRadarRows(pivoted, compareSeries, "tps") : []),
-    [mode, pivoted, compareSeries],
+    () => (mode === "compare" ? buildCompareRadarRows(pivoted, compareSeries, tpsAxis) : []),
+    [mode, pivoted, compareSeries, tpsAxis],
   );
 
   const ttftSingle = useMemo(
@@ -551,12 +565,15 @@ function RadarPanelsColumn({
     [singleRows, benchScenarioOrder],
   );
   const tpsSingle = useMemo(
-    () => (singleRows ? buildSingleRadarData(singleRows, "tps", benchScenarioOrder) : []),
-    [singleRows, benchScenarioOrder],
+    () => (singleRows ? buildSingleRadarData(singleRows, tpsAxis, benchScenarioOrder) : []),
+    [singleRows, benchScenarioOrder, tpsAxis],
   );
 
-  const showTpsCompare = hasAnyPositiveMetricPivot(pivoted, "tps");
-  const showTpsSingle = singleRows ? hasAnyPositiveMetric(singleRows, "tps") : false;
+  const showTpsCompare = hasAnyPositiveMetricPivot(pivoted, tpsAxis);
+  const showTpsSingle = singleRows ? hasAnyPositiveMetric(singleRows, tpsAxis) : false;
+  const tpsTitle = tpsAxis === "prefill" ? "Prefill TPS" : "Decode TPS";
+  const tpsEmpty =
+    tpsAxis === "prefill" ? m.results.chart.radarPrefillEmpty : m.results.chart.radarTpsEmpty;
 
   const compareKeyMismatch =
     mode === "compare" && compareSeries.length >= 2 && !compareSeriesHaveIdenticalScenarioApiKeys(compareSeries);
@@ -581,28 +598,50 @@ function RadarPanelsColumn({
             height={h}
             compareSeries={compareSeries}
           />
+          <div className="mb-1">
+            <Segmented
+              ariaLabel={m.results.chart.radarLegendTps}
+              value={tpsAxis}
+              onChange={setTpsAxis}
+              options={[
+                { value: "tps", label: m.results.table.colDecodeTps },
+                { value: "prefill", label: m.results.table.colPrefillTps },
+              ]}
+            />
+          </div>
           {showTpsCompare ? (
             <MetricRadarCompare
-              title="TPS"
-                metric="tps"
+              title={tpsTitle}
+              metric={tpsAxis}
               data={tpsCmp}
               height={h}
               compareSeries={compareSeries}
             />
           ) : (
             <p className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-3 text-center text-xs text-[var(--muted)]">
-              {m.results.chart.radarTpsEmpty}
+              {tpsEmpty}
             </p>
           )}
         </>
       ) : (
         <>
           <MetricRadarSingle title="TTFT" metric="ttft" data={ttftSingle} height={h} />
+          <div className="mb-1">
+            <Segmented
+              ariaLabel={m.results.chart.radarLegendTps}
+              value={tpsAxis}
+              onChange={setTpsAxis}
+              options={[
+                { value: "tps", label: m.results.table.colDecodeTps },
+                { value: "prefill", label: m.results.table.colPrefillTps },
+              ]}
+            />
+          </div>
           {showTpsSingle ? (
-            <MetricRadarSingle title="TPS" metric="tps" data={tpsSingle} height={h} />
+            <MetricRadarSingle title={tpsTitle} metric={tpsAxis} data={tpsSingle} height={h} />
           ) : (
             <p className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-3 text-center text-xs text-[var(--muted)]">
-              {m.results.chart.radarTpsEmpty}
+              {tpsEmpty}
             </p>
           )}
         </>
@@ -690,8 +729,10 @@ export function BenchCharts({
 
     const ttftsCmp = flatRows.map((r) => r.ttft).filter((n) => n > 0);
     const tpssCmp = flatRows.map((r) => r.tps).filter((n) => n > 0);
+    const prefillsCmp = flatRows.map((r) => r.prefillTps).filter((n) => n > 0);
     const avgTtftCmp = avg(ttftsCmp);
     const avgTpsCmp = avg(tpssCmp);
+    const avgPrefillCmp = avg(prefillsCmp);
 
     const fireCompareClick = (payload: FlatBarDatum | undefined) => {
       if (payload?.categorySpacer) return;
@@ -810,10 +851,10 @@ export function BenchCharts({
                     x={avgTpsCmp}
                     stroke="var(--chart-ref-line)"
                     strokeDasharray="3 3"
-                    label={{ value: "avg TPS", fill: "var(--chart-tick)", fontSize: 9, position: "top" }}
+                    label={{ value: "avg Decode", fill: "var(--chart-tick)", fontSize: 9, position: "top" }}
                   />
                 ) : null}
-                <Bar dataKey="tps" name="TPS (tok/s)" fill="var(--chart-tps)" radius={[0, 2, 2, 0]}>
+                <Bar dataKey="tps" name="Decode TPS" fill="var(--chart-tps)" radius={[0, 2, 2, 0]}>
                   {flatRowsSpaced.map((entry, i) => {
                     if (entry.categorySpacer) {
                       return <Cell key={`cmp-tps-${i}`} fill="transparent" />;
@@ -829,6 +870,78 @@ export function BenchCharts({
                     return (
                       <Cell
                         key={`cmp-tps-${i}`}
+                        fill={fill}
+                        fillOpacity={fail ? 0.55 : 1}
+                        stroke={fail ? "var(--chart-fail)" : undefined}
+                        strokeDasharray={fail ? "4 2" : undefined}
+                        strokeWidth={fail ? 1.5 : 0}
+                      />
+                    );
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div role="img" aria-label={m.results.chart.barComparePrefillAria(compareSeries.length)}>
+            <ResponsiveContainer width="100%" height={compareTpsHeight}>
+              <BarChart
+                layout="vertical"
+                {...BAR_COMPACT_GAP}
+                data={flatRowsSpaced}
+                margin={{ ...TPS_COMPARE_BAR_MARGIN }}
+                onClick={(e) => {
+                  const idx = e?.activeIndex;
+                  fireCompareClick(typeof idx === "number" ? flatRowsSpaced[idx] : undefined);
+                }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
+                <XAxis
+                  type="number"
+                  tick={{ fill: "var(--chart-tick)", fontSize: 9 }}
+                  label={{ value: "tok/s", position: "insideBottomRight", fill: "var(--chart-tick)", fontSize: 10 }}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="barLabelShort"
+                  width={280}
+                  tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
+                  tickFormatter={yTickHideSpacer}
+                  interval={0}
+                />
+                <Tooltip
+                  {...rechartsTooltipShell}
+                  formatter={tooltipFmt}
+                  content={(props) => {
+                    if (!props.active || !props.payload?.[0]) return null;
+                    const row = props.payload[0].payload as FlatBarDatum;
+                    if (row.categorySpacer) return null;
+                    return <DefaultTooltipContent {...props} formatter={tooltipFmt} />;
+                  }}
+                />
+                {avgPrefillCmp !== undefined ? (
+                  <ReferenceLine
+                    x={avgPrefillCmp}
+                    stroke="var(--chart-ref-line)"
+                    strokeDasharray="3 3"
+                    label={{ value: "avg Prefill", fill: "var(--chart-tick)", fontSize: 9, position: "top" }}
+                  />
+                ) : null}
+                <Bar dataKey="prefillTps" name="Prefill TPS" fill="var(--dir-higher)" radius={[0, 2, 2, 0]}>
+                  {flatRowsSpaced.map((entry, i) => {
+                    if (entry.categorySpacer) {
+                      return <Cell key={`cmp-prefill-${i}`} fill="transparent" />;
+                    }
+                    const val = entry.prefillTps;
+                    const fill =
+                      val <= 0
+                        ? "transparent"
+                        : entry.pass === false
+                          ? "var(--chart-fail)"
+                          : modelColor(entry.seriesIndex, "prefill");
+                    const fail = val > 0 && entry.pass === false;
+                    return (
+                      <Cell
+                        key={`cmp-prefill-${i}`}
                         fill={fill}
                         fillOpacity={fail ? 0.55 : 1}
                         stroke={fail ? "var(--chart-fail)" : undefined}
@@ -870,8 +983,10 @@ export function BenchCharts({
 
   const ttfts = chartRows.map((r) => r.ttft).filter((n) => n > 0);
   const tpss = chartRows.map((r) => r.tps).filter((n) => n > 0);
+  const prefills = chartRows.map((r) => r.prefillTps).filter((n) => n > 0);
   const avgTtft = avg(ttfts);
   const avgTps = avg(tpss);
+  const avgPrefill = avg(prefills);
   const sessionSeries = sessionChartRowsToCompareSeries(chartRows, m.results.chart.unknownModel);
   const useSessionMultiRadar = sessionSeries.length >= 2;
   const pivotedSession = useSessionMultiRadar ? pivotCompareSeries(sessionSeries, benchScenarioOrder) : [];
@@ -1015,10 +1130,10 @@ export function BenchCharts({
                   x={avgTps}
                   stroke="var(--chart-ref-line)"
                   strokeDasharray="3 3"
-                  label={{ value: "avg TPS", fill: "var(--chart-tick)", fontSize: 9, position: "top" }}
+                  label={{ value: "avg Decode", fill: "var(--chart-tick)", fontSize: 9, position: "top" }}
                 />
               ) : null}
-              <Bar dataKey="tps" name="TPS (tok/s)" fill="var(--chart-tps)" radius={[0, 2, 2, 0]}>
+              <Bar dataKey="tps" name="Decode TPS" fill="var(--chart-tps)" radius={[0, 2, 2, 0]}>
                 {sessionBarData.map((entry) => {
                   const fail = !entry.categorySpacer && entry.tps > 0 && entry.pass === false;
                   return (
@@ -1029,6 +1144,81 @@ export function BenchCharts({
                           ? "transparent"
                           : entry.tps > 0
                             ? barFill(entry.pass, "tps")
+                            : "transparent"
+                      }
+                      fillOpacity={fail ? 0.55 : 1}
+                      stroke={fail ? "var(--chart-fail)" : undefined}
+                      strokeDasharray={fail ? "4 2" : undefined}
+                      strokeWidth={fail ? 1.5 : 0}
+                    />
+                  );
+                })}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div role="img" aria-label={m.results.chart.barSessionPrefillAria}>
+          <ResponsiveContainer width="100%" height={sessionTpsHeight}>
+            <BarChart
+              layout="vertical"
+              {...BAR_COMPACT_GAP}
+              data={sessionBarData}
+              margin={{ ...TPS_SESSION_BAR_MARGIN }}
+              onClick={(e) => {
+                const idx = e?.activeIndex;
+                const raw = typeof idx === "number" ? sessionBarData[idx] : undefined;
+                if (raw?.categorySpacer) return;
+                if (raw?.scenario && onBarPayload) onBarPayload(raw);
+              }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
+              <XAxis
+                type="number"
+                tick={{ fill: "var(--chart-tick)", fontSize: 9 }}
+                label={{ value: "tok/s", position: "insideBottomRight", fill: "var(--chart-tick)", fontSize: 10 }}
+              />
+              <YAxis
+                type="category"
+                dataKey="labelShort"
+                width={280}
+                tick={{ fill: "var(--chart-tick)", fontSize: 10 }}
+                tickFormatter={yTickHideSpacer}
+                interval={0}
+              />
+              <Tooltip
+                {...rechartsTooltipShell}
+                formatter={tooltipFmt}
+                content={(props) => {
+                  if (!props.active || !props.payload?.[0]) return null;
+                  const row = props.payload[0].payload as ChartRow;
+                  if (row.categorySpacer) return null;
+                  return <DefaultTooltipContent {...props} formatter={tooltipFmt} />;
+                }}
+                labelFormatter={(_, i) => {
+                  const r = sessionBarData[Number(i)];
+                  if (!r || r.categorySpacer) return "";
+                  return `${r.scenario} · ${r.api}`;
+                }}
+              />
+              {avgPrefill !== undefined ? (
+                <ReferenceLine
+                  x={avgPrefill}
+                  stroke="var(--chart-ref-line)"
+                  strokeDasharray="3 3"
+                  label={{ value: "avg Prefill", fill: "var(--chart-tick)", fontSize: 9, position: "top" }}
+                />
+              ) : null}
+              <Bar dataKey="prefillTps" name="Prefill TPS" fill="var(--dir-higher)" radius={[0, 2, 2, 0]}>
+                {sessionBarData.map((entry) => {
+                  const fail = !entry.categorySpacer && entry.prefillTps > 0 && entry.pass === false;
+                  return (
+                    <Cell
+                      key={`prefill-${entry.id}`}
+                      fill={
+                        entry.categorySpacer
+                          ? "transparent"
+                          : entry.prefillTps > 0
+                            ? barFill(entry.pass, "prefill")
                             : "transparent"
                       }
                       fillOpacity={fail ? 0.55 : 1}

@@ -75,6 +75,8 @@ export type AgentLoopResult = {
   totalMs: number;
   streamCompleted: boolean;
   usageOutputTokens: number | null;
+  /** 첫 턴의 입력 토큰(프리필). 멀티턴 합산하지 않음 — 첫 TTFT와 짝. */
+  usagePromptTokens: number | null;
   reasoningChars: number;
   toolArgsCorruptedAny: boolean;
   metrics: AgentLoopMetrics;
@@ -86,6 +88,7 @@ type NormalizedTurn = {
   reasoningText: string;
   toolCalls: Array<{ id: string; name: string; argsJson: string }>;
   usageOutputTokens: number | null;
+  usagePromptTokens: number | null;
   ttftMs: number | null;
   totalMs: number;
   streamCompleted: boolean;
@@ -104,6 +107,8 @@ type LoopState = {
   ttft: number | null;
   totalMs: number;
   usageOutputTokens: number | null;
+  /** 첫 턴 입력 토큰만 — 프리필 TPS는 첫 TTFT와 짝. */
+  usagePromptTokens: number | null;
   reasoningChars: number;
   toolArgsCorruptedAny: boolean;
   streamCompleted: boolean;
@@ -225,7 +230,10 @@ function stepAgentLoop(
   maxTokens: number,
 ): StepDecision {
   state.turnsExecuted += 1;
-  if (state.turnsExecuted === 1) state.ttft = turn.ttftMs;
+  if (state.turnsExecuted === 1) {
+    state.ttft = turn.ttftMs;
+    state.usagePromptTokens = turn.usagePromptTokens;
+  }
   state.totalMs += turn.totalMs;
   if (turn.usageOutputTokens != null) {
     state.usageOutputTokens = (state.usageOutputTokens ?? 0) + turn.usageOutputTokens;
@@ -317,6 +325,7 @@ function initState(): LoopState {
     ttft: null,
     totalMs: 0,
     usageOutputTokens: null,
+    usagePromptTokens: null,
     reasoningChars: 0,
     toolArgsCorruptedAny: false,
     streamCompleted: false,
@@ -345,6 +354,7 @@ function finalize(
     totalMs: state.totalMs,
     streamCompleted: state.streamCompleted,
     usageOutputTokens: state.usageOutputTokens,
+    usagePromptTokens: state.usagePromptTokens,
     reasoningChars: state.reasoningChars,
     toolArgsCorruptedAny: state.toolArgsCorruptedAny,
     metrics: {
@@ -464,6 +474,7 @@ export async function* runAgentLoopOpenAi(
         argsJson: tc.function.arguments,
       })),
       usageOutputTokens: m.usageOutputTokens,
+      usagePromptTokens: m.usagePromptTokens,
       ttftMs: m.ttftMs,
       totalMs: m.totalMs,
       streamCompleted: m.streamCompleted,
@@ -562,6 +573,7 @@ export async function* runAgentLoopAnthropic(
         argsJson: JSON.stringify(tu.input ?? {}),
       })),
       usageOutputTokens: m.usageOutputTokens,
+      usagePromptTokens: m.usagePromptTokens,
       ttftMs: m.ttftMs,
       totalMs: m.totalMs,
       streamCompleted: m.streamCompleted,

@@ -28,8 +28,8 @@ export {
 
 /** 정렬 가능한 컬럼 그룹(텍스트/비전/에이전트/총합). */
 export type ScoreGroup = "text" | "vision" | "agent" | "total";
-/** 정렬 가능한 지표(품질/속도/지연). */
-export type ScoreMetric = "quality" | "speed" | "latency";
+/** 정렬 가능한 지표(품질/프리필/디코드/지연). `speed`는 디코드. */
+export type ScoreMetric = "quality" | "speed" | "prefill" | "latency";
 export type SortDir = "asc" | "desc";
 /** 정렬 키: 모델명 또는 (그룹×지표) 셀. */
 export type ScoreboardSortKey =
@@ -75,8 +75,9 @@ export function scoreboardMetricValue(
   metric: ScoreMetric,
 ): number | null {
   if (metric === "quality") return row.quality[group].value;
-  if (metric === "speed") return row.speed[group].tpsMedian; // 실제 디코드 tok/s 중앙값(정렬·차트 공용)
-  return row.speed[group].ttftMs; // latency(낮을수록 좋음 — 방향은 naturalDir에서 asc)
+  if (metric === "speed") return row.speed[group].tpsMedian; // 디코드 tok/s 중앙값
+  if (metric === "prefill") return row.speed[group].prefillTpsMedian;
+  return row.speed[group].ttftMs; // latency
 }
 
 /** 정렬 비교 — 단일 지표(또는 모델명) + model_id alphanumeric tie-break. */

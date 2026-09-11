@@ -31,7 +31,8 @@ export const results: Messages["results"] = {
       scenario: "シナリオ",
       ttft_ms: "TTFT (ms)",
       output_tokens: "出力トークン",
-      tps: "TPS (tok/s)",
+      tps: "デコード TPS",
+      prefill_tps: "プリフィル TPS",
       quality: "品質",
       agent: "エージェント",
     },
@@ -48,7 +49,8 @@ export const results: Messages["results"] = {
       `軸はシナリオ・API。半径はモデル別の実 ${unit} を 0 基準の共通スケールで描画します。 `,
     radarLeadSingle: (unit: string) =>
       `軸はシナリオ・API。半径は実 ${unit} を 0 基準のスケールで描画します。 `,
-    radarLegendTps: "TPS (tok/s · 大きいほど良い)",
+    radarLegendTps: "デコード TPS (tok/s · 大きいほど良い)",
+    radarLegendPrefill: "プリフィル TPS (tok/s · 大きいほど良い)",
     radarLegendTtft: "TTFT (ms · 小さいほど良い)",
     radarSingleAria: (title: string) =>
       `${title} レーダーチャート（軸: シナリオ・API）— 正確な値は棒グラフと表を参照`,
@@ -57,15 +59,19 @@ export const results: Messages["results"] = {
     radarDenseNote: "項目が多いためレーダーは概要用です。正確な値は指標別の棒グラフを使ってください。",
     radarKeyMismatch:
       "モデルごとに保存されたシナリオ・API（chat/msg）の組み合わせが異なります。片側のみ値がある軸は 0 で描画され、半円のように割れて見えることがあります。同じベンチスイートで最近のランを揃えるか、棒グラフで全体を確認してください。",
-    radarTpsEmpty: "TPS レーダー: 表示する TPS 値がありません。",
+    radarTpsEmpty: "デコード TPS レーダー: 表示する値がありません。",
+    radarPrefillEmpty: "プリフィル TPS レーダー: 表示する値がありません（旧ランは usage_prompt_tokens なし）。",
     barCompareTtftAria: (count: number) =>
       `TTFT モデル比較棒グラフ（モデル ${count}件）— 詳細な値は下の結果表を参照`,
     barCompareTpsAria: (count: number) =>
-      `TPS モデル比較棒グラフ（モデル ${count}件）— 詳細な値は下の結果表を参照`,
+      `デコード TPS モデル比較棒グラフ（モデル ${count}件）— 詳細な値は下の結果表を参照`,
+    barComparePrefillAria: (count: number) =>
+      `プリフィル TPS モデル比較棒グラフ（モデル ${count}件）— 詳細な値は下の結果表を参照`,
     radarCompareTooFew: "比較レーダーはシナリオが3つ以上のときに表示されます。",
     noBenchData: "ベンチ実行後にメトリクスが表示されます。",
     barSessionTtftAria: "TTFT シナリオ別棒グラフ — 詳細な値は下の結果表を参照",
-    barSessionTpsAria: "TPS シナリオ別棒グラフ — 詳細な値は下の結果表を参照",
+    barSessionTpsAria: "デコード TPS シナリオ別棒グラフ — 詳細な値は下の結果表を参照",
+    barSessionPrefillAria: "プリフィル TPS シナリオ別棒グラフ — 詳細な値は下の結果表を参照",
     barClickHint: "棒をクリックすると該当シナリオの詳細を開きます。",
     radarSessionMultiTooFew: "モデル間のレーダー比較はシナリオが3つ以上のときに表示されます。",
     radarSingleTooFew: "レーダーチャートはシナリオが3つ以上のときに表示されます。",
@@ -73,15 +79,16 @@ export const results: Messages["results"] = {
 
   legend: {
     ttftDesc: "リクエスト送信から最初の出力トークンまで",
-    tpsDesc: "出力長ベースの近似トークン ÷ 総所要時間",
+    tpsDesc: "デコード:（出力トークン − 1）÷（総時間 − TTFT）",
+    prefillDesc: "プリフィル: prompt_tokens ÷ TTFT（旧ランは —）",
     tpsDescSession: " (TPS 専用棒グラフ)",
     tpsDescCompare: " (比較時は TPS 専用チャート)",
     compareLead: "比較バー: 実行（シナリオ・API・モデル）ごとに、",
-    compareMid: " 棒グラフは ms 単位で表示し、TPS 専用チャートは同じ順で",
+    compareMid: " 棒グラフは ms 単位で表示し、デコード・プリフィル TPS チャートは同じ順で",
     compareTail:
       " のみ表示します。TPS バーの色はモデル別です。シナリオ・API のまとまり（モデル数分の連続行）の間は空帯で区切ります。シナリオ・API のまとまり（モデル数分の連続行）の間は空帯で区切ります。",
     sessionLead: "ライブバー: ",
-    sessionMid: " 棒グラフは ms 単位、TPS 専用チャートは同じ順の ",
+    sessionMid: " 棒グラフは ms 単位、デコード・プリフィル TPS チャートは同じ順の ",
     sessionTail: "です。モデルが2つ以上ならシナリオ・API ブロックの間を空帯で区切ります。",
     scenarioTerm: "シナリオ",
     scenarioIs: " はベンチ課題の識別子、",
@@ -92,7 +99,8 @@ export const results: Messages["results"] = {
     outputTokensTerm: "出力トークン",
     tokenCountLead: " は同一のトークン数（provider ",
     approxMid: " または 文字数/4 近似、近似時は ",
-    approxTail: "）を使い、TPS はそれをリクエスト送信からストリーム完了までの総時間（秒）で割った値です。",
+    approxTail:
+      "）を使い、デコード TPS は（出力トークン − 1）を（総時間 − TTFT）で割った値です。プリフィル TPS は prompt_tokens ÷ TTFT で、旧ランは — です。",
   },
 
   table: {
@@ -112,7 +120,12 @@ export const results: Messages["results"] = {
     colTtftTitle: "Time To First Token — HTTP リクエスト送信から最初の出力トークン（テキスト・推論・tool_call）まで（ミリ秒）",
     colOutputTokens: "出力トークン",
     colOutputTokensTitle: "出力トークン数 — provider usage.completion_tokens または 文字数/4 近似（TPS と同一基準）",
-    colTpsTitle: "Tokens Per Second（近似）— 出力テキスト長ベースのトークン推定 ÷ 総所要時間（秒）",
+    colTpsTitle:
+      "デコード TPS —（出力トークン − 1）÷（（総時間 − TTFT）秒）。最初のトークンはプリフィルに含む。TTFT がなければ —",
+    colPrefillTpsTitle:
+      "プリフィル TPS — prompt_tokens ÷（TTFT 秒）。旧ランは usage.prompt_tokens がなく —。遅延（TTFT ms）とは役割が異なる",
+    colPrefillTps: "プリフィル TPS",
+    colDecodeTps: "デコード TPS",
     colQuality: "品質",
     colQualityTitle:
       "テキストシナリオは合格/不合格の二値。ビジョンシナリオは rubric 0〜3（score 0/0.33/0.67/1）、rubric ≥ 2 で合格。",
@@ -127,7 +140,12 @@ export const results: Messages["results"] = {
     reasoningHiddenAria: "推論が非表示 — TTFT 比較に注意",
     outputTokensApproxTitle: "provider が usage を報告しないため 文字数/4 の推定値（approx）",
     outputTokensUsageTitle: "provider 報告の completion_tokens（usage）",
-    tpsWinTitle: "このシナリオ・API グループで最高の TPS",
+    tpsWinTitle: "このシナリオ・API グループで最高のデコード TPS",
+    prefillWinTitle: "このシナリオ・API グループで最高のプリフィル TPS",
+    prefillMissingTitle: "旧ラン — prompt_tokens が保存されていないためプリフィル TPS を再計算できません。再測定してください。",
+    prefillMissingUsageTitle: "このランに usage.prompt_tokens がなくプリフィル TPS を計算できません。",
+    tpsMissingTitle: "TTFT がないか出力トークンが 1 以下のためデコード TPS を計算できません。",
+    agentTurnSumTitle: "エージェントシナリオはターン合算の壁時計に同じ式を使います（ターン別計測は後続）。",
     tpsApproxTitle: "provider が usage トークン数を返さないため 文字数/4 の推定値で計算（approx）。CJK・コードで誤差が大きい。",
     tpsUsageTitle: "provider 報告の実トークンベース（usage）",
     qualityVisionAria: (rubric: string | number, score: string, passLabel: string) =>
@@ -182,6 +200,8 @@ export const results: Messages["results"] = {
     fieldScenario: "シナリオ",
     fieldModel: "モデル",
     fieldQuality: "品質",
+    fieldPrefillTps: "プリフィル TPS",
+    fieldDecodeTps: "デコード TPS",
     reasoningHiddenNote: "推論が非表示 — TTFT は最初の可視トークンまで（隠れた推論を含む）。chat・思考 OFF と直接比較する際は注意。",
     purposeTitle: "シナリオの目的",
     criteriaTitle: "合格 / 不合格の基準",

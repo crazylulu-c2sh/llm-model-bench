@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { effectiveOutputTokens, tokensPerSecondFromRun } from "../tps";
+import { decodeTokensPerSecondFromRun, effectiveOutputTokens, prefillTokensPerSecondFromRun } from "../tps";
 import { runHasChannelTagLeak, runIsEmptyTurn, type LeakRunInput } from "./leak-metrics";
 
 /**
@@ -12,6 +12,7 @@ import { runHasChannelTagLeak, runIsEmptyTurn, type LeakRunInput } from "./leak-
 export type CompareRunInput = LeakRunInput & {
   ttft_ms: number | null;
   total_ms: number;
+  usage_prompt_tokens?: number | null;
   quality?: { pass: boolean; score?: number; reason?: string };
 };
 
@@ -43,6 +44,7 @@ export const RegressionKindSchema = z.enum([
   "quality_drop",
   "new_empty_turns",
   "tps_regression",
+  "prefill_tps_regression",
   "ttft_regression",
 ]);
 export type RegressionKind = z.infer<typeof RegressionKindSchema>;
@@ -64,10 +66,14 @@ export const CompareScenarioSchema = z.object({
   api_route: z.string(),
   ttft_p50: MetricDeltaSchema,
   ttft_p95: MetricDeltaSchema,
-  /** per-run TPS 평균. */
+  /** per-run 디코드 TPS 평균. */
   tps_per_user: MetricDeltaSchema,
-  /** Σ tokens / Σ seconds. */
+  /** Σ decode_tokens / Σ decode_seconds. */
   tps_aggregate: MetricDeltaSchema,
+  /** per-run 프리필 TPS 평균. 한쪽이라도 usage_prompt_tokens가 없으면 null. */
+  prefill_tps_per_user: MetricDeltaSchema,
+  /** Σ prompt_tokens / Σ ttft_seconds. 양쪽 모두 있을 때만 값. */
+  prefill_tps_aggregate: MetricDeltaSchema,
   quality: MetricDeltaSchema,
   empty_turn_rate: MetricDeltaSchema,
   channel_tag_leak: MetricDeltaSchema,
@@ -127,6 +133,8 @@ type SideMetrics = {
   ttft_p95: number | null;
   tps_per_user: number | null;
   tps_aggregate: number | null;
+  prefill_tps_per_user: number | null;
+  prefill_tps_aggregate: number | null;
   quality: number | null;
   empty_turn_rate: number;
   channel_tag_leak: number;
@@ -137,20 +145,46 @@ function sideMetrics(runs: readonly CompareRunInput[]): SideMetrics {
   const pct = ttftPercentiles(runs.map((r) => r.ttft_ms).filter((x): x is number => x != null));
   let tpsSum = 0;
   let tpsN = 0;
-  let tokSum = 0;
-  let secSum = 0;
+  let decodeTok = 0;
+  let decodeSec = 0;
+  let prefillSum = 0;
+  let prefillN = 0;
+  let prefillTok = 0;
+  let prefillSec = 0;
   let qSum = 0;
   let qN = 0;
   let empty = 0;
   let chan = 0;
   for (const r of runs) {
-    const tps = tokensPerSecondFromRun(r.total_ms, r.output_text, r.usage_output_tokens);
-    if (tps > 0) {
+    const tps = decodeTokensPerSecondFromRun({
+      totalMs: r.total_ms,
+      ttftMs: r.ttft_ms,
+      outputText: r.output_text,
+      usageTokens: r.usage_output_tokens,
+    });
+    if (tps != null && tps > 0) {
       tpsSum += tps;
       tpsN += 1;
     }
-    tokSum += effectiveOutputTokens(r.output_text, r.usage_output_tokens);
-    if (r.total_ms > 0) secSum += r.total_ms / 1000;
+    const out = effectiveOutputTokens(r.output_text, r.usage_output_tokens);
+    if (r.ttft_ms != null && r.total_ms > r.ttft_ms && out > 1) {
+      decodeTok += out - 1;
+      decodeSec += (r.total_ms - r.ttft_ms) / 1000;
+    }
+    const prefill = prefillTokensPerSecondFromRun(r.ttft_ms, r.usage_prompt_tokens);
+    if (prefill != null) {
+      prefillSum += prefill;
+      prefillN += 1;
+    }
+    if (
+      r.usage_prompt_tokens != null &&
+      r.usage_prompt_tokens > 0 &&
+      r.ttft_ms != null &&
+      r.ttft_ms > 0
+    ) {
+      prefillTok += r.usage_prompt_tokens;
+      prefillSec += r.ttft_ms / 1000;
+    }
     const s = r.quality?.score;
     if (typeof s === "number" && Number.isFinite(s)) {
       qSum += s;
@@ -164,7 +198,9 @@ function sideMetrics(runs: readonly CompareRunInput[]): SideMetrics {
     ttft_p50: pct.p50,
     ttft_p95: pct.p95,
     tps_per_user: tpsN > 0 ? tpsSum / tpsN : null,
-    tps_aggregate: secSum > 0 ? tokSum / secSum : null,
+    tps_aggregate: decodeSec > 0 ? decodeTok / decodeSec : null,
+    prefill_tps_per_user: prefillN > 0 ? prefillSum / prefillN : null,
+    prefill_tps_aggregate: prefillSec > 0 ? prefillTok / prefillSec : null,
     quality: qN > 0 ? qSum / qN : null,
     empty_turn_rate: n > 0 ? empty / n : 0,
     channel_tag_leak: n > 0 ? chan / n : 0,
@@ -251,6 +287,14 @@ export function computeCompare(
       regressions.push("tps_regression");
     }
     if (
+      a.prefill_tps_aggregate != null &&
+      a.prefill_tps_aggregate > 0 &&
+      b.prefill_tps_aggregate != null &&
+      b.prefill_tps_aggregate < a.prefill_tps_aggregate * (1 - thresholds.tpsRegressionPct)
+    ) {
+      regressions.push("prefill_tps_regression");
+    }
+    if (
       a.ttft_p95 != null &&
       a.ttft_p95 > 0 &&
       b.ttft_p95 != null &&
@@ -276,6 +320,8 @@ export function computeCompare(
       ttft_p95: delta(a.ttft_p95, b.ttft_p95),
       tps_per_user: delta(a.tps_per_user, b.tps_per_user),
       tps_aggregate: delta(a.tps_aggregate, b.tps_aggregate),
+      prefill_tps_per_user: delta(a.prefill_tps_per_user, b.prefill_tps_per_user),
+      prefill_tps_aggregate: delta(a.prefill_tps_aggregate, b.prefill_tps_aggregate),
       quality: delta(a.quality, b.quality),
       empty_turn_rate: delta(a.empty_turn_rate, b.empty_turn_rate),
       channel_tag_leak: delta(a.channel_tag_leak, b.channel_tag_leak),

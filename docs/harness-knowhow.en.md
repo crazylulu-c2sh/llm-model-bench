@@ -179,11 +179,21 @@ Both provider adapters consume an SSE `ReadableStream` incrementally — `consum
 - **That definition collapses silently when the server never opens a reasoning channel.** Some Anthropic-compatible shims do not emit reasoning as `thinking_delta` unless `thinking` is explicitly requested (measured on LM Studio `/v1/messages`). TTFT then means "time to first **visible** token" — prefill plus the entire reasoning phase — which measured up to 60x the same model's OpenAI route (which does stream `reasoning_content`). The harness (1) sends `thinking: { type: "enabled", budget_tokens }` when the profile intent is thinking-on, retrying once without it and caching the rejection per base URL, and (2) still emits `reasoning_hidden` on `scenario_end` when no reasoning arrives, so consumers know what TTFT means. Source: `apps/server/src/anthropic-fetch.ts`.
 - `totalMs = performance.now() - origin` is captured after the read loop ends. `ttftMs` stays `null` if no delta ever arrives.
 
-### TPS via `usageOutputTokens ?? approxOutputTokens`
+### Decode TPS (`decode_ms = totalMs − ttftMs`)
 
 - Prefer the provider's own count. OpenAI reads it from the `stream_options.include_usage` trailer (`usage.completion_tokens`, else `usage.output_tokens`); Anthropic reads `usage.output_tokens` (the running total carried on the `message_delta` event) or `message.usage.output_tokens`. Either is stored in `usageOutputTokens`, left `null` when the server omits it (common on vLLM / LM Studio).
-- `approxOutputTokens` is the fallback estimate, `Math.max(0, Math.ceil(outText.length / 4))` — the classic ~4-chars-per-token heuristic. A throughput consumer computes tokens/sec as `(usageOutputTokens ?? approxOutputTokens) / (totalMs / 1000)`.
+- `approxOutputTokens` is the fallback estimate, `Math.max(0, Math.ceil(outText.length / 4))` — the classic ~4-chars-per-token heuristic.
 - Both adapters make the estimate count reasoning tokens so the two providers are comparable: OpenAI's `outText` (= `combined`) already contains reasoning, whereas Anthropic keeps reasoning out of `text` and instead adds it back explicitly: `Math.ceil((reasoningText.length + outText.length) / 4)`.
+- UI and scoreboard **decode TPS** follow the llama.cpp / oMLX convention: denominator `decode_ms = total_ms − ttft_ms`, numerator `max(0, output_tokens − 1)` (the first token is counted in prefill+sample). Missing `ttft` / `decode_ms ≤ 0` / output tokens ≤ 1 → `null` (shown as `—`). Source: `decodeTokensPerSecondFromRun` in `packages/shared/src/tps.ts`.
+- Blended TPS (`output / total_ms`, `tokensPerSecondFromRun`) stays for internal compatibility and stress `aggregate_tps`; the default UI hides it.
+- Older run JSON already has `ttft_ms`, `total_ms`, and `usage_output_tokens` (or an `output_text` approximation), so decode TPS is recomputed at read time with no SQLite rewrite.
+- `reasoning_hidden` folds hidden thinking into TTFT, so both axes distort. `agent_*` uses the same formulas on a multi-turn wall clock in v1 and labels that in the tooltip (per-turn metrics come later).
+
+### Prefill TPS (`usagePromptTokens / TTFT`)
+
+- OpenAI stores `usage.prompt_tokens` (else `usage.input_tokens`) and Anthropic stores `usage.input_tokens` as `usagePromptTokens`. Requests already send `stream_options.include_usage: true`; older parsers discarded input tokens.
+- Formula: `prompt_tokens / (ttft_ms / 1000)` (`prefillTokensPerSecondFromRun`). No `prompt_tokens` → `null` with no approximation. `prompt_preview` is a truncated snapshot and lacks vision image tokens, so it is not used.
+- Older runs show `—` in the prefill cell. Only re-measured runs fill in. There is no migration SQL; `aggregate_json` just gains a `usage_prompt_tokens` key.
 
 ### Reasoning-channel separation: `text` vs `assistantText` vs `reasoningText`
 
@@ -231,6 +241,7 @@ export type OpenAiStreamMetrics = {
   streamCompleted: boolean;
   approxOutputTokens: number;   // ceil(text.length / 4)
   usageOutputTokens: number | null; // stream_options.include_usage
+  usagePromptTokens: number | null; // usage.prompt_tokens / input_tokens
   finishReason: string | null;  // "length" => truncated
   repetitionLoopDetected: boolean;
   toolCallArgsCorrupted: boolean;
@@ -246,6 +257,7 @@ export type AnthropicStreamMetrics = {
   streamCompleted: boolean;
   approxOutputTokens: number;   // ceil((reasoningText.length + text.length) / 4)
   usageOutputTokens: number | null; // message_delta.usage.output_tokens
+  usagePromptTokens: number | null; // usage.input_tokens
   stopReason: string | null;    // "max_tokens" => truncated
 };
 ```
@@ -689,13 +701,14 @@ type MetricDelta = { a: number|null; b: number|null; delta: number|null; pct: nu
 // delta = b - a  (null if either side null); pct = (b - a) / a (null if a is 0/null)
 ```
 
-- Per-scenario deltas emitted: `ttft_p50`, `ttft_p95` (nearest-rank percentiles), `tps_per_user` (mean of per-run TPS), `tps_aggregate` (Σtokens / Σseconds), `quality` (mean score), `empty_turn_rate`, `channel_tag_leak`.
-- Regression signal types (`RegressionKind`) and the exact rules — direction matters, and note TPS uses the **aggregate** metric while TTFT uses **p95 only**:
+- Per-scenario deltas emitted: `ttft_p50`, `ttft_p95` (nearest-rank percentiles), `tps_per_user` (mean of per-run **decode** TPS), `tps_aggregate` (Σdecode_tokens / Σdecode_seconds), `prefill_tps_per_user` / `prefill_tps_aggregate` (only when **both** sides have `usage_prompt_tokens`; one-sided missing is a gap, not `protocol_mismatch`), `quality` (mean score), `empty_turn_rate`, `channel_tag_leak`.
+- Regression signal types (`RegressionKind`) and the exact rules — direction matters, and note decode/prefill TPS use the **aggregate** metric while TTFT uses **p95 only**:
 
 | `RegressionKind` | Threshold key (default) | Fires when |
 | --- | --- | --- |
 | `quality_drop` | `qualityDropAbs` (0.05) | `a.quality - b.quality > qualityDropAbs` (absolute drop) |
-| `tps_regression` | `tpsRegressionPct` (0.15) | `b.tps_aggregate < a.tps_aggregate * (1 - tpsRegressionPct)` |
+| `tps_regression` | `tpsRegressionPct` (0.15) | `b.tps_aggregate < a.tps_aggregate * (1 - tpsRegressionPct)` (decode) |
+| `prefill_tps_regression` | `tpsRegressionPct` (0.15) | only when both aggregates exist; `b.prefill_tps_aggregate < a.prefill_tps_aggregate * (1 - tpsRegressionPct)` |
 | `ttft_regression` | `ttftRegressionPct` (0.25) | `b.ttft_p95 > a.ttft_p95 * (1 + ttftRegressionPct)` |
 | `new_empty_turns` | `flagNewEmptyTurns` (true) | `a.empty_turn_rate === 0 && b.empty_turn_rate > 0` |
 
@@ -754,12 +767,12 @@ export async function consumeOpenAiChatStream(
   signal?: AbortSignal,
   opts?: { onDelta?: (d: OpenAiStreamDelta) => void; loopGuard?: boolean; requestStartedAt?: number },
 ): Promise<OpenAiStreamMetrics>; // { ttftMs, totalMs, text, assistantText, reasoningText, toolCalls,
-                                 //   streamCompleted, approxOutputTokens, usageOutputTokens, finishReason,
+                                 //   streamCompleted, approxOutputTokens, usageOutputTokens, usagePromptTokens, finishReason,
                                  //   repetitionLoopDetected, toolCallArgsCorrupted }
 ```
 
 - TTFT is stamped by `markTtft()` on the **first** content / `reasoning_content` / tool-call delta, relative to `requestStartedAt ?? performance.now()`.
-- The stream returns two token counts: `usageOutputTokens` — provider usage from `usage.completion_tokens` (else `usage.output_tokens`), which needs `stream_options.include_usage`, otherwise `null` — and `approxOutputTokens`, an always-computed `text.length / 4` estimate. Callers prefer usage and fall back to the `/ 4` approximation, so TPS is honest about its source (`tps_source: "usage" | "approx"`).
+- The stream returns three token counts: `usageOutputTokens` — provider usage from `usage.completion_tokens` (else `usage.output_tokens`), which needs `stream_options.include_usage`, otherwise `null` — `approxOutputTokens`, an always-computed `text.length / 4` estimate — and `usagePromptTokens` (`usage.prompt_tokens` / `input_tokens`, else `null`). Callers prefer output usage and fall back to the `/ 4` approximation, so decode TPS is honest about its source (`tps_source: "usage" | "approx"`). Prefill is never approximated.
 - Annotate-only signals (`finishReason === "length"` for truncation, `toolCallArgsCorrupted` for the concatenated-`{}{}` runtime bug) never change scoring; they just label results.
 
 **Provider abstraction — `detect.ts`.** `detectProvider(rawBaseUrl, opts)` normalizes the base URL, then probes native list endpoints in order (LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`). LM Studio, Ollama, and Unsloth Studio hits get fixed `capabilities`; the OpenAI-compatible and `manual` fall-throughs call `probeCapabilities`, which POSTs a throwaway `probe-model` to `/v1/chat/completions` and `/v1/messages`. After a successful `/v1/models`, a one-shot engine hint is filled (SGLang `/server_info` → `/metrics` vllm/llamacpp/tgi gauges → `DetectResult.engine` / `BenchRunMeta.engine`; `ProviderKind` stays `openai_compatible`). The returned `capabilities: { openaiChat, anthropicMessages }` is what every downstream runner uses to pick a route (`pickRoute()` in `stress-runner.ts`, `resolveBenchApiRoutes()` in the bench runner), so you get one detection result instead of scattered per-call branching.
@@ -796,7 +809,9 @@ Terms used across this document, grouped by the section that explains them in de
 | Term | Definition |
 |---|---|
 | TTFT | Time To First Token — ms from request send to the first content / `reasoning_content` / tool-call delta. |
-| TPS | Tokens Per Second — output tokens ÷ elapsed. `aggregate_tps` sums a stage; `tps_per_user` = aggregate ÷ concurrency. |
+| Decode TPS | Decode throughput — `(output tokens − 1) ÷ (total − TTFT)`. Recomputed from older runs at read time. |
+| Prefill TPS | Prefill throughput — `prompt_tokens ÷ TTFT`. Older runs lack usage and need a re-measure. |
+| TPS (stress) | Stress stage: output tokens ÷ elapsed. `aggregate_tps` sums a stage; `tps_per_user` = aggregate ÷ concurrency. |
 | `approxOutputTokens` | Fallback token estimate (~len/4) used when the server omits a usage count. |
 | p50 / p95 | Median / 95th-percentile latency (or TTFT) within a stage. |
 | warmup vs measured | Warmup runs prime caches and are discarded; measured runs feed metrics. |

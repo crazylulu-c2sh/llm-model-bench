@@ -39,6 +39,7 @@ export function formatCompareSummary(res: CompareResponse): string {
     lines.push(
       `  ${s.scenario}/${s.api_route}: quality ${num(s.quality.a)}→${num(s.quality.b)} · ` +
         `tps(agg) ${num(s.tps_aggregate.a)}→${num(s.tps_aggregate.b)} · ` +
+        `prefill(agg) ${num(s.prefill_tps_aggregate.a)}→${num(s.prefill_tps_aggregate.b)} · ` +
         `ttft_p95 ${num(s.ttft_p95.a, 0)}→${num(s.ttft_p95.b, 0)} · ` +
         `empty ${num(s.empty_turn_rate.a)}→${num(s.empty_turn_rate.b)}  ${flag}`,
     );

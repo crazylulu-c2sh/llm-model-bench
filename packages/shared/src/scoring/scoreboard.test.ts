@@ -60,6 +60,15 @@ describe("scoreboard parity (server ≡ browser)", () => {
     expect(chat.score).toBe(0.5); // (1+0)/2
     expect(chat.ttft_ms).toBe(150); // (100+200)/2
     expect(chat.judgeCapped).toBe(false);
+    // decode: (10-1)/(1000-100)=10, (10-1)/(1000-200)=11.25 → avg 10.625
+    expect(chat.tps).toBeCloseTo(10.625, 5);
+    // 구 런: prompt tokens 없음
+    expect(chat.prefill_tps).toBeNull();
+    const withPrompt = averageRunsToScoringRow("A", "chat_hello", "chat_completions", [
+      { ...chatRuns[0]!, usage_prompt_tokens: 50 },
+    ]);
+    // 50 tok / 0.1s = 500
+    expect(withPrompt.prefill_tps).toBe(500);
     const vision = averageRunsToScoringRow("A", "vision_meme_explain_a", "chat_completions", visionRuns);
     expect(vision.judgeCapped).toBe(true);
   });

@@ -32,6 +32,7 @@ type ScenarioRun = {
   total_ms: number;
   output_text: string;
   usage_output_tokens?: number | null;
+  usage_prompt_tokens?: number | null;
   quality?: { pass: boolean; score?: number; reason?: string };
 };
 type BenchDetail = {
@@ -57,6 +58,7 @@ function compactFromDetail(detail: BenchDetail) {
       avg_ttft_ms: row.ttft_ms,
       avg_total_ms: avg(sc.runs.map((r) => r.total_ms)),
       tps: row.tps,
+      prefill_tps: row.prefill_tps,
       score: row.score,
       pass: row.score != null ? row.score >= 0.67 : undefined,
     };
