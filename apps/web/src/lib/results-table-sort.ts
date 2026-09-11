@@ -2,11 +2,10 @@ import type { SortingState } from "@tanstack/react-table";
 import type { Messages } from "../i18n";
 import { cycleColumnSort as cycleColumnSortBase, isSameSorting } from "./column-sort-cycle";
 
-/** 벤치 실행 순서: 모델 큐 → 시나리오 실행 인덱스 → API */
+/** 벤치 실행 순서: 모델 큐 → 시나리오(+API는 시나리오 열 sortingFn에 합침) */
 export const BENCH_EXECUTION_SORT: SortingState = [
   { id: "model_id", desc: false },
   { id: "scenario", desc: false },
-  { id: "api", desc: false },
 ];
 
 /** ResultsTable에서 내림차순을 먼저 쓰는 열(높을수록 좋음·완료 시각 등). */
