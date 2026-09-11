@@ -9,6 +9,9 @@ import { expect, test } from "./helpers/fixtures";
  * 한 곳(저장된 모델 표)만 검증해도 네 곳 모두를 보호하는 회귀 게이트가 된다. `truncate`
  * 클래스만 있고 실제로 폭이 제한되지 않으면(과거 버그) 텍스트가 잘리지 않고 그대로 넘쳐서
  * `scrollWidth === clientWidth`가 되므로, 그 차이로 말줄임이 "진짜 작동"하는지를 잡는다.
+ *
+ * 2줄 라벨에서는 `title`(전체 id)이 바깥 래퍼에 있고, 말줄임은 2줄째 표시명 `.font-mono.truncate`
+ * 에 걸린다 — overflow는 그쪽을 잰다.
  */
 
 const BASE_URL = "http://localhost:1234/v1";
@@ -48,8 +51,12 @@ test.describe("저장된 모델 표 — 매우 긴 model_id", () => {
     const row = page.getByRole("row", { name: `${LONG_MODEL_ID} 선택 토글` });
     await expect(row).toBeVisible();
 
-    const nameSpan = row.locator(`[title="${LONG_MODEL_ID}"]`);
-    await expect(nameSpan).toHaveAttribute("title", LONG_MODEL_ID);
+    const label = row.locator(`[title="${LONG_MODEL_ID}"]`);
+    await expect(label).toHaveAttribute("title", LONG_MODEL_ID);
+
+    // 말줄임은 표시명(2줄째)에 걸린다 — 래퍼가 아니라 그 span의 overflow를 잰다.
+    const nameSpan = label.locator("span.truncate.font-mono");
+    await expect(nameSpan).toBeVisible();
 
     // 말줄임(overflow:hidden + ellipsis)이 실제로 작동하면, 잘려나간 원문 때문에 논리적
     // 콘텐츠 폭(scrollWidth)이 실제 렌더 폭(clientWidth)보다 커진다. 과거 버그는 박스가

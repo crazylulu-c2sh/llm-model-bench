@@ -6,6 +6,9 @@ import { expect, test } from "./helpers/fixtures";
  *
  * 별도 게시자 열을 없애고 ModelLabel 1줄(게시자)+2줄(id)로 합쳤다.
  * 서버 publisher 우선 / id 접두 폴백 / bare 모델 "—" 를 같은 모델 셀 안에서 검증한다.
+ *
+ * 표시명은 게시자 접두를 벗겨 중복을 피하므로, 행 찾기는 가시 텍스트의 `org/id` 연속 문자열이
+ * 아니라 `title={modelId}`(전체 id)로 한다.
  */
 
 const BASE_URL = "http://localhost:1234/v1";
@@ -72,8 +75,9 @@ async function mockStress(page: Page) {
 
 const statsRow = (page: Page, modelId: string) =>
   page.getByRole("row", { name: `${modelId} 선택 토글` });
+/** title에 전체 model_id가 있으므로 접두 제거 후에도 행을 찾을 수 있다. */
 const stressRow = (page: Page, modelId: string) =>
-  page.getByRole("row").filter({ hasText: modelId });
+  page.getByRole("row").filter({ has: page.locator(`[title="${modelId}"]`) });
 
 /** 모델 셀(게시자 2줄 포함) — 선택 열 다음 첫 데이터 셀. */
 const statsModelCell = (page: Page, modelId: string) =>
