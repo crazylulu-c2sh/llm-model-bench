@@ -370,10 +370,77 @@ describe("detectProvider", () => {
     const r = await detectProvider("http://localhost:8000", { fetchImpl });
     expect(r.provider).toBe("openai_compatible");
     expect(r.engine).toBe("vllm");
-    expect(r.steps.some((s) => s.name === "vllm_metrics" && s.ok)).toBe(true);
+    expect(r.steps.find((s) => s.name === "vllm_metrics" && s.ok)?.detail).toBe("vllm");
   });
 
-  it("leaves engine null when OpenAI-compatible has no SGLang/vLLM fingerprint", async () => {
+  it("sets engine llamacpp from /metrics llamacpp: gauges", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/models/list")) return jsonResponse({}, 404);
+      if (url.endsWith("/v1/models")) return jsonResponse({ data: [{ id: "gguf-model" }] });
+      if (url.includes("/v1/chat/completions")) return jsonResponse({ error: "x" }, 400);
+      if (url.includes("/v1/messages")) return jsonResponse({ error: "x" }, 400);
+      if (url.endsWith("/server_info") || url.endsWith("/get_server_info")) {
+        return jsonResponse({}, 404);
+      }
+      if (url.endsWith("/metrics")) {
+        return textResponse("llamacpp:requests_processing 0\nllamacpp:requests_deferred 0\n");
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:8080", { fetchImpl });
+    expect(r.engine).toBe("llamacpp");
+    expect(r.steps.find((s) => s.name === "vllm_metrics" && s.ok)?.detail).toBe("llamacpp");
+  });
+
+  it("sets engine tgi from /metrics tgi_ gauges", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/models/list")) return jsonResponse({}, 404);
+      if (url.endsWith("/v1/models")) return jsonResponse({ data: [{ id: "tgi-model" }] });
+      if (url.includes("/v1/chat/completions")) return jsonResponse({ error: "x" }, 400);
+      if (url.includes("/v1/messages")) return jsonResponse({ error: "x" }, 400);
+      if (url.endsWith("/server_info") || url.endsWith("/get_server_info")) {
+        return jsonResponse({}, 404);
+      }
+      if (url.endsWith("/metrics")) {
+        return textResponse("tgi_batch_current_size 1\ntgi_queue_size 0\n");
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:8080", { fetchImpl });
+    expect(r.engine).toBe("tgi");
+    expect(r.steps.find((s) => s.name === "vllm_metrics" && s.ok)?.detail).toBe("tgi");
+  });
+
+  it("prefers vllm over llamacpp when both prefixes appear in /metrics", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/tags")) return jsonResponse({}, 404);
+      if (url.endsWith("/api/models/list")) return jsonResponse({}, 404);
+      if (url.endsWith("/v1/models")) return jsonResponse({ data: [{ id: "m" }] });
+      if (url.includes("/v1/chat/completions")) return jsonResponse({ error: "x" }, 400);
+      if (url.includes("/v1/messages")) return jsonResponse({ error: "x" }, 400);
+      if (url.endsWith("/server_info") || url.endsWith("/get_server_info")) {
+        return jsonResponse({}, 404);
+      }
+      if (url.endsWith("/metrics")) {
+        return textResponse(
+          "llamacpp:requests_processing 0\nvllm:num_requests_running 0\n",
+        );
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:8000", { fetchImpl });
+    expect(r.engine).toBe("vllm");
+  });
+
+  it("leaves engine null when /metrics has no known gauges", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestUrl(input);
       if (url.endsWith("/api/v1/models")) return jsonResponse({}, 404);
@@ -382,12 +449,13 @@ describe("detectProvider", () => {
       if (url.endsWith("/v1/models")) return jsonResponse({ data: [{ id: "generic" }] });
       if (url.includes("/v1/chat/completions")) return jsonResponse({ error: "x" }, 400);
       if (url.includes("/v1/messages")) return jsonResponse({ error: "x" }, 400);
-      if (url.endsWith("/metrics")) return textResponse("llamacpp:requests_processing 0\n");
+      if (url.endsWith("/metrics")) return textResponse("custom_app_requests 0\n");
       return jsonResponse({}, 404);
     });
     const r = await detectProvider("http://localhost:8080", { fetchImpl });
     expect(r.provider).toBe("openai_compatible");
     expect(r.engine).toBeNull();
+    expect(r.steps.find((s) => s.name === "vllm_metrics")?.detail).toBe("no_known_gauges");
   });
 
   it("detects Unsloth Studio from /api/models/list (before OpenAI /v1/models)", async () => {

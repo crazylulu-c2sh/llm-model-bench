@@ -336,7 +336,18 @@ export const bench = {
   detectStep: (hint: string) => `감지 단계: ${hint}`,
   modelCount: (n: number) => `모델 ${n}개`,
   /** OpenAI 호환 엔진 힌트 — 고유명사 유지. */
-  engineLabel: (engine: "sglang" | "vllm") => (engine === "sglang" ? "SGLang" : "vLLM"),
+  engineLabel: (engine: "sglang" | "vllm" | "llamacpp" | "tgi") => {
+    switch (engine) {
+      case "sglang":
+        return "SGLang";
+      case "vllm":
+        return "vLLM";
+      case "llamacpp":
+        return "llama.cpp";
+      case "tgi":
+        return "TGI";
+    }
+  },
 
   // 시나리오 안내 카드 (ScenarioGuideCards)
   scenarioGuideHeading: "벤치 시나리오 안내",

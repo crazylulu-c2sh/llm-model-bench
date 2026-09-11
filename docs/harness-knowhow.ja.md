@@ -105,8 +105,8 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 - `${base}/api/models/list` → `provider: "unsloth_studio"`（指紋 `{ models: [...], default_models: [...] }`。`is_audio`/`is_diffusion` は除外）。**401 では Unsloth と断定せず** step だけ残して `/v1/models` へ続行します — Studio には `sk-unsloth-…` API キーが必要です
 - `${base}/v1/models` → `provider: "openai_compatible"`（`{ data: [{ id }] }` を期待。publisher は id の `org/` 接頭のみ）。成功直後にエンジンヒントだけを 1 回埋めます（`ProviderKind` は変えません）:
   - `${base}/server_info`（無ければレガシー `${base}/get_server_info`）→ `version` + SGLang ネイティブフィールド（`internal_states`・`mem_fraction_static` など）なら `engine: "sglang"`
-  - さもなくば `${base}/metrics` 本文に `vllm:num_requests_running`/`waiting` があれば `engine: "vllm"`
-  - どちらでもなければ `engine: null` — プローブ失敗は `openai_compatible` の返却を止めません
+  - さもなくば `${base}/metrics` を **1 回** 読み、接頭で分類（優先度 vllm → llamacpp → tgi）: `vllm:num_requests_*` → `"vllm"`、`llamacpp:requests_*` → `"llamacpp"`、`tgi_batch_current_size`/`tgi_queue_size` → `"tgi"`
+  - 既知ゲージが無ければ `engine: null` — プローブ失敗は `openai_compatible` の返却を止めません。llama.cpp は `--metrics` 未有効なら意図的に miss
 - いずれも一致しない → `provider: "manual"`（`models: []` と、算出された `reachability`）。状態（`ok` | `partial` | `unreachable`）に加えて分類コード（`connect_timeout` | `refused` | `dns` | `tls` | `network` | `partial`）を載せます。サーバーはコードと生の診断（errno）だけを送り、人が読む文はクライアントの i18n が組み立てます — サーバーが文を作ると多言語 UI に一つの言語が漏れます
 
 `base` はまず `normalizeBaseUrl()` で正規化され、スキームがなければ（大文字小文字を問わず — `HTTP://` をホスト名と誤認しません）`http://` を前置し、ドキュメントに記載された API ベースのサフィックスを `stripDocumentedApiBaseSuffix()` で取り除きます。対象は OpenAI 互換の `…/v1` に加え、LM Studio が案内する `…/api/v1`・`…/api/v0` も含みます — ハーネス自身が `base + /v1/...` と `base + /api/v1/...` を組み立てるため、外さないとパスが二重になり死んだアドレスを叩きます。WSL2 NAT ではダッシュボードの `localhost` は Windows の LM Studio に届かないため、デフォルトの `providerFetch()`（`apps/server/src/provider-fetch.ts`）がループバック `ECONNREFUSED` のあと Windows ホスト（ゲートウェイ）へ 1 回再試行します（`apps/server/src/util/wsl-windows-host.ts`）。UI の Base URL は `localhost` のままにし、テストが渡す `fetchImpl` はこのラッパを通りません。
@@ -115,7 +115,7 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 // "lm_studio" | "ollama" | "unsloth_studio" | "openai_compatible" | "manual"
 
-export type InferenceEngine = "sglang" | "vllm"; // DetectResult.engine / BenchRunMeta.engine
+export type InferenceEngine = "sglang" | "vllm" | "llamacpp" | "tgi"; // DetectResult.engine / BenchRunMeta.engine
 
 export async function detectProvider(
   rawBaseUrl: string,
@@ -758,7 +758,7 @@ export async function consumeOpenAiChatStream(
 - ストリームは 2 つのトークンカウントを返します: `usageOutputTokens` — `usage.completion_tokens`（なければ `usage.output_tokens`）由来のプロバイダー usage で、`stream_options.include_usage` が必要、なければ `null` — と `approxOutputTokens`、常に計算される `text.length / 4` 推定。呼び出し側は usage を優先し `/ 4` 近似にフォールバックするので、TPS はソースについて正直です（`tps_source: "usage" | "approx"`）。
 - 注釈専用のシグナル（切り詰めの `finishReason === "length"`、連結 `{}{}` ランタイムバグの `toolCallArgsCorrupted`）は採点を決して変えず、結果にラベルを付けるだけです。
 
-**プロバイダー抽象化 — `detect.ts`。** `detectProvider(rawBaseUrl, opts)` は base URL を正規化し、ネイティブのリストエンドポイントを順にプローブします（LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`）。LM Studio・Ollama・Unsloth Studio のヒットには固定の `capabilities` が付き、OpenAI 互換と `manual` のフォールスルーは `probeCapabilities` を呼び、使い捨ての `probe-model` を `/v1/chat/completions` と `/v1/messages` に POST します。`/v1/models` 成功後はエンジンヒントだけを追加で埋めます（SGLang `/server_info` → vLLM `/metrics` の `vllm:` ゲージ → `DetectResult.engine` / `BenchRunMeta.engine`。`ProviderKind` は `openai_compatible` のまま）。返される `capabilities: { openaiChat, anthropicMessages }` を、下流の全ランナーがルート選択に使うので（`stress-runner.ts` の `pickRoute()`、ベンチランナーの `resolveBenchApiRoutes()`）、呼び出しごとに散らばった分岐ではなく 1 つの検出結果を得られます。
+**プロバイダー抽象化 — `detect.ts`。** `detectProvider(rawBaseUrl, opts)` は base URL を正規化し、ネイティブのリストエンドポイントを順にプローブします（LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`）。LM Studio・Ollama・Unsloth Studio のヒットには固定の `capabilities` が付き、OpenAI 互換と `manual` のフォールスルーは `probeCapabilities` を呼び、使い捨ての `probe-model` を `/v1/chat/completions` と `/v1/messages` に POST します。`/v1/models` 成功後はエンジンヒントだけを追加で埋めます（SGLang `/server_info` → `/metrics` の vllm/llamacpp/tgi ゲージ → `DetectResult.engine` / `BenchRunMeta.engine`。`ProviderKind` は `openai_compatible` のまま）。返される `capabilities: { openaiChat, anthropicMessages }` を、下流の全ランナーがルート選択に使うので（`stress-runner.ts` の `pickRoute()`、ベンチランナーの `resolveBenchApiRoutes()`）、呼び出しごとに散らばった分岐ではなく 1 つの検出結果を得られます。
 
 - ルート可用性のヒューリスティック `routeLikelyAvailable(status, body)` は、不正モデルの `4xx`（または JSON 本文付きの `404`）を「ルートが存在する」と扱います — 「エンドポイント不在」と「エンドポイント存在、リクエストが誤り」を見分けるのに拝借してください。
 

@@ -332,7 +332,18 @@ export const bench: Messages["bench"] = {
   partialModelList: "モデル一覧ルートの一部のみ応答しました。",
   detectStep: (hint) => `検出ステップ: ${hint}`,
   modelCount: (n) => `モデル ${n}個`,
-  engineLabel: (engine) => (engine === "sglang" ? "SGLang" : "vLLM"),
+  engineLabel: (engine) => {
+    switch (engine) {
+      case "sglang":
+        return "SGLang";
+      case "vllm":
+        return "vLLM";
+      case "llamacpp":
+        return "llama.cpp";
+      case "tgi":
+        return "TGI";
+    }
+  },
 
   // シナリオ案内カード (ScenarioGuideCards)
   scenarioGuideHeading: "ベンチシナリオ案内",
