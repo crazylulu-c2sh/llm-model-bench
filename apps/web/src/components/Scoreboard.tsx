@@ -400,7 +400,7 @@ export function Scoreboard({
   // #105: 모델 × 라우트 에이전트 능력 지표(agent_* 완료 런).
   const agentMetrics = useMemo(() => agentMetricsFromRows(rows, detailAggregate), [rows, detailAggregate]);
   const [sort, setSort] = useState<ScoreboardSort>(DEFAULT_SCOREBOARD_SORT);
-  const [view, setView] = useState<"chart" | "table" | "leaks" | "agent">("chart");
+  const [view, setView] = useState<"chart" | "table" | "leaks" | "agent">("table");
   const [hiddenVendors, setHiddenVendors] = useState<Set<VendorKey>>(() => new Set());
   const [hiddenTiers, setHiddenTiers] = useState<Set<ParamTier | null>>(() => new Set());
   function onSortClick(key: ScoreboardSortKey) {
@@ -491,7 +491,7 @@ export function Scoreboard({
   const anyJudgeCap = filteredBoard.some((b) => b.quality.caveats.includes("judge_capped"));
   const anyApprox = filteredBoard.some((b) => b.speed.approxCaveat);
   const anyTextOnly = filteredBoard.some((b) => b.textOnly);
-  // 기본=차트지만 라이브 벤치 로딩 중엔 큐-순서 표 스켈레톤을 강제(차트 스켈레톤은 후속). 데이터 도착 후 토글대로.
+  // 기본=표. 라이브 벤치 로딩 중엔 큐-순서 표 스켈레톤을 강제(차트 스켈레톤은 후속). 데이터 도착 후 토글대로.
   const showChart = view === "chart" && !loadingLayout;
   // 벤더 필터는 벤치 로딩 중이 아니고 벤더가 2종 이상일 때만 노출.
   const showVendorFilter = !loadingLayout && vendorCounts.size >= 2;
@@ -512,8 +512,8 @@ export function Scoreboard({
             value={view}
             onChange={setView}
             options={[
-              { value: "chart", label: m.scoreboard.viewChart },
               { value: "table", label: m.scoreboard.viewTable },
+              { value: "chart", label: m.scoreboard.viewChart },
               { value: "leaks", label: m.scoreboard.viewLeaks },
               { value: "agent", label: m.scoreboard.viewAgent },
             ]}
