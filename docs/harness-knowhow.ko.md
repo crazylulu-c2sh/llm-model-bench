@@ -94,14 +94,15 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 
 ## 2. 멀티 프로바이더 추상화
 
-단일 벤치마크 하네스가 여러 로컬 호스팅 또는 원격 LLM 서버를 대상으로 삼으려면 세 가지 관심사를 분리해야 합니다 — **감지(detection)**, **능력 해석(capability resolution)**, **디스패치(dispatch)**. `detectProvider()`(`apps/server/src/detect.ts`)는 base URL을 정해진 폴백 체인으로 프로브하여 엔드포인트에 `ProviderKind`를 태깅하고 `capabilities` 객체를 붙입니다. 그 하위에서 `resolveBenchApiRoutes()`(`packages/shared/src/bench-api-routes.ts`)가 그 불리언들을 구체적인 API 라우트 목록으로 바꾸고, `runBench()`(`apps/server/src/bench-runner.ts`)가 그 목록을 순회하며 각 라우트를 알맞은 와이어 포맷 어댑터(OpenAI chat vs. Anthropic messages)로 디스패치합니다. 핵심 아이디어는 프로바이더 정체성과 와이어 능력을 분리하는 것입니다. 즉 "어떤 서버인가(provider identity)"는 목록·수명주기 동작을 고르고, "어떤 요청 포맷을 지원하는가(wire capability)"는 요청/스트림 포맷을 고릅니다. `detectProvider()`는 base URL을 정규화한 뒤 세 개의 목록(list) 엔드포인트를 순서대로 시도해 서버를 식별하고, 각 provider마다 다른 `capabilities`를 붙입니다. 그 다음 단계는 provider 이름이 아니라 `capabilities` 불리언만 보고 실제 실행할 라우트를 정하므로, 새 provider를 추가해도 dispatch 로직은 바뀌지 않습니다.
+단일 벤치마크 하네스가 여러 로컬 호스팅 또는 원격 LLM 서버를 대상으로 삼으려면 세 가지 관심사를 분리해야 합니다 — **감지(detection)**, **능력 해석(capability resolution)**, **디스패치(dispatch)**. `detectProvider()`(`apps/server/src/detect.ts`)는 base URL을 정해진 폴백 체인으로 프로브하여 엔드포인트에 `ProviderKind`를 태깅하고 `capabilities` 객체를 붙입니다. 그 하위에서 `resolveBenchApiRoutes()`(`packages/shared/src/bench-api-routes.ts`)가 그 불리언들을 구체적인 API 라우트 목록으로 바꾸고, `runBench()`(`apps/server/src/bench-runner.ts`)가 그 목록을 순회하며 각 라우트를 알맞은 와이어 포맷 어댑터(OpenAI chat vs. Anthropic messages)로 디스패치합니다. 핵심 아이디어는 프로바이더 정체성과 와이어 능력을 분리하는 것입니다. 즉 "어떤 서버인가(provider identity)"는 목록·수명주기 동작을 고르고, "어떤 요청 포맷을 지원하는가(wire capability)"는 요청/스트림 포맷을 고릅니다. `detectProvider()`는 base URL을 정규화한 뒤 네 개의 목록(list) 엔드포인트를 순서대로 시도해 서버를 식별하고, 각 provider마다 다른 `capabilities`를 붙입니다. 그 다음 단계는 provider 이름이 아니라 `capabilities` 불리언만 보고 실제 실행할 라우트를 정하므로, 새 provider를 추가해도 dispatch 로직은 바뀌지 않습니다.
 
 ### 감지(Detect) → 폴백 체인
 
-`detectProvider()`는 각 목록 엔드포인트를 순서대로 시도하고 첫 성공에서 반환합니다. 진단을 위해 모든 시도가 `steps[]`에 덧붙여집니다. 셋 다 실패하면 `provider: "manual"`로 폴백합니다. 각 요청에는 `timeoutMs`(기본 5초) 상한이 걸리고, 전송 계층 오류(`ECONNREFUSED`·`EHOSTUNREACH`·연결 타임아웃 등)로 실패하면 같은 원점의 남은 경로와 능력 프로브를 건너뜁니다 — 상한이 없으면 undici 기본 connect timeout이 요청 수만큼 누적돼 닿지 않는 호스트에서 50초 넘게 매달립니다.
+`detectProvider()`는 각 목록 엔드포인트를 순서대로 시도하고 첫 성공에서 반환합니다. 진단을 위해 모든 시도가 `steps[]`에 덧붙여집니다. 전부 실패하면 `provider: "manual"`로 폴백합니다. 각 요청에는 `timeoutMs`(기본 5초) 상한이 걸리고, 전송 계층 오류(`ECONNREFUSED`·`EHOSTUNREACH`·연결 타임아웃 등)로 실패하면 같은 원점의 남은 경로와 능력 프로브를 건너뜁니다 — 상한이 없으면 undici 기본 connect timeout이 요청 수만큼 누적돼 닿지 않는 호스트에서 50초 넘게 매달립니다.
 
 - `${base}/api/v1/models` → `provider: "lm_studio"` (`{ models: [{ key, type, display_name, publisher, ... }] }` 기대; `publisher`는 DetectResult로 통과, 없으면 id의 `org/` 접두 폴백). **200이라도 본문에 네이티브 `models` 배열이 없으면 LM Studio로 단정하지 않고 다음 후보로 넘어갑니다** — LM Studio는 모르는 경로에도 `200 + {"error": …}`를 돌려주므로, 상태 코드만 믿으면 "모델 0개인 정상 연결"이라는 가짜 성공이 만들어집니다
 - `${base}/api/tags` → `provider: "ollama"` (`{ models: [{ name, model, size }] }` 기대; publisher는 id의 `org/` 접두만)
+- `${base}/api/models/list` → `provider: "unsloth_studio"` (`{ models: [...], default_models: [...] }` 지문; `is_audio`/`is_diffusion` 제외). **401은 Unsloth로 단정하지 않고** step만 남긴 뒤 `/v1/models`로 계속합니다 — Studio는 `sk-unsloth-…` API 키가 필요합니다
 - `${base}/v1/models` → `provider: "openai_compatible"` (`{ data: [{ id }] }` 기대; publisher는 id의 `org/` 접두만)
 - 매칭 없음 → `models: []`인 `provider: "manual"`과 계산된 `reachability` — 상태(`ok` | `partial` | `unreachable`)에 더해 분류 코드(`connect_timeout` | `refused` | `dns` | `tls` | `network` | `partial`)를 싣습니다. 서버는 코드와 원문 진단(errno)만 보내고 사람이 읽는 문장은 클라이언트 i18n이 만듭니다 — 서버가 문장을 만들면 다국어 UI에 한 언어가 그대로 샙니다
 
@@ -109,7 +110,7 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 
 ```ts
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
-// "lm_studio" | "ollama" | "openai_compatible" | "manual"
+// "lm_studio" | "ollama" | "unsloth_studio" | "openai_compatible" | "manual"
 
 export async function detectProvider(
   rawBaseUrl: string,
@@ -120,12 +121,13 @@ export async function detectProvider(
 
 ### 해석(Resolve) → capability 객체
 
-감지된 각 provider는 `capabilities: { openaiChat: boolean; anthropicMessages: boolean }`를 실어 나릅니다. LM Studio와 Ollama는 **고정** capability 상수를 씁니다(가짜 모델 프로브가 오해를 부르는 `400`/`404` 코드를 돌려주므로 프로빙을 생략). `openai_compatible`과 `manual`은 `probeCapabilities()`가 실측하는데, 이 함수는 `/v1/chat/completions`와 `/v1/messages`에 더미 요청을 POST하고 `routeLikelyAvailable(status, body)`를 호출합니다 — `2xx`, 404가 아닌 `4xx`, 또는 본문이 `{`로 시작하는 `404`를 "라우트 존재"로 취급합니다.
+감지된 각 provider는 `capabilities: { openaiChat: boolean; anthropicMessages: boolean }`를 실어 나릅니다. LM Studio·Ollama·Unsloth Studio는 **고정** capability 상수를 씁니다(가짜 모델 프로브가 오해를 부르는 `400`/`404` 코드를 돌려주므로 프로빙을 생략). `openai_compatible`과 `manual`은 `probeCapabilities()`가 실측하는데, 이 함수는 `/v1/chat/completions`와 `/v1/messages`에 더미 요청을 POST하고 `routeLikelyAvailable(status, body)`를 호출합니다 — `2xx`, 404가 아닌 `4xx`, 또는 본문이 `{`로 시작하는 `404`를 "라우트 존재"로 취급합니다.
 
 | 프로바이더 | caps 출처 | `openaiChat` | `anthropicMessages` |
 |---|---|---|---|
 | `lm_studio` | `LM_STUDIO_COMPAT_CAPS` (고정) | `true` | `true` |
 | `ollama` | `OLLAMA_COMPAT_CAPS` (고정) | `true` | `false` |
+| `unsloth_studio` | `UNSLOTH_STUDIO_COMPAT_CAPS` (고정) | `true` | `true` |
 | `openai_compatible` | `probeCapabilities()` (실측) | 실측 | 실측 |
 | `manual` | `probeCapabilities()` (실측) | 실측 | 실측 |
 
@@ -158,7 +160,7 @@ export function resolveBenchApiRoutes(
 - `api_route === "chat_completions"` → `openAiChatPostWithUsage()`로 `${base}/v1/chat/completions`에 POST하고 `consumeOpenAiChatStream()`으로 소비
 - `api_route === "messages"` → 헤더 `anthropic-version: 2023-06-01`과 함께 `${base}/v1/messages`에 POST하고 `consumeAnthropicMessagesStream()`으로 소비
 
-프로바이더별 수명주기(모델 로드/언로드 TTL)는 capability가 아니라 `ProviderKind`로 따로 게이팅됩니다. `providerSupportsLoadTtl()`(`packages/shared/src/provider-kind.ts`)은 `lm_studio`(JIT 로딩 페이로드 `ttl`)와 `ollama`(`keep_alive`)에 대해서만 `true`를 반환하므로, `runBench()`는 정확히 그 두 프로바이더에만 TTL 처리를 적용하고 공유 라우트 디스패치 경로는 모든 프로바이더에서 동일하게 둡니다.
+프로바이더별 수명주기(모델 로드/언로드 TTL)는 capability가 아니라 `ProviderKind`로 따로 게이팅됩니다. `providerSupportsLoadTtl()`(`packages/shared/src/provider-kind.ts`)은 `lm_studio`(JIT 로딩 페이로드 `ttl`)와 `ollama`(`keep_alive`)에 대해서만 `true`를 반환하므로, `runBench()`는 정확히 그 두 프로바이더에만 TTL 처리를 적용하고 공유 라우트 디스패치 경로는 모든 프로바이더에서 동일하게 둡니다. 명시적 load/unload는 `providerSupportsExplicitLoadUnload()`로 게이팅되며 `lm_studio`와 `unsloth_studio`가 true입니다 — Unsloth는 Studio REST(`POST /api/inference/load`·`unload`, `apps/server/src/unsloth-studio.ts`)로 모델을 올리고, Idle TTL 공개 필드는 없어 TTL은 적용하지 않습니다.
 
 ## 3. 스트리밍 메트릭 추출
 
@@ -328,12 +330,17 @@ const fitsAfterUnload  = requiredWithOverhead <= free + residentRam - FIT_SAFETY
 | --- | --- | --- | --- |
 | `lm_studio` | `lmStudioJitTtlPrime`(폴백 `lmStudioLoad`) | prime: `POST /v1/chat/completions`, 폴백: `POST /api/v1/models/load` | prime 본문 `ttl` — **정수 초**; 명시적 load는 ttl 미지원(구버전 400) |
 | `ollama` | `ollamaKeepAliveLoad` | `POST /api/generate` (네이티브) | `{ model, prompt: "", stream: false, keep_alive: "<sec>s" }` |
+| `unsloth_studio` | `prepareUnslothStudioForRun` → `unslothLoad` / `unslothUnload` | `POST /api/inference/load`, `POST /api/inference/unload`, `GET /api/inference/status` | TTL 미지원; `model_path` (+ optional `gguf_variant` from `repo:VARIANT`) |
 | `openai_compatible`, `manual` | — | — | 미지원; TTL 무시 |
 
 ```ts
 // packages/shared/src/provider-kind.ts
 export function providerSupportsLoadTtl(p: ProviderKind): boolean {
   return p === "lm_studio" || p === "ollama";
+}
+
+export function providerSupportsExplicitLoadUnload(p: ProviderKind): boolean {
+  return p === "lm_studio" || p === "unsloth_studio";
 }
 ```
 
@@ -750,7 +757,7 @@ export async function consumeOpenAiChatStream(
 - 스트림은 두 가지 토큰 수를 반환합니다: `usageOutputTokens` — `usage.completion_tokens`(없으면 `usage.output_tokens`)에서 오는 프로바이더 usage로, `stream_options.include_usage`가 필요하며 없으면 `null` — 그리고 항상 계산되는 `text.length / 4` 추정치인 `approxOutputTokens`. 호출자는 usage를 우선하고 `/ 4` 근사로 폴백하므로, TPS는 자신의 출처를 정직하게 밝힙니다(`tps_source: "usage" | "approx"`).
 - 주석-전용 신호(잘림에 대한 `finishReason === "length"`, 이어붙은-`{}{}` 런타임 버그에 대한 `toolCallArgsCorrupted`)는 채점을 절대 바꾸지 않고 결과에 라벨만 붙입니다.
 
-**프로바이더 추상화 — `detect.ts`.** `detectProvider(rawBaseUrl, opts)`는 base URL을 정규화한 뒤 네이티브 목록 엔드포인트를 순서대로 프로브합니다(LM Studio `/api/v1/models` → Ollama `/api/tags` → OpenAI `/v1/models`). LM Studio와 Ollama 히트는 고정 `capabilities`(`LM_STUDIO_COMPAT_CAPS` / `OLLAMA_COMPAT_CAPS`)를 받고, OpenAI 호환과 `manual` 폴스루(fall-through)는 `probeCapabilities`를 호출해 `/v1/chat/completions`와 `/v1/messages`에 일회용 `probe-model`을 POST합니다. 반환된 `capabilities: { openaiChat, anthropicMessages }`는 모든 하위 러너가 라우트를 고를 때 쓰는 값이므로(`stress-runner.ts`의 `pickRoute()`, 벤치 러너의 `resolveBenchApiRoutes()`), 호출마다 흩어진 분기 대신 하나의 감지 결과를 얻습니다.
+**프로바이더 추상화 — `detect.ts`.** `detectProvider(rawBaseUrl, opts)`는 base URL을 정규화한 뒤 네이티브 목록 엔드포인트를 순서대로 프로브합니다(LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`). LM Studio·Ollama·Unsloth Studio 히트는 고정 `capabilities`를 받고, OpenAI 호환과 `manual` 폴스루(fall-through)는 `probeCapabilities`를 호출해 `/v1/chat/completions`와 `/v1/messages`에 일회용 `probe-model`을 POST합니다. 반환된 `capabilities: { openaiChat, anthropicMessages }`는 모든 하위 러너가 라우트를 고를 때 쓰는 값이므로(`stress-runner.ts`의 `pickRoute()`, 벤치 러너의 `resolveBenchApiRoutes()`), 호출마다 흩어진 분기 대신 하나의 감지 결과를 얻습니다.
 
 - 라우트 가용성 휴리스틱 `routeLikelyAvailable(status, body)`는 잘못된-모델 `4xx`(또는 JSON 본문이 있는 `404`)를 "라우트 존재"로 취급합니다 — "엔드포인트 없음"과 "엔드포인트는 있지만 내 요청이 틀림"을 구분하려면 이걸 훔쳐 쓰세요.
 
@@ -803,7 +810,7 @@ export const CompareThresholdsSchema = z.object({
 
 | 용어 | 설명 |
 |---|---|
-| `ProviderKind` | `lm_studio` / `ollama` / `openai_compatible` / `manual` — 감지된 백엔드 종류. |
+| `ProviderKind` | `lm_studio` / `ollama` / `unsloth_studio` / `openai_compatible` / `manual` — 감지된 백엔드 종류. |
 | capability | `{ openaiChat, anthropicMessages }` — 서버가 지원하는 와이어 라우트. |
 | API route | `chat_completions`(OpenAI) 또는 `messages`(Anthropic). |
 | TTL / `keep_alive` | 제한된 모델 상주 시간 — LM Studio JIT prime `ttl`(초) vs Ollama `keep_alive`. |

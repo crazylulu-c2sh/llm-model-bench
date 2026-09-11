@@ -94,14 +94,15 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 
 ## 2. Multi-provider abstraction
 
-A single benchmark harness can target many locally-hosted or remote LLM servers by separating three concerns: **detection**, **capability resolution**, and **dispatch**. `detectProvider()` (`apps/server/src/detect.ts`) probes a base URL through an ordered fallback chain, tags the endpoint with a `ProviderKind`, and attaches a `capabilities` object. Downstream, `resolveBenchApiRoutes()` (`packages/shared/src/bench-api-routes.ts`) turns those booleans into a concrete list of API routes, and `runBench()` (`apps/server/src/bench-runner.ts`) loops over that list, dispatching each route to the matching wire-format adapter (OpenAI chat vs. Anthropic messages). The key idea is that provider identity is decoupled from wire capability: identity picks list/lifecycle behavior, while capability picks the request/stream format. `detectProvider()` normalizes the base URL, then tries three list endpoints in order to identify the server, attaching different `capabilities` per provider; the downstream stages decide which routes actually run by looking only at the `capabilities` booleans — never the provider name — so adding a new provider leaves the dispatch logic unchanged.
+A single benchmark harness can target many locally-hosted or remote LLM servers by separating three concerns: **detection**, **capability resolution**, and **dispatch**. `detectProvider()` (`apps/server/src/detect.ts`) probes a base URL through an ordered fallback chain, tags the endpoint with a `ProviderKind`, and attaches a `capabilities` object. Downstream, `resolveBenchApiRoutes()` (`packages/shared/src/bench-api-routes.ts`) turns those booleans into a concrete list of API routes, and `runBench()` (`apps/server/src/bench-runner.ts`) loops over that list, dispatching each route to the matching wire-format adapter (OpenAI chat vs. Anthropic messages). The key idea is that provider identity is decoupled from wire capability: identity picks list/lifecycle behavior, while capability picks the request/stream format. `detectProvider()` normalizes the base URL, then tries four list endpoints in order to identify the server, attaching different `capabilities` per provider; the downstream stages decide which routes actually run by looking only at the `capabilities` booleans — never the provider name — so adding a new provider leaves the dispatch logic unchanged.
 
 ### Detect → fallback chain
 
-`detectProvider()` tries each list endpoint in order and returns on the first success; every attempt is appended to `steps[]` for diagnostics. If all three miss, it falls back to `provider: "manual"`. Each request is bounded by `timeoutMs` (5s default), and a transport-layer failure (`ECONNREFUSED`, `EHOSTUNREACH`, connect timeout, …) skips the remaining paths and the capability probe for that same origin — without a bound, undici's default connect timeout accumulates once per request and an unreachable host stalls detection for over 50 seconds.
+`detectProvider()` tries each list endpoint in order and returns on the first success; every attempt is appended to `steps[]` for diagnostics. If all miss, it falls back to `provider: "manual"`. Each request is bounded by `timeoutMs` (5s default), and a transport-layer failure (`ECONNREFUSED`, `EHOSTUNREACH`, connect timeout, …) skips the remaining paths and the capability probe for that same origin — without a bound, undici's default connect timeout accumulates once per request and an unreachable host stalls detection for over 50 seconds.
 
 - `${base}/api/v1/models` → `provider: "lm_studio"` (expects `{ models: [{ key, type, display_name, publisher, ... }] }`; `publisher` is forwarded into DetectResult, falling back to the `org/` prefix of the id when absent). **A 200 whose body carries no native `models` array does not identify LM Studio — detection continues to the next candidate** — because LM Studio answers unknown paths with `200 + {"error": …}` too, so trusting the status alone manufactures a fake "healthy connection with 0 models"
 - `${base}/api/tags` → `provider: "ollama"` (expects `{ models: [{ name, model, size }] }`; publisher from the id's `org/` prefix only)
+- `${base}/api/models/list` → `provider: "unsloth_studio"` (fingerprint `{ models: [...], default_models: [...] }`; excludes `is_audio`/`is_diffusion`). **A 401 does not claim Unsloth** — only the step is recorded and detection continues to `/v1/models`. Studio needs an `sk-unsloth-…` API key
 - `${base}/v1/models` → `provider: "openai_compatible"` (expects `{ data: [{ id }] }`; publisher from the id's `org/` prefix only)
 - none matched → `provider: "manual"` with `models: []` and a computed `reachability` — a state (`ok` | `partial` | `unreachable`) plus a classification code (`connect_timeout` | `refused` | `dns` | `tls` | `network` | `partial`). The server sends only the code and the raw diagnostic (errno); the human-readable sentence is built by client i18n — a sentence built on the server leaks one language into every locale
 
@@ -109,7 +110,7 @@ A single benchmark harness can target many locally-hosted or remote LLM servers 
 
 ```ts
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
-// "lm_studio" | "ollama" | "openai_compatible" | "manual"
+// "lm_studio" | "ollama" | "unsloth_studio" | "openai_compatible" | "manual"
 
 export async function detectProvider(
   rawBaseUrl: string,
@@ -120,12 +121,13 @@ export async function detectProvider(
 
 ### Resolve → capability object
 
-Each detected provider carries `capabilities: { openaiChat: boolean; anthropicMessages: boolean }`. LM Studio and Ollama use **fixed** capability constants (their fake-model probe returns misleading `400`/`404` codes, so probing is skipped); `openai_compatible` and `manual` are probed live by `probeCapabilities()`, which POSTs a dummy request to `/v1/chat/completions` and `/v1/messages` and calls `routeLikelyAvailable(status, body)` — treating `2xx`, non-404 `4xx`, or a `404` whose body starts with `{` as "route exists".
+Each detected provider carries `capabilities: { openaiChat: boolean; anthropicMessages: boolean }`. LM Studio, Ollama, and Unsloth Studio use **fixed** capability constants (their fake-model probe returns misleading `400`/`404` codes, so probing is skipped); `openai_compatible` and `manual` are probed live by `probeCapabilities()`, which POSTs a dummy request to `/v1/chat/completions` and `/v1/messages` and calls `routeLikelyAvailable(status, body)` — treating `2xx`, non-404 `4xx`, or a `404` whose body starts with `{` as "route exists".
 
 | Provider | Source of caps | `openaiChat` | `anthropicMessages` |
 |---|---|---|---|
 | `lm_studio` | `LM_STUDIO_COMPAT_CAPS` (fixed) | `true` | `true` |
 | `ollama` | `OLLAMA_COMPAT_CAPS` (fixed) | `true` | `false` |
+| `unsloth_studio` | `UNSLOTH_STUDIO_COMPAT_CAPS` (fixed) | `true` | `true` |
 | `openai_compatible` | `probeCapabilities()` (live) | probed | probed |
 | `manual` | `probeCapabilities()` (live) | probed | probed |
 
@@ -158,7 +160,7 @@ export function resolveBenchApiRoutes(
 - `api_route === "chat_completions"` → POST `${base}/v1/chat/completions` via `openAiChatPostWithUsage()`, consume with `consumeOpenAiChatStream()`
 - `api_route === "messages"` → POST `${base}/v1/messages` with header `anthropic-version: 2023-06-01`, consume with `consumeAnthropicMessagesStream()`
 
-Provider-specific lifecycle (model load/unload TTL) is gated separately on `ProviderKind`, not on capability: `providerSupportsLoadTtl()` (`packages/shared/src/provider-kind.ts`) returns `true` only for `lm_studio` (JIT-load payload `ttl`) and `ollama` (`keep_alive`), so `runBench()` applies TTL handling for exactly those two while leaving the shared route-dispatch path identical across all providers.
+Provider-specific lifecycle (model load/unload TTL) is gated separately on `ProviderKind`, not on capability: `providerSupportsLoadTtl()` (`packages/shared/src/provider-kind.ts`) returns `true` only for `lm_studio` (JIT-load payload `ttl`) and `ollama` (`keep_alive`), so `runBench()` applies TTL handling for exactly those two while leaving the shared route-dispatch path identical across all providers. Explicit load/unload is gated by `providerSupportsExplicitLoadUnload()` for `lm_studio` and `unsloth_studio` — Unsloth uses Studio REST (`POST /api/inference/load`·`unload`, `apps/server/src/unsloth-studio.ts`) and has no public Idle TTL field, so TTL is not applied.
 
 ## 3. Streaming metrics extraction
 
@@ -328,12 +330,17 @@ Note `required_bytes` in the emitted event is the **raw** `size_bytes` (pre-over
 | --- | --- | --- | --- |
 | `lm_studio` | `lmStudioJitTtlPrime` (fallback `lmStudioLoad`) | prime: `POST /v1/chat/completions`; fallback: `POST /api/v1/models/load` | prime body `ttl` — **integer seconds**; explicit load takes no ttl (older versions 400) |
 | `ollama` | `ollamaKeepAliveLoad` | `POST /api/generate` (native) | `{ model, prompt: "", stream: false, keep_alive: "<sec>s" }` |
+| `unsloth_studio` | `prepareUnslothStudioForRun` → `unslothLoad` / `unslothUnload` | `POST /api/inference/load`, `POST /api/inference/unload`, `GET /api/inference/status` | no TTL; `model_path` (+ optional `gguf_variant` from `repo:VARIANT`) |
 | `openai_compatible`, `manual` | — | — | unsupported; TTL ignored |
 
 ```ts
 // packages/shared/src/provider-kind.ts
 export function providerSupportsLoadTtl(p: ProviderKind): boolean {
   return p === "lm_studio" || p === "ollama";
+}
+
+export function providerSupportsExplicitLoadUnload(p: ProviderKind): boolean {
+  return p === "lm_studio" || p === "unsloth_studio";
 }
 ```
 
@@ -750,7 +757,7 @@ export async function consumeOpenAiChatStream(
 - The stream returns two token counts: `usageOutputTokens` — provider usage from `usage.completion_tokens` (else `usage.output_tokens`), which needs `stream_options.include_usage`, otherwise `null` — and `approxOutputTokens`, an always-computed `text.length / 4` estimate. Callers prefer usage and fall back to the `/ 4` approximation, so TPS is honest about its source (`tps_source: "usage" | "approx"`).
 - Annotate-only signals (`finishReason === "length"` for truncation, `toolCallArgsCorrupted` for the concatenated-`{}{}` runtime bug) never change scoring; they just label results.
 
-**Provider abstraction — `detect.ts`.** `detectProvider(rawBaseUrl, opts)` normalizes the base URL, then probes native list endpoints in order (LM Studio `/api/v1/models` → Ollama `/api/tags` → OpenAI `/v1/models`). LM Studio and Ollama hits get fixed `capabilities` (`LM_STUDIO_COMPAT_CAPS` / `OLLAMA_COMPAT_CAPS`); the OpenAI-compatible and `manual` fall-throughs call `probeCapabilities`, which POSTs a throwaway `probe-model` to `/v1/chat/completions` and `/v1/messages`. The returned `capabilities: { openaiChat, anthropicMessages }` is what every downstream runner uses to pick a route (`pickRoute()` in `stress-runner.ts`, `resolveBenchApiRoutes()` in the bench runner), so you get one detection result instead of scattered per-call branching.
+**Provider abstraction — `detect.ts`.** `detectProvider(rawBaseUrl, opts)` normalizes the base URL, then probes native list endpoints in order (LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`). LM Studio, Ollama, and Unsloth Studio hits get fixed `capabilities`; the OpenAI-compatible and `manual` fall-throughs call `probeCapabilities`, which POSTs a throwaway `probe-model` to `/v1/chat/completions` and `/v1/messages`. The returned `capabilities: { openaiChat, anthropicMessages }` is what every downstream runner uses to pick a route (`pickRoute()` in `stress-runner.ts`, `resolveBenchApiRoutes()` in the bench runner), so you get one detection result instead of scattered per-call branching.
 
 - The route-availability heuristic `routeLikelyAvailable(status, body)` treats a bad-model `4xx` (or `404` with a JSON body) as "route exists" — steal it to tell "endpoint absent" apart from "endpoint present, my request was wrong".
 
@@ -803,7 +810,7 @@ Terms used across this document, grouped by the section that explains them in de
 
 | Term | Definition |
 |---|---|
-| `ProviderKind` | `lm_studio` / `ollama` / `openai_compatible` / `manual` — the detected backend kind. |
+| `ProviderKind` | `lm_studio` / `ollama` / `unsloth_studio` / `openai_compatible` / `manual` — the detected backend kind. |
 | capability | `{ openaiChat, anthropicMessages }` — which wire routes a server supports. |
 | API route | `chat_completions` (OpenAI) or `messages` (Anthropic). |
 | TTL / `keep_alive` | Bounded model residency — LM Studio JIT-prime `ttl` (seconds) vs Ollama `keep_alive`. |

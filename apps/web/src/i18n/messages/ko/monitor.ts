@@ -36,6 +36,13 @@ export const monitor = {
   actionFailed: (action: string, detail: string) => `${action} 실패: ${detail}`,
   actionError: (action: string, detail: string) => `${action} 오류: ${detail}`,
 
+  // Unsloth Studio REST 로드/언로드
+  unslothLoadUnloadTitle: "모델 로드/언로드 (Unsloth Studio REST)",
+  unslothLoadHint: "Settings → API에서 발급한 sk-unsloth-… 키가 필요합니다. 로드에는 수 분이 걸릴 수 있습니다.",
+  unslothApiKeyRequired: "Unsloth Studio 모니터 로드/언로드에는 API 키(sk-unsloth-…)가 필요합니다.",
+  unslothModelIdLabel: "모델 ID (예: unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL)",
+  unslothModelIdPlaceholder: "repo 또는 repo:GGUF_VARIANT",
+
   // lms server 로그 스트림 카드
   logStreamTitle: "lms server 로그 스트림",
   start: "시작",

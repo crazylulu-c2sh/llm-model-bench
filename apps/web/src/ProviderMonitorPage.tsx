@@ -88,10 +88,13 @@ export function ProviderMonitorPage() {
   );
 
   const isLm = provider === "lm_studio";
+  const isUnsloth = provider === "unsloth_studio";
   const cliReady = avail.data?.enabled && avail.data?.binary?.ok;
   const isLocal = snap.data?.localhost ?? false;
   const remoteLoopback = snap.data?.remoteLoopback ?? false;
   const cardEligible = isLm && cliReady && isLocal && remoteLoopback;
+  // Unsloth REST는 remoteMgmtGate와 동일 — loopback이거나 (서버가 허용하면) API 키로 프록시.
+  const unslothCardEligible = isUnsloth && !!apiKey.trim();
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-4">
@@ -118,6 +121,7 @@ export function ProviderMonitorPage() {
             >
               <option value="lm_studio">LM Studio</option>
               <option value="ollama">Ollama</option>
+              <option value="unsloth_studio">Unsloth Studio</option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-xs sm:min-w-[14rem] flex-1">
@@ -214,6 +218,21 @@ export function ProviderMonitorPage() {
           loaded={snap.data?.provider.loaded ?? []}
           onSuccess={() => snap.reload()}
         />
+      ) : null}
+
+      {unslothCardEligible ? (
+        <UnslothControlCard
+          baseUrl={baseUrl}
+          apiKey={apiKey}
+          loaded={snap.data?.provider.loaded ?? []}
+          onSuccess={() => snap.reload()}
+        />
+      ) : null}
+
+      {isUnsloth && !apiKey.trim() ? (
+        <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
+          {m.monitor.unslothApiKeyRequired}
+        </div>
       ) : null}
 
       {cardEligible ? <LmsLogStreamCard baseUrl={baseUrl} /> : null}
@@ -408,6 +427,91 @@ function LmsControlCard({
               </button>
             );
           })}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function UnslothControlCard({
+  baseUrl,
+  apiKey,
+  loaded,
+  onSuccess,
+}: {
+  baseUrl: string;
+  apiKey: string;
+  loaded: MonitorSnapshotResponse["provider"]["loaded"];
+  onSuccess?: () => void;
+}) {
+  const { m } = useI18n();
+  const [model, setModel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function call(action: "load" | "unload", id: string): Promise<void> {
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await fetch(`/api/monitor/unsloth/${action}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ baseUrl, model: id, apiKey: apiKey || undefined }),
+      });
+      const j = (await r.json()) as { ok?: boolean; error?: string; body?: string };
+      if (!r.ok || j.ok === false) {
+        setResult(msg().monitor.actionFailed(action, j.error ?? j.body ?? r.statusText));
+      } else {
+        setResult(`${action} OK`);
+        onSuccess?.();
+      }
+    } catch (e) {
+      setResult(msg().monitor.actionError(action, (e as Error).message));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className={CARD_CLASS}>
+      <h2 className="mb-2 text-sm font-semibold">{m.monitor.unslothLoadUnloadTitle}</h2>
+      <p className="mb-2 text-xs text-[var(--muted)]">{m.monitor.unslothLoadHint}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-1 flex-col gap-1 text-xs">
+          <span className="text-[var(--muted)]">{m.monitor.unslothModelIdLabel}</span>
+          <input
+            type="text"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 font-mono text-sm"
+            spellCheck={false}
+            placeholder={m.monitor.unslothModelIdPlaceholder}
+          />
+        </label>
+        <button
+          type="button"
+          disabled={busy || !model.trim()}
+          onClick={() => call("load", model.trim())}
+          className="rounded-md border border-[var(--border)] bg-[var(--accent)] px-3 py-1.5 text-sm text-white disabled:opacity-50"
+        >
+          {busy ? m.monitor.processing : "load"}
+        </button>
+      </div>
+      {result ? <p className="mt-2 text-xs">{result}</p> : null}
+      {loaded.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          {loaded.map((row) => (
+            <button
+              key={row.id}
+              type="button"
+              disabled={busy}
+              onClick={() => call("unload", row.id)}
+              className="rounded-md border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface)] disabled:opacity-50"
+              aria-label={`unload ${row.id}`}
+            >
+              unload {row.id}
+            </button>
+          ))}
         </div>
       ) : null}
     </section>

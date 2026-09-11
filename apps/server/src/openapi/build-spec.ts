@@ -607,7 +607,7 @@ export function buildOpenApiSpec(): object {
                     baseUrl: { type: "string" },
                     provider: {
                       type: "string",
-                      enum: ["lm_studio", "ollama", "openai_compatible", "manual"],
+                      enum: ["lm_studio", "ollama", "unsloth_studio", "openai_compatible", "manual"],
                     },
                     apiKey: { type: "string" },
                   },

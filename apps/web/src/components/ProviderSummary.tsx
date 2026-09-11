@@ -8,6 +8,8 @@ export function providerIcon(provider: DetectResult["provider"]) {
       return Cpu;
     case "ollama":
       return Server;
+    case "unsloth_studio":
+      return Bot;
     case "openai_compatible":
       return Cloud;
     case "manual":

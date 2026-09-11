@@ -27,7 +27,7 @@ export function ProviderMemoryWidget({
 }) {
   const { m } = useI18n();
   const [open, setOpen] = useState(true);
-  const eligible = provider === "lm_studio" || provider === "ollama";
+  const eligible = provider === "lm_studio" || provider === "ollama" || provider === "unsloth_studio";
 
   const init = useMemo<RequestInit>(
     () => ({

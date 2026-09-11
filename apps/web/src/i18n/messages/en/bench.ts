@@ -63,14 +63,14 @@ export const bench: Messages["bench"] = {
   // Load/unload · memory · contention guard toggles
   unloadOthersTitleLmStudio:
     "Attempts to unload other models in the detected model list. This force-stops them even if another client is generating with them right now. Loads not in the list can't be touched.",
-  onlyLmStudio: "Applies only to LM Studio.",
-  unloadOthersLabel: "Unload models other than the bench target (LM Studio)",
+  onlyLmStudio: "Applies only to LM Studio and Unsloth Studio.",
+  unloadOthersLabel: "Unload models other than the bench target (LM Studio · Unsloth Studio)",
   unloadOthersHint:
     "When on, before each bench it best-effort calls unload on other detected model keys. It force-stops them without checking whether another client/process is generating with that model right now. The bench continues even if it fails.",
   inactiveOnCurrentProvider: " Inactive on the current provider.",
   autoUnloadTitleLmStudio:
     "Models already in VRAM at start are not unloaded; only models this run loaded are unloaded when it finishes.",
-  autoUnloadLabel: "Auto-unload target models after bench (LM Studio)",
+  autoUnloadLabel: "Auto-unload target models after bench (LM Studio · Unsloth Studio)",
   autoUnloadHint:
     "Leaves already-loaded models as-is, and only when this bench loaded them does it best-effort call unload at run end.",
   memFitTitle:
@@ -168,6 +168,7 @@ export const bench: Messages["bench"] = {
   confirmOrderLabel: "Run order · ",
   confirmOrderUnit: " models",
   confirmLmStudioLoadNote: " · load/unload may run in LM Studio.",
+  confirmUnslothLoadNote: " · load/unload may run in Unsloth Studio (sk-unsloth API key required).",
   confirmReorderHint: "Use up/down to change the serial run order.",
   moveUpAria: (modelId) => `Move ${modelId} up`,
   moveDownAria: (modelId) => `Move ${modelId} down`,

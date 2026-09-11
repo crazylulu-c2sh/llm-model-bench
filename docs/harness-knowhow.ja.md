@@ -94,14 +94,15 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 
 ## 2. マルチプロバイダー抽象化
 
-1 つのベンチマークハーネスで、ローカルホストまたはリモートの多数の LLM サーバーを対象にできます。そのために **検出（detection）**・**capability の解決（resolution）**・**ディスパッチ（dispatch）** の 3 つの関心事を分離します。`detectProvider()`（`apps/server/src/detect.ts`）は base URL を順序付きのフォールバックチェーンでプローブし、エンドポイントに `ProviderKind` のタグを付け、`capabilities` オブジェクトを添付します。下流では `resolveBenchApiRoutes()`（`packages/shared/src/bench-api-routes.ts`）がそれらの真偽値を具体的な API ルートのリストに変換し、`runBench()`（`apps/server/src/bench-runner.ts`）がそのリストをループして、各ルートを一致するワイヤーフォーマットのアダプタ（OpenAI chat か Anthropic messages）へディスパッチします。要点は、プロバイダーの同一性（identity）とワイヤー能力（capability）を分離することです。identity はリスト取得やライフサイクルの挙動を選び、capability はリクエスト／ストリームの形式を選びます。このパターンの核心は「どのサーバーか（provider identity）」と「どのリクエスト形式をサポートするか（wire capability）」を分けることです。`detectProvider()` は base URL を正規化した後、3 つのリストエンドポイントを順に試してサーバーを識別し、プロバイダーごとに異なる `capabilities` を添付します。次の段階はプロバイダー名ではなく `capabilities` 真偽値だけを見て実際に実行するルートを決めるので、新しいプロバイダーを追加してもディスパッチロジックは変わりません。
+1 つのベンチマークハーネスで、ローカルホストまたはリモートの多数の LLM サーバーを対象にできます。そのために **検出（detection）**・**capability の解決（resolution）**・**ディスパッチ（dispatch）** の 3 つの関心事を分離します。`detectProvider()`（`apps/server/src/detect.ts`）は base URL を順序付きのフォールバックチェーンでプローブし、エンドポイントに `ProviderKind` のタグを付け、`capabilities` オブジェクトを添付します。下流では `resolveBenchApiRoutes()`（`packages/shared/src/bench-api-routes.ts`）がそれらの真偽値を具体的な API ルートのリストに変換し、`runBench()`（`apps/server/src/bench-runner.ts`）がそのリストをループして、各ルートを一致するワイヤーフォーマットのアダプタ（OpenAI chat か Anthropic messages）へディスパッチします。要点は、プロバイダーの同一性（identity）とワイヤー能力（capability）を分離することです。identity はリスト取得やライフサイクルの挙動を選び、capability はリクエスト／ストリームの形式を選びます。このパターンの核心は「どのサーバーか（provider identity）」と「どのリクエスト形式をサポートするか（wire capability）」を分けることです。`detectProvider()` は base URL を正規化した後、4 つのリストエンドポイントを順に試してサーバーを識別し、プロバイダーごとに異なる `capabilities` を添付します。次の段階はプロバイダー名ではなく `capabilities` 真偽値だけを見て実際に実行するルートを決めるので、新しいプロバイダーを追加してもディスパッチロジックは変わりません。
 
 ### 検出 → フォールバックチェーン
 
-`detectProvider()` は各リストエンドポイントを順に試し、最初に成功した時点で返します。すべての試行は診断用に `steps[]` に追記されます。3 つすべてが外れた場合は `provider: "manual"` にフォールバックします。各リクエストには `timeoutMs`（既定 5 秒）の上限が掛かり、トランスポート層のエラー（`ECONNREFUSED`・`EHOSTUNREACH`・接続タイムアウトなど）で失敗した場合は同一オリジンの残りのパスと能力プローブをスキップします — 上限がないと undici の既定 connect timeout がリクエスト数だけ積み上がり、到達できないホストで 50 秒以上ハングします。
+`detectProvider()` は各リストエンドポイントを順に試し、最初に成功した時点で返します。すべての試行は診断用に `steps[]` に追記されます。すべて外れた場合は `provider: "manual"` にフォールバックします。各リクエストには `timeoutMs`（既定 5 秒）の上限が掛かり、トランスポート層のエラー（`ECONNREFUSED`・`EHOSTUNREACH`・接続タイムアウトなど）で失敗した場合は同一オリジンの残りのパスと能力プローブをスキップします — 上限がないと undici の既定 connect timeout がリクエスト数だけ積み上がり、到達できないホストで 50 秒以上ハングします。
 
 - `${base}/api/v1/models` → `provider: "lm_studio"`（`{ models: [{ key, type, display_name, publisher, ... }] }` を期待。`publisher` は DetectResult に通し、無い場合は id の `org/` 接頭にフォールバック）。**200 でも本文にネイティブな `models` 配列が無ければ LM Studio と断定せず次の候補へ進みます** — LM Studio は未知のパスにも `200 + {"error": …}` を返すため、ステータスだけを信じると「モデル 0 個の正常な接続」という偽の成功が生まれます
 - `${base}/api/tags` → `provider: "ollama"`（`{ models: [{ name, model, size }] }` を期待。publisher は id の `org/` 接頭のみ）
+- `${base}/api/models/list` → `provider: "unsloth_studio"`（指紋 `{ models: [...], default_models: [...] }`。`is_audio`/`is_diffusion` は除外）。**401 では Unsloth と断定せず** step だけ残して `/v1/models` へ続行します — Studio には `sk-unsloth-…` API キーが必要です
 - `${base}/v1/models` → `provider: "openai_compatible"`（`{ data: [{ id }] }` を期待。publisher は id の `org/` 接頭のみ）
 - いずれも一致しない → `provider: "manual"`（`models: []` と、算出された `reachability`）。状態（`ok` | `partial` | `unreachable`）に加えて分類コード（`connect_timeout` | `refused` | `dns` | `tls` | `network` | `partial`）を載せます。サーバーはコードと生の診断（errno）だけを送り、人が読む文はクライアントの i18n が組み立てます — サーバーが文を作ると多言語 UI に一つの言語が漏れます
 
@@ -109,7 +110,7 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 
 ```ts
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
-// "lm_studio" | "ollama" | "openai_compatible" | "manual"
+// "lm_studio" | "ollama" | "unsloth_studio" | "openai_compatible" | "manual"
 
 export async function detectProvider(
   rawBaseUrl: string,
@@ -120,12 +121,13 @@ export async function detectProvider(
 
 ### 解決 → capability オブジェクト
 
-検出された各プロバイダーは `capabilities: { openaiChat: boolean; anthropicMessages: boolean }` を持ちます。LM Studio と Ollama は **固定** の capability 定数を使います（偽のモデルでのプローブが誤解を招く `400`/`404` を返すため、プローブは省略）。`openai_compatible` と `manual` は `probeCapabilities()` によりライブでプローブされます。これは `/v1/chat/completions` と `/v1/messages` にダミーリクエストを POST し、`routeLikelyAvailable(status, body)` を呼びます — `2xx`、404 以外の `4xx`、または本文が `{` で始まる `404` を「ルートが存在する」とみなします。
+検出された各プロバイダーは `capabilities: { openaiChat: boolean; anthropicMessages: boolean }` を持ちます。LM Studio・Ollama・Unsloth Studio は **固定** の capability 定数を使います（偽のモデルでのプローブが誤解を招く `400`/`404` を返すため、プローブは省略）。`openai_compatible` と `manual` は `probeCapabilities()` によりライブでプローブされます。これは `/v1/chat/completions` と `/v1/messages` にダミーリクエストを POST し、`routeLikelyAvailable(status, body)` を呼びます — `2xx`、404 以外の `4xx`、または本文が `{` で始まる `404` を「ルートが存在する」とみなします。
 
 | プロバイダー | caps の出所 | `openaiChat` | `anthropicMessages` |
 |---|---|---|---|
 | `lm_studio` | `LM_STUDIO_COMPAT_CAPS`（固定） | `true` | `true` |
 | `ollama` | `OLLAMA_COMPAT_CAPS`（固定） | `true` | `false` |
+| `unsloth_studio` | `UNSLOTH_STUDIO_COMPAT_CAPS`（固定） | `true` | `true` |
 | `openai_compatible` | `probeCapabilities()`（ライブ） | プローブ | プローブ |
 | `manual` | `probeCapabilities()`（ライブ） | プローブ | プローブ |
 
@@ -158,7 +160,7 @@ export function resolveBenchApiRoutes(
 - `api_route === "chat_completions"` → `openAiChatPostWithUsage()` 経由で `${base}/v1/chat/completions` に POST し、`consumeOpenAiChatStream()` で消費
 - `api_route === "messages"` → ヘッダ `anthropic-version: 2023-06-01` 付きで `${base}/v1/messages` に POST し、`consumeAnthropicMessagesStream()` で消費
 
-プロバイダー固有のライフサイクル（モデルの load/unload TTL）は capability ではなく `ProviderKind` に基づいて別途ゲートされます。`providerSupportsLoadTtl()`（`packages/shared/src/provider-kind.ts`）は `lm_studio`（JIT ロードのペイロード `ttl`）と `ollama`（`keep_alive`）に対してのみ `true` を返すので、`runBench()` はその 2 つだけに TTL 処理を適用しつつ、共有のルートディスパッチ経路は全プロバイダーで同一に保ちます。
+プロバイダー固有のライフサイクル（モデルの load/unload TTL）は capability ではなく `ProviderKind` に基づいて別途ゲートされます。`providerSupportsLoadTtl()`（`packages/shared/src/provider-kind.ts`）は `lm_studio`（JIT ロードのペイロード `ttl`）と `ollama`（`keep_alive`）に対してのみ `true` を返すので、`runBench()` はその 2 つだけに TTL 処理を適用しつつ、共有のルートディスパッチ経路は全プロバイダーで同一に保ちます。明示的な load/unload は `providerSupportsExplicitLoadUnload()` でゲートされ、`lm_studio` と `unsloth_studio` が true です — Unsloth は Studio REST（`POST /api/inference/load`・`unload`、`apps/server/src/unsloth-studio.ts`）でモデルを載せ、公開 Idle TTL フィールドは無いため TTL は適用しません。
 
 ## 3. ストリーミングメトリクス抽出
 
@@ -328,12 +330,17 @@ const fitsAfterUnload  = requiredWithOverhead <= free + residentRam - FIT_SAFETY
 | --- | --- | --- | --- |
 | `lm_studio` | `lmStudioJitTtlPrime`（フォールバック `lmStudioLoad`） | prime: `POST /v1/chat/completions`; フォールバック: `POST /api/v1/models/load` | prime ボディの `ttl` — **整数秒**; 明示的な load は ttl 非対応(旧バージョンは 400) |
 | `ollama` | `ollamaKeepAliveLoad` | `POST /api/generate`（ネイティブ） | `{ model, prompt: "", stream: false, keep_alive: "<sec>s" }` |
+| `unsloth_studio` | `prepareUnslothStudioForRun` → `unslothLoad` / `unslothUnload` | `POST /api/inference/load`, `POST /api/inference/unload`, `GET /api/inference/status` | TTL 非対応; `model_path`（+ 任意の `gguf_variant` from `repo:VARIANT`） |
 | `openai_compatible`, `manual` | — | — | 非対応; TTL は無視 |
 
 ```ts
 // packages/shared/src/provider-kind.ts
 export function providerSupportsLoadTtl(p: ProviderKind): boolean {
   return p === "lm_studio" || p === "ollama";
+}
+
+export function providerSupportsExplicitLoadUnload(p: ProviderKind): boolean {
+  return p === "lm_studio" || p === "unsloth_studio";
 }
 ```
 
@@ -746,7 +753,7 @@ export async function consumeOpenAiChatStream(
 - ストリームは 2 つのトークンカウントを返します: `usageOutputTokens` — `usage.completion_tokens`（なければ `usage.output_tokens`）由来のプロバイダー usage で、`stream_options.include_usage` が必要、なければ `null` — と `approxOutputTokens`、常に計算される `text.length / 4` 推定。呼び出し側は usage を優先し `/ 4` 近似にフォールバックするので、TPS はソースについて正直です（`tps_source: "usage" | "approx"`）。
 - 注釈専用のシグナル（切り詰めの `finishReason === "length"`、連結 `{}{}` ランタイムバグの `toolCallArgsCorrupted`）は採点を決して変えず、結果にラベルを付けるだけです。
 
-**プロバイダー抽象化 — `detect.ts`。** `detectProvider(rawBaseUrl, opts)` は base URL を正規化し、ネイティブのリストエンドポイントを順にプローブします（LM Studio `/api/v1/models` → Ollama `/api/tags` → OpenAI `/v1/models`）。LM Studio と Ollama のヒットには固定の `capabilities`（`LM_STUDIO_COMPAT_CAPS` / `OLLAMA_COMPAT_CAPS`）が付き、OpenAI 互換と `manual` のフォールスルーは `probeCapabilities` を呼び、使い捨ての `probe-model` を `/v1/chat/completions` と `/v1/messages` に POST します。返される `capabilities: { openaiChat, anthropicMessages }` を、下流の全ランナーがルート選択に使うので（`stress-runner.ts` の `pickRoute()`、ベンチランナーの `resolveBenchApiRoutes()`）、呼び出しごとに散らばった分岐ではなく 1 つの検出結果を得られます。
+**プロバイダー抽象化 — `detect.ts`。** `detectProvider(rawBaseUrl, opts)` は base URL を正規化し、ネイティブのリストエンドポイントを順にプローブします（LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`）。LM Studio・Ollama・Unsloth Studio のヒットには固定の `capabilities` が付き、OpenAI 互換と `manual` のフォールスルーは `probeCapabilities` を呼び、使い捨ての `probe-model` を `/v1/chat/completions` と `/v1/messages` に POST します。返される `capabilities: { openaiChat, anthropicMessages }` を、下流の全ランナーがルート選択に使うので（`stress-runner.ts` の `pickRoute()`、ベンチランナーの `resolveBenchApiRoutes()`）、呼び出しごとに散らばった分岐ではなく 1 つの検出結果を得られます。
 
 - ルート可用性のヒューリスティック `routeLikelyAvailable(status, body)` は、不正モデルの `4xx`（または JSON 本文付きの `404`）を「ルートが存在する」と扱います — 「エンドポイント不在」と「エンドポイント存在、リクエストが誤り」を見分けるのに拝借してください。
 
@@ -799,7 +806,7 @@ export const CompareThresholdsSchema = z.object({
 
 | 用語 | 定義 |
 |---|---|
-| `ProviderKind` | `lm_studio` / `ollama` / `openai_compatible` / `manual` — 検出されたバックエンドの種類。 |
+| `ProviderKind` | `lm_studio` / `ollama` / `unsloth_studio` / `openai_compatible` / `manual` — 検出されたバックエンドの種類。 |
 | capability | `{ openaiChat, anthropicMessages }` — サーバーがどのワイヤールートをサポートするか。 |
 | API route | `chat_completions`（OpenAI）または `messages`（Anthropic）。 |
 | TTL / `keep_alive` | 有界のモデル常駐 — LM Studio JIT prime の `ttl`（秒）vs Ollama の `keep_alive`。 |

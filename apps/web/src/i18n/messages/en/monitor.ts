@@ -33,6 +33,13 @@ export const monitor: Messages["monitor"] = {
   actionFailed: (action, detail) => `${action} failed: ${detail}`,
   actionError: (action, detail) => `${action} error: ${detail}`,
 
+  unslothLoadUnloadTitle: "Load / unload model (Unsloth Studio REST)",
+  unslothLoadHint:
+    "Requires an sk-unsloth-… key from Settings → API. Loading can take several minutes.",
+  unslothApiKeyRequired: "Unsloth Studio monitor load/unload needs an API key (sk-unsloth-…).",
+  unslothModelIdLabel: "Model ID (e.g. unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL)",
+  unslothModelIdPlaceholder: "repo or repo:GGUF_VARIANT",
+
   logStreamTitle: "lms server log stream",
   start: "Start",
   stop: "Stop",

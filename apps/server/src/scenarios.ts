@@ -99,7 +99,7 @@ export function buildMessages(
       ? ctx.publicAssetsOrigin.trim()
       : resolvePublicAssetsOrigin({ publicAssetsOrigin: ctx?.publicAssetsOrigin });
     const imagePart = buildImagePart(id, origin, "openai", {
-      forceInline: ctx?.providerKind === "lm_studio",
+      forceInline: ctx?.providerKind === "lm_studio" || ctx?.providerKind === "unsloth_studio",
     });
     messages.push({
       role: "user",

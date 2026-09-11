@@ -235,6 +235,7 @@ export const SamplingParamsSchema = z.object({
 export {
   LoadTtlStatusSchema,
   ProviderKindSchema,
+  providerSupportsExplicitLoadUnload,
   providerSupportsLoadTtl,
   type LoadTtlStatus,
   type ProviderKind,
@@ -437,6 +438,8 @@ export const BenchRunMetaSchema = z.object({
   lm_studio_prepare: z
     .enum(["loaded", "already_in_memory", "load_skipped_by_request", "jit_load_with_ttl"])
     .optional(),
+  /** Unsloth Studio 준비 경로(런 종료 후 patch). */
+  unsloth_prepare: z.enum(["loaded", "already_in_memory", "load_skipped_by_request"]).optional(),
   /** Vite 등에서 서빙하는 public 자산 베이스 (예: http://127.0.0.1:21104) — nist.fips.197.pdf URL 허용용 */
   public_assets_origin: z.string().optional(),
   /** 오염 가드: 해석·클램프된 config (INSERT 시점 기록; `effective`는 사전 probe 후 결정되어 meta엔 없음 → contention_summary로). */
@@ -484,6 +487,8 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     lm_studio_prepare: z
       .enum(["loaded", "already_in_memory", "load_skipped_by_request", "jit_load_with_ttl"])
       .optional(),
+    /** Unsloth Studio 전용: 실제 POST load 여부 / 이미 메모리 / skipModelLoad */
+    unsloth_prepare: z.enum(["loaded", "already_in_memory", "load_skipped_by_request"]).optional(),
     /** 로드 TTL 적용 상태 — {@link LoadTtlStatus}. TTL을 요청하지 않은 런에서는 생략된다. */
     load_ttl_status: LoadTtlStatusSchema.optional(),
   }),

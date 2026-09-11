@@ -3,7 +3,12 @@ import type { ReasoningEffort, ResolvedBenchProfile } from "./llm-profiles";
 import type { LoadTtlStatus } from "./provider-kind";
 import type { StressWorkloadId } from "./scenarios-preview";
 
-export type StressProviderKind = "lm_studio" | "ollama" | "openai_compatible" | "manual";
+export type StressProviderKind =
+  | "lm_studio"
+  | "ollama"
+  | "unsloth_studio"
+  | "openai_compatible"
+  | "manual";
 
 export type StressApiRoute = "chat_completions" | "messages";
 
@@ -99,6 +104,7 @@ export type StressStreamEvent =
         | "already_in_memory"
         | "load_skipped_by_request"
         | "jit_load_with_ttl";
+      unsloth_prepare?: "loaded" | "already_in_memory" | "load_skipped_by_request";
       /** 로드 TTL 적용 상태 — LoadTtlStatus. TTL을 요청하지 않은 런에서는 생략된다. */
       load_ttl_status?: LoadTtlStatus;
     }

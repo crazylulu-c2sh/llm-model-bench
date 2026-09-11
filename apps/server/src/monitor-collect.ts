@@ -2,6 +2,7 @@ import type { LoadedModelInfo } from "@llm-bench/shared";
 import { lmStudioListModels } from "./lmstudio.js";
 import { lmsPs } from "./lms-cli.js";
 import { providerFetch } from "./provider-fetch.js";
+import { unslothInferenceStatus } from "./unsloth-studio.js";
 
 export type ProviderLoadedSource = "http" | "cli" | "none";
 
@@ -215,4 +216,39 @@ export async function collectOllamaLoaded(
   } catch (e) {
     return { source: "none", loaded: [], http: { ok: false, error: (e as Error).message } };
   }
+}
+
+/** Unsloth Studio — `GET /api/inference/status`의 active/loaded 목록. */
+export async function collectUnslothStudioLoaded(
+  baseUrl: string,
+  opts: { apiKey?: string; fetchImpl?: typeof fetch } = {},
+): Promise<ProviderLoadedResult> {
+  const st = await unslothInferenceStatus(baseUrl, {
+    apiKey: opts.apiKey,
+    fetchImpl: opts.fetchImpl,
+    timeoutMs: 5000,
+  });
+  if (!st.ok || !st.statusBody) {
+    return {
+      source: "none",
+      loaded: [],
+      http: { ok: false, status: st.status, error: st.body },
+    };
+  }
+  const ids = new Set<string>();
+  const loaded: LoadedModelInfo[] = [];
+  const push = (id: string | null | undefined) => {
+    if (!id || ids.has(id)) return;
+    ids.add(id);
+    loaded.push({
+      id,
+      name: id,
+      contextLength:
+        typeof st.statusBody!.context_length === "number" ? st.statusBody!.context_length : undefined,
+    });
+  };
+  push(st.statusBody.active_model);
+  push(st.statusBody.model_identifier ?? undefined);
+  for (const id of st.statusBody.loaded) push(id);
+  return { source: "http", loaded, http: { ok: true, status: st.status } };
 }

@@ -21,7 +21,7 @@ export function resolvePublisher(modelId: string, apiPublisher?: string | null):
   return parseModelPublisherFromId(modelId);
 }
 
-const LIST_STEP_NAMES = ["lm_studio_list", "ollama_tags", "openai_models"] as const;
+const LIST_STEP_NAMES = ["lm_studio_list", "ollama_tags", "unsloth_models", "openai_models"] as const;
 
 /**
  * 문서에 적힌 API 베이스를 서버 루트로 맞춤 — 이 앱은 `base + /v1/...`와 `base + /api/v1/...`을 직접 조합합니다.
@@ -221,6 +221,20 @@ const LM_STUDIO_COMPAT_CAPS = { openaiChat: true, anthropicMessages: true } as c
 /** `/api/tags`로 식별된 Ollama는 OpenAI 호환 `/v1/chat/completions`를 제공합니다. 가짜 모델명 프로브는 404+JSON이 나와 역능력 판별과 맞지 않으므로 고정합니다. */
 const OLLAMA_COMPAT_CAPS = { openaiChat: true, anthropicMessages: false } as const;
 
+/** Unsloth Studio는 OpenAI·Anthropic 호환을 같은 포트에 제공합니다. */
+const UNSLOTH_STUDIO_COMPAT_CAPS = { openaiChat: true, anthropicMessages: true } as const;
+
+/** Studio `/api/models/list` 항목 — audio/diffusion은 벤치 목록에서 제외. */
+type UnslothListedModel = {
+  id?: string;
+  name?: string | null;
+  is_audio?: boolean;
+  is_diffusion?: boolean;
+  is_vision?: boolean;
+  is_gguf?: boolean;
+  is_mlx?: boolean;
+};
+
 export async function detectProvider(
   rawBaseUrl: string,
   opts: {
@@ -244,7 +258,9 @@ export async function detectProvider(
     const caps =
       opts.manual.provider === "lm_studio"
         ? LM_STUDIO_COMPAT_CAPS
-        : await probeCapabilities(fetchImpl, baseUrl, opts.apiKey, timeoutMs);
+        : opts.manual.provider === "unsloth_studio"
+          ? UNSLOTH_STUDIO_COMPAT_CAPS
+          : await probeCapabilities(fetchImpl, baseUrl, opts.apiKey, timeoutMs);
     return {
       provider: opts.manual.provider,
       baseUrl,
@@ -371,7 +387,62 @@ export async function detectProvider(
     if (isOriginDead(e)) return originDeadResult(baseUrl, steps, transportCode);
   }
 
-  // 3) OpenAI-compatible list
+  // 3) Unsloth Studio model list — Ollama 다음 · OpenAI /v1/models 전.
+  // 지문: 200 + `models` 배열 + `default_models` (LM Studio `/api/v1/models`와 경로가 다름).
+  // 401은 Unsloth로 단정하지 않고 step만 남긴다 — 키 없이는 /v1/models로 떨어질 수 있다.
+  try {
+    const r = await fetchImpl(`${baseUrl}/api/models/list`, {
+      headers: headers(opts.apiKey),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    steps.push({ name: "unsloth_models", ok: r.ok, status: r.status });
+    if (r.ok) {
+      let body: { models?: unknown[]; default_models?: unknown } | undefined;
+      try {
+        body = (await r.json()) as { models?: unknown[]; default_models?: unknown };
+      } catch {
+        annotateLastStep(steps, "invalid_json");
+      }
+      const modelsArr = Array.isArray(body?.models) ? body.models : undefined;
+      const hasDefaultModels = body != null && "default_models" in body;
+      if (modelsArr && hasDefaultModels) {
+        const models = modelsArr
+          .map((m) => m as UnslothListedModel)
+          .filter((m) => typeof m.id === "string" && m.id)
+          .filter((m) => !m.is_audio && !m.is_diffusion)
+          .map((m) => {
+            const id = m.id as string;
+            return {
+              id,
+              label: (typeof m.name === "string" && m.name.trim() ? m.name.trim() : id) as string,
+              publisher: resolvePublisher(id),
+              kind: m.is_vision ? "vlm" : m.is_gguf ? "gguf" : m.is_mlx ? "mlx" : undefined,
+            };
+          })
+          .filter((m) => !isBenchExcludedModelArtifact(m.id, m.label));
+        if (models.length === 0) {
+          annotateLastStep(steps, modelsArr.length === 0 ? "empty_model_list" : "no_benchable_model");
+        }
+        return {
+          provider: "unsloth_studio",
+          baseUrl,
+          models,
+          steps,
+          capabilities: UNSLOTH_STUDIO_COMPAT_CAPS,
+          reachability: reachOk,
+        };
+      }
+      if (body) annotateLastStep(steps, "unrecognized_model_shape");
+    } else if (r.status === 401) {
+      annotateLastStep(steps, "unauthorized");
+    }
+  } catch (e) {
+    steps.push({ name: "unsloth_models", ok: false, detail: describeFetchError(e) });
+    transportCode ??= fetchErrorCode(e);
+    if (isOriginDead(e)) return originDeadResult(baseUrl, steps, transportCode);
+  }
+
+  // 4) OpenAI-compatible list
   try {
     const r = await fetchImpl(`${baseUrl}/v1/models`, {
       headers: headers(opts.apiKey),

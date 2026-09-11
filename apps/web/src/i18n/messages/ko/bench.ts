@@ -67,13 +67,13 @@ export const bench = {
   // 로드/언로드·메모리·오염 가드 토글
   unloadOthersTitleLmStudio:
     "감지된 모델 목록에 있는 다른 모델에 대해 unload를 시도합니다. 다른 클라이언트가 지금 추론 중이어도 구분 없이 강제 종료됩니다. 목록에 없는 로드는 건드리지 못합니다.",
-  onlyLmStudio: "LM Studio에서만 적용됩니다.",
-  unloadOthersLabel: "벤치 대상 외 모델 언로드 (LM Studio)",
+  onlyLmStudio: "LM Studio·Unsloth Studio에서만 적용됩니다.",
+  unloadOthersLabel: "벤치 대상 외 모델 언로드 (LM Studio · Unsloth Studio)",
   unloadOthersHint:
     "켜면 각 벤치 시작 전 감지된 다른 모델 키에 대해 unload를 베스트 에포트로 호출합니다. 다른 클라이언트/프로세스가 그 모델로 지금 추론 중이어도 활동 여부를 확인하지 않고 강제 종료됩니다. 실패해도 벤치는 계속됩니다.",
   inactiveOnCurrentProvider: " 현재 프로바이더에서는 비활성입니다.",
   autoUnloadTitleLmStudio: "시작 시점에 이미 VRAM에 있던 모델은 언로드하지 않고, 이번 실행이 load로 올린 경우에만 끝날 때 unload를 시도합니다.",
-  autoUnloadLabel: "벤치 후 대상 모델 자동 언로드 (LM Studio)",
+  autoUnloadLabel: "벤치 후 대상 모델 자동 언로드 (LM Studio · Unsloth Studio)",
   autoUnloadHint: "이미 로드되어 있던 모델은 그대로 두고, 이번 벤치에서 로드한 경우에만 런 종료 시 unload를 베스트 에포트로 호출합니다.",
   memFitTitle: "후보 로드 전 필요 RAM vs 여유 RAM을 예측합니다. 안 맞을 때의 동작을 고릅니다 (LM Studio).",
   memFitLabel: "메모리-핏 프리플라이트 (LM Studio)",
@@ -166,6 +166,7 @@ export const bench = {
   confirmOrderLabel: "실행 순서 · 모델 ",
   confirmOrderUnit: "개",
   confirmLmStudioLoadNote: " · LM Studio에서 로드/언로드가 동작할 수 있습니다.",
+  confirmUnslothLoadNote: " · Unsloth Studio에서 로드/언로드가 동작할 수 있습니다(sk-unsloth API 키 필요).",
   confirmReorderHint: "위/아래로 직렬 실행 순서를 바꿀 수 있습니다.",
   moveUpAria: (modelId: string) => `${modelId} 위로 이동`,
   moveDownAria: (modelId: string) => `${modelId} 아래로 이동`,

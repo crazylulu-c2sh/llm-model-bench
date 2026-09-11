@@ -32,6 +32,14 @@ export const monitor: Messages["monitor"] = {
   actionFailed: (action, detail) => `${action} 失敗: ${detail}`,
   actionError: (action, detail) => `${action} エラー: ${detail}`,
 
+  unslothLoadUnloadTitle: "モデルのロード/アンロード (Unsloth Studio REST)",
+  unslothLoadHint:
+    "Settings → API で発行した sk-unsloth-… キーが必要です。ロードには数分かかることがあります。",
+  unslothApiKeyRequired:
+    "Unsloth Studio モニターのロード/アンロードには API キー（sk-unsloth-…）が必要です。",
+  unslothModelIdLabel: "モデル ID（例: unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL）",
+  unslothModelIdPlaceholder: "repo または repo:GGUF_VARIANT",
+
   logStreamTitle: "lms server ログストリーム",
   start: "開始",
   stop: "停止",

@@ -428,7 +428,7 @@ export function saveStressSnapshot(s: StressSaveSnapshot): void {
 export const MONITOR_PREFS_STORAGE_KEY = "llm-bench-monitor-prefs";
 const MONITOR_STORAGE_VERSION = 1 as const;
 
-const MonitorProviderSchema = z.enum(["lm_studio", "ollama"]);
+const MonitorProviderSchema = z.enum(["lm_studio", "ollama", "unsloth_studio"]);
 
 const MonitorPrefsSchema = z.object({
   v: z.literal(MONITOR_STORAGE_VERSION),
