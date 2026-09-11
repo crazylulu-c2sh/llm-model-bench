@@ -3399,7 +3399,10 @@ export function App() {
             }
           />
           <Route path="/stress" element={<StressPage />} />
-          <Route path="/stats" element={<StatsPage />} />
+          <Route
+            path="/stats"
+            element={<StatsPage connectedBaseUrl={detect?.baseUrl ?? baseUrl} />}
+          />
           <Route path="/provider-stats" element={<StressStatsPage />} />
           <Route
             path="/profile"

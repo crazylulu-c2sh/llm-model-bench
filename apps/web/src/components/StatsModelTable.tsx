@@ -24,6 +24,19 @@ import { useI18n, type Messages } from "../i18n";
 
 export const DEFAULT_STATS_MODEL_SORTING: SortingState = [{ id: "model_id", desc: false }];
 
+/**
+ * 모델 통계 Base URL 필터 기본값.
+ * preferred가 목록 옵션에 있으면(정규화 후) 그 URL, 아니면 ""(전체).
+ */
+export function resolveDefaultBaseUrlFilter(
+  options: readonly string[],
+  preferred?: string | null,
+): string {
+  if (!preferred?.trim()) return "";
+  const key = normalizeBaseUrl(preferred.trim());
+  return options.includes(key) ? key : "";
+}
+
 // 시나리오 카테고리 칩 필터 — 고정 순서. 라벨은 i18n 카탈로그(m.stats.categoryLabel).
 const CATEGORY_ORDER: ScenarioCategory[] = ["text", "vision", "agent"];
 
@@ -75,6 +88,7 @@ export function StatsModelTable({
   canSelectRow,
   aliasFor,
   onRenameBaseUrl,
+  defaultBaseUrl,
 }: {
   models: StatsModelLatestItem[];
   selected: Record<string, boolean>;
@@ -90,6 +104,8 @@ export function StatsModelTable({
   aliasFor?: (url: string) => BaseUrlAlias | undefined;
   /** 셀의 연필 버튼 → 해당 base_url 이름/메모 편집 요청(정규화된 URL 전달). */
   onRenameBaseUrl?: (baseUrl: string) => void;
+  /** 벤치에서 감지(연결)된 URL — 목록에 있을 때만 필터 기본값으로 사용. */
+  defaultBaseUrl?: string;
 }) {
   const { m: msgs } = useI18n();
   const data = useMemo(() => models.map((mm) => ({ ...mm })), [models]);
@@ -160,12 +176,16 @@ export function StatsModelTable({
     });
   }, []);
 
-  // 목록이 바뀌면 필터를 초기화해 stale 필터가 새 목록을 가리지 않게 함.
+  // 목록이 바뀌면 텍스트·카테고리 필터를 초기화해 stale 필터가 새 목록을 가리지 않게 함.
   useEffect(() => {
     setFilterText("");
     setSelectedCategories(new Set());
-    setBaseUrlFilter("");
   }, [models]);
+
+  // Base URL은 연결(감지) URL이 옵션에 있을 때만 기본 선택. 목록·preferred 변경 시 재적용.
+  useEffect(() => {
+    setBaseUrlFilter(resolveDefaultBaseUrlFilter(baseUrlOptions, defaultBaseUrl));
+  }, [models, baseUrlOptions, defaultBaseUrl]);
   const visibleModels = useMemo(() => data.filter(matchesFilters), [data, matchesFilters]);
 
   const selectableRows = useMemo(() => data.filter(canSelectRow), [data, canSelectRow]);
