@@ -85,7 +85,7 @@ describe("results cycleColumnSort", () => {
 });
 
 describe("isBenchExecutionSort / resultsSortLine", () => {
-  it("기본 3열 asc와 일치하면 true", () => {
+  it("기본 2열 asc와 일치하면 true", () => {
     expect(isBenchExecutionSort(BENCH_EXECUTION_SORT)).toBe(true);
   });
 

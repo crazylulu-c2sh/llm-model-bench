@@ -277,6 +277,7 @@ export function ResultsTable({
         },
         sortingFn: "alphanumeric",
       }),
+      // #211 ModelLabel과 동일 위계: API(muted 상단) + 시나리오(mono 하단). API 단독 열은 두지 않는다.
       columnHelper.accessor("scenario", {
         header: ({ column }) => (
           <button
@@ -305,52 +306,35 @@ export function ResultsTable({
             .filter(Boolean)
             .join(" · ");
           return (
-            <span className="inline-flex items-center gap-1 font-mono text-xs">
-              {info.getValue()}
-              {contaminated ? (
-                // role 없는 span에서는 aria-label이 무시된다(axe aria-prohibited-attr / WCAG 4.1.2).
-                // 유일한 자식인 아이콘은 aria-hidden이라 role을 빼면 접근 가능한 이름이 0 —
-                // "이 수치를 믿지 말라"는 오염 경고가 스크린리더에서 통째로 사라진다. role="img"로 이름을 준다.
-                <span
-                  role="img"
-                  className="inline-flex items-center text-amber-500"
-                  title={m.results.table.contaminatedTitle(detail)}
-                  aria-label={m.results.table.contaminatedAria(detail)}
-                >
-                  <AlertTriangle className="size-3 shrink-0" aria-hidden />
+            <span className="inline-flex min-w-0 items-start gap-1 text-xs">
+              <span className="min-w-0 flex flex-col leading-tight">
+                <span className="truncate text-[10px] text-[var(--muted)]" title={apiHeaderTitle(r.api, m)}>
+                  {r.api}
                 </span>
-              ) : null}
+                <span className="inline-flex min-w-0 items-center gap-1 font-mono">
+                  <span className="min-w-0 truncate">{info.getValue()}</span>
+                  {contaminated ? (
+                    // role 없는 span에서는 aria-label이 무시된다(axe aria-prohibited-attr / WCAG 4.1.2).
+                    // 유일한 자식인 아이콘은 aria-hidden이라 role을 빼면 접근 가능한 이름이 0 —
+                    // "이 수치를 믿지 말라"는 오염 경고가 스크린리더에서 통째로 사라진다. role="img"로 이름을 준다.
+                    <span
+                      role="img"
+                      className="inline-flex items-center text-amber-500"
+                      title={m.results.table.contaminatedTitle(detail)}
+                      aria-label={m.results.table.contaminatedAria(detail)}
+                    >
+                      <AlertTriangle className="size-3 shrink-0" aria-hidden />
+                    </span>
+                  ) : null}
+                </span>
+              </span>
             </span>
           );
         },
         sortingFn: (a, b) =>
-          compareScenarioBenchOrder(a.original.scenario, b.original.scenario, benchScenarioOrder),
-      }),
-      columnHelper.accessor("api", {
-        header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            title={m.results.table.colApiTitle}
-            onClick={() => onColumnSort(column.id)}
-          >
-            API
-            {sortDirIcon(column, sorting)}
-          </button>
-        ),
-        cell: (info) => {
-          const v = info.getValue();
-          return (
-            <span className="text-xs" title={apiHeaderTitle(v, m)}>
-              {v}
-            </span>
-          );
-        },
-        sortingFn: (a, b) => {
-          const d = apiRouteRank(a.original.api) - apiRouteRank(b.original.api);
-          if (d !== 0) return d;
-          return compareStringsPinned(a.original.api, b.original.api);
-        },
+          compareScenarioBenchOrder(a.original.scenario, b.original.scenario, benchScenarioOrder) ||
+          apiRouteRank(a.original.api) - apiRouteRank(b.original.api) ||
+          compareStringsPinned(a.original.api, b.original.api),
       }),
       columnHelper.accessor("ttft_ms", {
         header: ({ column }) => (
@@ -633,8 +617,8 @@ export function ResultsTable({
           className={`rounded border border-[var(--border)] overflow-x-auto${shouldScroll ? " overflow-y-auto" : ""}`}
           style={shouldScroll ? { maxHeight: `calc(${maxRows + 2} * 2.25rem)` } : undefined}
         >
-          {/* Think/Effort(+Agent) 열 추가로 36rem이면 헤더가 세로로 깨짐 — 가로 스크롤 + nowrap */}
-          <table className="w-full min-w-[52rem] text-left text-sm">
+          {/* Think/Effort(+Agent) 열 + 시나리오·API 2줄 셀 — 가로 스크롤 + nowrap */}
+          <table className="w-full min-w-[48rem] text-left text-sm">
             <caption className="sr-only">{m.results.table.caption}</caption>
             <thead className="bg-[var(--surface)] text-[var(--muted)]">
               {table.getHeaderGroups().map((hg) => (
@@ -723,10 +707,10 @@ export function ResultsTable({
                     <span className="text-xs text-[var(--muted)]">—</span>
                   </td>
                   <td className="p-2">
-                    <span className="font-mono text-xs text-[var(--foreground)]">{pr.scenario}</span>
-                  </td>
-                  <td className="p-2">
-                    <span className="text-xs text-[var(--foreground)]">{pr.api}</span>
+                    <span className="inline-flex min-w-0 flex-col leading-tight text-xs">
+                      <span className="truncate text-[10px] text-[var(--muted)]">{pr.api}</span>
+                      <span className="font-mono text-[var(--foreground)]">{pr.scenario}</span>
+                    </span>
                   </td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-8 animate-pulse rounded bg-[var(--border)]" /></td>
