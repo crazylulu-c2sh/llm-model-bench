@@ -170,7 +170,7 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
     }),
   );
 
-  // (model_id, base_url)별 최신 finished 런 요약 — 통계 페이지 목록
+  // (model_id, base_url)별 최신 finished 런 앵커 + 시나리오별 최신 측정 병합 요약 — 통계 페이지 목록
   app.get(`${prefix}/stats/model-latest`, async (c) => {
     try {
       const dbMod = await import("../db/database.js");
@@ -185,10 +185,10 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       const runQueries = await import("../db/run-queries.js");
       const raw = dbMod.listLatestFinishedRunSummaries(db);
       const items = raw.map((r) => {
-        // #80: 측정 시나리오가 있는 런만 상세를 읽어 모델 × 라우트 누수/정체 지표를 붙인다.
+        // #80: 병합 프로필에 측정이 있을 때만 상세를 읽어 모델 × 라우트 누수/정체 지표를 붙인다.
         let leaks: ReturnType<typeof leakMetricsFromBenchDetails> = [];
         if (r.scenario_count > 0) {
-          const detail = runQueries.benchResultDetailFromDb(db, r.run_id);
+          const detail = runQueries.mergedBenchDetailFromDb(db, r.model_id, r.base_url);
           if (detail) leaks = leakMetricsFromBenchDetails([detail]);
         }
         return {
@@ -299,7 +299,8 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       const items = ids.map((model_id) => {
         const row = map.get(model_id);
         if (!row) return { model_id, run: null as null };
-        const run = runQueries.benchResultDetailFromDb(db, row.run_id);
+        // 시나리오별 최신 측정 병합 — 부분 재실행이 이전 시나리오를 가리지 않게.
+        const run = runQueries.mergedBenchDetailFromDb(db, model_id, norm);
         return { model_id, run };
       });
       return c.json({ base_url: norm, items, sqlite_available: true });
@@ -340,6 +341,7 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
   app.get(`${prefix}/runs/:runId`, async (c) => {
     const runId = c.req.param("runId");
     if (runId === "latest-by-model") return c.json({ error: "not_found" }, 404);
+    const profile = c.req.query("profile");
     try {
       const dbMod = await import("../db/database.js");
       const runQueries = await import("../db/run-queries.js");
@@ -353,7 +355,12 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
           503,
         );
       }
-      const detail = runQueries.benchResultDetailFromDb(db, runId);
+      // profile=merged: 해당 런의 (model_id, base_url)로 시나리오별 최신 측정 병합 프로필.
+      // 기본(쿼리 없음): 단일 런 스냅샷.
+      const detail =
+        profile === "merged"
+          ? runQueries.mergedBenchDetailFromRunId(db, runId)
+          : runQueries.benchResultDetailFromDb(db, runId);
       if (!detail) return c.json({ error: "not_found" }, 404);
       return c.json(detail);
     } catch (e) {

@@ -4,9 +4,9 @@ import type { Messages } from "../ko";
 export const stats: Messages["stats"] = {
   sqliteUnavailable: "SQLite is unavailable. Check the server's DB file path, permissions and lock state.",
   someRunsFailed: (failed: number) => `Failed to load some runs (${failed}).`,
-  savedModelsTitle: "Saved models (latest run)",
+  savedModelsTitle: "Saved models (latest measurement per scenario)",
   savedModelsDesc:
-    "The most recent completed run recorded in SQLite for each (model_id + Base URL). Runs without scenario aggregates can't be selected.",
+    "For each model + Base URL, gathers the most recent measurement per scenario. Re-running one scenario keeps the rest from earlier runs. Models without scenario aggregates can't be selected.",
   listLoading: "Loading list…",
   noRuns: "No completed runs to show. Run a bench first.",
   noSelectable:

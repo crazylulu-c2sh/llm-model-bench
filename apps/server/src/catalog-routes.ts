@@ -162,9 +162,13 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
       const summaries = ids
         .map((mid) => map.get(mid))
         .filter((row): row is NonNullable<typeof row> => Boolean(row));
+      // 시나리오별 최신 측정 병합 — 부분 재실행이 스코어보드에서 이전 시나리오를 가리지 않게.
       const details = summaries
-        .map((row) => runQueries.benchResultDetailFromDb(db, row.run_id))
+        .map((row) => runQueries.mergedBenchDetailFromDb(db, row.model_id, norm))
         .filter((d): d is NonNullable<typeof d> => Boolean(d));
+      const mergedCountByModel = new Map(
+        details.map((d) => [d.meta.model_id, d.scenarios.length] as const),
+      );
 
       const board = computeScoreboard(scoringRowsFromBenchDetails(details, filter));
       const rows = board.map((row, i) => ({ rank: i + 1, ...row }));
@@ -177,7 +181,7 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
       // #81: 최신 런이 메모리-핏 skip이면 측정 런이 없어 rows에 안 나오므로, 조용히 사라지지 않게 별도 노출.
       // #109 후속: 하드 로드 실패(status=partial, 측정 0건)도 같은 부류인데 여태 빠져 있었다
       // — 실측에서 google/gemma-4-31b-qat 가 2회 연속 rows·skipped 어디에도 없었다.
-      // 우선순위: preflight skip(기존 사유 유지) → 측정 0건(error_code/message) → model_id 로 dedupe.
+      // 우선순위: preflight skip(기존 사유 유지) → 병합 후 측정 0건(error_code/message) → model_id 로 dedupe.
       const skippedByModel = new Map<string, { model_id: string; reason: string }>();
       for (const d of details) {
         const pf = (d.meta as { preflight_memory_fit?: { action?: string; reason?: string } })
@@ -190,7 +194,8 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
         }
       }
       for (const row of summaries) {
-        if (row.scenario_count > 0 || skippedByModel.has(row.model_id)) continue;
+        const mergedCount = mergedCountByModel.get(row.model_id) ?? 0;
+        if (mergedCount > 0 || skippedByModel.has(row.model_id)) continue;
         const detail = row.error_message?.trim() || row.error_code?.trim();
         skippedByModel.set(row.model_id, {
           model_id: row.model_id,
@@ -262,15 +267,15 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
       let detailA: ReturnType<typeof runQueries.benchResultDetailFromDb> = null;
       let detailB: ReturnType<typeof runQueries.benchResultDetailFromDb> = null;
       if (byRun) {
+        // 명시 runA/runB는 단일 런 스냅샷(회귀 diff).
         detailA = runQueries.benchResultDetailFromDb(db, runA!);
         detailB = runQueries.benchResultDetailFromDb(db, runB!);
       } else {
+        // modelA/modelB+baseUrl: 시나리오별 최신 측정 병합 프로필로 비교.
         const norm = normBaseUrl(baseUrl!);
         const map = dbMod.latestFinishedRunsByModels(db, norm, [modelA!, modelB!]);
-        const ra = map.get(modelA!);
-        const rb = map.get(modelB!);
-        detailA = ra ? runQueries.benchResultDetailFromDb(db, ra.run_id) : null;
-        detailB = rb ? runQueries.benchResultDetailFromDb(db, rb.run_id) : null;
+        detailA = map.has(modelA!) ? runQueries.mergedBenchDetailFromDb(db, modelA!, norm) : null;
+        detailB = map.has(modelB!) ? runQueries.mergedBenchDetailFromDb(db, modelB!, norm) : null;
       }
       if (!detailA || !detailB) {
         return c.json({ error: "run_not_found" }, 404);

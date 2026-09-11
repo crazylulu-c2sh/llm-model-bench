@@ -404,13 +404,118 @@ describe("catalog / scoreboard", () => {
     // 없는 run → 404
     expect((await req("/api/v1/compare?runA=nope&runB=cmp_run_b")).status).toBe(404);
 
-    // modelA/modelB + baseUrl → 최신 런 해석
+    // modelA/modelB + baseUrl → 시나리오별 최신 측정 병합 프로필
     const byModel = await req(
       `/api/v1/compare?modelA=cmpA&modelB=cmpB&baseUrl=${encodeURIComponent(baseUrl)}`,
     );
     expect(byModel.status).toBe(200);
     const jm = (await byModel.json()) as { summary: { scenarios_compared: number } };
     expect(jm.summary.scenarios_compared).toBe(1);
+  });
+
+  it("partial re-run merges older scenarios into model-latest / latest-by-model / scoreboard", async () => {
+    const db = tryOpenProdBenchDatabase();
+    expect(db).not.toBeNull();
+    const baseUrl = "http://127.0.0.1:9093";
+    const detect: DetectResult = {
+      provider: "openai_compatible",
+      baseUrl,
+      models: [{ id: "merge-mx" }],
+      steps: [],
+      capabilities: { openaiChat: true, anthropicMessages: false },
+    };
+    const seed = async (
+      runId: string,
+      scenarios: Array<{ id: string; text: string }>,
+      delayMs = 0,
+    ) => {
+      if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+      const meta = makeBenchRunMeta(
+        { baseUrl, provider: "openai_compatible", modelId: "merge-mx", skipModelLoad: true },
+        detect,
+        runId,
+      );
+      insertRun(db!, {
+        run_id: meta.run_id,
+        created_at: meta.created_at,
+        base_url: baseUrl,
+        provider: meta.provider,
+        model_id: meta.model_id,
+        meta,
+        status: "running",
+      });
+      for (const sc of scenarios) {
+        upsertScenarioAggregate(db!, {
+          run_id: runId,
+          scenario_id: sc.id,
+          api_route: "chat_completions",
+          aggregate_json: JSON.stringify({
+            scenario_id: sc.id,
+            api_route: "chat_completions",
+            runs: [
+              {
+                ttft_ms: 10,
+                total_ms: 100,
+                output_text: sc.text,
+                stream_completed: true,
+                usage_output_tokens: 8,
+                quality: { pass: true, score: 1 },
+              },
+            ],
+          }),
+          prompt_preview: "p",
+          prompt_system_preview: "sp",
+        });
+      }
+      finishRun(db!, runId, "ok");
+    };
+    await seed("merge_full", [
+      { id: "chat_hello", text: "old-hello" },
+      { id: "chat_ping", text: "old-ping" },
+    ]);
+    await seed("merge_quick", [{ id: "chat_ping", text: "new-ping" }], 30);
+
+    const latest = await req("/api/stats/model-latest");
+    expect(latest.status).toBe(200);
+    const lj = (await latest.json()) as {
+      items: Array<{ model_id: string; run_id: string; scenario_count: number; base_url: string }>;
+    };
+    const item = lj.items.find((it) => it.model_id === "merge-mx" && it.base_url === baseUrl);
+    expect(item?.run_id).toBe("merge_quick");
+    expect(item?.scenario_count).toBe(2);
+
+    const detail = await req(`/api/runs/${encodeURIComponent("merge_quick")}?profile=merged`);
+    expect(detail.status).toBe(200);
+    const dj = (await detail.json()) as {
+      meta: { run_id: string; scenario_ids: string[] };
+      scenarios: Array<{ id: string; runs: Array<{ output_text: string }>; source_run_id?: string }>;
+    };
+    expect(dj.meta.run_id).toBe("merge_quick");
+    expect(dj.scenarios).toHaveLength(2);
+    const ping = dj.scenarios.find((s) => s.id === "chat_ping");
+    const hello = dj.scenarios.find((s) => s.id === "chat_hello");
+    expect(ping?.runs[0]?.output_text).toBe("new-ping");
+    expect(ping?.source_run_id).toBe("merge_quick");
+    expect(hello?.runs[0]?.output_text).toBe("old-hello");
+    expect(hello?.source_run_id).toBe("merge_full");
+
+    const snap = await req(`/api/runs/${encodeURIComponent("merge_quick")}`);
+    const sj = (await snap.json()) as { scenarios: unknown[] };
+    expect(sj.scenarios).toHaveLength(1);
+
+    const byModel = await req(
+      `/api/runs/latest-by-model?baseUrl=${encodeURIComponent(baseUrl)}&modelIds=merge-mx`,
+    );
+    expect(byModel.status).toBe(200);
+    const bj = (await byModel.json()) as {
+      items: Array<{ model_id: string; run: { scenarios: unknown[] } | null }>;
+    };
+    expect(bj.items[0]?.run?.scenarios).toHaveLength(2);
+
+    const board = await req(`/api/scoreboard?baseUrl=${encodeURIComponent(baseUrl)}&modelIds=merge-mx`);
+    expect(board.status).toBe(200);
+    const boardJ = (await board.json()) as { rows: Array<{ model_id: string }> };
+    expect(boardJ.rows.some((r) => r.model_id === "merge-mx")).toBe(true);
   });
 
   it("scoreboard surfaces memory-fit skipped models (#81) — not silently absent", async () => {

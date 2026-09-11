@@ -167,7 +167,7 @@ export function buildOpenApiSpec(): object {
               name: "modelIds",
               in: "query",
               schema: { type: "string" },
-              description: "콤마 목록. 생략 시 이 baseUrl의 모든 최신 런",
+              description: "콤마 목록. 생략 시 이 baseUrl의 모든 모델(시나리오별 최신 측정 병합)",
             },
             {
               name: "task",
@@ -190,7 +190,7 @@ export function buildOpenApiSpec(): object {
           tags: ["results"],
           summary: "#84 런/모델 회귀 diff — per-scenario TTFT p50/p95·TPS·품질·정체/누수 델타 + regression 플래그",
           description:
-            "runA&runB(명시) 또는 modelA&modelB&baseUrl(각 최신 런 해석). 임계 override: qualityDropAbs·tpsRegressionPct·ttftRegressionPct·flagNewEmptyTurns.",
+            "runA&runB(명시 스냅샷) 또는 modelA&modelB&baseUrl(각 시나리오별 최신 측정 병합). 임계 override: qualityDropAbs·tpsRegressionPct·ttftRegressionPct·flagNewEmptyTurns.",
           parameters: [
             { name: "runA", in: "query", schema: { type: "string" } },
             { name: "runB", in: "query", schema: { type: "string" } },
@@ -526,7 +526,16 @@ export function buildOpenApiSpec(): object {
         get: {
           tags: ["results"],
           summary: "벤치 런 상세",
-          parameters: [{ name: "runId", in: "path", required: true, schema: { type: "string" } }],
+          parameters: [
+            { name: "runId", in: "path", required: true, schema: { type: "string" } },
+            {
+              name: "profile",
+              in: "query",
+              schema: { type: "string", enum: ["merged"] },
+              description:
+                "merged면 해당 런의 (model_id, base_url)로 시나리오별 최신 측정 병합 프로필. 생략 시 단일 런 스냅샷.",
+            },
+          ],
           responses: {
             "200": jsonResponse("BenchResult", "런 메타 + 시나리오별 측정 런"),
             "404": { description: "not_found" },
@@ -537,19 +546,22 @@ export function buildOpenApiSpec(): object {
       "/runs/latest-by-model": {
         get: {
           tags: ["results"],
-          summary: "모델별 최신 finished 런",
+          summary: "모델별 시나리오별 최신 측정 병합 프로필",
           parameters: [
             { name: "baseUrl", in: "query", required: true, schema: { type: "string" } },
             { name: "modelIds", in: "query", required: true, schema: { type: "string" } },
           ],
-          responses: { "200": { description: "모델별 최신 런" }, "400": badRequest },
+          responses: {
+            "200": { description: "모델별 병합 프로필(앵커는 최신 finished 런)" },
+            "400": badRequest,
+          },
         },
       },
       "/stats/model-latest": {
         get: {
           tags: ["results"],
-          summary: "(model, baseUrl)별 최신 finished 런 요약",
-          responses: { "200": { description: "요약 목록" } },
+          summary: "(model, baseUrl)별 최신 finished 런 앵커 + 시나리오별 최신 측정 병합 요약",
+          responses: { "200": { description: "요약 목록(scenario_count는 병합 집합)" } },
         },
       },
       "/base-url-names": {

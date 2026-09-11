@@ -4,9 +4,9 @@ import type { Messages } from "../ko";
 export const stats: Messages["stats"] = {
   sqliteUnavailable: "SQLite を利用できません。サーバーの DB ファイルのパス・権限・ロック状態を確認してください。",
   someRunsFailed: (failed: number) => `一部のラン（${failed}件）を読み込めませんでした。`,
-  savedModelsTitle: "保存済みモデル（最新ラン基準）",
+  savedModelsTitle: "保存済みモデル（シナリオ別の最新測定）",
   savedModelsDesc:
-    "(model_id + Base URL) の組み合わせごとに SQLite へ記録された最新の完了ランです。シナリオ測定の集計がないランは選択できません。",
+    "同じモデル+Base URLでシナリオごとに最も新しい実測を集めます。1つだけ再実行しても残りのシナリオは以前のランの値を維持します。シナリオ測定の集計がないモデルは選択できません。",
   listLoading: "リストを読み込み中…",
   noRuns: "表示する完了ランがありません。先にベンチを実行してください。",
   noSelectable:

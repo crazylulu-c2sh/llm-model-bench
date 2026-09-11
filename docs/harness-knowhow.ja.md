@@ -638,8 +638,8 @@ export LLM_JUDGE_MODEL=claude-opus-4-7
 
 | ファイル | 役割 |
 | --- | --- |
-| `apps/server/src/db/database.ts` | 接続の open/close/cache、`migrate()`、全行の insert/upsert/finish/list ヘルパー（`insertRun`, `upsertScenarioAggregate`, `finishRun`, `latestFinishedRunsByModels`, …） |
-| `apps/server/src/db/run-queries.ts` | 読み取り側の再構成: `benchResultFromDb()` / `benchResultDetailFromDb()` が実行を再水和（meta + シナリオごとの `runs` + プロンプトプレビュー） |
+| `apps/server/src/db/database.ts` | 接続の open/close/cache、`migrate()`、全行の insert/upsert/finish/list ヘルパー（`insertRun`, `upsertScenarioAggregate`, `finishRun`, `latestFinishedRunsByModels`, `listLatestFinishedRunSummaries`, …） |
+| `apps/server/src/db/run-queries.ts` | 読み取り側の再構成: `benchResultFromDb()` / `benchResultDetailFromDb()` が単一ランのスナップショットを再水和し、`mergedBenchDetailFromDb()` が (model_id, base_url) でシナリオ×ルート別の最新実測を集めて統計・スコアボード・`latest-by-model` プロファイルを作る |
 | `apps/server/src/db/persist-stream.ts` | `BenchRunPersistence` — ライブベンチ中に `StreamEvent` を `bench_*` 行へ畳み込む |
 | `apps/server/src/db/stress-persist-stream.ts` | `StressRunPersistence` — ストレス実行向けの同パターン（`stress_runs` / `stress_stages`） |
 
@@ -680,7 +680,7 @@ class BenchRunPersistence {
 
 ### 回帰比較（`/api/v1/compare`）
 
-このルート（`apps/server/src/catalog-routes.ts` の `app.get(\`${prefix}/compare\`)`、`/api` と `/api/v1` の両方にマウント）は、`runA`&`runB` または `modelA`&`modelB`&`baseUrl`（モデルごとの最新完了実行を `latestFinishedRunsByModels()` で取得）のいずれかを受け付け、両側を `benchResultDetailFromDb()` で再水和し、`packages/shared/src/scoring/compare.ts` の純粋な `computeCompare()` を呼びます。しきい値の上書きはクエリパラメータで届き、寛容にパースされます（`numQ`/`boolQ`）。
+このルート（`apps/server/src/catalog-routes.ts` の `app.get(\`${prefix}/compare\`)`、`/api` と `/api/v1` の両方にマウント）は、`runA`&`runB`（`benchResultDetailFromDb()` による単一ランスナップショット）または `modelA`&`modelB`&`baseUrl`（アンカーは `latestFinishedRunsByModels()`、詳細は `mergedBenchDetailFromDb()` でシナリオ別の最新測定をマージ）のいずれかを受け付け、`packages/shared/src/scoring/compare.ts` の純粋な `computeCompare()` を呼びます。しきい値の上書きはクエリパラメータで届き、寛容にパースされます（`numQ`/`boolQ`）。`listLatestFinishedRunSummaries()` の `scenario_count` も同じマージ集合を使うため、1シナリオだけ再実行しても統計 UI で以前のシナリオが隠れません。
 
 - 実行は `` `${id} ${api_route}` ``（`joinKey` ヘルパー）で結合され、**両側** で `runs.length > 0` を持つシナリオのみが比較されます。各側は `SideMetrics` に集約され、各メトリクスは `MetricDelta` として発行されます:
 

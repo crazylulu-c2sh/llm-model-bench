@@ -183,9 +183,9 @@ ps eww -p $(pm2 pid llm-bench) | tr ' ' '\n' | grep -E '^(HTTP_PROXY|NO_PROXY|NO
 | POST | `/api/detect` | Base URL 기준 프로바이더·모델 감지 |
 | POST | `/api/bench/stream` | 벤치 실행, **SSE**(`text/event-stream`)로 스트림 이벤트 |
 | GET | `/api/runs` | 최근 런 목록(SQLite 사용 시) |
-| GET | `/api/runs/:runId` | 단일 런 상세 |
-| GET | `/api/runs/latest-by-model` | baseUrl·modelIds별 최신 완료 런 |
-| GET | `/api/stats/model-latest` | 모델별 최신 완료 런 요약(통계 UI용) |
+| GET | `/api/runs/:runId` | 단일 런 상세(`?profile=merged`면 시나리오별 최신 측정 병합) |
+| GET | `/api/runs/latest-by-model` | baseUrl·modelIds별 시나리오별 최신 측정 병합 프로필 |
+| GET | `/api/stats/model-latest` | 모델별 최신 런 앵커 + 시나리오별 최신 측정 병합 요약(통계 UI용) |
 | GET | `/api/base-url-names` | Base URL 별칭(이름 + 기기/스펙 메모) 전체 목록 |
 | PUT | `/api/base-url-names` | Base URL 별칭 upsert — 빈 이름이면 별칭 제거 |
 | POST | `/api/stress/stream` | 프로바이더 stress 벤치 실행, **SSE**로 stage·worker 이벤트 |
@@ -214,7 +214,7 @@ AI 에이전트가 이 서비스를 프로그래밍적으로 쓸 수 있도록 *
   | POST | `/api/v1/scenarios` | **#83 커스텀 시나리오 등록**(system·user·tools·sampling·api_route·judge 루브릭). zod 검증 실패 시 4xx+필드 에러. 등록 후 built-in과 동일하게 `/bench/stream`·`/runs`·`/scoreboard`로 흐름. 도구는 mock-only |
   | DELETE | `/api/v1/scenarios/:id` | 커스텀 시나리오 삭제(레지스트리+DB) |
   | GET | `/api/v1/catalog` | 시나리오 + 프로파일 + 스트레스 워크로드 한 번에 |
-  | GET | `/api/v1/scoreboard?baseUrl=&modelIds=&task=coding\|vision\|tools\|structured\|chat\|agent` | 저장된 최신 런 기반 **서버 사이드 랭킹**(품질·속도). 응답의 `leaks[]`(모델×라우트 누수/정체, agent 제외)와 `agent_metrics[]`(#105 멀티턴 에이전트 능력: 완료율·과업 벽시계·인자 충실도·출력 효율) 포함 — "X에 어떤 모델이 최고?" |
+  | GET | `/api/v1/scoreboard?baseUrl=&modelIds=&task=coding\|vision\|tools\|structured\|chat\|agent` | 시나리오별 최신 측정 병합 기반 **서버 사이드 랭킹**(품질·속도). 응답의 `leaks[]`(모델×라우트 누수/정체, agent 제외)와 `agent_metrics[]`(#105 멀티턴 에이전트 능력: 완료율·과업 벽시계·인자 충실도·출력 효율) 포함 — "X에 어떤 모델이 최고?" |
   | GET | `/api/v1/compare?runA=&runB=` (또는 `modelA=&modelB=&baseUrl=`) | **#84 회귀 diff** — per-scenario TTFT p50/p95·TPS·품질·정체/누수 델타 + `regression` 플래그(임계 override: `qualityDropAbs`·`tpsRegressionPct`·`ttftRegressionPct`·`flagNewEmptyTurns`). 헤드리스 게이트는 `llm-bench-compare` CLI(`--fail-on-regression`·`--webhook`) |
   | GET | `/api/v1/openapi.json` | OpenAPI 3.1 스펙(Zod 스키마에서 생성) |
   | GET | `/api/v1/docs` | 자립형(오프라인) API 레퍼런스 |
