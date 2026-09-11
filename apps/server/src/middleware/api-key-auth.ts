@@ -7,7 +7,7 @@ import { getClientRemoteAddr, isLoopbackRemoteAddr } from "../util/localhost.js"
  *
  * 정책:
  * - `BENCH_API_KEYS`(콤마 리스트) 미설정 → 인증 비활성(현행 무설정 UX 유지).
- * - 면제(순서): OPTIONS(프리플라이트) → `/api/health`·`/api/v1/health` → 루프백(신뢰 프록시 포함) → 그 외 유효 키 필요.
+ * - 면제(순서): OPTIONS(프리플라이트) → `/api/health`·`/api/v1/health` → `/api/update-check`·`/api/v1/update-check` → 루프백(신뢰 프록시 포함) → 그 외 유효 키 필요.
  * - 자격증명: `Authorization: Bearer <key>` 또는 `x-api-key: <key>`. timingSafeEqual 비교.
  *
  * 이 키(헤더)는 provider apiKey(요청 body, 업스트림 LLM용)와 **완전히 별개**다 — 미들웨어는 헤더만 읽고
@@ -89,7 +89,14 @@ export function benchApiKeyAuth(): MiddlewareHandler {
     if (c.req.method === "OPTIONS") return next(); // CORS 프리플라이트
 
     const path = c.req.path;
-    if (path === "/api/health" || path === "/api/v1/health") return next();
+    if (
+      path === "/api/health" ||
+      path === "/api/v1/health" ||
+      path === "/api/update-check" ||
+      path === "/api/v1/update-check"
+    ) {
+      return next();
+    }
 
     const trustLoopback = process.env.BENCH_TRUST_LOOPBACK !== "0";
     if (trustLoopback && isLoopbackRemoteAddr(effectiveRemoteAddr(c))) return next();

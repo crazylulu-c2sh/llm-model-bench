@@ -29,4 +29,15 @@ export const header = {
   benchProgress: (completed: number, total: number, pct: number) =>
     `벤치 실행 중 · ${completed}/${total} (${pct}%)`,
   benchProgressShort: "벤치 실행 중",
+  updateBanner: {
+    title: (behindBy: number) =>
+      behindBy === 1
+        ? "새 버전이 있습니다 (1커밋 뒤처짐)"
+        : `새 버전이 있습니다 (${behindBy}커밋 뒤처짐)`,
+    hint: "저장소에서 git pull 후 서버를 다시 빌드·재시작하세요.",
+    compareLink: "변경 사항 보기",
+    compareLinkAria: "GitHub에서 변경 사항 보기 (새 창)",
+    dismissAria: "업데이트 알림 닫기",
+    newWindowSuffix: "(새 창)",
+  },
 };

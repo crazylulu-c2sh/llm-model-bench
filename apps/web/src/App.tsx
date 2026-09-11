@@ -117,6 +117,7 @@ import { QueueStatusChips } from "./components/QueueStatusChips";
 import { StepSection } from "./components/StepSection";
 import { CollapsibleCard } from "./components/CollapsibleCard";
 import { AppHeader, pageTitleForPath } from "./components/AppHeader";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { useI18n, msg } from "./i18n";
 import {
   benchPickerCatalogCount,
@@ -2352,6 +2353,7 @@ export function App() {
         running={running}
         benchProgress={running ? benchProgress : undefined}
       />
+      <UpdateBanner />
 
       <main id="main" tabIndex={-1} className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-6 outline-none">
         <ErrorBoundary resetKeys={[pathname]}>
