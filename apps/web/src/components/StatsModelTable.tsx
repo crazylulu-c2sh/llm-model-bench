@@ -21,8 +21,21 @@ import type { BaseUrlAlias } from "../lib/base-url-names";
 import { BaseUrlValue } from "./BaseUrlValue";
 import { ModelLabel } from "./ModelLabel";
 import { useI18n, type Messages } from "../i18n";
+import { cycleColumnSort, isSameSorting } from "../lib/column-sort-cycle";
 
 export const DEFAULT_STATS_MODEL_SORTING: SortingState = [{ id: "model_id", desc: false }];
+
+/** 내림차순을 먼저 쓰는 열(완료 시각·시나리오 수). */
+const STATS_FIRST_DESC = new Set(["finished_at", "scenario_count"]);
+
+function sortStatsColumn(columnId: string, sorting: SortingState): SortingState {
+  return cycleColumnSort(
+    columnId,
+    sorting,
+    DEFAULT_STATS_MODEL_SORTING,
+    STATS_FIRST_DESC.has(columnId),
+  );
+}
 
 /**
  * 모델 통계 Base URL 필터 기본값.
@@ -53,7 +66,10 @@ function selectionWithTextAnchoredInRow(tr: HTMLTableRowElement): boolean {
   return false;
 }
 
-function sortDirIcon(column: Column<StatsModelLatestItem, unknown>) {
+function sortDirIcon(column: Column<StatsModelLatestItem, unknown>, sorting: SortingState) {
+  if (isSameSorting(sorting, DEFAULT_STATS_MODEL_SORTING)) {
+    return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
+  }
   const s = column.getIsSorted();
   if (s === "asc") return <ArrowUp className="size-3.5 shrink-0 opacity-90" aria-hidden />;
   if (s === "desc") return <ArrowDown className="size-3.5 shrink-0 opacity-90" aria-hidden />;
@@ -249,36 +265,20 @@ export function StatsModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onSortingChange((prev) => sortStatsColumn(column.id, prev))}
           >
             id
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: (info) => (
-          <ModelLabel modelId={info.getValue()} showQuant size={14} className="max-w-[20rem] text-xs" />
-        ),
-        sortingFn: "alphanumeric",
-      }),
-      columnHelper.accessor((row) => itemPublisher(row), {
-        id: "publisher",
-        header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            {msgs.stats.colPublisher}
-            {sortDirIcon(column)}
-          </button>
-        ),
-        cell: (info) => (
-          <span
-            className="block max-w-[12rem] truncate text-xs text-[var(--muted)]"
-            title={info.getValue() || undefined}
-          >
-            {info.getValue() || "—"}
-          </span>
+          <ModelLabel
+            modelId={info.getValue()}
+            publisher={itemPublisher(info.row.original) || null}
+            showQuant
+            size={14}
+            className="max-w-[20rem] text-xs"
+          />
         ),
         sortingFn: "alphanumeric",
       }),
@@ -288,10 +288,10 @@ export function StatsModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onSortingChange((prev) => sortStatsColumn(column.id, prev))}
           >
             Base URL
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: ({ row }) => {
@@ -323,10 +323,10 @@ export function StatsModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onSortingChange((prev) => sortStatsColumn(column.id, prev))}
           >
             provider
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: (info) => <span className="whitespace-nowrap text-xs">{info.getValue()}</span>,
@@ -337,10 +337,10 @@ export function StatsModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onSortingChange((prev) => sortStatsColumn(column.id, prev))}
           >
             {msgs.stats.colStatus}
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: (info) => <span className="whitespace-nowrap text-xs text-[var(--muted)]">{info.getValue()}</span>,
@@ -351,10 +351,10 @@ export function StatsModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onSortingChange((prev) => sortStatsColumn(column.id, prev))}
           >
             {msgs.stats.colFinished}
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: (info) => (
@@ -368,10 +368,10 @@ export function StatsModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onSortingChange((prev) => sortStatsColumn(column.id, prev))}
           >
             {msgs.stats.colScenario}
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: (info) => <span className="whitespace-nowrap font-mono text-xs text-[var(--muted)]">{info.getValue()}</span>,
@@ -385,8 +385,10 @@ export function StatsModelTable({
       handleSelectAllVisible,
       noVisibleSelectable,
       onRenameBaseUrl,
+      onSortingChange,
       onToggle,
       selected,
+      sorting,
       msgs,
     ],
   );

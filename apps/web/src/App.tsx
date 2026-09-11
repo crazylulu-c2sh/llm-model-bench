@@ -22,10 +22,12 @@ import {
   normalizeBaseUrl,
   normalizeScenarioIdsForBench,
   outputTokensFromRun,
+  parseModelPublisherFromId,
   providerSupportsExplicitLoadUnload,
   providerSupportsLoadTtl,
   resolveBenchApiRoutes,
   resolveBenchProfile,
+  benchProfileForModel,
 } from "@llm-bench/shared";
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
@@ -76,6 +78,7 @@ import { ProviderSummary } from "./components/ProviderSummary";
 import type { ResultRow } from "./components/ResultsTable";
 import { ResultsTable } from "./components/ResultsTable";
 import { Scoreboard } from "./components/Scoreboard";
+import { reasoningEffortColor } from "./lib/reasoning-effort-color";
 import {
   BenchProgressPanel,
   type BenchCurrent,
@@ -488,7 +491,12 @@ export function App() {
     samplingOverridesText,
     thinkingIntent,
   ]);
+  /** metrics_update 콜백이 최신 intent·detect를 읽도록(콜백 deps에 넣지 않음). */
+  const benchIntentRef = useRef(buildBenchIntentPayload());
+  benchIntentRef.current = buildBenchIntentPayload();
   const [detect, setDetect] = useState<DetectResult | null>(null);
+  const detectRef = useRef(detect);
+  detectRef.current = detect;
   const [detecting, setDetecting] = useState(false);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [log, setLog] = useState<string[]>([]);
@@ -1610,11 +1618,15 @@ export function App() {
         const tps = tpsRaw > 0 ? Math.round(tpsRaw * 10) / 10 : null;
         setRows((prev) => {
           const filtered = prev.filter((x) => x.rowKey !== rowKey);
+          const profile = benchProfileForModel(modelId, benchIntentRef.current);
+          const detectPub = detectRef.current?.models.find((m) => m.id === modelId)?.publisher;
+          const publisher = detectPub?.trim() || parseModelPublisherFromId(modelId);
           return [
             ...filtered,
             {
               rowKey,
               model_id: modelId,
+              publisher,
               scenario: agg.scenario_id,
               api: agg.api_route,
               ttft_ms: last.ttft_ms ?? null,
@@ -1630,6 +1642,8 @@ export function App() {
               turns_to_completion: last.turns_to_completion,
               empty_turn_count: last.empty_turn_count,
               thinking_exhausted_budget: last.thinking_exhausted_budget,
+              thinking_intent: profile.thinkingIntent,
+              reasoning_effort: profile.reasoningEffort,
               pass: last.quality?.pass,
               score: last.quality?.score,
               reason: last.quality?.reason,
@@ -2804,15 +2818,24 @@ export function App() {
               <label className="grid min-w-0 gap-1">
                 <span className="text-xs font-medium text-[var(--muted)]">gpt-oss reasoning_effort</span>
                 <select
-                  className="min-w-0 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)] disabled:opacity-50"
+                  className="min-w-0 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs disabled:opacity-50"
+                  style={{ color: reasoningEffortColor(reasoningEffort) }}
                   value={reasoningEffort}
                   disabled={profileId !== "auto" && profileId !== "gpt_oss"}
                   onChange={(e) => setReasoningEffort(e.target.value as typeof reasoningEffort)}
                 >
-                  <option value="minimal">minimal</option>
-                  <option value="low">low</option>
-                  <option value="medium">medium</option>
-                  <option value="high">high</option>
+                  <option value="minimal" style={{ color: reasoningEffortColor("minimal") }}>
+                    minimal
+                  </option>
+                  <option value="low" style={{ color: reasoningEffortColor("low") }}>
+                    low
+                  </option>
+                  <option value="medium" style={{ color: reasoningEffortColor("medium") }}>
+                    medium
+                  </option>
+                  <option value="high" style={{ color: reasoningEffortColor("high") }}>
+                    high
+                  </option>
                 </select>
               </label>
             ) : null}
@@ -2822,13 +2845,14 @@ export function App() {
                   {msg().bench.qwen38ReasoningEffortLabel}
                 </span>
                 <select
-                  className="min-w-0 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)] disabled:opacity-50"
+                  className="min-w-0 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs disabled:opacity-50"
+                  style={{ color: reasoningEffortColor(qwen38ReasoningEffort) }}
                   value={qwen38ReasoningEffort}
                   disabled={profileId !== "auto" && profileId !== "qwen38"}
                   onChange={(e) => setQwen38ReasoningEffort(e.target.value as Qwen38ReasoningEffort)}
                 >
                   {QWEN38_REASONING_EFFORTS.map((v) => (
-                    <option key={v} value={v}>
+                    <option key={v} value={v} style={{ color: reasoningEffortColor(v) }}>
                       {v}
                     </option>
                   ))}

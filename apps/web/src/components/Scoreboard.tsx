@@ -29,6 +29,7 @@ import {
   type ScoringAggregate,
   type SortDir,
 } from "../lib/scoreboard";
+import { cycleKeyedSort } from "../lib/column-sort-cycle";
 import type { QualityGroupScore } from "../lib/quality-score";
 import type { SpeedGroup } from "../lib/speed-score";
 import { BAND_COLOR, qualityBand, type ScoreBand } from "../lib/score-bands";
@@ -131,9 +132,9 @@ const GROUP_BORDER = "border-l border-[var(--border)]";
 
 // METRIC_TITLE 문구는 i18n 카탈로그(m.scoreboard.metricTitle)로 이전됨.
 
-/** 정렬 방향 아이콘(StatsModelTable 패턴): 활성 asc/desc + 비활성 흐림. */
-function sortDirIcon(active: boolean, dir: SortDir) {
-  if (!active) return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
+/** 정렬 방향 아이콘 — 기본 정렬이면 전부 중립(3단 사이클의 "default"). */
+function sortDirIcon(active: boolean, dir: SortDir, isDefault: boolean) {
+  if (!active || isDefault) return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
   return dir === "asc" ? (
     <ArrowUp className="size-3.5 shrink-0 opacity-90" aria-hidden />
   ) : (
@@ -144,6 +145,12 @@ function sortDirIcon(active: boolean, dir: SortDir) {
 /** 현재 정렬 상태 한 줄 요약(표 하단 표시). */
 function scoreboardSortLine(sort: ScoreboardSort, m: Messages): string {
   const s = m.scoreboard;
+  if (sortEquals(sort, DEFAULT_SCOREBOARD_SORT)) {
+    return s.sortLine(
+      `${s.groupLabel.total} ${s.metricLabel.quality}`,
+      s.sortDesc,
+    );
+  }
   const name =
     sort.key.kind === "model"
       ? s.model
@@ -173,14 +180,17 @@ function SortHeader({
 }) {
   const { m } = useI18n();
   const active = sameSortKey(sort.key, sortKey);
-  const ariaSort: "ascending" | "descending" | "none" = active
-    ? sort.dir === "asc"
-      ? "ascending"
-      : "descending"
-    : "none";
-  const dirText = active
-    ? m.scoreboard.sortDirSuffix(sort.dir === "asc" ? m.scoreboard.sortAsc : m.scoreboard.sortDesc)
-    : "";
+  const isDefault = sortEquals(sort, DEFAULT_SCOREBOARD_SORT);
+  const ariaSort: "ascending" | "descending" | "none" =
+    active && !isDefault
+      ? sort.dir === "asc"
+        ? "ascending"
+        : "descending"
+      : "none";
+  const dirText =
+    active && !isDefault
+      ? m.scoreboard.sortDirSuffix(sort.dir === "asc" ? m.scoreboard.sortAsc : m.scoreboard.sortDesc)
+      : "";
   return (
     <th scope="col" className={thClassName} title={title} aria-sort={ariaSort} rowSpan={rowSpan}>
       <button
@@ -190,7 +200,7 @@ function SortHeader({
         className={`inline-flex items-center gap-1 text-[var(--muted)] hover:text-[var(--foreground)] ${buttonClassName}`}
       >
         {label}
-        {sortDirIcon(active, sort.dir)}
+        {sortDirIcon(active, sort.dir, isDefault)}
       </button>
     </th>
   );
@@ -282,6 +292,7 @@ function ScoreboardDataRow({
   multiModel,
   maxSpeed,
   provider,
+  publisher,
 }: {
   b: ScoreboardRow;
   rank: number;
@@ -289,6 +300,7 @@ function ScoreboardDataRow({
   multiModel: boolean;
   maxSpeed: { text: number; vision: number; agent: number; total: number };
   provider?: ProviderKind;
+  publisher?: string;
 }) {
   const { m } = useI18n();
   const cap = b.quality.caveats.includes("judge_capped");
@@ -301,10 +313,11 @@ function ScoreboardDataRow({
         <span className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-[var(--foreground)]">
           <span className="font-mono text-[var(--muted)]">{rank}.</span>
           {multiModel && barColor ? (
-            <span className="size-2 shrink-0 rounded-full" style={{ background: barColor }} aria-hidden />
+            <span className="mt-0.5 size-2 shrink-0 rounded-full" style={{ background: barColor }} aria-hidden />
           ) : null}
           <ModelLabel
             modelId={b.model_id}
+            publisher={publisher}
             provider={provider}
             showBackend
             showQuant
@@ -395,6 +408,13 @@ export function Scoreboard({
 }) {
   const { m } = useI18n();
   const board = useMemo(() => scoreboardFromRows(rows, detailAggregate), [rows, detailAggregate]);
+  const publisherByModel = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      if (r.publisher && !map.has(r.model_id)) map.set(r.model_id, r.publisher);
+    }
+    return map;
+  }, [rows]);
   // #80: 모델 × 라우트 누수/정체 지표(스코어보드와 동일 rows+aggregate에서 클라이언트 계산 — 서버와 동일 산식).
   const leaks = useMemo(() => leakMetricsFromRows(rows, detailAggregate), [rows, detailAggregate]);
   // #105: 모델 × 라우트 에이전트 능력 지표(agent_* 완료 런).
@@ -404,11 +424,7 @@ export function Scoreboard({
   const [hiddenVendors, setHiddenVendors] = useState<Set<VendorKey>>(() => new Set());
   const [hiddenTiers, setHiddenTiers] = useState<Set<ParamTier | null>>(() => new Set());
   function onSortClick(key: ScoreboardSortKey) {
-    setSort((prev) =>
-      sameSortKey(prev.key, key)
-        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } // 같은 컬럼 → 방향 토글
-        : { key, dir: naturalDir(key) }, // 새 컬럼 → 자연 기본 방향
-    );
+    setSort((prev) => cycleKeyedSort(prev, key, DEFAULT_SCOREBOARD_SORT, naturalDir, sameSortKey));
   }
   // 벤더 필터: board에서 등장 벤더 집계 → 숨김 토글이 차트·표·누수 뷰 모두에 반영된다.
   const vendorCounts = useMemo(() => {
@@ -694,6 +710,7 @@ export function Scoreboard({
                     multiModel={multiModel}
                     maxSpeed={maxSpeed}
                     provider={providerByModel?.get(b.model_id)}
+                    publisher={publisherByModel.get(b.model_id)}
                   />
                 ))}
           </tbody>

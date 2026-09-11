@@ -15,8 +15,19 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { useLocation, useNavigate } from "react-router-dom";
 import { useI18n, msg, type Messages } from "../i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { cycleColumnSort, isSameSorting } from "../lib/column-sort-cycle";
 
 export type ProfileHint = { family: LlmProfileFamily; preset: SamplingPresetName };
+
+/** 테이블과 App의 기본 정렬(id 오름차순)을 맞춥니다. */
+export const DEFAULT_MODEL_TABLE_SORTING: SortingState = [{ id: "id", desc: false }];
+
+/** 내림차순을 먼저 쓰는 열. */
+const MODEL_FIRST_DESC = new Set(["size_bytes"]);
+
+function sortColumn(columnId: string, sorting: SortingState): SortingState {
+  return cycleColumnSort(columnId, sorting, DEFAULT_MODEL_TABLE_SORTING, MODEL_FIRST_DESC.has(columnId));
+}
 
 function ProfileHintCell({
   hint,
@@ -68,9 +79,6 @@ function ProfileHintCell({
   );
 }
 
-/** 테이블과 App의 기본 정렬(id 오름차순)을 맞춥니다. */
-export const DEFAULT_MODEL_TABLE_SORTING: SortingState = [{ id: "id", desc: false }];
-
 const POINTER_MOVE_TOGGLE_THRESHOLD_PX = 5;
 
 function selectionWithTextAnchoredInRow(tr: HTMLTableRowElement): boolean {
@@ -112,7 +120,10 @@ function formatDiskDisplay(m: ModelRow): string {
 
 const columnHelper = createColumnHelper<ModelRow>();
 
-function sortDirIcon(column: Column<ModelRow, unknown>) {
+function sortDirIcon(column: Column<ModelRow, unknown>, sorting: SortingState) {
+  if (isSameSorting(sorting, DEFAULT_MODEL_TABLE_SORTING)) {
+    return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
+  }
   const s = column.getIsSorted();
   if (s === "asc") return <ArrowUp className="size-3.5 shrink-0 opacity-90" aria-hidden />;
   if (s === "desc") return <ArrowDown className="size-3.5 shrink-0 opacity-90" aria-hidden />;
@@ -229,10 +240,10 @@ export function ModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onSortingChange((prev) => sortColumn(column.id, prev))}
           >
             id
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: (info) => {
@@ -241,6 +252,7 @@ export function ModelTable({
             <span className="inline-flex min-w-0 items-center gap-1">
               <ModelLabel
                 modelId={info.getValue()}
+                publisher={info.row.original.publisher}
                 paramsString={info.row.original.params_string}
                 showQuant
                 showTier
@@ -263,37 +275,15 @@ export function ModelTable({
         },
         sortingFn: "alphanumeric",
       }),
-      columnHelper.accessor((row) => row.publisher?.trim() ?? "", {
-        id: "publisher",
-        header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            {msg().bench.colPublisher}
-            {sortDirIcon(column)}
-          </button>
-        ),
-        cell: ({ row }) => {
-          const p = row.original.publisher?.trim();
-          return (
-            <span className="whitespace-nowrap text-xs text-[var(--muted)]" title={p || undefined}>
-              {p || "—"}
-            </span>
-          );
-        },
-        sortingFn: "alphanumeric",
-      }),
       columnHelper.accessor("label", {
         header: ({ column }) => (
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onSortingChange((prev) => sortColumn(column.id, prev))}
           >
             label
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: (info) => {
@@ -312,10 +302,10 @@ export function ModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onSortingChange((prev) => sortColumn(column.id, prev))}
           >
             {msg().bench.colParams}
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: ({ row }) => (
@@ -329,10 +319,10 @@ export function ModelTable({
           <button
             type="button"
             className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            onClick={() => onSortingChange((prev) => sortColumn(column.id, prev))}
           >
             {msg().bench.colDisk}
-            {sortDirIcon(column)}
+            {sortDirIcon(column, sorting)}
           </button>
         ),
         cell: ({ row }) => (
@@ -369,9 +359,11 @@ export function ModelTable({
       noVisible,
       handleSelectAllVisible,
       onToggle,
+      onSortingChange,
       profileHintByModelId,
       selected,
       selectionDisabled,
+      sorting,
     ],
   );
 

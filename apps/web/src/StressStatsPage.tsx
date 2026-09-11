@@ -1,6 +1,5 @@
 import {
   expectedScriptForWorkload,
-  parseModelPublisherFromId,
   type StressRunDetailResponse,
   type StressRunsListResponse,
 } from "@llm-bench/shared";
@@ -11,6 +10,7 @@ import { toast } from "sonner";
 import { BaseUrlNameModal } from "./components/BaseUrlNameModal";
 import { BaseUrlValue } from "./components/BaseUrlValue";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { ModelLabel } from "./components/ModelLabel";
 import { StressResultTable } from "./components/StressResultTable";
 import { StressTpsChart } from "./components/StressTpsChart";
 import {
@@ -26,11 +26,6 @@ import { useI18n, msg } from "./i18n";
 
 // suppress unused warning in some build configs
 void _CSV_BOM;
-
-/** 게시자(조직): meta_json에 없으면(기존 런) model_id의 org 접두 파생. */
-function runPublisher(it: { publisher?: string; model_id: string }): string {
-  return it.publisher?.trim() || parseModelPublisherFromId(it.model_id) || "";
-}
 
 type AppliedFilters = {
   workload_id: string;
@@ -360,7 +355,6 @@ export function StressStatsPage() {
               <thead className="border-b border-[var(--border)] text-[var(--muted)]">
                 <tr>
                   <th className="px-2 py-1">{m.stress.stats.field.model}</th>
-                  <th className="px-2 py-1">{m.stress.stats.field.publisher}</th>
                   <th className="px-2 py-1">{m.stress.stats.field.provider}</th>
                   <th className="px-2 py-1">{m.stress.stats.field.workload}</th>
                   <th className="px-2 py-1">Base URL</th>
@@ -392,18 +386,13 @@ export function StressStatsPage() {
                         selected ? "bg-[var(--accent)]/10" : ""
                       }`}
                     >
-                      <td className="px-2 py-1 font-mono">
-                        <span className="block max-w-[18ch] truncate" title={it.model_id}>
-                          {it.model_id}
-                        </span>
-                      </td>
                       <td className="px-2 py-1">
-                        <span
-                          className="block max-w-[14ch] truncate text-[var(--muted)]"
-                          title={runPublisher(it) || undefined}
-                        >
-                          {runPublisher(it) || "—"}
-                        </span>
+                        <ModelLabel
+                          modelId={it.model_id}
+                          publisher={it.publisher}
+                          size={14}
+                          className="max-w-[18rem] text-xs"
+                        />
                       </td>
                       <td className="px-2 py-1 font-mono">{it.provider}</td>
                       <td className="px-2 py-1">{workloadLabel(m, it.workload_id)}</td>

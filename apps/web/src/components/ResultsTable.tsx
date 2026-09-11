@@ -4,6 +4,7 @@ import { compareModelBenchQueueOrder, compareStringsPinned } from "../lib/model-
 import { buildModelColorMap } from "../lib/model-color";
 import { ModelLabel } from "./ModelLabel";
 import { computeGroupWinners } from "../lib/result-winners";
+import { reasoningEffortColor } from "../lib/reasoning-effort-color";
 import {
   BENCH_EXECUTION_SORT,
   cycleColumnSort,
@@ -27,6 +28,8 @@ import { useI18n, type Messages } from "../i18n";
 export type ResultRow = {
   rowKey: string;
   model_id: string;
+  /** 모델 게시자 — meta.publisher 또는 id 접두. ModelLabel 1줄용. */
+  publisher?: string;
   scenario: string;
   api: string;
   ttft_ms: number | null;
@@ -54,6 +57,10 @@ export type ResultRow = {
   empty_turn_count?: number;
   /** #105: 사고가 예산을 소진해 빈 턴이 있었는지(예산소진 툴팁). */
   thinking_exhausted_budget?: boolean;
+  /** 런 메타 profile_thinking_intent (레거시면 부재). */
+  thinking_intent?: "on" | "off";
+  /** 런 메타 reasoning_effort (해당 패밀리·레거시면 부재). */
+  reasoning_effort?: string;
   pass?: boolean;
   /** 0~1 점수. 비전 시나리오에서 rubric 0~3과 함께 표시. 텍스트 시나리오는 보통 0 또는 1. */
   score?: number;
@@ -195,13 +202,80 @@ export function ResultsTable({
           return (
             <span className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs">
               {multiModel && c ? (
-                <span className="size-2 shrink-0 rounded-full" style={{ background: c }} aria-hidden />
+                <span className="mt-0.5 size-2 shrink-0 rounded-full" style={{ background: c }} aria-hidden />
               ) : null}
-              <ModelLabel modelId={info.getValue()} showQuant size={14} className="max-w-[20rem]" />
+              <ModelLabel
+                modelId={info.getValue()}
+                publisher={info.row.original.publisher}
+                showQuant
+                size={14}
+                className="max-w-[20rem]"
+              />
             </span>
           );
         },
         sortingFn: modelSortFn,
+      }),
+      columnHelper.accessor((row) => row.thinking_intent ?? "", {
+        id: "thinking_intent",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
+            title={m.results.table.colThinkTitle}
+            onClick={() => onColumnSort(column.id)}
+          >
+            {m.results.table.colThink}
+            {sortDirIcon(column, sorting)}
+          </button>
+        ),
+        cell: (info) => {
+          const v = info.row.original.thinking_intent;
+          if (v == null) {
+            return <span className="text-xs text-[var(--muted)]">—</span>;
+          }
+          const on = v === "on";
+          return (
+            <span
+              className={`font-mono text-xs ${on ? "text-[var(--accent-2)]" : "text-[var(--muted)]"}`}
+              title={on ? m.results.table.thinkOnTitle : m.results.table.thinkOffTitle}
+            >
+              {v}
+            </span>
+          );
+        },
+        sortingFn: "alphanumeric",
+      }),
+      columnHelper.accessor((row) => row.reasoning_effort ?? "", {
+        id: "reasoning_effort",
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
+            title={m.results.table.colEffortTitle}
+            onClick={() => onColumnSort(column.id)}
+          >
+            {m.results.table.colEffort}
+            {sortDirIcon(column, sorting)}
+          </button>
+        ),
+        cell: (info) => {
+          const v = info.row.original.reasoning_effort;
+          if (v == null || v === "") {
+            return <span className="text-xs text-[var(--muted)]">—</span>;
+          }
+          const color = reasoningEffortColor(v);
+          return (
+            <span
+              className="inline-flex rounded border bg-[var(--surface)] px-1.5 py-0.5 font-mono text-[10px]"
+              style={{ color, borderColor: color }}
+              title={m.results.table.effortTitle(v)}
+            >
+              {v}
+            </span>
+          );
+        },
+        sortingFn: "alphanumeric",
       }),
       columnHelper.accessor("scenario", {
         header: ({ column }) => (
@@ -396,12 +470,18 @@ export function ResultsTable({
           return x - y;
         },
       }),
-      columnHelper.display({
+      columnHelper.accessor((row) => row.score ?? (row.pass === true ? 1 : row.pass === false ? 0 : -1), {
         id: "quality",
-        header: () => (
-          <span title={m.results.table.colQualityTitle}>
+        header: ({ column }) => (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
+            title={m.results.table.colQualityTitle}
+            onClick={() => onColumnSort(column.id)}
+          >
             {m.results.table.colQuality}
-          </span>
+            {sortDirIcon(column, sorting)}
+          </button>
         ),
         cell: ({ row }) => {
           const { pass, score, scenario } = row.original;
@@ -456,16 +536,30 @@ export function ResultsTable({
             </span>
           );
         },
-        enableSorting: false,
+        sortingFn: "basic",
       }),
       ...(anyAgentRow
         ? [
-            columnHelper.display({
+            columnHelper.accessor(
+              (row) => {
+                if (row.agent_completion_reason === "completed") {
+                  return 1000 + (row.turns_to_completion ?? 0);
+                }
+                if (row.agent_completion_reason == null) return -1;
+                return 0;
+              },
+              {
               id: "agent",
-              header: () => (
-                <span title={m.results.table.colAgentTitle}>
+              header: ({ column }) => (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
+                  title={m.results.table.colAgentTitle}
+                  onClick={() => onColumnSort(column.id)}
+                >
                   {m.results.table.colAgent}
-                </span>
+                  {sortDirIcon(column, sorting)}
+                </button>
               ),
               cell: ({ row }) => {
                 const { agent_completion_reason, turns_to_completion, empty_turn_count, thinking_exhausted_budget } =
@@ -513,7 +607,7 @@ export function ResultsTable({
                   </span>
                 );
               },
-              enableSorting: false,
+              sortingFn: "basic",
             }),
           ]
         : []),

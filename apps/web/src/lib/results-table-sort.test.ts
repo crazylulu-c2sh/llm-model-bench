@@ -1,58 +1,95 @@
 import { describe, expect, it } from "vitest";
+import { cycleColumnSort, cycleKeyedSort, isSameSorting } from "./column-sort-cycle";
 import {
   BENCH_EXECUTION_SORT,
-  cycleColumnSort,
+  cycleColumnSort as cycleResultsSort,
   isBenchExecutionSort,
   resultsSortLine,
 } from "./results-table-sort";
 import { ko } from "../i18n/messages/ko";
 
-describe("isBenchExecutionSort", () => {
-  it("기본 3열 asc와 일치하면 true", () => {
-    expect(isBenchExecutionSort(BENCH_EXECUTION_SORT)).toBe(true);
-    expect(isBenchExecutionSort([...BENCH_EXECUTION_SORT])).toBe(true);
+describe("cycleColumnSort", () => {
+  const def = [{ id: "model_id", desc: false }];
+
+  it("default → firstDesc → opposite → default (내림 우선)", () => {
+    let s = [...def];
+    s = cycleColumnSort("finished_at", s, def, true);
+    expect(s).toEqual([{ id: "finished_at", desc: true }]);
+    s = cycleColumnSort("finished_at", s, def, true);
+    expect(s).toEqual([{ id: "finished_at", desc: false }]);
+    s = cycleColumnSort("finished_at", s, def, true);
+    expect(s).toEqual(def);
   });
 
-  it("단일 열 정렬이면 false", () => {
-    expect(isBenchExecutionSort([{ id: "model_id", desc: false }])).toBe(false);
-  });
-
-  it("방향이 다르면 false", () => {
-    expect(
-      isBenchExecutionSort([
-        { id: "model_id", desc: true },
-        { id: "scenario", desc: false },
-        { id: "api", desc: false },
-      ]),
-    ).toBe(false);
+  it("기본 열을 다시 클릭하면 firstDir가 기본과 같아 반대로 건너뛴다", () => {
+    let s = [...def];
+    s = cycleColumnSort("model_id", s, def, false);
+    expect(s).toEqual([{ id: "model_id", desc: true }]);
+    s = cycleColumnSort("model_id", s, def, false);
+    expect(s).toEqual(def);
   });
 });
 
-describe("cycleColumnSort", () => {
-  it("default → asc → desc → default", () => {
+describe("cycleKeyedSort", () => {
+  type Key = { kind: "a" } | { kind: "b" };
+  type Sort = { key: Key; dir: "asc" | "desc" };
+  const def: Sort = { key: { kind: "a" }, dir: "desc" };
+  const same = (a: Key, b: Key) => a.kind === b.kind;
+  const natural = (k: Key): "asc" | "desc" => (k.kind === "a" ? "desc" : "asc");
+
+  it("기본 → 반대 → 기본 (기본 키)", () => {
+    let s: Sort = { ...def };
+    s = cycleKeyedSort(s, { kind: "a" }, def, natural, same);
+    expect(s).toEqual({ key: { kind: "a" }, dir: "asc" });
+    s = cycleKeyedSort(s, { kind: "a" }, def, natural, same);
+    expect(s).toEqual(def);
+  });
+
+  it("새 키 → first → opposite → 기본", () => {
+    let s: Sort = { ...def };
+    s = cycleKeyedSort(s, { kind: "b" }, def, natural, same);
+    expect(s).toEqual({ key: { kind: "b" }, dir: "asc" });
+    s = cycleKeyedSort(s, { kind: "b" }, def, natural, same);
+    expect(s).toEqual({ key: { kind: "b" }, dir: "desc" });
+    s = cycleKeyedSort(s, { kind: "b" }, def, natural, same);
+    expect(s).toEqual(def);
+  });
+});
+
+describe("isSameSorting", () => {
+  it("동일하면 true", () => {
+    expect(isSameSorting(BENCH_EXECUTION_SORT, [...BENCH_EXECUTION_SORT])).toBe(true);
+  });
+});
+
+describe("results cycleColumnSort", () => {
+  it("default → asc → desc → default (오름 우선 열)", () => {
     let s = BENCH_EXECUTION_SORT;
-    s = cycleColumnSort("ttft_ms", s);
+    s = cycleResultsSort("ttft_ms", s);
     expect(s).toEqual([{ id: "ttft_ms", desc: false }]);
-    s = cycleColumnSort("ttft_ms", s);
+    s = cycleResultsSort("ttft_ms", s);
     expect(s).toEqual([{ id: "ttft_ms", desc: true }]);
-    s = cycleColumnSort("ttft_ms", s);
+    s = cycleResultsSort("ttft_ms", s);
     expect(s).toEqual(BENCH_EXECUTION_SORT);
   });
 
-  it("다른 열 클릭 시 해당 열 asc부터 시작", () => {
-    const s = cycleColumnSort("tps", [{ id: "model_id", desc: false }]);
+  it("tps는 내림 우선", () => {
+    let s = BENCH_EXECUTION_SORT;
+    s = cycleResultsSort("tps", s);
+    expect(s).toEqual([{ id: "tps", desc: true }]);
+    s = cycleResultsSort("tps", s);
     expect(s).toEqual([{ id: "tps", desc: false }]);
+    s = cycleResultsSort("tps", s);
+    expect(s).toEqual(BENCH_EXECUTION_SORT);
   });
 });
 
-describe("resultsSortLine", () => {
-  it("기본 정렬이면 벤치 실행 순서 문구", () => {
-    expect(resultsSortLine(BENCH_EXECUTION_SORT, ko.results.sort)).toBe("현재 정렬: 벤치 실행 순서");
+describe("isBenchExecutionSort / resultsSortLine", () => {
+  it("기본 3열 asc와 일치하면 true", () => {
+    expect(isBenchExecutionSort(BENCH_EXECUTION_SORT)).toBe(true);
   });
 
-  it("단일 열 정렬이면 컬럼명·방향 표시", () => {
-    expect(resultsSortLine([{ id: "ttft_ms", desc: true }], ko.results.sort)).toBe(
-      "현재 정렬: TTFT (ms) · 내림차순",
-    );
+  it("기본 정렬이면 벤치 실행 순서 문구", () => {
+    expect(resultsSortLine(BENCH_EXECUTION_SORT, ko.results.sort)).toBe("현재 정렬: 벤치 실행 순서");
   });
 });

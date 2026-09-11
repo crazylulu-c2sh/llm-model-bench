@@ -13,6 +13,8 @@ import {
   type ModelRouteAgentMetrics,
   type SortDir,
 } from "../lib/agent-metrics";
+import { cycleKeyedSort } from "../lib/column-sort-cycle";
+import { ModelLabel } from "./ModelLabel";
 import { BAND_COLOR, qualityBand, type ScoreBand } from "../lib/score-bands";
 import { useI18n } from "../i18n";
 
@@ -37,8 +39,8 @@ function bandFor(v: number | null, col: AgentMetricMeta): ScoreBand | undefined 
   return qualityBand(good * 100);
 }
 
-function sortDirIcon(active: boolean, dir: SortDir) {
-  if (!active) return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
+function sortDirIcon(active: boolean, dir: SortDir, isDefault: boolean) {
+  if (!active || isDefault) return <ArrowDownUp className="size-3.5 shrink-0 opacity-45" aria-hidden />;
   return dir === "asc" ? (
     <ArrowUp className="size-3.5 shrink-0 opacity-90" aria-hidden />
   ) : (
@@ -62,11 +64,14 @@ function AgentSortHeader({
   onSort: (key: AgentSortKey) => void;
 }) {
   const active = sameAgentSortKey(sort.key, sortKey);
-  const ariaSort: "ascending" | "descending" | "none" = active
-    ? sort.dir === "asc"
-      ? "ascending"
-      : "descending"
-    : "none";
+  const isDefault =
+    sameAgentSortKey(sort.key, DEFAULT_AGENT_SORT.key) && sort.dir === DEFAULT_AGENT_SORT.dir;
+  const ariaSort: "ascending" | "descending" | "none" =
+    active && !isDefault
+      ? sort.dir === "asc"
+        ? "ascending"
+        : "descending"
+      : "none";
   return (
     <th scope="col" className={thClassName} title={title} aria-sort={ariaSort}>
       <button
@@ -75,7 +80,7 @@ function AgentSortHeader({
         className="inline-flex items-center gap-1 text-[var(--muted)] hover:text-[var(--foreground)]"
       >
         {label}
-        {sortDirIcon(active, sort.dir)}
+        {sortDirIcon(active, sort.dir, isDefault)}
       </button>
     </th>
   );
@@ -89,9 +94,7 @@ export function AgentMetricsTable({ metrics }: { metrics: readonly ModelRouteAge
 
   function onSort(key: AgentSortKey) {
     setSort((prev) =>
-      sameAgentSortKey(prev.key, key)
-        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
-        : { key, dir: naturalAgentDir(key) },
+      cycleKeyedSort(prev, key, DEFAULT_AGENT_SORT, naturalAgentDir, sameAgentSortKey),
     );
   }
 
@@ -130,7 +133,9 @@ export function AgentMetricsTable({ metrics }: { metrics: readonly ModelRouteAge
         <tbody>
           {sorted.map((row) => (
             <tr key={`${row.model_id} ${row.api_route}`} className="border-t border-[var(--border)] align-middle">
-              <td className="p-2 font-mono text-xs">{row.model_id}</td>
+              <td className="p-2 text-xs">
+                <ModelLabel modelId={row.model_id} size={14} className="max-w-[16rem]" />
+              </td>
               <td className="p-2 text-xs text-[var(--muted)]">{routeLabel(row.api_route)}</td>
               {AGENT_METRIC_COLUMNS.map((col) => {
                 const v = agentMetricValue(row, col.metric);
