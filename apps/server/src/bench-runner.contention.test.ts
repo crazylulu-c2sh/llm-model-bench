@@ -94,6 +94,7 @@ function fakeProbe(opts: {
         gpuUtilPct: null,
         gpuSignalAvailable: false,
         hasActiveSignal,
+        loaded: [],
       };
     },
     async segmentBaseline() {

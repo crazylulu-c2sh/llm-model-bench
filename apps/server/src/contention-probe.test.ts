@@ -185,6 +185,87 @@ describe("sampleInFlight (self-contention guard)", () => {
   });
 });
 
+describe("loaded inventory HTTP latch (Ollama /api/ps)", () => {
+  const ollamaCfg = resolveContentionConfig({ provider: "ollama" });
+
+  function ps404(): Response {
+    return {
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+      text: async () => "Not Found",
+      json: async () => ({}),
+    } as unknown as Response;
+  }
+
+  function psOk(models: unknown[]): Response {
+    return {
+      ok: true,
+      status: 200,
+      text: async () => "",
+      json: async () => ({ models }),
+    } as unknown as Response;
+  }
+
+  it("latches on /api/ps 404 and skips subsequent network calls", async () => {
+    const fetchImpl = vi.fn(async () => ps404()) as unknown as typeof fetch;
+    const probe = makeContentionProbe({
+      provider: "ollama",
+      baseUrl: "http://127.0.0.1:11434",
+      modelId: "m",
+      cfg: ollamaCfg,
+      fetchImpl,
+      getGpu: async () => gpu(null),
+    });
+    await probe.sampleIdle();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    await probe.sampleIdle();
+    await probe.sampleInFlight({ loadedIds: [], expiresById: {} });
+    await probe.segmentBaseline();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps polling when /api/ps returns 200 (even empty models)", async () => {
+    const fetchImpl = vi.fn(async () => psOk([])) as unknown as typeof fetch;
+    const probe = makeContentionProbe({
+      provider: "ollama",
+      baseUrl: "http://127.0.0.1:11434",
+      modelId: "m",
+      cfg: ollamaCfg,
+      fetchImpl,
+      getGpu: async () => gpu(null),
+    });
+    await probe.sampleIdle();
+    await probe.sampleIdle();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("runIdleGate first-idle path hits /api/ps once (reuses sampleIdle loaded)", async () => {
+    const fetchImpl = vi.fn(async () =>
+      psOk([{ model: "ours:7b", name: "ours:7b", expires_at: "2099-01-01T00:00:00Z" }]),
+    ) as unknown as typeof fetch;
+    const probe = makeContentionProbe({
+      provider: "ollama",
+      baseUrl: "http://127.0.0.1:11434",
+      modelId: "ours:7b",
+      cfg: ollamaCfg,
+      fetchImpl,
+      getGpu: async () => gpu(null),
+    });
+    const gen = runIdleGate(probe, ollamaCfg, fakeClock(), {
+      phase: "pre_bench",
+      waitAccum: { total: 0 },
+    });
+    const { result } = await drainGate(gen);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect((result as { idle: boolean }).idle).toBe(true);
+    expect((result as { baseline: InFlightBaseline }).baseline.loadedIds).toEqual(["ours:7b"]);
+    expect((result as { baseline: InFlightBaseline }).baseline.expiresById["ours:7b"]).toBe(
+      Date.parse("2099-01-01T00:00:00Z"),
+    );
+  });
+});
+
 describe("sampleInFlight LM Studio lms ps", () => {
   beforeEach(() => {
     process.env[LMS_ENV_FLAG] = "1";
@@ -241,6 +322,7 @@ function scriptedProbe(idleSeq: boolean[]): ContentionProbe {
         gpuUtilPct: null,
         gpuSignalAvailable: false,
         hasActiveSignal: true,
+        loaded: [],
       };
     },
     async segmentBaseline() {
@@ -326,7 +408,7 @@ describe("startInflightMonitor teardown (lost-detection race)", () => {
   function idleProbe(sampleInFlight: ContentionProbe["sampleInFlight"]): ContentionProbe {
     return {
       async sampleIdle() {
-        return { active: false, reasons: ["idle"], gpuUtilPct: null, gpuSignalAvailable: false, hasActiveSignal: true };
+        return { active: false, reasons: ["idle"], gpuUtilPct: null, gpuSignalAvailable: false, hasActiveSignal: true, loaded: [] };
       },
       async segmentBaseline() {
         return { loadedIds: [], expiresById: {} };
