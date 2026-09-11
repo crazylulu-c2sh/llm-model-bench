@@ -223,8 +223,12 @@ test.describe("서버 큐 재연결", () => {
     await arriveOnReconnectingTab(page);
 
     // 스켈레톤은 aria-hidden이라 role 쿼리로는 잡히지 않는다. 복원한 2건을 뺀 나머지가 예약으로 남는다.
-    const skeletons = resultsTable(page).locator('tbody tr[aria-hidden="true"]');
+    const table = resultsTable(page);
+    const skeletons = table.locator('tbody tr[aria-hidden="true"]');
     await expect(skeletons).not.toHaveCount(0);
+    // Think/Effort 열 추가 후 pending 수동 td가 thead와 어긋나면 시나리오가 Think 칸으로 밀린다.
+    const headerCount = await table.locator("thead th").count();
+    await expect(skeletons.first().locator("td")).toHaveCount(headerCount);
   });
 
   /**
