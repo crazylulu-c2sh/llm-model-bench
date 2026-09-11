@@ -29,7 +29,7 @@ function asProviderKind(p: string): ProviderKind {
   return ProviderKindSchema.safeParse(p).success ? (p as ProviderKind) : "manual";
 }
 
-export function StatsPage() {
+export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = {}) {
   const { m } = useI18n();
   const [listItems, setListItems] = useState<StatsModelLatestItem[]>([]);
   const [listLoading, setListLoading] = useState(true);
@@ -367,6 +367,7 @@ export function StatsPage() {
               canSelectRow={canSelectStatsRow}
               aliasFor={aliasFor}
               onRenameBaseUrl={(url) => setRenameTarget(url)}
+              defaultBaseUrl={connectedBaseUrl}
             />
           </>
         )}
