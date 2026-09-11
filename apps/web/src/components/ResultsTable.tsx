@@ -630,10 +630,11 @@ export function ResultsTable({
         <p className="text-sm text-[var(--muted)]">{m.results.table.noRows}</p>
       ) : (
         <div
-          className={`rounded border border-[var(--border)]${shouldScroll ? " overflow-auto" : ""}`}
+          className={`rounded border border-[var(--border)] overflow-x-auto${shouldScroll ? " overflow-y-auto" : ""}`}
           style={shouldScroll ? { maxHeight: `calc(${maxRows + 2} * 2.25rem)` } : undefined}
         >
-          <table className="w-full min-w-[36rem] text-left text-sm">
+          {/* Think/Effort(+Agent) 열 추가로 36rem이면 헤더가 세로로 깨짐 — 가로 스크롤 + nowrap */}
+          <table className="w-full min-w-[52rem] text-left text-sm">
             <caption className="sr-only">{m.results.table.caption}</caption>
             <thead className="bg-[var(--surface)] text-[var(--muted)]">
               {table.getHeaderGroups().map((hg) => (
@@ -653,7 +654,7 @@ export function ResultsTable({
                                 : "none"
                             : undefined
                         }
-                        className={`p-2${shouldScroll ? " sticky top-0 z-[1] bg-[var(--surface)]" : ""}`}
+                        className={`whitespace-nowrap p-2${shouldScroll ? " sticky top-0 z-[1] bg-[var(--surface)]" : ""}`}
                       >
                         {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
                       </th>
@@ -704,6 +705,7 @@ export function ResultsTable({
               {pendingRows.map((pr) => (
                 // 예약 행도 "무엇이 남았는지"를 읽는 정보다 — muted @40%는 두 테마 모두 2:1 미만이라
                 // 전경색 @70%(다크 8.2:1 · 라이트 5.7:1)로 흐린 느낌은 유지하되 대비를 지킨다.
+                // Think/Effort(+Agent)는 thead와 열 수를 맞추기 위한 플레이스홀더(예약 시점엔 meta 없음).
                 <tr
                   key={pr.rowKey}
                   className="border-t border-[var(--border)] opacity-70"
@@ -715,6 +717,12 @@ export function ResultsTable({
                     </span>
                   </td>
                   <td className="p-2">
+                    <span className="text-xs text-[var(--muted)]">—</span>
+                  </td>
+                  <td className="p-2">
+                    <span className="text-xs text-[var(--muted)]">—</span>
+                  </td>
+                  <td className="p-2">
                     <span className="font-mono text-xs text-[var(--foreground)]">{pr.scenario}</span>
                   </td>
                   <td className="p-2">
@@ -724,6 +732,9 @@ export function ResultsTable({
                   <td className="p-2"><div className="h-3 w-8 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-12 animate-pulse rounded bg-[var(--border)]" /></td>
+                  {anyAgentRow ? (
+                    <td className="p-2"><div className="h-3 w-12 animate-pulse rounded bg-[var(--border)]" /></td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
