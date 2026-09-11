@@ -305,7 +305,7 @@ export type LmStudioModel = z.infer<typeof LmStudioModelSchema>;
  * OpenAI 호환 서버의 실제 추론 엔진 힌트.
  * `ProviderKind`는 `openai_compatible`로 유지하고, 연결 시 1회 지문으로만 채운다(구응답은 부재).
  */
-export const InferenceEngineSchema = z.enum(["sglang", "vllm"]);
+export const InferenceEngineSchema = z.enum(["sglang", "vllm", "llamacpp", "tgi"]);
 export type InferenceEngine = z.infer<typeof InferenceEngineSchema>;
 
 export const DetectResultSchema = z.object({

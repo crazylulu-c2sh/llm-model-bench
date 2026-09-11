@@ -331,7 +331,18 @@ export const bench: Messages["bench"] = {
   partialModelList: "Only some of the model-list routes responded.",
   detectStep: (hint) => `Detection step: ${hint}`,
   modelCount: (n) => `${n} model${n === 1 ? "" : "s"}`,
-  engineLabel: (engine) => (engine === "sglang" ? "SGLang" : "vLLM"),
+  engineLabel: (engine) => {
+    switch (engine) {
+      case "sglang":
+        return "SGLang";
+      case "vllm":
+        return "vLLM";
+      case "llamacpp":
+        return "llama.cpp";
+      case "tgi":
+        return "TGI";
+    }
+  },
 
   // Scenario guide cards (ScenarioGuideCards)
   scenarioGuideHeading: "Bench scenario guide",

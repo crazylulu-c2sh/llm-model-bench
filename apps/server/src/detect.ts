@@ -519,11 +519,24 @@ export function isSglangServerInfoBody(body: unknown): boolean {
   return SGLANG_INFO_MARKERS.some((k) => k in obj);
 }
 
-/** Prometheus 텍스트에 vLLM 요청 게이지가 있으면 vLLM로 단정. */
-export function metricsTextLooksLikeVllm(text: string): boolean {
-  return (
-    text.includes("vllm:num_requests_running") || text.includes("vllm:num_requests_waiting")
-  );
+/** Prometheus 텍스트에서 OpenAI 호환 엔진을 단정. 우선순위: vllm → llamacpp → tgi. */
+export function classifyMetricsEngine(text: string): InferenceEngine | null {
+  if (
+    text.includes("vllm:num_requests_running") ||
+    text.includes("vllm:num_requests_waiting")
+  ) {
+    return "vllm";
+  }
+  if (
+    text.includes("llamacpp:requests_processing") ||
+    text.includes("llamacpp:requests_deferred")
+  ) {
+    return "llamacpp";
+  }
+  if (text.includes("tgi_batch_current_size") || text.includes("tgi_queue_size")) {
+    return "tgi";
+  }
+  return null;
 }
 
 /**
@@ -583,7 +596,7 @@ async function probeInferenceEngine(
     }
   }
 
-  // 2) vLLM: /metrics 의 vllm: 게이지
+  // 2) /metrics 1회 — vllm / llamacpp / tgi 접두 분류
   try {
     const r = await fetchImpl(`${baseUrl}/metrics`, {
       headers: h,
@@ -594,11 +607,12 @@ async function probeInferenceEngine(
       return null;
     }
     const text = await r.text().catch(() => "");
-    if (metricsTextLooksLikeVllm(text)) {
-      steps.push({ name: "vllm_metrics", ok: true, status: r.status });
-      return "vllm";
+    const engine = classifyMetricsEngine(text);
+    if (engine) {
+      steps.push({ name: "vllm_metrics", ok: true, status: r.status, detail: engine });
+      return engine;
     }
-    steps.push({ name: "vllm_metrics", ok: false, status: r.status, detail: "no_vllm_gauges" });
+    steps.push({ name: "vllm_metrics", ok: false, status: r.status, detail: "no_known_gauges" });
   } catch (e) {
     steps.push({ name: "vllm_metrics", ok: false, detail: describeFetchError(e) });
   }

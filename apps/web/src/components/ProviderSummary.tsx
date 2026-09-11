@@ -92,8 +92,7 @@ export function ProviderSummary({ detect }: { detect: DetectResult }) {
           <PIcon className="size-4 text-[var(--accent)]" aria-hidden />
           <span className="font-mono">
             {detect.provider}
-            {detect.provider === "openai_compatible" &&
-            (detect.engine === "sglang" || detect.engine === "vllm")
+            {detect.provider === "openai_compatible" && detect.engine
               ? ` (${m.bench.engineLabel(detect.engine)})`
               : ""}
           </span>
