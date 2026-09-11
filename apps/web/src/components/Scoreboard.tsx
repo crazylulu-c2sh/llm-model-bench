@@ -18,10 +18,14 @@ import { buildModelColorMap } from "../lib/model-color";
 import {
   DEFAULT_SCOREBOARD_SORT,
   naturalDir,
+  plannedScenarioGroupCounts,
+  qualityGroupWithPlannedCoverage,
   sameSortKey,
   scoreboardFromRows,
+  scoreboardGroupPending,
   sortEquals,
   sortScoreboard,
+  type PlannedGroupCounts,
   type ScoreboardSort,
   type ScoreboardSortKey,
   type ScoreGroup,
@@ -39,6 +43,8 @@ import { ScoreboardChart, Segmented } from "./ScoreboardChart";
 import { ModelLabel } from "./ModelLabel";
 import { VendorIcon, vendorLabel } from "./VendorIcon";
 import { useI18n, type Messages } from "../i18n";
+
+const EMPTY_PLANNED_SCENARIO_IDS: string[] = [];
 
 /** max 기준 상대 길이 채움 막대(기본 max=100=절대). */
 function ScoreBar({ value, color, max = 100 }: { value: number; color: string; max?: number }) {
@@ -66,9 +72,29 @@ function qualityBandTitle(
 }
 
 /** 품질 셀: 밴드색 숫자 + 막대 + (커버리지) + judge-cap `*`. */
-function QualityCell({ g, capped }: { g: QualityGroupScore; capped: boolean }) {
+function GroupPendingPulse() {
+  return <div className="mx-auto h-3 w-10 animate-pulse rounded bg-[var(--border)]" aria-hidden />;
+}
+
+function QualityCell({
+  g,
+  capped,
+  pending = false,
+}: {
+  g: QualityGroupScore;
+  capped: boolean;
+  pending?: boolean;
+}) {
   const { m } = useI18n();
   const coverage = g.expected > 0 ? `${g.covered}/${g.expected}` : null;
+  if (pending) {
+    return (
+      <span className="inline-flex flex-col items-center leading-tight">
+        <GroupPendingPulse />
+        {coverage ? <span className="mt-0.5 text-[10px] text-[var(--muted)]">({coverage})</span> : null}
+      </span>
+    );
+  }
   if (g.value == null) {
     return (
       <span className="inline-flex flex-col items-center leading-tight">
@@ -293,6 +319,8 @@ function ScoreboardDataRow({
   maxSpeed,
   provider,
   publisher,
+  loading = false,
+  planned,
 }: {
   b: ScoreboardRow;
   rank: number;
@@ -301,9 +329,20 @@ function ScoreboardDataRow({
   maxSpeed: { text: number; vision: number; agent: number; total: number };
   provider?: ProviderKind;
   publisher?: string;
+  loading?: boolean;
+  planned: PlannedGroupCounts;
 }) {
   const { m } = useI18n();
   const cap = b.quality.caveats.includes("judge_capped");
+  const qText = qualityGroupWithPlannedCoverage(b.quality.text, planned.text);
+  const qVision = qualityGroupWithPlannedCoverage(b.quality.vision, planned.vision);
+  const qAgent = qualityGroupWithPlannedCoverage(b.quality.agent, planned.agent);
+  const qTotal = qualityGroupWithPlannedCoverage(b.quality.total, planned.total);
+  const pText = scoreboardGroupPending(loading, planned.text, b.quality.text.value != null);
+  const pVision = scoreboardGroupPending(loading, planned.vision, b.quality.vision.value != null);
+  const pAgent = scoreboardGroupPending(loading, planned.agent, b.quality.agent.value != null);
+  const pTotal = scoreboardGroupPending(loading, planned.total, b.quality.total.value != null);
+  const showTextOnly = b.textOnly && planned.vision === 0 && planned.agent === 0;
   return (
     <tr className="border-t border-[var(--border)]">
       <td className="relative p-2">
@@ -324,7 +363,7 @@ function ScoreboardDataRow({
             size={14}
             className="max-w-[24rem]"
           />
-          {b.textOnly ? (
+          {showTextOnly ? (
             <span
               className="rounded border border-[var(--border)] px-1 py-px text-[10px] text-[var(--muted)]"
               title={m.scoreboard.textOnlyBadgeTitle}
@@ -346,8 +385,8 @@ function ScoreboardDataRow({
           ) : null}
         </span>
       </td>
-      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.text, m.scoreboard.bandLabel)}>
-        <QualityCell g={b.quality.text} capped={false} />
+      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(qText, m.scoreboard.bandLabel)}>
+        <QualityCell g={qText} capped={false} pending={pText} />
       </td>
       <td className="p-2 text-center">
         <SpeedCell g={b.speed.text} max={maxSpeed.text} />
@@ -355,8 +394,8 @@ function ScoreboardDataRow({
       <td className="p-2 text-center">
         <TtftCell g={b.speed.text} />
       </td>
-      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.vision, m.scoreboard.bandLabel)}>
-        <QualityCell g={b.quality.vision} capped={cap} />
+      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(qVision, m.scoreboard.bandLabel)}>
+        <QualityCell g={qVision} capped={cap} pending={pVision} />
       </td>
       <td className="p-2 text-center">
         <SpeedCell g={b.speed.vision} max={maxSpeed.vision} />
@@ -364,8 +403,8 @@ function ScoreboardDataRow({
       <td className="p-2 text-center">
         <TtftCell g={b.speed.vision} />
       </td>
-      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.agent, m.scoreboard.bandLabel)}>
-        <QualityCell g={b.quality.agent} capped={cap} />
+      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(qAgent, m.scoreboard.bandLabel)}>
+        <QualityCell g={qAgent} capped={cap} pending={pAgent} />
       </td>
       <td className="p-2 text-center">
         <SpeedCell g={b.speed.agent} max={maxSpeed.agent} />
@@ -373,8 +412,8 @@ function ScoreboardDataRow({
       <td className="p-2 text-center">
         <TtftCell g={b.speed.agent} />
       </td>
-      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(b.quality.total, m.scoreboard.bandLabel)}>
-        <QualityCell g={b.quality.total} capped={cap} />
+      <td className={`p-2 text-center ${GROUP_BORDER}`} title={qualityBandTitle(qTotal, m.scoreboard.bandLabel)}>
+        <QualityCell g={qTotal} capped={cap} pending={pTotal} />
       </td>
       <td className="p-2 text-center">
         <SpeedCell g={b.speed.total} max={maxSpeed.total} />
@@ -391,6 +430,7 @@ export function Scoreboard({
   detailAggregate,
   loading = false,
   benchModelOrder = [],
+  plannedScenarioIds = EMPTY_PLANNED_SCENARIO_IDS,
   title,
   providerByModel,
   headingLevel = 2,
@@ -400,6 +440,8 @@ export function Scoreboard({
   loading?: boolean;
   /** 벤치 실행 중 큐 순서 — 스켈레톤이 모든 모델 행 공간을 미리 확보 */
   benchModelOrder?: string[];
+  /** 이번 런이 돌기로 한 시나리오 — 에이전트 열이 끝나기 전에도 0/N 커버리지를 보여 준다 */
+  plannedScenarioIds?: readonly string[];
   title?: string;
   /** model_id → 백엔드(옵션). 벤더 아이콘 옆 백엔드 배지·툴팁용. 없어도 안 깨짐. */
   providerByModel?: Map<string, ProviderKind>;
@@ -408,6 +450,12 @@ export function Scoreboard({
 }) {
   const { m } = useI18n();
   const board = useMemo(() => scoreboardFromRows(rows, detailAggregate), [rows, detailAggregate]);
+  const plannedKey = plannedScenarioIds.join("\0");
+  const planned = useMemo(
+    () => plannedScenarioGroupCounts(plannedScenarioIds),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [plannedKey],
+  );
   const publisherByModel = useMemo(() => {
     const map = new Map<string, string>();
     for (const r of rows) {
@@ -506,7 +554,10 @@ export function Scoreboard({
   const multiModel = loadingLayout ? benchModelOrder.length >= 2 : colorByModel.size >= 2;
   const anyJudgeCap = filteredBoard.some((b) => b.quality.caveats.includes("judge_capped"));
   const anyApprox = filteredBoard.some((b) => b.speed.approxCaveat);
-  const anyTextOnly = filteredBoard.some((b) => b.textOnly);
+  const anyTextOnly =
+    planned.vision === 0 &&
+    planned.agent === 0 &&
+    filteredBoard.some((b) => b.textOnly);
   // 기본=표. 라이브 벤치 로딩 중엔 큐-순서 표 스켈레톤을 강제(차트 스켈레톤은 후속). 데이터 도착 후 토글대로.
   const showChart = view === "chart" && !loadingLayout;
   // 벤더 필터는 벤치 로딩 중이 아니고 벤더가 2종 이상일 때만 노출.
@@ -688,6 +739,8 @@ export function Scoreboard({
                         multiModel={multiModel}
                         maxSpeed={maxSpeed}
                         provider={providerByModel?.get(modelId)}
+                        loading={loading}
+                        planned={planned}
                       />
                     );
                   }
@@ -711,6 +764,7 @@ export function Scoreboard({
                     maxSpeed={maxSpeed}
                     provider={providerByModel?.get(b.model_id)}
                     publisher={publisherByModel.get(b.model_id)}
+                    planned={planned}
                   />
                 ))}
           </tbody>

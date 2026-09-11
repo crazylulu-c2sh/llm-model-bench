@@ -391,22 +391,33 @@ describe("planPendingUnits — 예약 스켈레톤 단위", () => {
     expect(units.map((u) => u.rowKey)).not.toContain(done);
   });
 
-  test("모델 → 시나리오 → 라우트 순서를 유지한다", () => {
+  test("모델 → 라우트 → 시나리오 순서를 유지한다(bench-runner와 동일)", () => {
     const units = planPendingUnits(twoByTwo, new Set());
     expect(units.map((u) => u.rowKey)).toEqual([
       scenarioRowKey("text_basic", "chat_completions", GPT_OSS),
-      scenarioRowKey("text_basic", "messages", GPT_OSS),
       scenarioRowKey("vision_basic", "chat_completions", GPT_OSS),
+      scenarioRowKey("text_basic", "messages", GPT_OSS),
       scenarioRowKey("vision_basic", "messages", GPT_OSS),
       scenarioRowKey("text_basic", "chat_completions", QWEN38),
-      scenarioRowKey("text_basic", "messages", QWEN38),
       scenarioRowKey("vision_basic", "chat_completions", QWEN38),
+      scenarioRowKey("text_basic", "messages", QWEN38),
       scenarioRowKey("vision_basic", "messages", QWEN38),
     ]);
     expect(units[0]).toEqual({
       rowKey: scenarioRowKey("text_basic", "chat_completions", GPT_OSS),
       model_id: GPT_OSS,
       scenario: "text_basic",
+      api: "chat_completions",
+    });
+  });
+
+  test("chat 구간이 끝나도 다음 예약은 같은 라우트의 다음 시나리오다(messages로 건너뛰지 않음)", () => {
+    const done = new Set([scenarioRowKey("text_basic", "chat_completions", GPT_OSS)]);
+    const units = planPendingUnits(twoByTwo, done);
+    expect(units[0]).toEqual({
+      rowKey: scenarioRowKey("vision_basic", "chat_completions", GPT_OSS),
+      model_id: GPT_OSS,
+      scenario: "vision_basic",
       api: "chat_completions",
     });
   });
