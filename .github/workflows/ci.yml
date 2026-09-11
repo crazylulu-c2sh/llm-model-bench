@@ -65,7 +65,7 @@ jobs:
       # Chromium만 쓰므로 바이너리 캐시 이득이 있다. apt deps는 캐시 불가 → hit여도 install-deps.
       - name: Resolve Playwright version
         id: pw
-        run: echo "version=$(pnpm exec playwright --version | tr -d '\n')" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(pnpm exec playwright --version | sed 's/^Version //' | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright Chromium
         id: pw-cache
