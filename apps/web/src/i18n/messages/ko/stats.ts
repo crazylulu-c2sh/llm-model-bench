@@ -3,9 +3,9 @@ export const stats = {
   // StatsPage
   sqliteUnavailable: "SQLite를 사용할 수 없습니다. 서버의 DB 파일 경로·권한·잠금 상태를 확인하세요.",
   someRunsFailed: (failed: number) => `일부 런(${failed}건)을 불러오지 못했습니다.`,
-  savedModelsTitle: "저장된 모델 (최신 런 기준)",
+  savedModelsTitle: "저장된 모델 (시나리오별 최신 측정)",
   savedModelsDesc:
-    "(model_id + Base URL) 조합마다 SQLite에 기록된 가장 최근 완료 런입니다. 시나리오 측정 집계가 없는 런은 선택할 수 없습니다.",
+    "같은 모델+Base URL에서 시나리오마다 가장 최근 실측을 모읍니다. 1개만 다시 돌려도 나머지 시나리오는 이전 런 값을 유지합니다. 시나리오 측정 집계가 없는 모델은 선택할 수 없습니다.",
   listLoading: "목록 불러오는 중…",
   noRuns: "표시할 완료 런이 없습니다. 벤치를 먼저 실행하세요.",
   noSelectable:

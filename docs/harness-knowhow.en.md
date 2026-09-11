@@ -638,8 +638,8 @@ export LLM_JUDGE_MODEL=claude-opus-4-7
 
 | File | Role |
 | --- | --- |
-| `apps/server/src/db/database.ts` | Connection open/close/cache, `migrate()`, all row insert/upsert/finish/list helpers (`insertRun`, `upsertScenarioAggregate`, `finishRun`, `latestFinishedRunsByModels`, …) |
-| `apps/server/src/db/run-queries.ts` | Read-side reconstruction: `benchResultFromDb()` / `benchResultDetailFromDb()` rehydrate a run (meta + per-scenario `runs` + prompt previews) |
+| `apps/server/src/db/database.ts` | Connection open/close/cache, `migrate()`, all row insert/upsert/finish/list helpers (`insertRun`, `upsertScenarioAggregate`, `finishRun`, `latestFinishedRunsByModels`, `listLatestFinishedRunSummaries`, …) |
+| `apps/server/src/db/run-queries.ts` | Read-side reconstruction: `benchResultFromDb()` / `benchResultDetailFromDb()` rehydrate a single-run snapshot; `mergedBenchDetailFromDb()` gathers the latest measurement per scenario×route for a (model_id, base_url) to power stats, scoreboard, and `latest-by-model` profiles |
 | `apps/server/src/db/persist-stream.ts` | `BenchRunPersistence` — folds `StreamEvent`s into `bench_*` rows during a live bench |
 | `apps/server/src/db/stress-persist-stream.ts` | `StressRunPersistence` — same pattern for stress runs (`stress_runs` / `stress_stages`) |
 
@@ -680,7 +680,7 @@ class BenchRunPersistence {
 
 ### Regression comparison (`/api/v1/compare`)
 
-The route (`app.get(\`${prefix}/compare\`)` in `apps/server/src/catalog-routes.ts`, mounted on both `/api` and `/api/v1`) accepts either `runA`&`runB` or `modelA`&`modelB`&`baseUrl` (latest finished run per model via `latestFinishedRunsByModels()`), rehydrates both sides with `benchResultDetailFromDb()`, and calls the pure `computeCompare()` from `packages/shared/src/scoring/compare.ts`. Threshold overrides arrive as query params and are parsed leniently (`numQ`/`boolQ`).
+The route (`app.get(\`${prefix}/compare\`)` in `apps/server/src/catalog-routes.ts`, mounted on both `/api` and `/api/v1`) accepts either `runA`&`runB` (single-run snapshots via `benchResultDetailFromDb()`) or `modelA`&`modelB`&`baseUrl` (anchor via `latestFinishedRunsByModels()`, detail via `mergedBenchDetailFromDb()` for per-scenario latest measurements), and calls the pure `computeCompare()` from `packages/shared/src/scoring/compare.ts`. Threshold overrides arrive as query params and are parsed leniently (`numQ`/`boolQ`). `listLatestFinishedRunSummaries()` uses the same merged set for `scenario_count`, so re-running one scenario does not hide earlier scenarios in the stats UI.
 
 - Runs are joined by `` `${id} ${api_route}` `` (the `joinKey` helper); only scenarios present with `runs.length > 0` on **both** sides are compared. Each side is reduced to `SideMetrics` and every metric is emitted as a `MetricDelta`:
 

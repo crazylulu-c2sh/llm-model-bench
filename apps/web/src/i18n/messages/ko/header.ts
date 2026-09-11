@@ -12,7 +12,7 @@ export const header = {
   },
   subtitle: {
     bench: "로컬 프로바이더 감지 · 단일 모델 시나리오 벤치",
-    stats: "SQLite에 저장된 최신 런 기준 메트릭·결과",
+    stats: "SQLite에 저장된 시나리오별 최신 측정 기준 메트릭·결과",
     stress: "동시 사용자 부하 · 단계별 TPS · 라이브 워커 모니터",
     providerStats: "SQLite에 저장된 프로바이더 벤치 런 — 필터·익스포트·삭제",
     profile: "모델 패밀리별 샘플링·컨텍스트·런타임 적용 규칙",

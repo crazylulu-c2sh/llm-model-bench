@@ -220,6 +220,57 @@ describe("listLatestFinishedRunSummaries", () => {
     expect(rows[0]?.measured_scenario_ids).toBeNull();
   });
 
+  it("scenario_count merges across runs so a 1-scenario re-run does not hide earlier scenarios", async () => {
+    const db = openBenchDatabase(":memory:");
+    const meta1 = makeBenchRunMeta(req("mx"), detect, "run_full");
+    insertRun(db, {
+      run_id: meta1.run_id,
+      created_at: meta1.created_at,
+      base_url: meta1.base_url.replace(/\/+$/, ""),
+      provider: meta1.provider,
+      model_id: meta1.model_id,
+      meta: meta1,
+      status: "running",
+    });
+    const withRuns = (runId: string, scenarioId: string) => ({
+      run_id: runId,
+      scenario_id: scenarioId,
+      api_route: "chat_completions",
+      aggregate_json: JSON.stringify({
+        scenario_id: scenarioId,
+        api_route: "chat_completions",
+        runs: [{ ttft_ms: 1, total_ms: 10, output_text: "x", stream_completed: true }],
+      }),
+      prompt_preview: "p",
+      prompt_system_preview: "sp",
+    });
+    upsertScenarioAggregate(db, withRuns("run_full", "chat_hello"));
+    upsertScenarioAggregate(db, withRuns("run_full", "chat_ping"));
+    finishRun(db, "run_full", "ok");
+
+    await new Promise((r) => setTimeout(r, 30));
+
+    const meta2 = makeBenchRunMeta(req("mx"), detect, "run_quick");
+    insertRun(db, {
+      run_id: meta2.run_id,
+      created_at: meta2.created_at,
+      base_url: meta2.base_url.replace(/\/+$/, ""),
+      provider: meta2.provider,
+      model_id: meta2.model_id,
+      meta: meta2,
+      status: "running",
+    });
+    upsertScenarioAggregate(db, withRuns("run_quick", "chat_ping"));
+    finishRun(db, "run_quick", "ok");
+
+    const rows = listLatestFinishedRunSummaries(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.run_id).toBe("run_quick");
+    expect(rows[0]?.scenario_count).toBe(2);
+    const ids = new Set((rows[0]?.measured_scenario_ids ?? "").split(",").filter(Boolean));
+    expect(ids).toEqual(new Set(["chat_hello", "chat_ping"]));
+  });
+
   it("excludes running-only rows without finished_at", () => {
     const db = openBenchDatabase(":memory:");
     const m = makeBenchRunMeta(req("mx"), detect, "run_unfinished");

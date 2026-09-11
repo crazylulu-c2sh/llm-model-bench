@@ -636,27 +636,62 @@ export type LatestFinishedRunSummary = {
   /** meta_json.publisher (detect API publisher ?? id 접두) — 기존 런은 null. */
   publisher: string | null;
   status: string;
-  /** 집계 JSON에 측정 런이 1개 이상 있는 시나리오 행 수 — 0이면 차트·표에 쓸 데이터 없음 */
+  /**
+   * 시나리오×라우트별 최신 실측을 여러 finished 런에서 모았을 때의 (scenario_id, api_route) 수.
+   * 부분 재실행이 이전 시나리오를 가리지 않게 한다. 0이면 차트·표에 쓸 데이터 없음.
+   */
   scenario_count: number;
-  /** 측정 런이 있는 시나리오 id들을 콤마로 join — 카테고리(text/vision/agent) 필터용. 없으면 null */
+  /** 병합 집합의 시나리오 id들을 콤마로 join — 카테고리(text/vision/agent) 필터용. 없으면 null */
   measured_scenario_ids: string | null;
 };
 
+/**
+ * (model_id, base_url)당 최신 finished 런을 앵커로 두고,
+ * scenario_count / measured_scenario_ids는 같은 키의 모든 finished 런에서
+ * (scenario_id, api_route)별 최신 실측(runs 길이 > 0)을 모은 집합으로 계산한다.
+ */
 export function listLatestFinishedRunSummaries(db: DatabaseSync): LatestFinishedRunSummary[] {
   return db
     .prepare(
       `SELECT ranked.run_id, ranked.created_at, ranked.finished_at, ranked.base_url, ranked.provider, ranked.model_id, ranked.publisher, ranked.status,
          (
            SELECT COUNT(*)
-           FROM bench_scenarios s
-           WHERE s.run_id = ranked.run_id
-             AND COALESCE(json_array_length(json_extract(s.aggregate_json, '$.runs')), 0) > 0
+           FROM (
+             SELECT s.scenario_id, s.api_route,
+               ROW_NUMBER() OVER (
+                 PARTITION BY s.scenario_id, s.api_route
+                 ORDER BY datetime(r.finished_at) DESC, datetime(r.created_at) DESC, r.rowid DESC
+               ) AS rn
+             FROM bench_scenarios s
+             INNER JOIN bench_runs r ON r.run_id = s.run_id
+             WHERE r.model_id = ranked.model_id
+               AND r.base_url = ranked.base_url
+               AND r.status IN ('ok', 'partial', 'cancelled')
+               AND r.finished_at IS NOT NULL
+               AND COALESCE(json_array_length(json_extract(s.aggregate_json, '$.runs')), 0) > 0
+           ) AS winners
+           WHERE winners.rn = 1
          ) AS scenario_count,
          (
-           SELECT group_concat(s.scenario_id)
-           FROM bench_scenarios s
-           WHERE s.run_id = ranked.run_id
-             AND COALESCE(json_array_length(json_extract(s.aggregate_json, '$.runs')), 0) > 0
+           SELECT group_concat(scenario_id)
+           FROM (
+             SELECT DISTINCT scenario_id
+             FROM (
+               SELECT s.scenario_id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY s.scenario_id, s.api_route
+                   ORDER BY datetime(r.finished_at) DESC, datetime(r.created_at) DESC, r.rowid DESC
+                 ) AS rn
+               FROM bench_scenarios s
+               INNER JOIN bench_runs r ON r.run_id = s.run_id
+               WHERE r.model_id = ranked.model_id
+                 AND r.base_url = ranked.base_url
+                 AND r.status IN ('ok', 'partial', 'cancelled')
+                 AND r.finished_at IS NOT NULL
+                 AND COALESCE(json_array_length(json_extract(s.aggregate_json, '$.runs')), 0) > 0
+             ) AS winners
+             WHERE winners.rn = 1
+           )
          ) AS measured_scenario_ids
        FROM (
          SELECT run_id, created_at, finished_at, base_url, provider, model_id, status,

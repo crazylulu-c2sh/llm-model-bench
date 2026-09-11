@@ -638,8 +638,8 @@ export LLM_JUDGE_MODEL=claude-opus-4-7
 
 | 파일 | 역할 |
 | --- | --- |
-| `apps/server/src/db/database.ts` | 연결 열기/닫기/캐시, `migrate()`, 모든 행 insert/upsert/finish/list 헬퍼(`insertRun`, `upsertScenarioAggregate`, `finishRun`, `latestFinishedRunsByModels`, …) |
-| `apps/server/src/db/run-queries.ts` | 읽기 측 재구성: `benchResultFromDb()` / `benchResultDetailFromDb()`가 런을 재수화(meta + 시나리오별 `runs` + 프롬프트 미리보기) |
+| `apps/server/src/db/database.ts` | 연결 열기/닫기/캐시, `migrate()`, 모든 행 insert/upsert/finish/list 헬퍼(`insertRun`, `upsertScenarioAggregate`, `finishRun`, `latestFinishedRunsByModels`, `listLatestFinishedRunSummaries`, …) |
+| `apps/server/src/db/run-queries.ts` | 읽기 측 재구성: `benchResultFromDb()` / `benchResultDetailFromDb()`가 단일 런 스냅샷을 재수화하고, `mergedBenchDetailFromDb()`가 (model_id, base_url)에서 시나리오×라우트별 최신 실측을 모아 통계·스코어보드·`latest-by-model` 프로필을 만든다 |
 | `apps/server/src/db/persist-stream.ts` | `BenchRunPersistence` — 라이브 벤치 중 `StreamEvent`를 `bench_*` 행으로 접음 |
 | `apps/server/src/db/stress-persist-stream.ts` | `StressRunPersistence` — 스트레스 런에 대한 같은 패턴(`stress_runs` / `stress_stages`) |
 
@@ -680,7 +680,7 @@ class BenchRunPersistence {
 
 ### 회귀 비교 (`/api/v1/compare`)
 
-라우트(`apps/server/src/catalog-routes.ts`의 `` `app.get(\`${prefix}/compare\`)` ``, `/api`와 `/api/v1` 양쪽에 마운트)는 `runA`&`runB` 또는 `modelA`&`modelB`&`baseUrl`(모델별 최신 완료 런을 `latestFinishedRunsByModels()`로)을 받아, 양쪽을 `benchResultDetailFromDb()`로 재수화하고, `packages/shared/src/scoring/compare.ts`의 순수 `computeCompare()`를 호출합니다. 임계값 재정의는 쿼리 파라미터로 들어오며 관대하게 파싱됩니다(`numQ`/`boolQ`).
+라우트(`apps/server/src/catalog-routes.ts`의 `` `app.get(\`${prefix}/compare\`)` ``, `/api`와 `/api/v1` 양쪽에 마운트)는 `runA`&`runB`(단일 런 스냅샷을 `benchResultDetailFromDb()`로) 또는 `modelA`&`modelB`&`baseUrl`(모델별 앵커는 `latestFinishedRunsByModels()`, 상세는 `mergedBenchDetailFromDb()`로 시나리오별 최신 측정 병합)을 받아, `packages/shared/src/scoring/compare.ts`의 순수 `computeCompare()`를 호출합니다. 임계값 재정의는 쿼리 파라미터로 들어오며 관대하게 파싱됩니다(`numQ`/`boolQ`). `listLatestFinishedRunSummaries()`의 `scenario_count`도 같은 병합 집합을 쓰므로, 1시나리오만 재실행해도 통계 UI에서 이전 시나리오가 가려지지 않습니다.
 
 - 런은 `` `${id} ${api_route}` ``로 조인됩니다(`joinKey` 헬퍼). **양쪽** 모두에 `runs.length > 0`으로 존재하는 시나리오만 비교됩니다. 각 쪽은 `SideMetrics`로 축약되고 모든 지표는 `MetricDelta`로 방출됩니다:
 

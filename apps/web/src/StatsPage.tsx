@@ -115,7 +115,7 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
       try {
         const results = await Promise.all(
           runIds.map(async (runId) => {
-            const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`);
+            const res = await fetch(`/api/runs/${encodeURIComponent(runId)}?profile=merged`);
             if (!res.ok) return null;
             return (await res.json()) as BenchRunDetailResponse;
           }),

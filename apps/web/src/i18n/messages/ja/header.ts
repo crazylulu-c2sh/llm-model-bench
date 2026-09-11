@@ -14,7 +14,7 @@ export const header: Messages["header"] = {
   },
   subtitle: {
     bench: "ローカルプロバイダー検出 · 単一モデルのシナリオベンチ",
-    stats: "SQLiteに保存された最新ランのメトリクス・結果",
+    stats: "SQLiteに保存されたシナリオ別の最新測定のメトリクス・結果",
     stress: "同時ユーザー負荷 · ステージ別TPS · ライブワーカーモニター",
     providerStats: "SQLiteに保存されたプロバイダーベンチのラン — フィルター・エクスポート・削除",
     profile: "モデルファミリー別のサンプリング・コンテキスト・ランタイム適用ルール",

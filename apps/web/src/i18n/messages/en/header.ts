@@ -14,7 +14,7 @@ export const header: Messages["header"] = {
   },
   subtitle: {
     bench: "Local provider detection · single-model scenario bench",
-    stats: "Metrics & results from the latest runs stored in SQLite",
+    stats: "Metrics & results from the latest per-scenario measurements in SQLite",
     stress: "Concurrent user load · per-stage TPS · live worker monitor",
     providerStats: "Provider bench runs in SQLite — filter, export, delete",
     profile: "Per model-family sampling, context & runtime rules",
