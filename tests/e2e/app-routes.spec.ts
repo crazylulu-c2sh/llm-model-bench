@@ -23,7 +23,7 @@ test.describe("LLM Model Bench UI", () => {
 
   test("탭: 모델 통계 페이지 부제", async ({ page }) => {
     await page.goto("/stats");
-    await expect(page.getByText("SQLite에 저장된 최신 런 기준 메트릭·결과")).toBeVisible();
+    await expect(page.getByText("SQLite에 저장된 시나리오별 최신 측정 기준 메트릭·결과")).toBeVisible();
     await expect(navLink(page, "모델 통계")).toHaveAttribute("aria-current", "page");
   });
 
