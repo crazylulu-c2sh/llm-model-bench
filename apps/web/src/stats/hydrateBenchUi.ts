@@ -1,5 +1,6 @@
+import { comparisonId } from "@llm-bench/shared";
 import { decodeTokensPerSecondFromRun, outputTokensFromRun, prefillTokensPerSecondFromRun, roundTpsDisplay } from "@llm-bench/shared";
-import type { BenchRunDetailResponse } from "../api-types";
+import type { BenchRunDetailResponse, BenchScenarioRun } from "../api-types";
 import type { ResultRow } from "../components/ResultsTable";
 import {
   rowsToChartData,
@@ -9,42 +10,18 @@ import {
 } from "../components/chart-types";
 
 export type MetricsAgg = {
+  source_run_id?: string;
   scenario_id: string;
   api_route: "chat_completions" | "messages";
   /** 마지막 측정 런과 동일한 system 프롬프트 */
   system_prompt?: string;
   /** 마지막 측정 런과 동일한 user 프롬프트(라이브 aggregate 또는 DB prompt_preview) */
   user_prompt?: string;
-  runs: Array<{
-    ttft_ms: number | null;
-    total_ms: number;
-    output_text: string;
-    stream_completed: boolean;
-    usage_output_tokens?: number | null;
-    usage_prompt_tokens?: number | null;
-    usage_reasoning_tokens?: number | null;
-    reasoning_hidden?: boolean;
-    tool_call_args_corrupted?: boolean;
-    reasoning_leaked_into_content?: boolean;
-    reasoning_chars?: number;
-    empty_response?: boolean;
-    channel_tag_leak_detected?: boolean;
-    reasoning_control_ignored?: boolean;
-    thinking_exhausted_budget?: boolean;
-    empty_turn_count?: number;
-    turns_to_completion?: number | null;
-    valid_tool_call_rate?: number;
-    tool_arg_hits?: number;
-    tool_arg_attempts?: number;
-    final_turn_output_tokens?: number;
-    tool_call_counts?: Record<string, number>;
-    agent_completion_reason?: "completed" | "stall" | "budget_exhausted" | "upstream_error";
-    quality?: { pass: boolean; score?: number; reason?: string };
-  }>;
+  runs: BenchScenarioRun[];
 };
 
 /** 저장된 런 상세 여러 건을 벤치 라이브와 동일한 rows / aggregate / 프롬프트 맵으로 병합 */
-export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
+export function mergeBenchDetailsToState(details: BenchRunDetailResponse[], scopeComparisons = true): {
   rows: ResultRow[];
   detailAggregate: Record<string, MetricsAgg>;
   promptByRowKey: Record<string, string>;
@@ -57,6 +34,7 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
 
   for (const detail of details) {
     const modelId = String(detail.meta.model_id);
+    const identity = scopeComparisons ? comparisonId(detail.meta) : modelId;
     const publisher =
       typeof detail.meta.publisher === "string" ? detail.meta.publisher : undefined;
     const thinkingIntent =
@@ -67,8 +45,9 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
       typeof detail.meta.reasoning_effort === "string" ? detail.meta.reasoning_effort : undefined;
     for (const sc of detail.scenarios) {
       const runs = sc.runs ?? [];
-      const rowKey = scenarioRowKey(sc.id, sc.api_route, modelId);
+      const rowKey = scenarioRowKey(sc.id, sc.api_route, identity);
       detailAggregate[rowKey] = {
+        source_run_id: sc.source_run_id ?? detail.meta.run_id,
         scenario_id: sc.id,
         api_route: sc.api_route,
         ...(sc.prompt_system_preview != null && sc.prompt_system_preview !== ""
@@ -104,6 +83,7 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[]): {
       rows.push({
         rowKey,
         model_id: modelId,
+        ...(scopeComparisons ? { comparison_id: identity } : {}),
         publisher,
         scenario: sc.id,
         api: sc.api_route,
@@ -148,6 +128,8 @@ export function buildChartRowsFromBenchState(
           ttft_ms: r.ttft_ms,
           pass: r.pass,
           model_id: r.model_id,
+          comparison_id: r.comparison_id,
+          rowKey: r.rowKey,
           total_ms: last?.total_ms,
           output_text: last?.output_text,
           usage_output_tokens: last?.usage_output_tokens,

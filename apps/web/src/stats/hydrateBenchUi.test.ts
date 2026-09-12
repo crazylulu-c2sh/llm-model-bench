@@ -66,3 +66,32 @@ describe("mergeBenchDetailsToState — #182/#183 field relay", () => {
     expect(rows[0]?.prefill_tps).toBe(5000);
   });
 });
+
+describe("saved comparison identity", () => {
+  it("keeps identical model IDs on different servers/settings independent through every metric", async () => {
+    const { scoreboardFromRows, leakMetricsFromRows, agentMetricsFromRows } = await import("@llm-bench/shared");
+    const { buildChartRowsFromBenchState } = await import("./hydrateBenchUi");
+    const a = detail({ quality: { pass: true, score: 1 }, usage_output_tokens: 20 });
+    const b = detail({ quality: { pass: false, score: 0 }, usage_output_tokens: 2 });
+    a.meta.config_id = "config-a";
+    b.meta = { ...b.meta, run_id: "run_2", base_url: "http://127.0.0.1:2345", config_id: "config-b" };
+    a.scenarios.push({ ...a.scenarios[0]!, id: "agent_loop_chain_v1", runs: [{ ...a.scenarios[0]!.runs[0]!, agent_completion_reason: "completed" }] });
+    b.scenarios.push({ ...b.scenarios[0]!, id: "agent_loop_chain_v1", runs: [{ ...b.scenarios[0]!.runs[0]!, agent_completion_reason: "stall" }] });
+    const s = mergeBenchDetailsToState([a, b]);
+    expect(new Set(s.rows.map((r) => r.rowKey)).size).toBe(4);
+    expect(Object.keys(s.detailAggregate)).toHaveLength(4);
+    expect(s.rows.map((r) => r.model_id)).toEqual(Array(4).fill(a.meta.model_id));
+    const board = scoreboardFromRows(s.rows, s.detailAggregate);
+    expect(board).toHaveLength(2);
+    expect(new Set(board.map((r) => r.quality.total.value)).size).toBe(2);
+    expect(new Set(board.map((r) => r.speed.total.tpsMedian)).size).toBe(2);
+    expect(leakMetricsFromRows(s.rows, s.detailAggregate)).toHaveLength(2);
+    const agents = agentMetricsFromRows(s.rows, s.detailAggregate);
+    expect(agents).toHaveLength(2);
+    expect(new Set(agents.map((r) => r.task_completion_rate)).size).toBe(2);
+    expect(new Set(buildChartRowsFromBenchState(s.rows, s.detailAggregate).map((r) => r.comparisonId)).size).toBe(2);
+    // Also isolate settings on the SAME server, not just different endpoints.
+    b.meta.base_url = a.meta.base_url;
+    expect(scoreboardFromRows(mergeBenchDetailsToState([a, b]).rows, mergeBenchDetailsToState([a, b]).detailAggregate)).toHaveLength(2);
+  });
+});

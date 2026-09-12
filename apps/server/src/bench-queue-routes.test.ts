@@ -349,16 +349,15 @@ describe("서버 소유 큐 — 동시 실행 차단(409)", () => {
     await waitForEvent(queueSse, (e) => e.type === "queue_finished");
   }, 20_000);
 
-  it("직렬 실행 락 키는 bench.baseUrl이 아니라 detect.baseUrl이다(실제 추론 대상)", async () => {
+  it("정규화한 동일 대상은 감지 주소로 직렬 실행 락을 공유한다", async () => {
     stubUpstream();
-    // runBench가 I/O에 쓰는 값은 detect.baseUrl이다. bench.baseUrl로 잠그면 두 필드가 갈라진
-    // 요청이 같은 백엔드에 락을 두 개 만들어 벤치가 겹친다.
+    // 문서화된 /v1 접미사와 trailing slash는 같은 감지 대상으로 취급한다.
     const inferUrl = "http://127.0.0.1:9112";
     const first = await req(
       "/api/bench/queue",
       jsonPost({
         detect: detectFor(inferUrl, ["lockkey-0"]),
-        bench: benchConfig("http://localhost:19112"),
+        bench: benchConfig(`${inferUrl}/v1`),
         model_ids: ["lockkey-0"],
       }),
     );
@@ -372,7 +371,7 @@ describe("서버 소유 큐 — 동시 실행 차단(409)", () => {
       "/api/bench/queue",
       jsonPost({
         detect: detectFor(inferUrl, ["lockkey-1"]),
-        bench: benchConfig("http://127.0.0.1:29112"),
+        bench: benchConfig(`${inferUrl}/`),
         model_ids: ["lockkey-1"],
       }),
     );
@@ -385,7 +384,7 @@ describe("서버 소유 큐 — 동시 실행 차단(409)", () => {
     // 단발 실행 쪽 가드도 같은 키를 써야 한다.
     const single = await req(
       "/api/bench/stream",
-      jsonPost(singleStreamBody(inferUrl, "lockkey-intruder", "http://127.0.0.1:39112")),
+      jsonPost(singleStreamBody(inferUrl, "lockkey-intruder", `${inferUrl}/api/v1`)),
     );
     expect(single.status).toBe(409);
     expect(((await single.json()) as { error: string }).error).toBe("queue_active");

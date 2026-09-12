@@ -1,3 +1,4 @@
+import { modelKey } from "../comparison-identity";
 import { isAgentScenario, isVisionScenario } from "../scenarios-preview";
 
 /** 점수 신뢰도 경고 플래그(silent 금지). */
@@ -16,6 +17,7 @@ export type QualityGroupScore = {
 /** 한 모델의 품질 측 4그룹 슬라이스. */
 export type ModelQualityScore = {
   model_id: string;
+  comparison_id?: string;
   text: QualityGroupScore;
   /** value=null이면 "—"(N/A) */
   vision: QualityGroupScore;
@@ -32,6 +34,7 @@ export type ModelQualityScore = {
 /** ResultRow(런 평균 후)에서 이 모듈이 읽는 최소 부분집합. */
 export type QualityInput = {
   model_id: string;
+  comparison_id?: string;
   scenario: string;
   /** 측정 런 평균 품질 점수(0~1). */
   score: number | null | undefined;
@@ -81,7 +84,7 @@ export function computeQualityScores(rows: readonly QualityInput[]): ModelQualit
   >();
 
   for (const r of rows) {
-    let m = byModel.get(r.model_id);
+    let m = byModel.get(modelKey(r));
     if (!m) {
       m = {
         text: emptyAccum(),
@@ -90,8 +93,8 @@ export function computeQualityScores(rows: readonly QualityInput[]): ModelQualit
         total: emptyAccum(),
         judgeCapped: new Set(),
       };
-      byModel.set(r.model_id, m);
-      order.push(r.model_id);
+      byModel.set(modelKey(r), m);
+      order.push(modelKey(r));
     }
     const vision = isVisionScenario(r.scenario);
     const agent = isAgentScenario(r.scenario);
@@ -122,7 +125,8 @@ export function computeQualityScores(rows: readonly QualityInput[]): ModelQualit
     if (vision.expected > 0 && vision.covered < vision.expected) caveats.push("vision_partial");
     if (total.value === null) caveats.push("no_quality_data");
     return {
-      model_id: id,
+      model_id: rows.find((r) => modelKey(r) === id)!.model_id,
+      ...(rows.find((r) => modelKey(r) === id)!.comparison_id ? { comparison_id: id } : {}),
       text,
       vision,
       agent,

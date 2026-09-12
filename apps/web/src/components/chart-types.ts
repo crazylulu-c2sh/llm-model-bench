@@ -26,11 +26,15 @@ export type ChartRow = {
   reasoningHidden?: boolean;
   pass?: boolean;
   modelId?: string;
+  comparisonId?: string;
+  modelLabel?: string;
   /** 막대 차트에서 시나리오·API 그룹 사이 빈 행(멀티 모델 시에만 삽입) */
   categorySpacer?: true;
 };
 
 export type CompareSeries = {
+  comparisonId?: string;
+  modelLabel?: string;
   modelId: string;
   label: string;
   rows: ChartRow[];
@@ -44,14 +48,15 @@ export function sessionChartRowsToCompareSeries(
   const byModel = new Map<string, ChartRow[]>();
   for (const r of rows) {
     if (r.categorySpacer) continue;
-    const mid = (r.modelId ?? "").trim() || "_default";
+    const mid = (r.comparisonId ?? r.modelId ?? "").trim() || "_default";
     const list = byModel.get(mid) ?? [];
     list.push(r);
     byModel.set(mid, list);
   }
   return [...byModel.entries()].map(([key, rrows]) => ({
-    modelId: key === "_default" ? "" : key,
-    label: key === "_default" ? unknownLabel : key,
+    modelId: rrows[0]?.modelId ?? "",
+    comparisonId: rrows[0]?.comparisonId,
+    label: key === "_default" ? unknownLabel : (rrows[0]?.modelLabel ?? rrows[0]?.modelId ?? key),
     rows: rrows,
   }));
 }
@@ -135,6 +140,8 @@ export function rowsToChartData(
     ttft_ms: number | null;
     pass?: boolean;
     model_id?: string;
+    comparison_id?: string;
+    rowKey?: string;
     total_ms?: number | null;
     output_text?: string | null;
     usage_output_tokens?: number | null;
@@ -154,7 +161,7 @@ export function rowsToChartData(
       }) ?? 0;
     const prefillTps = prefillTokensPerSecondFromRun(r.ttft_ms, r.usage_prompt_tokens) ?? 0;
     return {
-      id: scenarioRowKey(r.scenario, r.api, r.model_id) + `|${i}`,
+      id: r.rowKey ?? (scenarioRowKey(r.scenario, r.api, r.comparison_id ?? r.model_id) + `|${i}`),
       labelShort: truncateChartLabel(fullLabel),
       fullLabel,
       scenario: r.scenario,
@@ -166,6 +173,7 @@ export function rowsToChartData(
       reasoningHidden: r.reasoning_hidden,
       pass: r.pass,
       modelId: r.model_id?.trim() || undefined,
+      comparisonId: r.comparison_id,
     };
   });
 }
@@ -230,7 +238,7 @@ export function pivotCompareSeries(
       const row = s.rows.find((r) => r.scenario === meta.scenario && r.api === meta.api);
       if (!row) return undefined;
       const m = rowMetrics(row);
-      byModel[s.modelId] = m;
+      byModel[s.comparisonId ?? s.modelId] = m;
       return m;
     });
     return { label: meta.label, scenario: meta.scenario, api: meta.api, byModel, bySeriesIndex };
@@ -245,6 +253,8 @@ export type FlatBarDatum = {
   scenario: string;
   api: string;
   modelId?: string;
+  comparisonId?: string;
+  modelLabel?: string;
   /** 비교 시리즈 인덱스 — TPS 막대 색 구분 등 */
   seriesIndex: number;
   ttft: number;
@@ -273,6 +283,7 @@ export function comparePivotToFlatBarData(
         scenario: p.scenario,
         api: p.api,
         modelId: s.modelId || undefined,
+        comparisonId: s.comparisonId,
         seriesIndex: si,
         ttft: v?.ttft ?? 0,
         tps: v?.tps ?? 0,

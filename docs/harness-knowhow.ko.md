@@ -463,6 +463,8 @@ type ContentionConfig = {
 
 스트레스 런은 동시성을 이산적인 *스테이지*로 끌어올립니다(`step` 단위로 `start → max`). 각 스테이지 안에서는 `concurrency`개의 async 워커를 띄워 고정된 `durationMs` 인큐 창(enqueue window) 동안 스트리밍 요청을 연달아 발사한 뒤 in-flight 요청을 드레인(drain)합니다. 워커는 결과를 직접 쓰지 않고, 타입이 지정된 이벤트를 상한이 있는 인메모리 큐에 `push`하며, 바깥쪽 async 제너레이터가 그것을 `yield`합니다. 그래서 런 전체가 하나의 `AsyncGenerator<StressStreamEvent>`이고 전송 계층(SSE/WebSocket)이 곧바로 클라이언트로 파이프할 수 있습니다. 백프레셔는 high-water mark로 강제됩니다: 큐가 차면 생산자는 무한정 할당하는 대신 drain 신호를 `await`합니다. 각 스테이지는 p50/p95 지연 + TTFT, `aggregate_tps`, `tps_per_user`, `error_rate`를 담은 간결한 `StressStageResult`로 축약되며, 표본이 너무 작거나 짧아 신뢰할 수 없을 때는 `tps_unreliable` 플래그가 붙습니다. 이 형태는 라이브 진행 상황을 스트리밍하면서도 깔끔한 스테이지별 요약을 방출해야 하는 어떤 부하 하네스에도 재사용됩니다. `apps/server/src/stress-runner.ts`와 `packages/shared/src/stress.ts`를 참고하세요. 핵심 아이디어는 *생산자(워커)와 소비자(제너레이터)를 큐로 분리*하는 것입니다. 워커는 결과를 직접 방출하지 않고 `queue.push` 후 `wake()`로 소비자를 깨우며, 소비자는 큐에서 하나씩 `yield` 합니다. 큐가 `QUEUE_HIGH_WATER`(256)에 도달하면 워커가 `awaitDrainIfFull()`에서 대기하고, 소비자가 큐를 절반(128) 이하로 비우면 `drainSignal()`로 다시 깨워 메모리 폭주를 막습니다. 단계 요약값은 신뢰도 게이트를 통과해야 하며, 표본이 부족하면 TPS를 `null`로 두고 `tps_unreliable: true`를 붙여 소비자가 오해하지 않도록 합니다.
 
+`stress-runner.ts`는 temperature를 명시 요청값(0 포함) → sampling override → 프로필 → 기본 0 순으로 결정하고 메타·effective sampling·두 라우트 요청에 동일하게 반영합니다. `routes/register.ts`의 bench stream·queue·stress 진입점은 정규화한 요청 주소와 감지 주소가 다르면 실행 전 HTTP 400 `detect_target_mismatch`로 거부합니다. 웹은 연결 정보 변경 시 감지와 모델 선택을 무효화하고 이전 감지 응답을 버립니다. `StressStreamEventSchema`에서 TypeScript 타입과 OpenAPI SSE 계약을 함께 생성하며, 모니터 6개 추가 경로도 OpenAPI에 포함합니다. 전역 인증의 loopback 면제(`BENCH_TRUST_LOOPBACK`, 기본 켜짐)와 CLI·원격 모델 관리의 별도 제한은 구분합니다.
+
 - **램프 루프.** `for (let cc = meta.ramp.start; cc <= meta.ramp.max; cc += meta.ramp.step)` — 동시성 레벨마다 한 스테이지. `clampRamp()`가 입력을 `start∈[1,256]`, `max=max(start,…,256)`, `step∈[1,64]`, `durationMs∈[100,600_000]`으로 제한하여 잘못된 요청이 무한하거나 퇴화한 램프를 만들 수 없게 합니다.
 - **워커 풀.** 스테이지마다 `concurrency`개의 워커를 `workerPromises[]`로 띄웁니다. 각 워커는 루프를 돕니다: `externalSignal.aborted`와 `performance.now() >= enqueueDeadline`(여기서 `enqueueDeadline = stageStart + meta.ramp.durationMs`)를 검사한 뒤, 스트리밍 요청 하나를 보내고 `WorkerRequestOutcome`을 기록하고 반복합니다. `401`/`403`이면 그 워커는 조기 종료합니다(부하 중에는 인증이 회복되지 않으므로).
 - **인큐 창 vs. 드레인.** `durationMs`는 *새* 요청 시작만 게이팅합니다. 이미 in-flight인 요청은 데드라인 이후에도 await됩니다. 스테이지는 두 국면을 모두 보고합니다: `enqueue_duration_ms`와 `drain_ms`(그리고 총 `duration_ms`).
@@ -651,9 +653,11 @@ export LLM_JUDGE_MODEL=claude-opus-4-7
 | 파일 | 역할 |
 | --- | --- |
 | `apps/server/src/db/database.ts` | 연결 열기/닫기/캐시, `migrate()`, 모든 행 insert/upsert/finish/list 헬퍼(`insertRun`, `upsertScenarioAggregate`, `finishRun`, `latestFinishedRunsByModels`, `listLatestFinishedRunSummaries`, …) |
-| `apps/server/src/db/run-queries.ts` | 읽기 측 재구성: `benchResultFromDb()` / `benchResultDetailFromDb()`가 단일 런 스냅샷을 재수화하고, `mergedBenchDetailFromDb()`가 (model_id, base_url)에서 시나리오×라우트별 최신 실측을 모아 통계·스코어보드·`latest-by-model` 프로필을 만든다 |
+| `apps/server/src/db/run-queries.ts` | 읽기 측 재구성: `benchResultFromDb()` / `benchResultDetailFromDb()`가 단일 런 스냅샷을 재수화하고, `mergedBenchDetailFromDb()`가 (model_id, base_url, provider, config_id)에서 시나리오×라우트별 최신 실측을 모아 통계·스코어보드·`latest-by-model` 프로필을 만든다 |
 | `apps/server/src/db/persist-stream.ts` | `BenchRunPersistence` — 라이브 벤치 중 `StreamEvent`를 `bench_*` 행으로 접음 |
 | `apps/server/src/db/stress-persist-stream.ts` | `StressRunPersistence` — 스트레스 런에 대한 같은 패턴(`stress_runs` / `stress_stages`) |
+
+설정별 병합은 `bench-config.ts`의 버전 있는 `config_id`를 사용합니다. 추론·샘플링·토큰 한도·프로필 및 프롬프트 번들 버전은 설정에 포함하고 반복 횟수·선택 시나리오·로드 수명은 제외합니다. `database.ts`의 v5 마이그레이션은 기존 메타에서 키를 복원하고 불완전한 구버전은 실행별로 격리합니다. `/stats/model-latest`는 설정별 항목과 `config`, `config_complete`를 반환합니다. `/runs/:runId?profile=merged`는 요청한 런과 같은 설정만 병합하고 `source_run_id`를 유지합니다. `latest-by-model`, scoreboard, 모델 지정 compare는 최신 런의 설정 그룹 하나만 선택합니다. 설정 분리 후 항목 수가 늘거나 커버리지가 줄어드는 것은 다른 조건의 실측을 섞지 않기 때문입니다. 명시 요청 상한(`request_max_tokens`, `profile_max_tokens_override`)도 신규 메타에 보존합니다. 이 정보가 없는 이전 기록은 프로필 권장값과 실제 명시 상한을 구별할 수 없으므로 설정 불완전으로 표시하고 실행별로 분리합니다.
 
 - `database.ts`의 `migrate()`가 만드는 테이블:
 

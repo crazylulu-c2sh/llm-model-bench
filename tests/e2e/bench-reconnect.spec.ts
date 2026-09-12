@@ -257,6 +257,6 @@ test.describe("서버 큐 재연결", () => {
     // 실행 중 상태를 axe로 보는 첫 스캔이다. 여기서 드러난 기존 위반 3건(이름 없는 header progressbar,
     // 그 안에 갇힌 nav 컨트롤, 예약 스켈레톤의 대비 미달)은 이 PR에서 함께 고쳤다.
     const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
-    expect(results.violations.map((v) => v.id)).toEqual([]);
+    expect(results.violations).toEqual([]);
   });
 });

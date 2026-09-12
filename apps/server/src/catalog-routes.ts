@@ -157,6 +157,8 @@ export function registerCatalogRoutes(app: Hono, prefix: string): void {
         return c.json({ base_url: norm, filter: filterInfo, rows: [], leaks: [], sqlite_available: true });
       }
 
+      // Statistics now contains multiple settings per model; the default API still selects one group per model.
+      ids = [...new Set(ids)];
       const map = dbMod.latestFinishedRunsByModels(db, norm, ids);
       // #109 후속: summary row 를 버리지 않고 붙든다 — 측정 0건(로드 실패 등) 판정에 필요.
       const summaries = ids

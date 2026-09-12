@@ -6,7 +6,7 @@ export const stats: Messages["stats"] = {
   someRunsFailed: (failed: number) => `Failed to load some runs (${failed}).`,
   savedModelsTitle: "Saved models (latest measurement per scenario)",
   savedModelsDesc:
-    "For each model + Base URL, gathers the most recent measurement per scenario. Re-running one scenario keeps the rest from earlier runs. Models without scenario aggregates can't be selected.",
+    "Saved statistics are separated by server, model, and reasoning/generation settings. Latest measurements merge per scenario within the same settings; changing settings creates a separate entry.",
   listLoading: "Loading list…",
   noRuns: "No completed runs to show. Run a bench first.",
   noSelectable:

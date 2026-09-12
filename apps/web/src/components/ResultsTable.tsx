@@ -1,3 +1,4 @@
+import { modelKey } from "@llm-bench/shared";
 import { compareScenarioBenchOrder, formatTtftMs, isAgentScenario, isVisionScenario, scoreToRubric } from "@llm-bench/shared";
 import { apiRouteRank } from "./chart-types";
 import { compareModelBenchQueueOrder, compareStringsPinned } from "../lib/model-sort";
@@ -29,6 +30,7 @@ import { useI18n, type Messages } from "../i18n";
 export type ResultRow = {
   rowKey: string;
   model_id: string;
+  comparison_id?: string;
   /** 모델 게시자 — meta.publisher 또는 id 접두. ModelLabel 1줄용. */
   publisher?: string;
   scenario: string;
@@ -187,13 +189,14 @@ export function ResultsTable({
     () => rows.some((r) => r.reasoning_control_ignored),
     [rows],
   );
-  const colorByModel = useMemo(() => buildModelColorMap(rows.map((r) => r.model_id)), [rows]);
+  const colorByModel = useMemo(() => buildModelColorMap(rows.map(modelKey)), [rows]);
   const winners = useMemo(
     () =>
       computeGroupWinners(
         rows.map((r) => ({
           rowKey: r.rowKey,
           model_id: r.model_id,
+          comparison_id: r.comparison_id,
           scenario: r.scenario,
           api: r.api,
           ttft_ms: r.ttft_ms,
@@ -217,7 +220,7 @@ export function ResultsTable({
 
   const modelSortFn = useCallback(
     (a: { original: ResultRow }, b: { original: ResultRow }) =>
-      compareModelBenchQueueOrder(a.original.model_id, b.original.model_id, modelQueue),
+      compareModelBenchQueueOrder(modelKey(a.original), modelKey(b.original), modelQueue),
     // 참조 대신 내용 키 사용(위 data와 동일 이유).
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [modelQueueKey],
@@ -241,7 +244,7 @@ export function ResultsTable({
           </button>
         ),
         cell: (info) => {
-          const c = colorByModel.get(info.getValue());
+          const c = colorByModel.get(modelKey(info.row.original));
           return (
             <span className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs">
               {multiModel && c ? (
@@ -249,6 +252,7 @@ export function ResultsTable({
               ) : null}
               <ModelLabel
                 modelId={info.getValue()}
+                comparisonId={info.row.original.comparison_id}
                 publisher={info.row.original.publisher}
                 showQuant
                 size={14}
@@ -770,7 +774,7 @@ export function ResultsTable({
             </thead>
             <tbody>
               {table.getRowModel().rows.map((row) => {
-                const barColor = multiModel ? colorByModel.get(row.original.model_id) : undefined;
+                const barColor = multiModel ? colorByModel.get(modelKey(row.original)) : undefined;
                 return (
                   <tr
                     key={row.id}

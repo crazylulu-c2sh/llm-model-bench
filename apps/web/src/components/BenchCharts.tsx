@@ -106,7 +106,7 @@ function insertCompareGroupSpacers(rows: FlatBarDatum[], groupSize: number): Fla
 }
 
 function sessionHasMultiModel(rows: ChartRow[]): boolean {
-  return new Set(rows.map((r) => r.modelId ?? "_")).size >= 2;
+  return new Set(rows.map((r) => r.comparisonId ?? r.modelId ?? "_")).size >= 2;
 }
 
 /** 세션 멀티 모델: `(scenario,api)` 블록 사이에 빈 카테고리 1개 */
@@ -511,7 +511,7 @@ function MetricRadarCompare({
             />
             {compareSeries.map((s, i) => (
               <Radar
-                key={`radar-${metric}-${i}-${s.modelId || "unknown"}`}
+                key={`radar-${metric}-${i}-${s.comparisonId ?? s.modelId ?? "unknown"}`}
                 name={s.label || s.modelId || `model_${i}`}
                 dataKey={`raw_m${i}`}
                 stroke={modelColor(i, metric)}
@@ -737,7 +737,7 @@ export function BenchCharts({
     const fireCompareClick = (payload: FlatBarDatum | undefined) => {
       if (payload?.categorySpacer) return;
       if (payload?.scenario && payload?.api) {
-        onCompareCell?.(payload.scenario, payload.api, payload.modelId);
+        onCompareCell?.(payload.scenario, payload.api, payload.comparisonId ?? payload.modelId);
       }
     };
 

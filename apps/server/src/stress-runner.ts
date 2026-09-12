@@ -161,7 +161,7 @@ export function makeStressRunMeta(
     api_route: route,
     workload_id: input.workloadId,
     max_tokens: input.maxTokens ?? defaultMaxTokensForWorkload(input.workloadId),
-    temperature: input.temperature ?? 0,
+    temperature: input.temperature ?? input.profile?.samplingOverrides?.temperature ?? resolved?.sampling.temperature ?? 0,
     ramp,
     request_timeout_ms: clampRequestTimeoutMs(input.requestTimeoutMs),
     worker_prompt_suffix: input.workerPromptSuffix ?? true,
@@ -185,7 +185,8 @@ export function makeStressRunMeta(
     for (const [k, v] of Object.entries(resolved.sampling)) {
       if (typeof v === "number" && Number.isFinite(v)) effective[k] = v;
     }
-    if (Object.keys(effective).length > 0) meta.effective_sampling = effective;
+    effective.temperature = meta.temperature;
+    meta.effective_sampling = effective;
     if (resolved.extraBody && Object.keys(resolved.extraBody).length > 0) {
       meta.extra_body = { ...resolved.extraBody };
     }

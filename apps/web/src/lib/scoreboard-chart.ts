@@ -19,6 +19,7 @@ export type ChartGroup = "text" | "vision" | "agent" | "total";
 
 export type ScoreboardChartDatum = {
   model_id: string;
+  comparison_id?: string;
   /** 선택 지표값(품질 0~100, 속도 절대 점수). 점수 가능한 행 없으면 null. */
   value: number | null;
   /** 널 아닌 행에만 1부터 부여(널이면 0). */
@@ -75,6 +76,7 @@ export function buildScoreboardChartData(
     if (value == null) {
       return {
         model_id: b.model_id,
+        comparison_id: b.comparison_id,
         value: null,
         rank: 0,
         isNull: true,
@@ -91,6 +93,7 @@ export function buildScoreboardChartData(
       metric === "quality" ? BAND_COLOR[qualityBand(value)] : BAND_COLOR[speedRelativeBand(value, max)];
     return {
       model_id: b.model_id,
+        comparison_id: b.comparison_id,
       value,
       rank: rankCounter,
       isNull: false,

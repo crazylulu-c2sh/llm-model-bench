@@ -1,3 +1,5 @@
+import { useComparisonPresentation, comparisonLabel } from "../stats/comparison-presentation";
+import { modelKey } from "@llm-bench/shared";
 import { useMemo, useState } from "react";
 import {
   Bar,
@@ -105,7 +107,7 @@ function ModelTick({
   msgs: Messages;
 }) {
   const id = String(payload?.value ?? "");
-  const d = data.find((r) => r.model_id === id);
+  const d = data.find((r) => modelKey(r) === id);
   const m = meta.get(id);
   const rank = d?.rank ?? 0;
   const nameColor = podiumColor(rank) ?? (rank === 1 ? "var(--accent)" : "var(--chart-tick)");
@@ -122,7 +124,7 @@ function ModelTick({
         fill={nameColor}
       >
         {label}
-        <title>{id}</title>
+        <title>{display}</title>
       </text>
     </g>
   );
@@ -192,8 +194,8 @@ function ChartTooltip({
 }) {
   if (!active || !payload || payload.length === 0) return null;
   const d = payload[0]!.payload;
-  const m = meta.get(d.model_id);
-  const provider = providerByModel?.get(d.model_id);
+  const m = meta.get(modelKey(d));
+  const provider = providerByModel?.get(modelKey(d));
   const val = d.isNull
     ? "—"
     : metric === "speed" || metric === "prefill"
@@ -249,6 +251,7 @@ export function ScoreboardChart({
   providerByModel?: Map<string, ProviderKind>;
 }) {
   const { m } = useI18n();
+  const presentations = useComparisonPresentation();
   const [group, setGroup] = useState<ChartGroup>("total");
   const [metric, setMetric] = useState<ChartMetric>("quality");
   const [colorMode, setColorMode] = useState<ColorMode>("score");
@@ -258,15 +261,15 @@ export function ScoreboardChart({
     () =>
       new Map<string, ModelMeta>(
         board.map((b) => [
-          b.model_id,
+          modelKey(b),
           {
             vendor: inferModelVendor(b.model_id),
-            display: cleanModelDisplayName(b.model_id),
+            display: presentations.has(modelKey(b)) ? comparisonLabel(presentations.get(modelKey(b))!) : cleanModelDisplayName(b.model_id),
             quant: parseModelQuant(b.model_id),
           },
         ]),
       ),
-    [board],
+    [board, presentations],
   );
 
   const { data, average, domainMax } = useMemo(
@@ -298,7 +301,7 @@ export function ScoreboardChart({
     const seen = new Set<VendorKey>();
     const out: VendorKey[] = [];
     for (const d of data) {
-      const v = meta.get(d.model_id)?.vendor ?? "unknown";
+      const v = meta.get(modelKey(d))?.vendor ?? "unknown";
       if (!seen.has(v)) {
         seen.add(v);
         out.push(v);
@@ -390,7 +393,7 @@ export function ScoreboardChart({
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
                 <XAxis
-                  dataKey="model_id"
+                  dataKey={modelKey}
                   type="category"
                   interval={0}
                   tickLine={false}
@@ -426,11 +429,11 @@ export function ScoreboardChart({
                     const fill = d.isNull
                       ? "var(--border)"
                       : colorMode === "vendor"
-                        ? vendorBarFill(meta.get(d.model_id)?.vendor ?? "unknown")
+                        ? vendorBarFill(meta.get(modelKey(d))?.vendor ?? "unknown")
                         : d.color;
                     return (
                       <Cell
-                        key={d.model_id}
+                        key={modelKey(d)}
                         fill={fill}
                         fillOpacity={d.isNull ? 0.35 : 1}
                         stroke={d.rank === 1 && !d.isNull ? "var(--accent)" : undefined}

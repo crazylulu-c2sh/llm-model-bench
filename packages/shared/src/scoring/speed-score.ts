@@ -1,3 +1,4 @@
+import { modelKey } from "../comparison-identity";
 import { isAgentScenario, isVisionScenario } from "../scenarios-preview";
 
 /**
@@ -18,6 +19,7 @@ export const PREFILL_SPEED_REFERENCE = { tps: 150, base: 1000 } as const;
 /** ResultRow(런 평균 후)에서 이 모듈이 읽는 최소 부분집합. */
 export type SpeedInput = {
   model_id: string;
+  comparison_id?: string;
   scenario: string;
   ttft_ms: number | null | undefined;
   /** 디코드 TPS. 점수 `score` / `tpsMedian`의 입력. */
@@ -54,6 +56,7 @@ export type SpeedGroup = {
 /** 한 모델의 속도 측 4그룹 슬라이스. */
 export type ModelSpeedScore = {
   model_id: string;
+  comparison_id?: string;
   text: SpeedGroup;
   /** score=null이면 vision 미실행/미측정 */
   vision: SpeedGroup;
@@ -161,7 +164,7 @@ export function computeSpeedScores(rows: readonly SpeedInput[]): Map<string, Mod
   >();
 
   for (const r of rows) {
-    let m = acc.get(r.model_id);
+    let m = acc.get(modelKey(r));
     if (!m) {
       m = {
         text: emptySpeed(),
@@ -172,8 +175,8 @@ export function computeSpeedScores(rows: readonly SpeedInput[]): Map<string, Mod
         agentAttempted: false,
         textAttempted: false,
       };
-      acc.set(r.model_id, m);
-      order.push(r.model_id);
+      acc.set(modelKey(r), m);
+      order.push(modelKey(r));
     }
     const vision = isVisionScenario(r.scenario);
     const agent = isAgentScenario(r.scenario);
@@ -217,7 +220,8 @@ export function computeSpeedScores(rows: readonly SpeedInput[]): Map<string, Mod
   for (const id of order) {
     const m = acc.get(id)!;
     out.set(id, {
-      model_id: id,
+      model_id: rows.find((r) => modelKey(r) === id)!.model_id,
+      ...(rows.find((r) => modelKey(r) === id)!.comparison_id ? { comparison_id: id } : {}),
       text: speedGroup(m.text),
       vision: speedGroup(m.vision),
       agent: speedGroup(m.agent),

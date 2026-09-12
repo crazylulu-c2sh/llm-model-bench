@@ -30,24 +30,24 @@ import {
   isLoopbackRemoteAddr,
 } from "./util/localhost.js";
 
-const MonitorSnapshotBody = z.object({
+export const MonitorSnapshotBody = z.object({
   baseUrl: z.string().min(1),
   provider: ProviderKindSchema,
   apiKey: z.string().optional(),
 });
 
-const LmsModelBody = z.object({
+export const LmsModelBody = z.object({
   model: z.string().min(1).max(256),
   baseUrl: z.string().min(1),
 });
 
 // #82: 원격-안전 네이티브 프록시 바디 — CLI(loopback) 경로의 LmsModelBody와 별개.
 // `apiKey`는 URL이 아닌 body로 받아 업스트림 LM Studio 인증 키가 로그·쿼리스트링에 새지 않게 한다.
-const LmsNativeListBody = z.object({
+export const LmsNativeListBody = z.object({
   baseUrl: z.string().min(1),
   apiKey: z.string().optional(),
 });
-const LmsNativeModelBody = z.object({
+export const LmsNativeModelBody = z.object({
   baseUrl: z.string().min(1),
   model: z.string().min(1).max(256),
   apiKey: z.string().optional(),
