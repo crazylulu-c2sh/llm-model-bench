@@ -1,3 +1,4 @@
+import { StressStreamEventSchema } from "@llm-bench/shared";
 import type { DetectResult, StressStreamEvent } from "@llm-bench/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetStreamUsageCacheForTests } from "./openai-fetch.js";
@@ -430,5 +431,26 @@ describe("#173: 스트레스는 thinking 을 요청하지 않는다", () => {
     }
     expect(bodies).not.toHaveLength(0);
     for (const b of bodies) expect(b.thinking).toBeUndefined();
+  });
+});
+
+describe("stress temperature contract", () => {
+  it.each(["chat_completions", "messages"] as const)("explicit zero survives profile sampling on %s", async (route) => {
+    const bodies: Record<string, unknown>[] = [];
+    const d = { ...openaiDetect(), models: [{ id: "gemma-4" }], capabilities: { openaiChat: route === "chat_completions", anthropicMessages: route === "messages" } };
+    const input = baseStressRequest({ modelId: "gemma-4", temperature: 0, profile: { samplingOverrides: { temperature: 0.7 } }, ramp: { start: 1, max: 1, step: 1, durationMs: 100 } });
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return sseChatStreamingResponse({ contentChunks: ["ok"], usageCompletionTokens: 2 });
+    };
+    for await (const ev of runStress(input, d, { fetchImpl, maxRequestsPerWorker: 1 })) {
+      expect(StressStreamEventSchema.safeParse(ev).success, ev.type).toBe(true);
+      if (ev.type === "run_started") {
+        expect(ev.meta.temperature).toBe(0);
+        expect(ev.meta.effective_sampling?.temperature).toBe(0);
+      }
+    }
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]?.temperature).toBe(0);
   });
 });

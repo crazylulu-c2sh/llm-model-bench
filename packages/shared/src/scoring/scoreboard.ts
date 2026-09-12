@@ -1,3 +1,4 @@
+import { modelKey } from "../comparison-identity";
 import { isAgentScenario, isVisionScenario } from "../scenarios-preview";
 import { decodeTokensPerSecondFromRun, prefillTokensPerSecondFromRun } from "../tps";
 import { compareModelIdAlphanumeric } from "../model-sort";
@@ -24,6 +25,7 @@ export type ScoringAggregate = Record<string, { runs?: readonly ScoringRunInput[
 export type ScoringResultRow = {
   rowKey: string;
   model_id: string;
+  comparison_id?: string;
   scenario: string;
   api: string;
   ttft_ms: number | null;
@@ -36,6 +38,7 @@ export type ScoringResultRow = {
 /** 한 (model, scenario, api)에 대한 측정 런 평균 결과 — 품질·속도 모듈 공통 입력. */
 export type ScoringRow = {
   model_id: string;
+  comparison_id?: string;
   scenario: string;
   api: string;
   ttft_ms: number | null;
@@ -51,6 +54,7 @@ export type ScoringRow = {
 /** 스코어보드 한 행: 한 모델의 품질·속도 3그룹 + text-only. */
 export type ScoreboardRow = {
   model_id: string;
+  comparison_id?: string;
   /** #173: 랭킹에 실제로 쓴 라우트. 두 라우트를 측정했어도 하나만 쓴다. */
   api_route?: string;
   /** #173: 이 모델에서 측정된 라우트 전부(정본이 아닌 것 포함). 1개 초과면 UI가 고지한다. */
@@ -158,6 +162,7 @@ export function buildScoringRows(
     if (runs.length === 0) {
       return {
         model_id: r.model_id,
+        ...(r.comparison_id ? { comparison_id: r.comparison_id } : {}),
         scenario: r.scenario,
         api: r.api,
         ttft_ms: r.ttft_ms,
@@ -168,7 +173,7 @@ export function buildScoringRows(
         judgeCapped: false,
       };
     }
-    return averageRunsToScoringRow(r.model_id, r.scenario, r.api, runs);
+    return { ...averageRunsToScoringRow(r.model_id, r.scenario, r.api, runs), ...(r.comparison_id ? { comparison_id: r.comparison_id } : {}) };
   });
 }
 
@@ -249,10 +254,10 @@ const CANONICAL_ROUTE_ORDER = ["chat_completions", "messages"] as const;
 function pickCanonicalRouteRows(rows: readonly ScoringRow[]): ScoringRow[] {
   const routesByModel = new Map<string, Set<string>>();
   for (const r of rows) {
-    let set = routesByModel.get(r.model_id);
+    let set = routesByModel.get(modelKey(r));
     if (!set) {
       set = new Set();
-      routesByModel.set(r.model_id, set);
+      routesByModel.set(modelKey(r), set);
     }
     set.add(r.api);
   }
@@ -261,33 +266,34 @@ function pickCanonicalRouteRows(rows: readonly ScoringRow[]): ScoringRow[] {
     const preferred = CANONICAL_ROUTE_ORDER.find((c) => routes.has(c));
     canonicalByModel.set(model, preferred ?? [...routes][0]!);
   }
-  return rows.filter((r) => canonicalByModel.get(r.model_id) === r.api);
+  return rows.filter((r) => canonicalByModel.get(modelKey(r)) === r.api);
 }
 
 export function computeScoreboard(scoringRows: readonly ScoringRow[]): ScoreboardRow[] {
   const routesByModel = new Map<string, Set<string>>();
   for (const r of scoringRows) {
-    let set = routesByModel.get(r.model_id);
+    let set = routesByModel.get(modelKey(r));
     if (!set) {
       set = new Set();
-      routesByModel.set(r.model_id, set);
+      routesByModel.set(modelKey(r), set);
     }
     set.add(r.api);
   }
   const canonicalRows = pickCanonicalRouteRows(scoringRows);
-  const canonicalRouteByModel = new Map(canonicalRows.map((r) => [r.model_id, r.api]));
+  const canonicalRouteByModel = new Map(canonicalRows.map((r) => [modelKey(r), r.api]));
   const quality = computeQualityScores(canonicalRows);
   const speed = computeSpeedScores(canonicalRows);
 
   const out: ScoreboardRow[] = quality.map((q) => {
-    const s = speed.get(q.model_id) ?? emptySpeed(q.model_id);
+    const s = speed.get(modelKey(q)) ?? emptySpeed(modelKey(q));
     return {
       model_id: q.model_id,
+      ...(q.comparison_id ? { comparison_id: q.comparison_id } : {}),
       quality: q,
       speed: s,
       textOnly: q.textOnly && s.textOnly,
-      api_route: canonicalRouteByModel.get(q.model_id),
-      routes_measured: [...(routesByModel.get(q.model_id) ?? [])].sort(),
+      api_route: canonicalRouteByModel.get(modelKey(q)),
+      routes_measured: [...(routesByModel.get(modelKey(q)) ?? [])].sort(),
     };
   });
 

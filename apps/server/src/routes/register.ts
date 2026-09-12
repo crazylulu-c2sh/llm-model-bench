@@ -1,3 +1,4 @@
+import { benchConfig } from "../bench-config.js";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
@@ -39,7 +40,7 @@ import {
   resumeQueue,
   subscribeToQueue,
 } from "../bench-queue-registry.js";
-import { describeFetchError, detectProvider } from "../detect.js";
+import { describeFetchError, detectProvider, normalizeBaseUrl } from "../detect.js";
 import { readWindowsHostIp } from "../util/wsl-windows-host.js";
 import { registerMonitorRoutes } from "../monitor-routes.js";
 import { runStress, type StressRequest } from "../stress-runner.js";
@@ -198,10 +199,11 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
         // #80: 병합 프로필에 측정이 있을 때만 상세를 읽어 모델 × 라우트 누수/정체 지표를 붙인다.
         let leaks: ReturnType<typeof leakMetricsFromBenchDetails> = [];
         if (r.scenario_count > 0) {
-          const detail = runQueries.mergedBenchDetailFromDb(db, r.model_id, r.base_url);
+          const detail = runQueries.mergedBenchDetailFromRunId(db, r.run_id);
           if (detail) leaks = leakMetricsFromBenchDetails([detail]);
         }
         return {
+          ...benchConfig(JSON.parse(r.meta_json), r.run_id),
           run_id: r.run_id,
           model_id: r.model_id,
           // 게시자(조직): 신규 런은 meta_json.publisher, 기존 런은 model_id의 org 접두 파생.
@@ -538,6 +540,9 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
     const parsed = BenchStreamBodySchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const { detect, bench } = parsed.data;
+    if (normalizeBaseUrl(detect.baseUrl) !== normalizeBaseUrl(bench.baseUrl)) {
+      return c.json({ error: "detect_target_mismatch" }, 400);
+    }
 
     // 서버 소유 큐가 이 백엔드를 점유 중이면 단발 실행을 막는다 — 겹쳐 돌면 에러가 아니라
     // 조용한 측정 오염이 되고(원격 백엔드에서는 오염 가드 신호원이 없어 가드도 꺼진다),
@@ -698,6 +703,9 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
     const parsed = BenchQueueStartBodySchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const { detect, bench, model_ids } = parsed.data;
+    if (normalizeBaseUrl(detect.baseUrl) !== normalizeBaseUrl(bench.baseUrl)) {
+      return c.json({ error: "detect_target_mismatch" }, 400);
+    }
     // 실제 추론 대상(detect.baseUrl)으로 잠근다 — bench.baseUrl은 runBench가 I/O에 쓰지 않는다.
     const baseUrl = normBaseUrl(detect.baseUrl);
 
@@ -832,6 +840,9 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
     const parsed = StressStreamBodySchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const { detect, stress } = parsed.data;
+    if (normalizeBaseUrl(detect.baseUrl) !== normalizeBaseUrl(stress.baseUrl)) {
+      return c.json({ error: "detect_target_mismatch" }, 400);
+    }
 
     const req: StressRequest = {
       baseUrl: stress.baseUrl,

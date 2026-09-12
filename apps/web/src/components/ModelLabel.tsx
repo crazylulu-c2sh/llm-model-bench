@@ -1,3 +1,4 @@
+import { useComparisonPresentation, settingsSummary } from "../stats/comparison-presentation";
 import type { ProviderKind } from "@llm-bench/shared";
 import {
   cleanModelDisplayName,
@@ -16,6 +17,7 @@ import { BackendIcon, VendorIcon, backendLabel } from "./VendorIcon";
  */
 export function ModelLabel({
   modelId,
+  comparisonId,
   publisher,
   provider,
   paramsString,
@@ -26,6 +28,7 @@ export function ModelLabel({
   className,
 }: {
   modelId: string;
+  comparisonId?: string;
   /** detect/meta publisher. 없으면 id의 org/ 접두로 폴백. */
   publisher?: string | null;
   provider?: ProviderKind;
@@ -38,6 +41,8 @@ export function ModelLabel({
   className?: string;
 }) {
   const { m } = useI18n();
+  const presentations = useComparisonPresentation();
+  const presentation = comparisonId ? presentations.get(comparisonId) : undefined;
   const vendor = inferModelVendor(modelId);
   const resolvedPublisher =
     publisher?.trim() || parseModelPublisherFromId(modelId) || "";
@@ -58,6 +63,7 @@ export function ModelLabel({
         <span className="truncate text-[10px] text-[var(--muted)]">
           {resolvedPublisher || "—"}
         </span>
+        {presentation ? <span className="text-[10px] text-[var(--muted)]">{presentation.server} · {settingsSummary(presentation)}</span> : null}
         <span className="inline-flex min-w-0 items-center gap-1">
           <span className="min-w-0 truncate font-mono">{display}</span>
           {quant ? (

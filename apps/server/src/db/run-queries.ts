@@ -1,3 +1,4 @@
+import { benchConfig } from "../bench-config.js";
 import { ALL_SCENARIO_IDS, type BenchResult, type BenchRunMeta } from "@llm-bench/shared";
 import type { DatabaseSync } from "node:sqlite";
 import { getRunMetaJson, listScenariosForRun } from "./database.js";
@@ -26,7 +27,7 @@ export function benchResultFromDb(db: DatabaseSync, run_id: string): BenchResult
     api_route: s.api_route as "chat_completions" | "messages",
     runs: parseAggregateRuns(s.aggregate_json) as BenchResult["scenarios"][number]["runs"],
   }));
-  return { meta, scenarios };
+  return { meta: { ...meta, ...benchConfig(meta, run_id) }, scenarios };
 }
 
 export type ScenarioDetail = BenchResult["scenarios"][number] & {
@@ -88,18 +89,20 @@ export function mergedBenchDetailFromDb(
   db: DatabaseSync,
   modelId: string,
   baseUrl: string,
+  group?: { config_id: string; provider: string },
 ): BenchResultDetail | null {
   const norm = baseUrl.replace(/\/+$/, "");
   const anchor = db
     .prepare(
-      `SELECT run_id, meta_json
+      `SELECT run_id, meta_json, config_id, provider
        FROM bench_runs
        WHERE model_id = ? AND base_url = ?
+         AND (? IS NULL OR (config_id = ? AND provider = ?))
          AND status IN ('ok', 'partial', 'cancelled') AND finished_at IS NOT NULL
        ORDER BY datetime(finished_at) DESC, datetime(created_at) DESC, rowid DESC
        LIMIT 1`,
     )
-    .get(modelId, norm) as { run_id: string; meta_json: string } | undefined;
+    .get(modelId, norm, group?.config_id ?? null, group?.config_id ?? null, group?.provider ?? null) as { run_id: string; meta_json: string; config_id: string; provider: string } | undefined;
   if (!anchor) return null;
 
   let meta: BenchRunMeta;
@@ -115,14 +118,14 @@ export function mergedBenchDetailFromDb(
               s.prompt_preview, s.prompt_system_preview
        FROM bench_scenarios s
        INNER JOIN bench_runs r ON r.run_id = s.run_id
-       WHERE r.model_id = ? AND r.base_url = ?
+       WHERE r.model_id = ? AND r.base_url = ? AND r.config_id = ? AND r.provider = ?
          AND r.status IN ('ok', 'partial', 'cancelled')
          AND r.finished_at IS NOT NULL
          AND COALESCE(json_array_length(json_extract(s.aggregate_json, '$.runs')), 0) > 0
        ORDER BY datetime(r.finished_at) DESC, datetime(r.created_at) DESC, r.rowid DESC,
                 s.scenario_id, s.api_route`,
     )
-    .all(modelId, norm) as MeasuredScenarioJoinRow[];
+    .all(modelId, norm, anchor.config_id, anchor.provider) as MeasuredScenarioJoinRow[];
 
   const seen = new Set<string>();
   const scenarios: ScenarioDetail[] = [];
@@ -152,6 +155,7 @@ export function mergedBenchDetailFromDb(
   return {
     meta: {
       ...meta,
+      ...benchConfig(meta, anchor.run_id),
       scenario_ids: uniqueIds,
     },
     scenarios,
@@ -161,8 +165,8 @@ export function mergedBenchDetailFromDb(
 /** 앵커 run_id의 (model_id, base_url)로 시나리오별 최신 병합 프로필을 반환. */
 export function mergedBenchDetailFromRunId(db: DatabaseSync, runId: string): BenchResultDetail | null {
   const row = db
-    .prepare(`SELECT model_id, base_url FROM bench_runs WHERE run_id = ?`)
-    .get(runId) as { model_id: string; base_url: string } | undefined;
+    .prepare(`SELECT model_id, base_url, config_id, provider FROM bench_runs WHERE run_id = ?`)
+    .get(runId) as { model_id: string; base_url: string; config_id: string; provider: string } | undefined;
   if (!row) return null;
-  return mergedBenchDetailFromDb(db, row.model_id, row.base_url);
+  return mergedBenchDetailFromDb(db, row.model_id, row.base_url, row);
 }

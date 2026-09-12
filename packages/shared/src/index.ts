@@ -173,6 +173,9 @@ export {
 export {
   STRESS_MAX_LIVE_CELLS,
   StressRampConfigSchema,
+  StressStreamEventSchema,
+  StressRunMetaSchema,
+  StressStageResultSchema,
   type StressApiRoute,
   type StressProviderKind,
   type StressRampConfig,
@@ -372,6 +375,12 @@ export const MaxTokensSourceSchema = z.enum([
 ]);
 
 export const BenchRunMetaSchema = z.object({
+  /** Explicit budgets must survive profile augmentation for settings identity. null means not specified. */
+  request_max_tokens: z.number().nullable().optional(),
+  profile_max_tokens_override: z.number().nullable().optional(),
+  config_id: z.string().optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
+  config_complete: z.boolean().optional(),
   run_id: z.string(),
   app_version: z.string().optional(),
   git_commit: z.string().optional(),
@@ -711,6 +720,9 @@ export const BenchResultSchema = z.object({
   scenarios: z.array(
     z.object({
       id: z.string(),
+      source_run_id: z.string().optional(),
+      prompt_preview: z.string().nullable().optional(),
+      prompt_system_preview: z.string().nullable().optional(),
       api_route: z.enum(["chat_completions", "messages"]),
       runs: z.array(
         z.object({
@@ -1073,3 +1085,5 @@ export {
   type LeakMetricsRow,
   type AgentMetricsRow,
 } from "./scenario-catalog";
+
+export { modelKey, comparisonId } from "./comparison-identity";

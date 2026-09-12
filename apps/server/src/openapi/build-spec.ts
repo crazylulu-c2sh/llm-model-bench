@@ -1,3 +1,4 @@
+import { LmsModelBody, LmsNativeModelBody } from "../monitor-routes.js";
 import { z } from "zod";
 import {
   BaseUrlNameInputSchema,
@@ -12,9 +13,11 @@ import {
   DetectBodySchema,
   DetectResultSchema,
   MonitorSnapshotResponseSchema,
+  LmsAvailabilitySchema,
   ScenarioCatalogResponseSchema,
   ScoreboardResponseSchema,
   StressRampConfigSchema,
+  StressStreamEventSchema,
   StressStreamBodySchema,
   StreamEventSchema,
 } from "@llm-bench/shared";
@@ -515,10 +518,7 @@ export function buildOpenApiSpec(): object {
             content: { "application/json": { schema: ref("StressStreamBody") } },
           },
           responses: {
-            "200": {
-              description: "StressStreamEvent SSE 스트림 (`data: <json>\\n\\n`)",
-              content: { "text/event-stream": { schema: { type: "string" } } },
-            },
+            "200": sseResponse("StressStreamEvent", "StressStreamEvent SSE 스트림"),
             "400": badRequest,
           },
         },
@@ -544,7 +544,7 @@ export function buildOpenApiSpec(): object {
               in: "query",
               schema: { type: "string", enum: ["merged"] },
               description:
-                "merged면 해당 런의 (model_id, base_url)로 시나리오별 최신 측정 병합 프로필. 생략 시 단일 런 스냅샷.",
+                "merged면 해당 런의 (model_id, base_url, provider, config_id)로 시나리오별 최신 측정 병합 프로필. 생략 시 단일 런 스냅샷.",
             },
           ],
           responses: {
@@ -563,7 +563,7 @@ export function buildOpenApiSpec(): object {
             { name: "modelIds", in: "query", required: true, schema: { type: "string" } },
           ],
           responses: {
-            "200": { description: "모델별 병합 프로필(앵커는 최신 finished 런)" },
+            "200": { description: "모델별 최신 finished 런의 설정에 한정한 병합 프로필" },
             "400": badRequest,
           },
         },
@@ -571,8 +571,8 @@ export function buildOpenApiSpec(): object {
       "/stats/model-latest": {
         get: {
           tags: ["results"],
-          summary: "(model, baseUrl)별 최신 finished 런 앵커 + 시나리오별 최신 측정 병합 요약",
-          responses: { "200": { description: "요약 목록(scenario_count는 병합 집합)" } },
+          summary: "(model, baseUrl, provider, config_id)별 최신 finished 런 앵커 + 시나리오별 최신 측정 병합 요약",
+          responses: { "200": { description: "설정별 요약 목록(config_id, config, config_complete 포함; scenario_count는 동일 설정의 병합 집합)" } },
         },
       },
       "/base-url-names": {
@@ -614,6 +614,49 @@ export function buildOpenApiSpec(): object {
           parameters: [{ name: "runId", in: "path", required: true, schema: { type: "string" } }],
           responses: { "200": { description: "ok" }, "404": { description: "not_found" } },
         },
+      },
+      "/monitor/lms/availability": {
+        get: {
+          tags: ["monitor"], summary: "로컬 LMS CLI 사용 가능 여부",
+          description: "loopback이 아니거나 ENABLE_LMS_CLI가 꺼져 있으면 binary=null.",
+          responses: { "200": { description: "CLI availability", content: {
+            "application/json": { schema: jsonSchema(LmsAvailabilitySchema) },
+          } } },
+        },
+      },
+      "/monitor/lms/load": {
+        post: { tags: ["monitor"], summary: "lms/load", description: "소켓 peer와 baseUrl 모두 loopback이어야 하며 ENABLE_LMS_CLI=1 필요.",
+          requestBody: { required: true, content: { "application/json": { schema: jsonSchema(LmsModelBody) } } },
+          responses: { "200": { description: "모델 관리 결과(ok 및 업스트림 결과)" }, "400": badRequest,
+            "401": { description: "unauthorized" }, "403": { description: "remote_not_loopback 또는 lms_cli_disabled" },
+            "500": { description: "업스트림 또는 CLI 실행 실패" } } },
+      },
+      "/monitor/lms/unload": {
+        post: { tags: ["monitor"], summary: "lms/unload", description: "소켓 peer와 baseUrl 모두 loopback이어야 하며 ENABLE_LMS_CLI=1 필요.",
+          requestBody: { required: true, content: { "application/json": { schema: jsonSchema(LmsModelBody) } } },
+          responses: { "200": { description: "모델 관리 결과(ok 및 업스트림 결과)" }, "400": badRequest,
+            "401": { description: "unauthorized" }, "403": { description: "remote_not_loopback 또는 lms_cli_disabled" },
+            "500": { description: "업스트림 또는 CLI 실행 실패" } } },
+      },
+      "/monitor/unsloth/load": {
+        post: { tags: ["monitor"], summary: "unsloth/load", description: "STRICT_LOCALHOST=0 + 유효한 BENCH_API_KEYS 키가 있으면 원격 허용. 업스트림 apiKey는 body로 전달.",
+          requestBody: { required: true, content: { "application/json": { schema: jsonSchema(LmsNativeModelBody) } } },
+          responses: { "200": { description: "모델 관리 결과(ok 및 업스트림 결과)" }, "400": badRequest,
+            "401": { description: "unauthorized" }, "403": { description: "remote_not_loopback 또는 lms_cli_disabled" },
+            "502": { description: "업스트림 또는 CLI 실행 실패" } } },
+      },
+      "/monitor/unsloth/unload": {
+        post: { tags: ["monitor"], summary: "unsloth/unload", description: "STRICT_LOCALHOST=0 + 유효한 BENCH_API_KEYS 키가 있으면 원격 허용. 업스트림 apiKey는 body로 전달.",
+          requestBody: { required: true, content: { "application/json": { schema: jsonSchema(LmsNativeModelBody) } } },
+          responses: { "200": { description: "모델 관리 결과(ok 및 업스트림 결과)" }, "400": badRequest,
+            "401": { description: "unauthorized" }, "403": { description: "remote_not_loopback 또는 lms_cli_disabled" },
+            "502": { description: "업스트림 또는 CLI 실행 실패" } } },
+      },
+      "/monitor/lms/log-stream": {
+        get: { tags: ["monitor"], summary: "로컬 LMS CLI 로그(SSE)", description: "loopback peer + localhost baseUrl + ENABLE_LMS_CLI=1 필요. 구독은 한 번에 하나이며 연결 종료 시 CLI와 슬롯을 해제합니다.",
+          parameters: [{ name: "baseUrl", in: "query", required: true, schema: { type: "string" } }],
+          responses: { "200": sseResponse("LmsLogStreamEvent", "LMS CLI 로그 이벤트"), "400": badRequest,
+            "403": { description: "remote_not_loopback 또는 lms_cli_disabled" }, "409": { description: "log_stream_busy" } } },
       },
       "/monitor/snapshot": {
         post: {
@@ -745,6 +788,13 @@ export function buildOpenApiSpec(): object {
         ScoreboardResponse: jsonSchema(ScoreboardResponseSchema),
         MonitorSnapshotResponse: jsonSchema(MonitorSnapshotResponseSchema),
         StressRampConfig: jsonSchema(StressRampConfigSchema),
+        StressStreamEvent: jsonSchema(StressStreamEventSchema),
+        LmsLogStreamEvent: jsonSchema(z.discriminatedUnion("type", [
+          z.object({ type: z.literal("started"), ts: z.string() }),
+          z.object({ type: z.literal("line"), ts: z.string(), stream: z.enum(["stdout", "stderr"]), line: z.string() }),
+          z.object({ type: z.literal("closed"), code: z.number().nullable() }),
+          z.object({ type: z.literal("error"), message: z.string() }),
+        ])),
         CustomScenarioInput: jsonSchema(CustomScenarioInputSchema),
         CompareResponse: jsonSchema(CompareResponseSchema),
       },
@@ -752,7 +802,7 @@ export function buildOpenApiSpec(): object {
         bearerAuth: {
           type: "http",
           scheme: "bearer",
-          description: "`BENCH_API_KEYS` 중 하나(opt-in). 미설정 시 인증 없음.",
+          description: "`BENCH_API_KEYS` 중 하나(opt-in). 미설정 시 전역 인증 없음. 설정 시에도 BENCH_TRUST_LOOPBACK 기본값은 loopback 면제이며 0이면 키가 필요합니다. peer 기준이며 BENCH_TRUST_PROXY=1일 때만 전달 IP를 신뢰합니다. 모델 관리 라우트의 별도 접근 제한은 각 operation을 확인하세요.",
         },
         apiKeyHeader: { type: "apiKey", in: "header", name: "x-api-key" },
       },

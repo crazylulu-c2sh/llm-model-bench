@@ -1,3 +1,5 @@
+import { comparisonId } from "@llm-bench/shared";
+import { ComparisonPresentationContext, comparisonLabel, type ComparisonPresentation } from "./stats/comparison-presentation";
 import type { SortingState } from "@tanstack/react-table";
 import { Activity, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -44,6 +46,10 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
 
   // Base URL alias (name + device/spec memo) — displayed in the Base URL cell and filter of the saved-model table.
   const { aliasFor, save: saveAlias } = useBaseUrlNames();
+  const presentations = useMemo(() => new Map(listItems.map((it) => [comparisonId(it), {
+    modelId: it.model_id, server: aliasFor(it.base_url)?.name || it.base_url,
+    config: it.config, complete: it.config_complete, configId: it.config_id,
+  } satisfies ComparisonPresentation])), [listItems, aliasFor]);
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [savingAlias, setSavingAlias] = useState(false);
 
@@ -70,6 +76,7 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
       setListLoading(true);
       try {
         const res = await fetch("/api/stats/model-latest");
+        if (!res.ok) throw new Error(msg().common.httpError(res.status));
         const j = (await res.json()) as StatsModelLatestResponse;
         if (cancelled) return;
         if (j.sqlite_available === false) {
@@ -172,7 +179,7 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
 
   // 선택된 런들의 실제 모델 순서(정렬된 sortedBenchDetails 그대로) — ResultsTable 모델 축 기본값.
   const benchModelOrder = useMemo(
-    () => sortedBenchDetails.map((d) => String(d.meta.model_id)),
+    () => sortedBenchDetails.map((d) => comparisonId(d.meta)),
     [sortedBenchDetails],
   );
   // 첫 번째 선택 런의 실제 시나리오 실행 순서 — 여러 런의 시나리오 구성이 다르면 "최선 참고값".
@@ -182,14 +189,17 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
   }, [sortedBenchDetails]);
 
   const chartRows = useMemo(
-    () => buildChartRowsFromBenchState(rows, detailAggregate, benchScenarioOrder),
-    [rows, detailAggregate, benchScenarioOrder],
+    () => buildChartRowsFromBenchState(rows, detailAggregate, benchScenarioOrder).map((row) => {
+      const p = row.comparisonId ? presentations.get(row.comparisonId) : undefined;
+      return p ? { ...row, modelLabel: comparisonLabel(p), fullLabel: `${row.scenario} (${row.api}) · ${comparisonLabel(p)}` } : row;
+    }),
+    [rows, detailAggregate, benchScenarioOrder, presentations],
   );
 
   const chartModelIds = useMemo(() => {
     const s = new Set<string>();
     for (const r of chartRows) {
-      if (r.modelId) s.add(r.modelId);
+      if (r.modelId) s.add(r.comparisonId ?? r.modelId);
     }
     return [...s].sort(compareModelIdAlphanumeric);
   }, [chartRows]);
@@ -207,7 +217,7 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
   }, [chartModelIds.join("\0")]);
 
   const filteredChartRows = useMemo(
-    () => chartRows.filter((r) => !r.modelId || chartModelFilter[r.modelId] !== false),
+    () => chartRows.filter((r) => !r.modelId || chartModelFilter[r.comparisonId ?? r.modelId] !== false),
     [chartRows, chartModelFilter],
   );
 
@@ -216,7 +226,7 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
   const selectableCount = useMemo(() => listItems.filter(statsItemHasResults).length, [listItems]);
   // model_id → 백엔드(스코어보드 벤더 아이콘 옆 배지·툴팁용). listItems가 이미 provider를 담고 있어 추가 fetch 없음.
   const providerByModel = useMemo(
-    () => new Map(listItems.map((it) => [it.model_id, asProviderKind(it.provider)])),
+    () => new Map(listItems.map((it) => [comparisonId(it), asProviderKind(it.provider)])),
     [listItems],
   );
 
@@ -261,6 +271,7 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
         scenario: row.scenario,
         api: row.api,
         modelId: row.model_id,
+        sourceRunId: agg?.source_run_id,
         ttft_ms: row.ttft_ms,
         decode_tps: row.tps ?? null,
         prefill_tps: row.prefill_tps ?? null,
@@ -286,7 +297,7 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
 
   const openFromChartRow = useCallback(
     (row: ChartRow) => {
-      const key = scenarioRowKey(row.scenario, row.api, row.modelId);
+      const key = scenarioRowKey(row.scenario, row.api, row.comparisonId ?? row.modelId);
       const tableRow = rows.find((r) => r.rowKey === key);
       if (tableRow) {
         openDrawerForRow(tableRow);
@@ -325,7 +336,7 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
   );
 
   return (
-    <>
+    <ComparisonPresentationContext.Provider value={presentations}>
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-sm p-4">
         <h2 className="mb-2 text-sm font-semibold text-[var(--foreground)]">{m.stats.savedModelsTitle}</h2>
         <p className="mb-3 text-xs text-[var(--muted)]">
@@ -404,7 +415,7 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
                   }
                 />
                 <span className="truncate font-mono" title={id}>
-                  {id}
+                  {presentations.has(id) ? comparisonLabel(presentations.get(id)!) : id}
                 </span>
               </label>
             ))}
@@ -461,6 +472,6 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
         }}
         onSubmit={submitAlias}
       />
-    </>
+    </ComparisonPresentationContext.Provider>
   );
 }

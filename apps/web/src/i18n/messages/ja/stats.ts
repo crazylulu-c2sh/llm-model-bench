@@ -6,7 +6,7 @@ export const stats: Messages["stats"] = {
   someRunsFailed: (failed: number) => `一部のラン（${failed}件）を読み込めませんでした。`,
   savedModelsTitle: "保存済みモデル（シナリオ別の最新測定）",
   savedModelsDesc:
-    "同じモデル+Base URLでシナリオごとに最も新しい実測を集めます。1つだけ再実行しても残りのシナリオは以前のランの値を維持します。シナリオ測定の集計がないモデルは選択できません。",
+    "保存統計はサーバー・モデル・推論および生成設定ごとに分けます。同じ設定内でシナリオ別の最新測定を統合し、設定を変更すると別の項目になります。",
   listLoading: "リストを読み込み中…",
   noRuns: "表示する完了ランがありません。先にベンチを実行してください。",
   noSelectable:

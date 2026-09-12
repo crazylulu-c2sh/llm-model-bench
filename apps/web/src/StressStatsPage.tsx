@@ -122,6 +122,7 @@ export function StressStatsPage() {
       else setListLoading(true);
       try {
         const res = await fetch(`/api/stress/runs?${buildQuery(filters, cursor)}`, { signal: ac.signal });
+        if (!res.ok) throw new Error(msg().common.httpError(res.status));
         const j = (await res.json()) as StressRunsListResponse;
         if (ac.signal.aborted) return;
         if (j.sqlite_available === false) {

@@ -255,6 +255,8 @@ export function makeBenchRunMeta(
     scenario_bundle_version: "11",
     temperature: input.temperature ?? 0.2,
     max_tokens: input.max_tokens ?? 512,
+    request_max_tokens: input.max_tokens ?? null,
+    profile_max_tokens_override: opts?.profileMaxTokensOverride ?? input.profileMaxTokens ?? input.profile?.maxTokensOverride ?? null,
     seed: null,
     parallel: false,
     warmup_runs: input.warmupRuns ?? 1,

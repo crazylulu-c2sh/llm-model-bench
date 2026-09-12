@@ -2,6 +2,10 @@ import type { Messages } from "../ko";
 
 // common — ko와 키가 정확히 일치해야 함(타입이 강제).
 export const common: Messages["common"] = {
+  redetectRequired: "接続情報を変更した後は、再検出してから実行してください。",
+  httpError: (status: number) => `リクエスト失敗 (HTTP ${status})`,
+  settings: "設定",
+  incompleteSettings: "設定情報が不完全",
   confirm: "OK",
   cancel: "キャンセル",
   close: "閉じる",

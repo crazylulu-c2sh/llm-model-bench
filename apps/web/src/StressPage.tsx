@@ -1,3 +1,4 @@
+import { useConnectionDetection } from "./useConnectionDetection";
 import {
   defaultMaxTokensForWorkload,
   expectedScriptForWorkload,
@@ -73,7 +74,7 @@ export function StressPage() {
   const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
   const [apiKey, setApiKey] = useState(boot.apiKey);
   const [persistApiKeyToDisk, setPersistApiKeyToDisk] = useState(boot.persistApiKeyToDisk);
-  const [detect, setDetect] = useState<DetectResult | null>(null);
+  const { detect, setDetect, beginDetection } = useConnectionDetection(baseUrl, apiKey);
   const [detecting, setDetecting] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   // 이전 런에서 저장한 모델 id — 첫 detect 이후 1회만 자동 선택에 사용 후 무효화.
@@ -92,6 +93,7 @@ export function StressPage() {
   const [running, setRunning] = useState(false);
   // runStatus는 그리드/헤더 메시지용. running boolean은 폼·버튼 비활성용으로만 유지.
   // 종료 후(finished/aborted/error)는 다음 startRun까지 그대로 유지 → 그리드 스냅샷 보존.
+  const [effectiveTemperature, setEffectiveTemperature] = useState(0);
   const [runStatus, setRunStatus] = useState<"idle" | "running" | "finished" | "aborted" | "error">("idle");
   const [stages, setStages] = useState<StressStageResult[]>([]);
   const [currentStageIndex, setCurrentStageIndex] = useState<number | null>(null);
@@ -196,7 +198,10 @@ export function StressPage() {
       ? Math.max(1, Math.floor(Number(maxTokensOverride)))
       : defaultMaxTokensForWorkload(workloadId);
 
+  useEffect(() => { if (!detect) setSelectedModelId(null); }, [detect]);
+
   const onDetect = useCallback(async () => {
+    const isCurrent = beginDetection();
     setDetecting(true);
     setErrorLine(null);
     try {
@@ -205,12 +210,14 @@ export function StressPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ baseUrl, apiKey: apiKey || undefined }),
       });
+      if (!isCurrent()) return;
       if (!resp.ok) {
         const text = await resp.text().catch(() => "");
         setErrorLine(msg().stress.toast.detectFailed(resp.status, text.slice(0, 200)));
         return;
       }
       const j = (await resp.json()) as DetectResult;
+      if (!isCurrent()) return;
       setDetect(j);
       // 서버가 정규화한 baseUrl을 그대로 채택한다 — 안 그러면 두 페이지가 서로 다른 문자열을 저장한다.
       setBaseUrl(j.baseUrl);
@@ -234,6 +241,7 @@ export function StressPage() {
       // 첫 detect 이후 자동 복원 시도는 무효화 — 사용자가 수동으로 바꾼 선택이 덮이지 않게.
       lastSelectedModelIdRef.current = null;
     } catch (e) {
+      if (!isCurrent()) return;
       setErrorLine(msg().stress.toast.detectException(String(e)));
     } finally {
       setDetecting(false);
@@ -297,7 +305,7 @@ export function StressPage() {
         body: JSON.stringify({
           detect,
           stress: {
-            baseUrl,
+            baseUrl: detect.baseUrl,
             apiKey: apiKey || undefined,
             provider: detect.provider,
             modelId: selectedModelId,
@@ -321,6 +329,10 @@ export function StressPage() {
       }
       await consumeSseJsonLines(resp.body, (ev) => {
         switch (ev.type) {
+          case "run_started": {
+            setEffectiveTemperature(ev.meta.temperature);
+            break;
+          }
           case "stress_stage_started": {
             // cells는 startRun에서 사전 할당된 슬롯을 *유지* — 단계마다 재할당하지 않음.
             // 워커가 새 request_start 이벤트를 보내면 해당 슬롯이 자연스럽게 갱신됨.
@@ -672,7 +684,7 @@ export function StressPage() {
             <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-[var(--surface)] p-2 font-mono text-[11px]">{previewUserPrompt}</pre>
           </div>
           <div className="text-[var(--muted)]">
-            max_tokens: <span className="font-mono text-[var(--foreground)]">{previewMaxTokens}</span> · temperature: <span className="font-mono text-[var(--foreground)]">0</span>
+            max_tokens: <span className="font-mono text-[var(--foreground)]">{previewMaxTokens}</span> · temperature: <span className="font-mono text-[var(--foreground)]">{effectiveTemperature}</span>
           </div>
         </div>
       </section>
@@ -684,7 +696,7 @@ export function StressPage() {
               type="button"
               className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
               onClick={startRun}
-              disabled={!detect || !selectedModelId}
+              disabled={detecting || !detect || !selectedModelId}
             >
               <Play className="size-3.5" aria-hidden /> {m.stress.run.runBtn}
             </button>
@@ -708,6 +720,7 @@ export function StressPage() {
         </div>
       </section>
 
+      {!detect ? <p role="status" className="text-xs text-[var(--muted)]">{m.common.redetectRequired}</p> : null}
       <StressTpsChart stages={stages} />
 
       {cells.length > 0 ? (

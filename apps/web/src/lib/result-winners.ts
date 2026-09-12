@@ -1,3 +1,4 @@
+import { modelKey } from "@llm-bench/shared";
 /** 그룹 내 각 메트릭에서 이 행이 최우수인지. */
 export type WinnerFlags = { ttft: boolean; tps: boolean; prefill_tps: boolean };
 
@@ -5,6 +6,7 @@ export type WinnerFlags = { ttft: boolean; tps: boolean; prefill_tps: boolean };
 export type WinnerInput = {
   rowKey: string;
   model_id: string;
+  comparison_id?: string;
   scenario: string;
   api: string;
   ttft_ms: number | null | undefined;
@@ -50,7 +52,7 @@ export function computeGroupWinners(rows: readonly WinnerInput[]): Map<string, W
   };
 
   for (const list of groups.values()) {
-    if (new Set(list.map((r) => r.model_id)).size < 2) continue;
+    if (new Set(list.map(modelKey)).size < 2) continue;
 
     for (const metric of METRICS) {
       const field = METRIC_FIELD[metric];
@@ -59,7 +61,7 @@ export function computeGroupWinners(rows: readonly WinnerInput[]): Map<string, W
         return typeof v === "number" && Number.isFinite(v);
       });
       // 같은 메트릭에 값이 있는 모델이 2개 미만이면 비교가 성립하지 않음.
-      if (new Set(valid.map((r) => r.model_id)).size < 2) continue;
+      if (new Set(valid.map(modelKey)).size < 2) continue;
 
       const higher = HIGHER_IS_BETTER[metric];
       let best = higher ? -Infinity : Infinity;

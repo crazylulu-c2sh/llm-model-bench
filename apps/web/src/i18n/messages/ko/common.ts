@@ -1,5 +1,9 @@
 // common 네임스페이스 — 앱 전반에서 공유하는 일반 UI 프리미티브. ko가 진실의 원천.
 export const common = {
+  redetectRequired: "연결 정보를 변경한 뒤에는 다시 감지해야 실행할 수 있습니다.",
+  httpError: (status: number) => `요청 실패 (HTTP ${status})`,
+  settings: "설정",
+  incompleteSettings: "설정 정보 불완전",
   confirm: "확인",
   cancel: "취소",
   close: "닫기",

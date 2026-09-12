@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { benchConfig } from "../bench-config.js";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { BenchRunMeta, StressRunStatus } from "@llm-bench/shared";
@@ -186,6 +187,25 @@ function migrate(db: DatabaseSync): void {
   if (currentVersion < 4) {
     // base_url_names: 벤치 대상 시스템(Base URL) 별칭. 통계·스트레스 표에 이름 표시용.
     db.prepare(`INSERT INTO schema_migrations (version) VALUES (4)`).run();
+  }
+  if (currentVersion < 5) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec("ALTER TABLE bench_runs ADD COLUMN config_id TEXT");
+      const update = db.prepare("UPDATE bench_runs SET config_id = ? WHERE run_id = ?");
+      const rows = db.prepare("SELECT run_id, meta_json FROM bench_runs").all() as Array<{ run_id: string; meta_json: string }>;
+      for (const r of rows) {
+        let meta: Record<string, unknown> = {};
+        try { meta = JSON.parse(r.meta_json); } catch { /* isolate unreadable legacy metadata */ }
+        update.run(benchConfig(meta ?? {}, r.run_id).config_id, r.run_id);
+      }
+      db.exec("CREATE INDEX idx_bench_runs_config ON bench_runs (base_url, model_id, provider, config_id, finished_at DESC)");
+      db.prepare("INSERT INTO schema_migrations (version) VALUES (5)").run();
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
   }
 }
 
@@ -432,8 +452,8 @@ export function insertRun(
   },
 ): void {
   db.prepare(
-    `INSERT INTO bench_runs (run_id, created_at, base_url, provider, model_id, meta_json, status)
-     VALUES (@run_id, @created_at, @base_url, @provider, @model_id, @meta_json, @status)`,
+    `INSERT INTO bench_runs (run_id, created_at, base_url, provider, model_id, meta_json, status, config_id)
+     VALUES (@run_id, @created_at, @base_url, @provider, @model_id, @meta_json, @status, @config_id)`,
   ).run({
     run_id: row.run_id,
     created_at: row.created_at,
@@ -442,6 +462,7 @@ export function insertRun(
     model_id: row.model_id,
     status: row.status,
     meta_json: JSON.stringify(row.meta),
+    config_id: benchConfig(row.meta, row.run_id).config_id,
   });
 }
 
@@ -564,8 +585,8 @@ export function updateRunMetaJson(
   }
   const merged = JSON.stringify({ ...parsed, ...partial });
   const info = db
-    .prepare(`UPDATE bench_runs SET meta_json = @meta_json WHERE run_id = @run_id`)
-    .run({ run_id, meta_json: merged });
+    .prepare(`UPDATE bench_runs SET meta_json = @meta_json, config_id = @config_id WHERE run_id = @run_id`)
+    .run({ run_id, meta_json: merged, config_id: benchConfig(JSON.parse(merged), run_id).config_id });
   return Number(info.changes ?? 0);
 }
 
@@ -627,6 +648,8 @@ export function latestFinishedRunsByModels(
 
 /** (model_id, base_url) 조합마다 finished 런 중 최신 1건 — 통계 목록용 */
 export type LatestFinishedRunSummary = {
+  config_id: string;
+  meta_json: string;
   run_id: string;
   created_at: string;
   finished_at: string;
@@ -653,7 +676,7 @@ export type LatestFinishedRunSummary = {
 export function listLatestFinishedRunSummaries(db: DatabaseSync): LatestFinishedRunSummary[] {
   return db
     .prepare(
-      `SELECT ranked.run_id, ranked.created_at, ranked.finished_at, ranked.base_url, ranked.provider, ranked.model_id, ranked.publisher, ranked.status,
+      `SELECT ranked.config_id, ranked.meta_json, ranked.run_id, ranked.created_at, ranked.finished_at, ranked.base_url, ranked.provider, ranked.model_id, ranked.publisher, ranked.status,
          (
            SELECT COUNT(*)
            FROM (
@@ -666,6 +689,7 @@ export function listLatestFinishedRunSummaries(db: DatabaseSync): LatestFinished
              INNER JOIN bench_runs r ON r.run_id = s.run_id
              WHERE r.model_id = ranked.model_id
                AND r.base_url = ranked.base_url
+               AND r.provider = ranked.provider AND r.config_id = ranked.config_id
                AND r.status IN ('ok', 'partial', 'cancelled')
                AND r.finished_at IS NOT NULL
                AND COALESCE(json_array_length(json_extract(s.aggregate_json, '$.runs')), 0) > 0
@@ -686,6 +710,7 @@ export function listLatestFinishedRunSummaries(db: DatabaseSync): LatestFinished
                INNER JOIN bench_runs r ON r.run_id = s.run_id
                WHERE r.model_id = ranked.model_id
                  AND r.base_url = ranked.base_url
+                 AND r.provider = ranked.provider AND r.config_id = ranked.config_id
                  AND r.status IN ('ok', 'partial', 'cancelled')
                  AND r.finished_at IS NOT NULL
                  AND COALESCE(json_array_length(json_extract(s.aggregate_json, '$.runs')), 0) > 0
@@ -694,10 +719,10 @@ export function listLatestFinishedRunSummaries(db: DatabaseSync): LatestFinished
            )
          ) AS measured_scenario_ids
        FROM (
-         SELECT run_id, created_at, finished_at, base_url, provider, model_id, status,
+         SELECT config_id, meta_json, run_id, created_at, finished_at, base_url, provider, model_id, status,
            json_extract(meta_json, '$.publisher') AS publisher,
            ROW_NUMBER() OVER (
-             PARTITION BY model_id, base_url
+             PARTITION BY model_id, base_url, provider, config_id
              ORDER BY datetime(finished_at) DESC, datetime(created_at) DESC, rowid DESC
            ) AS rn
          FROM bench_runs

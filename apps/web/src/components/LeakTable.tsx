@@ -1,3 +1,4 @@
+import { modelKey } from "@llm-bench/shared";
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowDownUp, ArrowUp, ShieldAlert, ShieldCheck } from "lucide-react";
 import {
@@ -144,11 +145,11 @@ export function LeakTable({ leaks }: { leaks: readonly ModelRouteLeakMetrics[] }
             const safe = isAgentSafe(row);
             return (
               <tr
-                key={`${row.model_id} ${row.api_route}`}
+                key={`${modelKey(row)} ${row.api_route}`}
                 className="border-t border-[var(--border)] align-middle"
               >
                 <td className="p-2 text-xs">
-                  <ModelLabel modelId={row.model_id} size={14} className="max-w-[16rem]" />
+                  <ModelLabel modelId={row.model_id} comparisonId={row.comparison_id} size={14} className="max-w-[16rem]" />
                 </td>
                 <td className="p-2 text-xs text-[var(--muted)]">{routeLabel(row.api_route)}</td>
                 {LEAK_METRICS.map((m) => {

@@ -1,3 +1,4 @@
+import { SettingsDetails, comparisonLabel } from "../stats/comparison-presentation";
 import type { StatsModelLatestItem } from "../api-types";
 import {
   compareStringsPinned,
@@ -91,6 +92,10 @@ function statsModelSortLine(sorting: SortingState, m: Messages): string {
   return m.stats.sortLine(name, dir);
 }
 
+function selectionLabel(row: StatsModelLatestItem): string {
+  return row.config_id ? comparisonLabel({ modelId: row.model_id, server: row.base_url, config: row.config, configId: row.config_id }) : row.model_id;
+}
+
 const columnHelper = createColumnHelper<StatsModelLatestItem>();
 
 export function StatsModelTable({
@@ -140,6 +145,7 @@ export function StatsModelTable({
         itemPublisher(m).toLowerCase().includes(q) ||
         m.base_url.toLowerCase().includes(q) ||
         m.provider.toLowerCase().includes(q) ||
+        JSON.stringify(m.config ?? {}).toLowerCase().includes(q) ||
         (alias?.name ?? "").toLowerCase().includes(q) ||
         (alias?.note ?? "").toLowerCase().includes(q)
       );
@@ -253,7 +259,7 @@ export function StatsModelTable({
                 if (!ok) return;
                 onToggle(row.run_id);
               }}
-              aria-label={msgs.stats.selectRow(row.model_id)}
+              aria-label={msgs.stats.selectRow(selectionLabel(row))}
             />
           );
         },
@@ -317,6 +323,12 @@ export function StatsModelTable({
           );
         },
         sortingFn: "alphanumeric",
+      }),
+      columnHelper.display({
+        id: "config",
+        header: msgs.common.settings,
+        cell: ({ row }) => <SettingsDetails presentation={{ modelId: row.original.model_id, server: row.original.base_url,
+          config: row.original.config, configId: row.original.config_id, complete: row.original.config_complete }} />,
       }),
       columnHelper.accessor("provider", {
         header: ({ column }) => (
@@ -560,12 +572,12 @@ export function StatsModelTable({
                 ].join(" ")}
                 tabIndex={ok ? 0 : -1}
                 aria-disabled={!ok || undefined}
-                aria-label={ok ? msgs.stats.rowToggleAria(row.original.model_id) : undefined}
+                aria-label={ok ? msgs.stats.rowToggleAria(selectionLabel(row.original)) : undefined}
                 title={!ok ? msgs.stats.rowDisabledTitle : undefined}
                 onMouseDown={(e) => {
                   if (!ok) return;
                   const el = e.target as HTMLElement;
-                  if (el.closest('input[type="checkbox"]')) return;
+                  if (el.closest('input, button, a, details, summary')) return;
                   rowPointerRef.current = {
                     x: e.clientX,
                     y: e.clientY,
@@ -577,7 +589,7 @@ export function StatsModelTable({
                   const el = e.target as HTMLElement;
                   const start = rowPointerRef.current;
                   rowPointerRef.current = null;
-                  if (el.closest('input[type="checkbox"]')) return;
+                  if (el.closest('input, button, a, details, summary')) return;
                   if (!start || start.runId !== row.original.run_id) return;
                   const tr = e.currentTarget;
                   if (

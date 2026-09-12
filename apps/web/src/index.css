@@ -249,7 +249,7 @@ textarea {
     background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
   50% {
-    background: color-mix(in srgb, var(--accent-2) 20%, transparent);
+    background: color-mix(in srgb, var(--accent-2) 12%, transparent);
   }
 }
 

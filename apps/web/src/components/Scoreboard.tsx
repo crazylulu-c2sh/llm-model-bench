@@ -1,3 +1,4 @@
+import { modelKey } from "@llm-bench/shared";
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowDownUp, ArrowUp } from "lucide-react";
 import {
@@ -396,6 +397,7 @@ function ScoreboardDataRow({
           ) : null}
           <ModelLabel
             modelId={b.model_id}
+            comparisonId={b.comparison_id}
             publisher={publisher}
             provider={provider}
             showBackend
@@ -511,7 +513,7 @@ export function Scoreboard({
   const publisherByModel = useMemo(() => {
     const map = new Map<string, string>();
     for (const r of rows) {
-      if (r.publisher && !map.has(r.model_id)) map.set(r.model_id, r.publisher);
+      if (r.publisher && !map.has(modelKey(r))) map.set(modelKey(r), r.publisher);
     }
     return map;
   }, [rows]);
@@ -580,7 +582,7 @@ export function Scoreboard({
     () => (sortEquals(sort, DEFAULT_SCOREBOARD_SORT) ? filteredBoard : sortScoreboard(filteredBoard, sort)),
     [filteredBoard, sort],
   );
-  const colorByModel = useMemo(() => buildModelColorMap(rows.map((r) => r.model_id)), [rows]);
+  const colorByModel = useMemo(() => buildModelColorMap(rows.map(modelKey)), [rows]);
   // 속도 막대는 각 열(텍스트/비전/총합) 최고 tok/s(중앙값) 대비 상대 길이 — 열별 max를 미리 구한다(필터 반영).
   const maxSpeed = useMemo(() => {
     const m = { text: 0, vision: 0, agent: 0, total: 0 };
@@ -604,7 +606,7 @@ export function Scoreboard({
   }, [filteredBoard]);
 
   const loadingLayout = loading && benchModelOrder.length > 0;
-  const boardByModelId = useMemo(() => new Map(board.map((b) => [b.model_id, b])), [board]);
+  const boardByModelId = useMemo(() => new Map(board.map((b) => [modelKey(b), b])), [board]);
   const queueColorByModel = useMemo(
     () => (loadingLayout ? buildModelColorMap(benchModelOrder) : colorByModel),
     [loadingLayout, benchModelOrder, colorByModel],
@@ -819,15 +821,15 @@ export function Scoreboard({
                 })
               : sortedBoard.map((b, i) => (
                   <ScoreboardDataRow
-                    key={b.model_id}
+                    key={modelKey(b)}
                     b={b}
                     rank={i + 1}
-                    barColor={multiModel ? colorByModel.get(b.model_id) : undefined}
+                    barColor={multiModel ? colorByModel.get(modelKey(b)) : undefined}
                     multiModel={multiModel}
                     maxSpeed={maxSpeed}
                     maxPrefill={maxPrefill}
-                    provider={providerByModel?.get(b.model_id)}
-                    publisher={publisherByModel.get(b.model_id)}
+                    provider={providerByModel?.get(modelKey(b))}
+                    publisher={publisherByModel.get(modelKey(b))}
                     planned={planned}
                   />
                 ))}

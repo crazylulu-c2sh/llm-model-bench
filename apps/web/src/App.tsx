@@ -1,3 +1,4 @@
+import { useConnectionDetection } from "./useConnectionDetection";
 import type {
   BenchQueueModelStatus,
   BenchQueueSnapshot,
@@ -495,7 +496,7 @@ export function App() {
   /** metrics_update 콜백이 최신 intent·detect를 읽도록(콜백 deps에 넣지 않음). */
   const benchIntentRef = useRef(buildBenchIntentPayload());
   benchIntentRef.current = buildBenchIntentPayload();
-  const [detect, setDetect] = useState<DetectResult | null>(null);
+  const { detect, setDetect, beginDetection } = useConnectionDetection(baseUrl, apiKey);
   const detectRef = useRef(detect);
   detectRef.current = detect;
   const [detecting, setDetecting] = useState(false);
@@ -1319,7 +1320,10 @@ export function App() {
     }
   }, []);
 
+  useEffect(() => { if (!detect) setSelected({}); }, [detect]);
+
   const runDetect = useCallback(async () => {
+    const isCurrent = beginDetection();
     setDetecting(true);
     setDetect(null);
     setRows([]);
@@ -1342,6 +1346,7 @@ export function App() {
         body: JSON.stringify({ baseUrl, apiKey: apiKey || undefined }),
       });
       const j = (await r.json()) as DetectResult | { error: unknown };
+      if (!isCurrent()) return;
       if (!r.ok) {
         appendLog(`detect failed: ${JSON.stringify(j)}`);
         toast.error(msg().bench.detectFailed);
@@ -1392,6 +1397,7 @@ export function App() {
         contentionMaxRetries,
       });
     } catch (e) {
+      if (!isCurrent()) return;
       appendLog(String(e));
       toast.error(msg().bench.detectRequestError);
     } finally {
@@ -2015,7 +2021,7 @@ export function App() {
         }
       }
       if (details.length === 0) return;
-      const merged = mergeBenchDetailsToState(details);
+      const merged = mergeBenchDetailsToState(details, false);
       // 라이브가 항상 이긴다 — 복원이 늦게 끝나도 지금 돌고 있는 모델의 행을 덮지 않는다.
       setRows((prev) => mergeByRowKey(prev, merged.rows));
       setDetailAggregate((prev) => ({ ...merged.detailAggregate, ...prev }));
@@ -2504,6 +2510,7 @@ export function App() {
               />
             </label>
           </div>
+          {!detect ? <p role="status" className="text-xs text-[var(--muted)]">{m.common.redetectRequired}</p> : null}
           <WslLoopbackHint baseUrl={baseUrl} onUseLocalhost={setBaseUrl} />
           {namedBaseUrls.length > 0 ? (
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">

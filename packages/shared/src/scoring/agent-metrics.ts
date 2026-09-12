@@ -1,3 +1,4 @@
+import { modelKey } from "../comparison-identity";
 import { isAgentScenario } from "../scenarios-preview";
 import { AGENT_EXPECTED_TOOLS, AGENT_EXPECTED_TOOL_CALLS } from "../scenario-scoring-constants";
 
@@ -83,6 +84,7 @@ export type AgentMetrics = {
 /** model × route 키가 붙은 에이전트 지표 행. */
 export type ModelRouteAgentMetrics = AgentMetrics & {
   model_id: string;
+  comparison_id?: string;
   api_route: string;
 };
 
@@ -93,7 +95,7 @@ export type AgentBenchDetailInput = {
 };
 
 /** 웹 진입점용 최소 행 형태(`ScoringResultRow`의 부분집합 + scenario). */
-export type AgentResultRow = { model_id: string; api: string; rowKey: string; scenario: string };
+export type AgentResultRow = { model_id: string; comparison_id?: string; api: string; rowKey: string; scenario: string };
 
 function isFiniteNum(x: unknown): x is number {
   return typeof x === "number" && Number.isFinite(x);
@@ -154,18 +156,18 @@ function emptyAccum(): AgentAccum {
 const KEY_SEP = " ";
 
 function accumulate(
-  slices: Iterable<{ model_id: string; api_route: string; scenario: string; runs: readonly AgentRunInput[] }>,
+  slices: Iterable<{ model_id: string; comparison_id?: string; api_route: string; scenario: string; runs: readonly AgentRunInput[] }>,
 ): ModelRouteAgentMetrics[] {
   const order: string[] = [];
-  const byKey = new Map<string, { model_id: string; api_route: string; acc: AgentAccum }>();
+  const byKey = new Map<string, { model_id: string; comparison_id?: string; api_route: string; acc: AgentAccum }>();
 
   for (const slice of slices) {
     if (!isAgentScenario(slice.scenario)) continue;
     if (!slice.runs || slice.runs.length === 0) continue;
-    const key = `${slice.model_id}${KEY_SEP}${slice.api_route}`;
+    const key = `${modelKey(slice)}${KEY_SEP}${slice.api_route}`;
     let entry = byKey.get(key);
     if (!entry) {
-      entry = { model_id: slice.model_id, api_route: slice.api_route, acc: emptyAccum() };
+      entry = { model_id: slice.model_id, ...(slice.comparison_id ? { comparison_id: slice.comparison_id } : {}), api_route: slice.api_route, acc: emptyAccum() };
       byKey.set(key, entry);
       order.push(key);
     }
@@ -225,11 +227,11 @@ function accumulate(
   }
 
   return order.map((key) => {
-    const { model_id, api_route, acc } = byKey.get(key)!;
+    const { model_id, comparison_id, api_route, acc } = byKey.get(key)!;
     const n = acc.n;
     return {
       model_id,
-      api_route,
+      ...(comparison_id ? { comparison_id } : {}),      api_route,
       n,
       task_completion_rate: n > 0 ? acc.completed / n : 0,
       stall_rate: n > 0 ? acc.stall / n : 0,
@@ -279,7 +281,7 @@ export function agentMetricsFromRows(
   function* slices() {
     for (const r of rows) {
       const runs = detailAggregate[r.rowKey]?.runs ?? [];
-      yield { model_id: r.model_id, api_route: r.api, scenario: r.scenario, runs };
+      yield { model_id: r.model_id, ...(r.comparison_id ? { comparison_id: r.comparison_id } : {}), api_route: r.api, scenario: r.scenario, runs };
     }
   }
   return accumulate(slices());

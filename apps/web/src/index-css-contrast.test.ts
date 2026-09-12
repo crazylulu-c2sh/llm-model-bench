@@ -116,6 +116,16 @@ describe("index.css 색 토큰 대비 (KWCAG 5.4.3)", () => {
         }
       });
 
+      it("진행 헤더 애니메이션의 모든 배경에서 텍스트 대비 ≥ 4.5", () => {
+        const keyframes = css.slice(css.indexOf("@keyframes bench-header-progress-fill"), css.indexOf("@keyframes bench-header-progress-bar"));
+        const colors = [...keyframes.matchAll(/var\((--[\w-]+)\) (\d+)%/g)];
+        expect(colors).toHaveLength(2);
+        for (const [, token, percentage] of colors) {
+          const bg = compositeOver(vars[token], vars["--surface-2"], Number(percentage) / 100);
+          for (const fg of ["--muted", "--foreground"]) expect(contrastRatio(vars[fg], bg)).toBeGreaterThanOrEqual(4.5);
+        }
+      });
+
       it("UI 토큰(--border-input/--focus-ring) on --surface ≥ 3", () => {
         for (const fg of UI_TOKENS) {
           expect(contrastRatio(vars[fg], vars["--surface"]), `${fg} on --surface`).toBeGreaterThanOrEqual(3);

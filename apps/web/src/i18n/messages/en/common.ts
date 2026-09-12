@@ -2,6 +2,10 @@ import type { Messages } from "../ko";
 
 // common — ko와 키가 정확히 일치해야 함(타입이 강제).
 export const common: Messages["common"] = {
+  redetectRequired: "Detect the provider again after changing connection details before running.",
+  httpError: (status: number) => `Request failed (HTTP ${status})`,
+  settings: "Settings",
+  incompleteSettings: "Incomplete settings",
   confirm: "OK",
   cancel: "Cancel",
   close: "Close",
