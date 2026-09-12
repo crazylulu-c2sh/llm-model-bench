@@ -2,6 +2,7 @@ import { compareScenarioBenchOrder, formatTtftMs, isAgentScenario, isVisionScena
 import { apiRouteRank } from "./chart-types";
 import { compareModelBenchQueueOrder, compareStringsPinned } from "../lib/model-sort";
 import { buildModelColorMap } from "../lib/model-color";
+import { uniqueUnrunReasonCodes, type SkippedUnit } from "../lib/bench-run-plan";
 import { ModelLabel } from "./ModelLabel";
 import { computeGroupWinners } from "../lib/result-winners";
 import { reasoningEffortColor } from "../lib/reasoning-effort-color";
@@ -71,15 +72,33 @@ export type ResultRow = {
 
 type PendingSkeletonRow = { rowKey: string; model_id: string; scenario: string; api: string };
 
-/** 에이전트 열: 완료 런뿐 아니라 예약 행·시나리오 id로도 연다. 첫 결과가 올 때까지 숨기면 실행 중이 안 보인다. */
+/** 에이전트 열: 완료 런뿐 아니라 예약·미실행 행·시나리오 id로도 연다. 첫 결과가 올 때까지 숨기면 실행 중이 안 보인다. */
 export function resultsTableShowsAgentColumn(
   rows: ReadonlyArray<{ scenario: string; agent_completion_reason?: unknown }>,
   pendingRows: ReadonlyArray<{ scenario: string }> = [],
+  skippedRows: ReadonlyArray<{ scenario: string }> = [],
 ): boolean {
   return (
     rows.some((r) => r.agent_completion_reason != null || isAgentScenario(r.scenario)) ||
-    pendingRows.some((r) => isAgentScenario(r.scenario))
+    pendingRows.some((r) => isAgentScenario(r.scenario)) ||
+    skippedRows.some((r) => isAgentScenario(r.scenario))
   );
+}
+
+export function formatUnrunBannerText(
+  n: number,
+  reasonCodes: readonly string[],
+  t: {
+    unrunBadge: string;
+    unrunBanner: (n: number, reason: string) => string;
+    unrunBannerMixed: (n: number) => string;
+  },
+  hintFor: (code: string) => string | null | undefined,
+): string | null {
+  if (n <= 0) return null;
+  if (reasonCodes.length > 1) return t.unrunBannerMixed(n);
+  const hint = reasonCodes[0] ? hintFor(reasonCodes[0]) : null;
+  return t.unrunBanner(n, hint ?? t.unrunBadge);
 }
 
 // 안정적 기본값: `= []` 기본 파라미터는 매 렌더 새 배열을 만들어 `data` useMemo(및 TanStack에
@@ -87,6 +106,7 @@ export function resultsTableShowsAgentColumn(
 const EMPTY_MODEL_ORDER: string[] = [];
 const EMPTY_SCENARIO_ORDER: string[] = [];
 const EMPTY_PENDING_ROWS: PendingSkeletonRow[] = [];
+const EMPTY_SKIPPED_ROWS: SkippedUnit[] = [];
 
 const columnHelper = createColumnHelper<ResultRow>();
 
@@ -109,6 +129,7 @@ function sortDirIcon(column: Column<ResultRow, unknown>, sorting: SortingState) 
 export function ResultsTable({
   rows,
   pendingRows = EMPTY_PENDING_ROWS,
+  skippedRows = EMPTY_SKIPPED_ROWS,
   maxRows,
   benchModelOrder = EMPTY_MODEL_ORDER,
   benchScenarioOrder = EMPTY_SCENARIO_ORDER,
@@ -117,6 +138,8 @@ export function ResultsTable({
 }: {
   rows: ResultRow[];
   pendingRows?: PendingSkeletonRow[];
+  /** 중단·취소로 돌지 않은 계획 단위. 점수 행이 아니며 스켈레톤도 아니다. */
+  skippedRows?: SkippedUnit[];
   /** 이 수를 초과하면 카드 내부 스크롤 활성화 */
   maxRows?: number;
   /** 벤치 큐 순서 — 미전달 시 모델 ID alphanumeric 폴백 */
@@ -183,8 +206,8 @@ export function ResultsTable({
   const multiModel = colorByModel.size >= 2;
   // #105: 에이전트 시나리오가 계획·결과 중 하나라도 있으면 열을 연다 — 첫 완료를 기다리지 않는다.
   const anyAgentRow = useMemo(
-    () => resultsTableShowsAgentColumn(rows, pendingRows),
-    [rows, pendingRows],
+    () => resultsTableShowsAgentColumn(rows, pendingRows, skippedRows),
+    [rows, pendingRows, skippedRows],
   );
   const [sorting, setSorting] = useState<SortingState>(BENCH_EXECUTION_SORT);
 
@@ -687,15 +710,28 @@ export function ResultsTable({
   });
 
   const hasPending = pendingRows.length > 0;
+  const hasSkipped = skippedRows.length > 0;
   const hasRows = rows.length > 0;
-  const totalRows = table.getRowModel().rows.length + pendingRows.length;
+  const totalRows = table.getRowModel().rows.length + pendingRows.length + skippedRows.length;
   const shouldScroll = maxRows != null && totalRows > maxRows;
+  const unrunReasonCodes = useMemo(() => uniqueUnrunReasonCodes(skippedRows), [skippedRows]);
+  const unrunBanner = formatUnrunBannerText(
+    skippedRows.length,
+    unrunReasonCodes,
+    m.results.table,
+    (code) => m.bench.errors[code],
+  );
 
   return (
     <div>
       <MetricTableIntro />
+      {unrunBanner ? (
+        <p role="status" className="mb-2 text-xs text-[var(--foreground)]">
+          {unrunBanner}
+        </p>
+      ) : null}
       {hasRows ? <p className="mb-2 text-xs text-[var(--muted)]">{resultsSortLine(sorting, m.results.sort)}</p> : null}
-      {!hasRows && !hasPending ? (
+      {!hasRows && !hasPending && !hasSkipped ? (
         <p className="text-sm text-[var(--muted)]">{m.results.table.noRows}</p>
       ) : (
         <div
@@ -810,6 +846,61 @@ export function ResultsTable({
                   <td className="p-2"><div className="h-3 w-12 animate-pulse rounded bg-[var(--border)]" /></td>
                   {anyAgentRow ? (
                     <td className="p-2"><div className="h-3 w-12 animate-pulse rounded bg-[var(--border)]" /></td>
+                  ) : null}
+                </tr>
+                );
+              })}
+              {skippedRows.map((sr) => {
+                const reasonLabel =
+                  (sr.reasonCode ? m.bench.errors[sr.reasonCode] : undefined) ?? m.results.table.unrunBadge;
+                return (
+                <tr
+                  key={sr.rowKey}
+                  className="border-t border-[var(--border)] opacity-70"
+                  aria-label={m.results.table.unrunAria(sr.scenario, reasonLabel)}
+                >
+                  <td className="relative p-2">
+                    <span className="whitespace-nowrap text-xs text-[var(--foreground)]">
+                      <ModelLabel modelId={sr.model_id} size={14} className="max-w-[20rem]" />
+                    </span>
+                  </td>
+                  <td className="p-2">
+                    <span className="text-xs text-[var(--muted)]">—</span>
+                  </td>
+                  <td className="p-2">
+                    <span className="text-xs text-[var(--muted)]">—</span>
+                  </td>
+                  <td className="p-2">
+                    <span className="inline-flex min-w-0 flex-col leading-tight text-xs">
+                      <span className="truncate text-[10px] text-[var(--muted)]">{sr.api}</span>
+                      <span className="font-mono text-[var(--foreground)]">{sr.scenario}</span>
+                    </span>
+                  </td>
+                  <td className="p-2">
+                    <span className="text-xs text-[var(--muted)]">—</span>
+                  </td>
+                  <td className="p-2">
+                    <span className="text-xs text-[var(--muted)]">—</span>
+                  </td>
+                  <td className="p-2">
+                    <span className="text-xs text-[var(--muted)]">—</span>
+                  </td>
+                  <td className="p-2">
+                    <span className="text-xs text-[var(--muted)]">—</span>
+                  </td>
+                  <td className="p-2">
+                    <span
+                      className="inline-flex items-center justify-center gap-1"
+                      title={reasonLabel}
+                    >
+                      <CircleX className="size-3.5 shrink-0 text-[var(--chart-fail)]" aria-hidden />
+                      <span className="text-xs text-[var(--foreground)]">{m.results.table.unrunBadge}</span>
+                    </span>
+                  </td>
+                  {anyAgentRow ? (
+                    <td className="p-2">
+                      <span className="text-xs text-[var(--muted)]">—</span>
+                    </td>
                   ) : null}
                 </tr>
                 );

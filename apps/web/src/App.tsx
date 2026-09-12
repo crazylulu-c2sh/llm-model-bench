@@ -110,12 +110,13 @@ import {
   mergePlanWithRunMeta,
   planFromForm,
   planFromQueueSnapshot,
-  planPendingUnits,
   planTotals,
   resolveBenchOutcomeToast,
   resolvePlanView,
   shouldRestoreFinishedQueue,
+  splitPlanLeftoverUnits,
   type BenchRunPlan,
+  type UnrunReason,
 } from "./lib/bench-run-plan";
 import { mergeBenchDetailsToState } from "./stats/hydrateBenchUi";
 import { QueueStatusChips } from "./components/QueueStatusChips";
@@ -523,6 +524,8 @@ export function App() {
    * 진행률·예약 행·ETA·스코어보드가 이걸 읽는다 — 폼 상태를 읽으면 재접속한 탭에서 분모가 0이 된다.
    */
   const [benchRunPlan, setBenchRunPlan] = useState<BenchRunPlan | null>(null);
+  /** 모델별 중단 원인 — leftover 미실행 행·배너. 새 벤치/재감지 때 비운다. */
+  const [unrunReasonByModel, setUnrunReasonByModel] = useState<Record<string, UnrunReason>>({});
   /** 큐 칩용 모델별 실행 결과. 런 전체 누적값(anyHttpFail 등)과 달리 모델 단위로 모은다. */
   const [benchModelStatus, setBenchModelStatus] = useState<Record<string, QueueModelStatus>>({});
   const [detailAggregate, setDetailAggregate] = useState<Record<string, MetricsAgg>>({});
@@ -844,10 +847,20 @@ export function App() {
     return namedBaseUrls.find((b) => b.baseUrl === current)?.name ?? current;
   }, [detect, baseUrl, namedBaseUrls]);
 
-  const pendingSkeletonRows = useMemo(() => {
-    if (!running) return [];
-    return planPendingUnits(activeRunPlanView, new Set(rows.map((r) => r.rowKey)));
-  }, [running, rows, activeRunPlanView]);
+  const leftoverUnits = useMemo(
+    () =>
+      splitPlanLeftoverUnits({
+        view: activeRunPlanView,
+        completedRowKeys: new Set(rows.map((r) => r.rowKey)),
+        running,
+        hasPlan: activeRunPlanView.hasPlan,
+        statusById: benchModelStatus,
+        reasonByModel: unrunReasonByModel,
+      }),
+    [running, rows, activeRunPlanView, benchModelStatus, unrunReasonByModel],
+  );
+  const pendingSkeletonRows = leftoverUnits.pending;
+  const skippedResultRows = leftoverUnits.skipped;
 
   const activeResultRowKey = useMemo(() => {
     if (!running || !benchCurrent?.scenario || !benchCurrent.api) return null;
@@ -1314,6 +1327,7 @@ export function App() {
     setLog([]);
     // 재감지는 새 대상이다 — 이전 계획이 남으면 새 프로바이더 아래 옛 큐 칩과 분모가 살아남는다.
     setBenchRunPlan(null);
+    setUnrunReasonByModel({});
     setBenchModelStatus({});
     setDetailAggregate({});
     setLiveSystemPromptByRowKey({});
@@ -1569,6 +1583,7 @@ export function App() {
         if (ev.reason === "cancelled") {
           state.cancelledByUser = true;
           pushBenchLine("warn", msg().bench.eventRunCancelled(modelId));
+          if (modelId) setUnrunReasonByModel((prev) => ({ ...prev, [modelId]: { code: "cancelled" } }));
         } else {
           pushBenchLine("ok", msg().bench.eventRunFinished(modelId));
         }
@@ -1610,6 +1625,10 @@ export function App() {
         );
       }
       if (ev.type === "contention_summary") {
+        if (ev.abort_reason && modelId) {
+          const code = ev.abort_reason;
+          setUnrunReasonByModel((prev) => ({ ...prev, [modelId]: { code } }));
+        }
         if (
           ev.total_iterations_discarded > 0 ||
           ev.max_pre_bench_wait_ms > 0 ||
@@ -1619,9 +1638,12 @@ export function App() {
         ) {
           const maxWait = Math.max(ev.max_pre_bench_wait_ms, ev.max_between_iteration_wait_ms);
           const eff = ev.guard_effective ? "" : msg().bench.guardIneffective;
+          const abort = ev.abort_reason
+            ? msg().bench.eventContentionAbort(benchErrorHint(ev.abort_reason) ?? ev.abort_reason)
+            : "";
           pushBenchLine(
             "info",
-            msg().bench.eventContentionSummary(ev.total_iterations_discarded, maxWait, eff),
+            msg().bench.eventContentionSummary(ev.total_iterations_discarded, maxWait, eff, abort),
           );
         }
       }
@@ -1702,6 +1724,7 @@ export function App() {
           "err",
           `error[${ev.layer}] ${ev.code} — ${lineMessage.slice(0, 220)}`,
         );
+        if (modelId) setUnrunReasonByModel((prev) => ({ ...prev, [modelId]: { code: ev.code, message: ev.message } }));
       }
     },
     [appendLog, pushBenchLine],
@@ -1793,6 +1816,16 @@ export function App() {
               }
             : prev,
         );
+        if (ev.status === "cancelled") {
+          setUnrunReasonByModel((prev) => {
+            const next = { ...prev };
+            for (const m of ev.models) {
+              if (m.status !== "cancelled" && m.status !== "pending") continue;
+              if (!next[m.model_id]) next[m.model_id] = { code: "cancelled" };
+            }
+            return next;
+          });
+        }
         return;
       }
       const cursor = queueCursorRef.current;
@@ -1828,6 +1861,7 @@ export function App() {
     }
     setRunning(true);
     setRows([]);
+    setUnrunReasonByModel({});
     setBenchScenarioOrder([]);
     setDetailAggregate({});
     setLiveSystemPromptByRowKey({});
@@ -2003,6 +2037,7 @@ export function App() {
       appendLog(`bench reconnect queue_id=${snapshot.queue_id} status=${snapshot.status}`);
       setRunning(true);
       setRows([]);
+      setUnrunReasonByModel({});
       setBenchScenarioOrder(plan.scenarioIds);
       setDetailAggregate({});
       setLiveSystemPromptByRowKey({});
@@ -2063,6 +2098,7 @@ export function App() {
       appendLog(`bench reconnect run_id=${runId} model=${modelId}`);
       setRunning(true);
       setRows([]);
+      setUnrunReasonByModel({});
       setBenchScenarioOrder([]);
       setDetailAggregate({});
       setLiveSystemPromptByRowKey({});
@@ -3525,6 +3561,7 @@ export function App() {
               benchModelOrder={activeRunPlanView.modelIds}
               benchScenarioOrder={benchScenarioOrder}
               pendingRows={pendingSkeletonRows}
+              skippedRows={skippedResultRows}
               activeRowKey={activeResultRowKey}
               maxRows={activeRunPlanView.scenarioIds.length * Math.max(activeRunPlanView.apiRoutes.length, 1)}
               onRowClick={(r) => openDrawerForRow(r)}

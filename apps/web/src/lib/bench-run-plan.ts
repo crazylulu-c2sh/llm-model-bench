@@ -191,6 +191,75 @@ export function planPendingUnits(
   return out;
 }
 
+/** 큐에서 이 모델의 남은 단위는 더 이상 돌지 않는다 — 스켈레톤을 멈추고 미실행으로 남긴다. */
+export const FINISHED_QUEUE_STATUSES: ReadonlySet<string> = new Set([
+  "done",
+  "done-with-errors",
+  "failed",
+  "cancelled",
+]);
+
+export type LeftoverKind = "pending" | "skipped";
+
+export type UnrunReason = { code: string; message?: string };
+
+export type SkippedUnit = PendingUnit & { reasonCode?: string };
+
+/** 실행 중이면 펄스, 끝난 모델·끝난 큐면 미실행. `paused`는 아직 도는 중이므로 pending. */
+export function leftoverKindForModel(
+  running: boolean,
+  modelStatus: string | undefined,
+): LeftoverKind {
+  if (!running) return "skipped";
+  if (modelStatus && FINISHED_QUEUE_STATUSES.has(modelStatus)) return "skipped";
+  return "pending";
+}
+
+/**
+ * 계획 leftover를 예약 스켈레톤 vs 미실행으로 나눈다.
+ *
+ * 실행 전 폼 폴백(`hasPlan === false`)에서는 미실행 행을 그리지 않는다 — 선택만 한 idle
+ * 화면이 전부 「미실행」으로 채워지면 안 된다. 실행 중인데 계획이 아직 없으면(한 틱)
+ * 기존처럼 폼 단위를 pending으로만 보여 준다.
+ */
+export function splitPlanLeftoverUnits(input: {
+  view: BenchPlanView;
+  completedRowKeys: ReadonlySet<string>;
+  running: boolean;
+  hasPlan: boolean;
+  statusById: Record<string, string | undefined>;
+  reasonByModel?: Record<string, UnrunReason | undefined>;
+}): { pending: PendingUnit[]; skipped: SkippedUnit[] } {
+  const leftover = planPendingUnits(input.view, input.completedRowKeys);
+  if (!input.hasPlan) {
+    if (!input.running) return { pending: [], skipped: [] };
+    return { pending: leftover, skipped: [] };
+  }
+  const pending: PendingUnit[] = [];
+  const skipped: SkippedUnit[] = [];
+  for (const unit of leftover) {
+    if (leftoverKindForModel(input.running, input.statusById[unit.model_id]) === "pending") {
+      pending.push(unit);
+    } else {
+      skipped.push({ ...unit, reasonCode: input.reasonByModel?.[unit.model_id]?.code });
+    }
+  }
+  return { pending, skipped };
+}
+
+/** 배너에 쓸 고유 원인 코드(등장 순). 빈 코드는 뺀다. */
+export function uniqueUnrunReasonCodes(units: ReadonlyArray<{ reasonCode?: string }>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const u of units) {
+    const code = u.reasonCode;
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    out.push(code);
+  }
+  return out;
+}
+
 /** 재접속 직후의 큐 칩 — 완료/진행/대기를 한 번에 채운다. */
 export function hydrateQueueStatus(plan: BenchRunPlan): Record<string, BenchQueueModelStatus> {
   return { ...plan.statusById };

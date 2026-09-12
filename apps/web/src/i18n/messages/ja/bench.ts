@@ -10,6 +10,7 @@ export const bench: Messages["bench"] = {
     between_iteration_wait_timeout: "反復間の待機タイムアウト — 他の推論が実行中",
     total_wait_budget_exceeded: "累積待機バジェット超過で中断",
     contention_max_retries_exceeded: "競合リトライ上限超過でラン中断",
+    cancelled: "ユーザー停止で中断",
   },
   sortLabels: {
     id: "モデル id",
@@ -291,8 +292,9 @@ export const bench: Messages["bench"] = {
   eventIterationDiscarded: (cur, max, scenarioId, reason) =>
     `競合破棄 · 再測定 ${cur}/${max} · ${scenarioId} · ${reason}`,
   guardIneffective: " · ガード無効(信号なし)",
-  eventContentionSummary: (discarded, maxWaitMs, eff) =>
-    `競合サマリー · 破棄 ${discarded}回 · 最大待機 ${maxWaitMs}ms${eff}`,
+  eventContentionSummary: (discarded, maxWaitMs, eff, abort = "") =>
+    `競合サマリー · 破棄 ${discarded}回 · 最大待機 ${maxWaitMs}ms${eff}${abort}`,
+  eventContentionAbort: (reason) => ` · 中断 ${reason}`,
   eventAggregateDone: (scenarioId, apiLabel) => `集計完了 · ${scenarioId} · ${apiLabel}`,
   eventRequestFailed: (modelId, err) => `リクエスト失敗 · ${modelId}: ${err}`,
   eventQueueRestored: (done, total) => `キュー復元 · ${done}/${total} 完了`,

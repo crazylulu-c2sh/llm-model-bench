@@ -7,11 +7,14 @@ import {
   mergePlanWithRunMeta,
   planFromForm,
   planFromQueueSnapshot,
+  leftoverKindForModel,
   planPendingUnits,
   planTotals,
   resolveBenchOutcomeToast,
   resolvePlanView,
   shouldRestoreFinishedQueue,
+  splitPlanLeftoverUnits,
+  uniqueUnrunReasonCodes,
   type BenchPlanView,
   type BenchRunPlan,
 } from "./bench-run-plan";
@@ -438,6 +441,98 @@ describe("planPendingUnits — 예약 스켈레톤 단위", () => {
     expect(planPendingUnits(view({ scenarioIds: [] }), new Set())).toEqual([]);
     expect(planPendingUnits(view({ apiRoutes: [] }), new Set())).toEqual([]);
     expect(planPendingUnits(view({ modelIds: [] }), new Set())).toEqual([]);
+  });
+});
+
+describe("leftoverKindForModel / splitPlanLeftoverUnits — 중단 후 미실행", () => {
+  const twoModels = view({
+    modelIds: [GPT_OSS, QWEN38],
+    scenarioIds: ["text_basic", "agent_loop_mock_v1"],
+    apiRoutes: ["chat_completions"],
+    hasPlan: true,
+  });
+  const doneGptText = scenarioRowKey("text_basic", "chat_completions", GPT_OSS);
+
+  test("실행이 끝나면 leftover는 전부 skipped — 스켈레톤만 사라지면 안 된다", () => {
+    expect(leftoverKindForModel(false, "running")).toBe("skipped");
+    const { pending, skipped } = splitPlanLeftoverUnits({
+      view: twoModels,
+      completedRowKeys: new Set([doneGptText]),
+      running: false,
+      hasPlan: true,
+      statusById: { [GPT_OSS]: "done-with-errors", [QWEN38]: "pending" },
+      reasonByModel: { [GPT_OSS]: { code: "total_wait_budget_exceeded" } },
+    });
+    expect(pending).toEqual([]);
+    expect(skipped.map((u) => u.scenario)).toEqual([
+      "agent_loop_mock_v1",
+      "text_basic",
+      "agent_loop_mock_v1",
+    ]);
+    expect(skipped[0]?.reasonCode).toBe("total_wait_budget_exceeded");
+    expect(skipped[1]?.reasonCode).toBeUndefined();
+  });
+
+  test("큐가 다음 모델로 가도 끝난 모델 leftover는 skipped, 진행 중은 pending", () => {
+    const { pending, skipped } = splitPlanLeftoverUnits({
+      view: twoModels,
+      completedRowKeys: new Set([doneGptText]),
+      running: true,
+      hasPlan: true,
+      statusById: { [GPT_OSS]: "done-with-errors", [QWEN38]: "running" },
+    });
+    expect(skipped.map((u) => u.model_id)).toEqual([GPT_OSS]);
+    expect(pending.map((u) => u.model_id)).toEqual([QWEN38, QWEN38]);
+  });
+
+  test("paused는 아직 도는 중이므로 pending", () => {
+    expect(leftoverKindForModel(true, "paused")).toBe("pending");
+    expect(leftoverKindForModel(true, "running")).toBe("pending");
+    expect(leftoverKindForModel(true, "pending")).toBe("pending");
+    expect(leftoverKindForModel(true, "failed")).toBe("skipped");
+    expect(leftoverKindForModel(true, "cancelled")).toBe("skipped");
+    expect(leftoverKindForModel(true, "done")).toBe("skipped");
+  });
+
+  test("실행 전 폼 폴백(hasPlan=false)은 미실행 행을 만들지 않는다", () => {
+    expect(
+      splitPlanLeftoverUnits({
+        view: { ...twoModels, hasPlan: false },
+        completedRowKeys: new Set(),
+        running: false,
+        hasPlan: false,
+        statusById: {},
+      }),
+    ).toEqual({ pending: [], skipped: [] });
+  });
+
+  test("실행 중인데 계획이 아직 없으면 폼 leftover를 pending으로만 둔다", () => {
+    const { pending, skipped } = splitPlanLeftoverUnits({
+      view: { ...twoModels, hasPlan: false },
+      completedRowKeys: new Set(),
+      running: true,
+      hasPlan: false,
+      statusById: {},
+    });
+    expect(skipped).toEqual([]);
+    expect(pending).toHaveLength(4);
+  });
+});
+
+describe("uniqueUnrunReasonCodes — 배너 원인", () => {
+  test("등장 순으로 고유 코드만", () => {
+    expect(
+      uniqueUnrunReasonCodes([
+        { reasonCode: "total_wait_budget_exceeded" },
+        { reasonCode: undefined },
+        { reasonCode: "total_wait_budget_exceeded" },
+        { reasonCode: "cancelled" },
+      ]),
+    ).toEqual(["total_wait_budget_exceeded", "cancelled"]);
+  });
+
+  test("코드가 없으면 빈 배열", () => {
+    expect(uniqueUnrunReasonCodes([{ reasonCode: undefined }, {}])).toEqual([]);
   });
 });
 
