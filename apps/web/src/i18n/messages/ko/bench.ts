@@ -9,6 +9,7 @@ const errors: Record<string, string> = {
   between_iteration_wait_timeout: "이터레이션 간 대기 시간 초과 — 다른 추론이 계속 실행 중",
   total_wait_budget_exceeded: "누적 대기 예산 초과로 중단",
   contention_max_retries_exceeded: "오염 재시도 한도 초과로 런 중단",
+  cancelled: "사용자 정지로 중단",
 };
 
 // 모델 표 정렬 상태 라벨 — 컬럼 id로 조회(임의 문자열 인덱싱).
@@ -292,8 +293,9 @@ export const bench = {
   eventIterationDiscarded: (cur: number, max: number, scenarioId: string, reason: string) =>
     `오염 폐기 · 재측정 ${cur}/${max} · ${scenarioId} · ${reason}`,
   guardIneffective: " · 가드 비실효(신호 없음)",
-  eventContentionSummary: (discarded: number, maxWaitMs: number, eff: string) =>
-    `오염 요약 · 폐기 ${discarded}회 · 최대대기 ${maxWaitMs}ms${eff}`,
+  eventContentionSummary: (discarded: number, maxWaitMs: number, eff: string, abort = "") =>
+    `오염 요약 · 폐기 ${discarded}회 · 최대대기 ${maxWaitMs}ms${eff}${abort}`,
+  eventContentionAbort: (reason: string) => ` · 중단 ${reason}`,
   eventAggregateDone: (scenarioId: string, apiLabel: string) => `집계 완료 · ${scenarioId} · ${apiLabel}`,
   eventRequestFailed: (modelId: string, err: string) => `요청 실패 · ${modelId}: ${err}`,
   /** 새로고침 후 서버 큐를 되살렸을 때 — 완료된 모델 수와 큐 전체 모델 수. */

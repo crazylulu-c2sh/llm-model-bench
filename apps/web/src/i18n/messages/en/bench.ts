@@ -10,6 +10,7 @@ export const bench: Messages["bench"] = {
     between_iteration_wait_timeout: "Between-iteration wait timeout — other inference still running",
     total_wait_budget_exceeded: "Aborted: total wait budget exceeded",
     contention_max_retries_exceeded: "Run aborted: contention retry limit exceeded",
+    cancelled: "Stopped by user",
   },
   sortLabels: {
     id: "model id",
@@ -290,8 +291,9 @@ export const bench: Messages["bench"] = {
   eventIterationDiscarded: (cur, max, scenarioId, reason) =>
     `contention discard · re-measure ${cur}/${max} · ${scenarioId} · ${reason}`,
   guardIneffective: " · guard ineffective (no signal)",
-  eventContentionSummary: (discarded, maxWaitMs, eff) =>
-    `contention summary · discarded ${discarded}× · max wait ${maxWaitMs}ms${eff}`,
+  eventContentionSummary: (discarded, maxWaitMs, eff, abort = "") =>
+    `contention summary · discarded ${discarded}× · max wait ${maxWaitMs}ms${eff}${abort}`,
+  eventContentionAbort: (reason) => ` · abort ${reason}`,
   eventAggregateDone: (scenarioId, apiLabel) => `aggregate done · ${scenarioId} · ${apiLabel}`,
   eventRequestFailed: (modelId, err) => `request failed · ${modelId}: ${err}`,
   eventQueueRestored: (done, total) => `queue restored · ${done}/${total} done`,

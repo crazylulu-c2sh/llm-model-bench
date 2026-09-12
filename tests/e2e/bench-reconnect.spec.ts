@@ -11,8 +11,11 @@ import {
   mockRunsApi,
   queueModel,
   queueStreamEvents,
+  pendingSkeletonRows,
+  resultRows,
   resultsTable,
   settleAnimations,
+  skippedUnrunRows,
   type QueuePlan,
   type ScenarioFixture,
 } from "./helpers/bench-mocks";
@@ -169,15 +172,16 @@ test.describe("끝난 큐 자동 복원 범위", () => {
     const { detailRequests, settle } = await arriveAfterEverythingFinished(page);
     await settle();
     expect(detailRequests, "끝난 남의 큐 결과를 DB에서 끌어왔다").toEqual([]);
-    await expect(resultsTable(page).locator('tbody tr:not([aria-hidden="true"])')).toHaveCount(0);
+    await expect(resultRows(page)).toHaveCount(0);
+    await expect(skippedUnrunRows(page)).toHaveCount(0);
     await expect(page.getByRole("progressbar")).toHaveCount(0);
   });
 
   test("직전까지 보던 큐라면 새로고침 후에도 결과가 남는다", async ({ page }) => {
     const { detailRequests } = await arriveAfterEverythingFinished(page, { watched: QUEUE_ID });
-    await expect(resultsTable(page).locator('tbody tr:not([aria-hidden="true"])')).toHaveCount(
-      SCENARIOS.length,
-    );
+    // mockRunsApi는 끝난 모델 A만 상세를 준다. B·C leftover는 미실행으로 남는다(스켈레톤처럼 숨기면 안 됨).
+    await expect(resultRows(page)).toHaveCount(SCENARIOS.length);
+    await expect(skippedUnrunRows(page)).toHaveCount((MODEL_IDS.length - 1) * SCENARIOS.length);
     expect(detailRequests.length, "완료 모델의 결과를 DB에서 가져왔어야 한다").toBeGreaterThan(0);
   });
 });
@@ -213,7 +217,7 @@ test.describe("서버 큐 재연결", () => {
     await arriveOnReconnectingTab(page);
 
     // 실행 중에는 5·6단계가 자동으로 열린다(접힌 StepSection은 hidden이라 Playwright에 안 보인다).
-    const restored = resultsTable(page).locator('tbody tr:not([aria-hidden="true"])');
+    const restored = resultRows(page);
     await expect(restored).toHaveCount(SCENARIOS.length);
     await expect(restored.filter({ hasText: SCENARIOS[0].id })).toContainText(MODEL_IDS[0]);
     await expect(restored.filter({ hasText: SCENARIOS[1].id })).toContainText(MODEL_IDS[0]);
@@ -224,7 +228,7 @@ test.describe("서버 큐 재연결", () => {
 
     // 스켈레톤은 aria-hidden이라 role 쿼리로는 잡히지 않는다. 복원한 2건을 뺀 나머지가 예약으로 남는다.
     const table = resultsTable(page);
-    const skeletons = table.locator('tbody tr[aria-hidden="true"]');
+    const skeletons = pendingSkeletonRows(page);
     await expect(skeletons).not.toHaveCount(0);
     // Think/Effort 열 추가 후 pending 수동 td가 thead와 어긋나면 시나리오가 Think 칸으로 밀린다.
     const headerCount = await table.locator("thead th").count();
@@ -246,8 +250,8 @@ test.describe("서버 큐 재연결", () => {
     await arriveOnReconnectingTab(page, 12_000);
     await expect(queueChips(page).getByRole("listitem")).toHaveCount(3);
     // 복원까지 끝난 뒤 스캔해야 스켈레톤 개수가 흔들리지 않는다.
-    await expect(resultsTable(page).locator('tbody tr:not([aria-hidden="true"])')).toHaveCount(SCENARIOS.length);
-    await expect(resultsTable(page).locator('tbody tr[aria-hidden="true"]')).not.toHaveCount(0);
+    await expect(resultRows(page)).toHaveCount(SCENARIOS.length);
+    await expect(pendingSkeletonRows(page)).not.toHaveCount(0);
 
     await settleAnimations(page);
     // 실행 중 상태를 axe로 보는 첫 스캔이다. 여기서 드러난 기존 위반 3건(이름 없는 header progressbar,

@@ -439,6 +439,21 @@ export function resultsTable(page: Page) {
     .filter({ has: page.locator("caption", { hasText: /시나리오별 벤치 결과|Bench results by scenario/ }) });
 }
 
+/** 완료된 측정 행 — 클릭해서 상세를 연다. 예약 스켈레톤·미실행 행은 tabindex가 없다. */
+export function resultRows(page: Page) {
+  return resultsTable(page).locator("tbody tr[tabindex='0']");
+}
+
+/** 실행 중 예약 스켈레톤. 미실행 행은 aria-hidden이 아니다(중단 원인이 정보다). */
+export function pendingSkeletonRows(page: Page) {
+  return resultsTable(page).locator('tbody tr[aria-hidden="true"]');
+}
+
+/** 중단·취소·복원 누락으로 돌지 않은 계획 단위. */
+export function skippedUnrunRows(page: Page) {
+  return resultsTable(page).locator("tbody tr[aria-label*='미실행'], tbody tr[aria-label*='not run'], tbody tr[aria-label*='未実行']");
+}
+
 export async function openStates(page: Page): Promise<string[]> {
   return Promise.all(
     [1, 2, 3, 4, 5, 6].map(async (n) => (await stepButton(page, n).getAttribute("aria-expanded")) ?? "?"),
