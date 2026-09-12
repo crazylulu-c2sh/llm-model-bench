@@ -195,10 +195,11 @@ describe("readInitialMonitorState", () => {
 });
 
 describe("readInitialUiState contention guard + v2→v3 migration", () => {
-  it("defaults: guard enabled, 120s pre-bench wait, 2 retries", () => {
+  it("defaults: guard enabled, 120s pre-bench wait, 300s run-wide budget, 2 retries", () => {
     const s = readInitialUiState();
     expect(s.contentionGuardEnabled).toBe(true);
     expect(s.contentionPreBenchTimeoutSec).toBe("120");
+    expect(s.contentionTotalWaitBudgetSec).toBe("300");
     expect(s.contentionMaxRetries).toBe("2");
   });
 
@@ -213,6 +214,7 @@ describe("readInitialUiState contention guard + v2→v3 migration", () => {
     // 새 필드는 기본값으로
     expect(s.contentionGuardEnabled).toBe(true);
     expect(s.contentionMaxRetries).toBe("2");
+    expect(s.contentionTotalWaitBudgetSec).toBe("300");
   });
 
   it("reads persisted v3 contention fields", () => {
@@ -222,12 +224,14 @@ describe("readInitialUiState contention guard + v2→v3 migration", () => {
         v: 3,
         contentionGuardEnabled: false,
         contentionPreBenchTimeoutMs: 30000,
+        contentionTotalWaitBudgetMs: 900000,
         contentionMaxRetriesPerIteration: 4,
       }),
     );
     const s = readInitialUiState();
     expect(s.contentionGuardEnabled).toBe(false);
     expect(s.contentionPreBenchTimeoutSec).toBe("30");
+    expect(s.contentionTotalWaitBudgetSec).toBe("900");
     expect(s.contentionMaxRetries).toBe("4");
   });
 });
@@ -246,6 +250,7 @@ describe("readInitialUiState — Qwen3.8 프로파일", () => {
     expect(f.profileMaxTokens).toBe("");
     expect(f.benchmarkThroughputMode).toBe(false);
     expect(f.contentionGuardEnabled).toBe(true);
+    expect(f.contentionTotalWaitBudgetSec).toBe("300");
   });
 
   it("profileId=qwen38과 qwen38ReasoningEffort를 왕복 저장한다", () => {

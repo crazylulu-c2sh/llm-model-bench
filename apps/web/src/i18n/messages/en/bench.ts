@@ -40,7 +40,7 @@ export const bench: Messages["bench"] = {
   settingsInitial: "Initial",
   settingsRecommended: "Recommended",
   settingsInitialTitle:
-    "Reset to harness factory defaults: profile auto, thinking on, Qwen3.8 effort low, empty max_tokens, and advanced load/memory/contention defaults. Base URL and API key are kept.",
+    "Reset to harness factory defaults: profile auto, thinking on, Qwen3.8 effort low, empty max_tokens, and load/memory/contention defaults. Base URL and API key are kept.",
   settingsRecommendedTitle:
     "Apply model-card recommendations: thinking on, throughput mode off, Qwen3.8 effort xhigh, empty max_tokens so per-scenario recommended values apply. Load/memory/contention settings are left unchanged.",
   toggleTextTitle: (n) => `Toggle ${n} text scenarios`,
@@ -115,6 +115,10 @@ export const bench: Messages["bench"] = {
   contentionGuardHint:
     "Detects active inference via GPU util·/metrics·lms ps. In environments with no signal it is automatically treated as ineffective.",
   preBenchTimeoutLabel: "Pre-bench wait limit (sec)",
+  totalWaitBudgetLabel: "Run-wide wait budget (sec)",
+  totalWaitBudgetTitle:
+    "Sums pre-bench and between-iteration waits for the whole run. Not reset per scenario; exceeding this aborts the bench. Default 300s, server cap 1800s.",
+  totalWaitBudgetHint: "Cumulative across scenarios and iterations. Exceeding it aborts the run (default 300, max 1800).",
   retriesPerRunLabel: "Retries per run",
 
   // Model selection · profile
@@ -139,7 +143,10 @@ export const bench: Messages["bench"] = {
   qwen38ReasoningEffortHint:
     "The model card defaults to xhigh, but reasoning tokens balloon, so the harness defaults to low. Raise it when you need accuracy.",
   preserveThinkingHint: "Recommended only for agent-style multi-turn.",
-  advancedSummary: "Advanced: reasoning · sampling · model load/memory · contention guard",
+  settingsGroupProfile: "Profile · thinking",
+  settingsGroupLoad: "Model load · memory",
+  settingsGroupContention: "Contention guard",
+  settingsGroupSampling: "Sampling",
   presetOverrideLabel: "Force preset (empty = auto)",
   presetAuto: "Auto",
   samplingOverridesLabel: "samplingOverrides (JSON object)",

@@ -40,7 +40,7 @@ export const bench: Messages["bench"] = {
   settingsInitial: "初期値",
   settingsRecommended: "推奨値",
   settingsInitialTitle:
-    "ハーネスの工場既定値に戻します。プロファイル自動、思考オン、Qwen3.8 effort low、max_tokens 空欄、高度設定（ロード・メモリ・汚染ガード）も既定値。Base URL と API キーは維持します。",
+    "ハーネスの工場既定値に戻します。プロファイル自動、思考オン、Qwen3.8 effort low、max_tokens 空欄、ロード・メモリ・汚染ガードも既定値。Base URL と API キーは維持します。",
   settingsRecommendedTitle:
     "モデルカードの推奨に合わせます。思考オン、スループットモードオフ、Qwen3.8 effort xhigh、max_tokens は空欄のままシナリオ別推奨値を使います。ロード・メモリ・汚染ガードは変更しません。",
   toggleTextTitle: (n) => `テキストシナリオ ${n}個をトグル`,
@@ -115,6 +115,10 @@ export const bench: Messages["bench"] = {
   contentionGuardHint:
     "GPU util·/metrics·lms ps でアクティブな推論を検出します。信号がない環境では自動的に無効として扱われます。",
   preBenchTimeoutLabel: "事前待機の上限(秒)",
+  totalWaitBudgetLabel: "ラン全体の待機上限(秒)",
+  totalWaitBudgetTitle:
+    "事前待機とイテレーション間待機をラン全体で合算します。シナリオが変わってもリセットされず、合計がこの値を超えるとベンチを中断します。既定 300 秒、サーバー上限 1800 秒。",
+  totalWaitBudgetHint: "シナリオ・イテレーションの待機を合算します。超過するとラン中断（既定 300、最大 1800）。",
   retriesPerRunLabel: "ラン当たりのリトライ回数",
 
   // モデル選択 · プロファイル
@@ -139,7 +143,10 @@ export const bench: Messages["bench"] = {
   qwen38ReasoningEffortHint:
     "モデルカードの既定は xhigh ですが、思考トークンが膨張するためハーネスの既定は low です。精度が必要なら上げてください。",
   preserveThinkingHint: "エージェント型のマルチターンでのみオンにすることを推奨します。",
-  advancedSummary: "詳細: 推論 · サンプリング · モデルロード/メモリ · 汚染ガード",
+  settingsGroupProfile: "プロファイル · 思考",
+  settingsGroupLoad: "モデルロード · メモリ",
+  settingsGroupContention: "競合ガード",
+  settingsGroupSampling: "サンプリング",
   presetOverrideLabel: "preset を強制 (空欄で自動)",
   presetAuto: "自動",
   samplingOverridesLabel: "samplingOverrides (JSON オブジェクト)",

@@ -430,6 +430,7 @@ export function App() {
   /** 오염 가드: 다른 추론 감지 시 대기/폐기·재측정. */
   const [contentionGuardEnabled, setContentionGuardEnabled] = useState(boot.contentionGuardEnabled);
   const [contentionPreBenchTimeoutSec, setContentionPreBenchTimeoutSec] = useState(boot.contentionPreBenchTimeoutSec);
+  const [contentionTotalWaitBudgetSec, setContentionTotalWaitBudgetSec] = useState(boot.contentionTotalWaitBudgetSec);
   const [contentionMaxRetries, setContentionMaxRetries] = useState(boot.contentionMaxRetries);
   const [reasoningEffort, setReasoningEffort] = useState<"minimal" | "low" | "medium" | "high">(boot.reasoningEffort);
   /**
@@ -442,10 +443,6 @@ export function App() {
   );
   const [presetOverride, setPresetOverride] = useState<SamplingPresetName | "">(boot.presetOverride);
   const [samplingOverridesText, setSamplingOverridesText] = useState(boot.samplingOverridesText);
-  // 저장값을 복원하지 않는다: 이 토글이 감싸는 범위가 샘플링 2개에서 모델 로드·메모리·오염 가드까지
-  // 넓어져서, 예전에 true를 저장한 사용자가 첫 진입부터 훨씬 큰 묶음을 펼친 채로 보게 된다.
-  const [profileAdvancedOpen, setProfileAdvancedOpen] = useState(false);
-  const profileDetailsRef = useRef<HTMLDetailsElement>(null);
   const parseSamplingOverridesJson = useCallback((raw: string): Record<string, number> | null => {
     const t = raw.trim();
     if (!t) return null;
@@ -590,11 +587,11 @@ export function App() {
         qwen38ReasoningEffort,
         presetOverride,
         samplingOverridesText,
-        profileAdvancedOpen,
         selectedScenarioIds,
         benchmarkThroughputMode,
         contentionGuardEnabled,
         contentionPreBenchTimeoutSec,
+        contentionTotalWaitBudgetSec,
         contentionMaxRetries,
       });
     }, 350);
@@ -618,11 +615,11 @@ export function App() {
     qwen38ReasoningEffort,
     presetOverride,
     samplingOverridesText,
-    profileAdvancedOpen,
     selectedScenarioIds,
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
+    contentionTotalWaitBudgetSec,
     contentionMaxRetries,
   ]);
 
@@ -645,11 +642,11 @@ export function App() {
     qwen38ReasoningEffort,
     presetOverride,
     samplingOverridesText,
-    profileAdvancedOpen,
     selectedScenarioIds,
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
+    contentionTotalWaitBudgetSec,
     contentionMaxRetries,
   });
   latestBenchSnapshotRef.current = {
@@ -670,11 +667,11 @@ export function App() {
     qwen38ReasoningEffort,
     presetOverride,
     samplingOverridesText,
-    profileAdvancedOpen,
     selectedScenarioIds,
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
+    contentionTotalWaitBudgetSec,
     contentionMaxRetries,
   };
   const prevOnBenchPageRef = useRef(onBenchPage);
@@ -694,11 +691,6 @@ export function App() {
     setApiKey(latest.apiKey);
     setPersistApiKeyToDisk(latest.persistApiKeyToDisk);
   }, [onBenchPage]);
-
-  useEffect(() => {
-    const el = profileDetailsRef.current;
-    if (el) el.open = profileAdvancedOpen;
-  }, [profileAdvancedOpen]);
 
   const appendLog = useCallback((s: string) => {
     const stamped = `${formatTimeWithMs(Date.now())} ${s}`;
@@ -1378,11 +1370,11 @@ export function App() {
         qwen38ReasoningEffort,
         presetOverride,
         samplingOverridesText,
-        profileAdvancedOpen,
         selectedScenarioIds,
         benchmarkThroughputMode,
         contentionGuardEnabled,
         contentionPreBenchTimeoutSec,
+        contentionTotalWaitBudgetSec,
         contentionMaxRetries,
       });
     } catch (e) {
@@ -1410,7 +1402,6 @@ export function App() {
     qwen38ReasoningEffort,
     presetOverride,
     samplingOverridesText,
-    profileAdvancedOpen,
   ]);
 
   const toggle = (id: string) => setSelected((s) => ({ ...s, [id]: !s[id] }));
@@ -1436,12 +1427,12 @@ export function App() {
     setBenchmarkThroughputMode(f.benchmarkThroughputMode);
     setContentionGuardEnabled(f.contentionGuardEnabled);
     setContentionPreBenchTimeoutSec(f.contentionPreBenchTimeoutSec);
+    setContentionTotalWaitBudgetSec(f.contentionTotalWaitBudgetSec);
     setContentionMaxRetries(f.contentionMaxRetries);
     setUnloadOtherModels(f.unloadOtherModels);
     setAutoUnloadAfterBench(f.autoUnloadAfterBench);
     setLoadTtlSeconds(f.loadTtlSeconds);
     setFitPolicy(f.fitPolicy);
-    setProfileAdvancedOpen(false);
   }, []);
 
   const applyRecommendedStep3 = useCallback(() => {
@@ -1888,6 +1879,14 @@ export function App() {
             ...(Number.isFinite(Number(contentionPreBenchTimeoutSec)) && contentionPreBenchTimeoutSec.trim()
               ? { contentionPreBenchTimeoutMs: Math.max(0, Math.floor(Number(contentionPreBenchTimeoutSec) * 1000)) }
               : {}),
+            ...(Number.isFinite(Number(contentionTotalWaitBudgetSec)) && contentionTotalWaitBudgetSec.trim()
+              ? {
+                  contentionTotalWaitBudgetMs: Math.min(
+                    1_800_000,
+                    Math.max(0, Math.floor(Number(contentionTotalWaitBudgetSec) * 1000)),
+                  ),
+                }
+              : {}),
             ...(Number.isFinite(Number(contentionMaxRetries)) && contentionMaxRetries.trim()
               ? { contentionMaxRetriesPerIteration: Math.max(0, Math.floor(Number(contentionMaxRetries))) }
               : {}),
@@ -1952,6 +1951,7 @@ export function App() {
     contentionGuardEnabled,
     contentionMaxRetries,
     contentionPreBenchTimeoutSec,
+    contentionTotalWaitBudgetSec,
     describeBenchConflict,
     detect,
     fitPolicy,
@@ -2810,7 +2810,17 @@ export function App() {
                 {msg().bench.settingsRecommended}
               </button>
             </div>
-          <div className="grid grid-cols-1 gap-2 rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <section
+            className="rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm"
+            aria-labelledby="settings-group-profile"
+          >
+            <h3
+              id="settings-group-profile"
+              className="mb-3 border-b border-[var(--border)] pb-1.5 text-xs font-semibold text-[var(--foreground)]"
+            >
+              {msg().bench.settingsGroupProfile}
+            </h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <label className="grid min-w-0 gap-1">
               <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.profile}</span>
               <select
@@ -2921,211 +2931,260 @@ export function App() {
                 placeholder={msg().bench.maxTokensPlaceholder}
               />
             </label>
-            <details
-              ref={profileDetailsRef}
-              className="sm:col-span-2 lg:col-span-3"
-              open={profileAdvancedOpen}
-              onToggle={(e) => setProfileAdvancedOpen((e.target as HTMLDetailsElement).open)}
+            {profileId === "auto" || profileId === "qwen36" || profileId === "qwen38" ? (
+              <label className="flex min-w-0 cursor-pointer items-start gap-2 text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 shrink-0"
+                  checked={preserveThinking}
+                  disabled={profileId !== "auto" && profileId !== "qwen36" && profileId !== "qwen38"}
+                  onChange={(e) => setPreserveThinking(e.target.checked)}
+                />
+                <span className="min-w-0">
+                  <span className="font-medium text-[var(--foreground)]">Qwen3.6/3.8: preserve_thinking</span>
+                  <span className="mt-0.5 block leading-snug">{msg().bench.preserveThinkingHint}</span>
+                </span>
+              </label>
+            ) : null}
+            </div>
+          </section>
+
+          <section
+            className="rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm"
+            aria-labelledby="settings-group-load"
+          >
+            <h3
+              id="settings-group-load"
+              className="mb-3 border-b border-[var(--border)] pb-1.5 text-xs font-semibold text-[var(--foreground)]"
             >
-              <summary className="cursor-pointer text-xs font-medium text-[var(--foreground)]">{msg().bench.advancedSummary}</summary>
-              <div className="mt-2 grid gap-2">
-                  {profileId === "auto" || profileId === "qwen36" || profileId === "qwen38" ? (
-                    <label className="flex min-w-0 cursor-pointer items-start gap-2 text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 shrink-0"
-                        checked={preserveThinking}
-                        disabled={profileId !== "auto" && profileId !== "qwen36" && profileId !== "qwen38"}
-                        onChange={(e) => setPreserveThinking(e.target.checked)}
-                      />
-                      <span className="min-w-0">
-                        <span className="font-medium text-[var(--foreground)]">Qwen3.6/3.8: preserve_thinking</span>
-                        <span className="mt-0.5 block leading-snug">{msg().bench.preserveThinkingHint}</span>
-                      </span>
-                    </label>
-                  ) : null}
-                <label
-                  className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-                  title={
-                    detect && providerSupportsExplicitLoadUnload(detect.provider)
-                      ? msg().bench.unloadOthersTitleLmStudio
-                      : msg().bench.onlyLmStudio
-                  }
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={unloadOtherModels}
-                    disabled={!detect || !providerSupportsExplicitLoadUnload(detect.provider)}
-                    onChange={(e) => setUnloadOtherModels(e.target.checked)}
-                  />
-                  <span>
-                    <span className="font-medium text-[var(--foreground)]">{msg().bench.unloadOthersLabel}</span>
-                    <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
-                      <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
-                      {msg().bench.unloadOthersHint}
-                      {detect && !providerSupportsExplicitLoadUnload(detect.provider)
-                        ? msg().bench.inactiveOnCurrentProvider
-                        : ""}
-                    </span>
+              {msg().bench.settingsGroupLoad}
+            </h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label
+                className="flex cursor-pointer items-start gap-2 text-xs text-[var(--muted)]"
+                title={
+                  detect && providerSupportsExplicitLoadUnload(detect.provider)
+                    ? msg().bench.unloadOthersTitleLmStudio
+                    : msg().bench.onlyLmStudio
+                }
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5 shrink-0"
+                  checked={unloadOtherModels}
+                  disabled={!detect || !providerSupportsExplicitLoadUnload(detect.provider)}
+                  onChange={(e) => setUnloadOtherModels(e.target.checked)}
+                />
+                <span className="min-w-0">
+                  <span className="font-medium text-[var(--foreground)]">{msg().bench.unloadOthersLabel}</span>
+                  <span className="mt-1 flex items-start gap-1 leading-snug">
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
+                    {msg().bench.unloadOthersHint}
+                    {detect && !providerSupportsExplicitLoadUnload(detect.provider)
+                      ? msg().bench.inactiveOnCurrentProvider
+                      : ""}
                   </span>
-                </label>
-                <label
-                  className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-                  title={
-                    detect && providerSupportsExplicitLoadUnload(detect.provider)
-                      ? msg().bench.autoUnloadTitleLmStudio
-                      : msg().bench.onlyLmStudio
-                  }
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={autoUnloadAfterBench}
-                    disabled={!detect || !providerSupportsExplicitLoadUnload(detect.provider)}
-                    onChange={(e) => setAutoUnloadAfterBench(e.target.checked)}
-                  />
-                  <span>
-                    <span className="font-medium text-[var(--foreground)]">{msg().bench.autoUnloadLabel}</span>
-                    <span className="mt-0.5 block text-xs leading-snug">
-                      {msg().bench.autoUnloadHint}
-                      {detect && !providerSupportsExplicitLoadUnload(detect.provider)
-                        ? msg().bench.inactiveOnCurrentProvider
-                        : ""}
-                    </span>
+                </span>
+              </label>
+              <label
+                className="flex cursor-pointer items-start gap-2 text-xs text-[var(--muted)]"
+                title={
+                  detect && providerSupportsExplicitLoadUnload(detect.provider)
+                    ? msg().bench.autoUnloadTitleLmStudio
+                    : msg().bench.onlyLmStudio
+                }
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5 shrink-0"
+                  checked={autoUnloadAfterBench}
+                  disabled={!detect || !providerSupportsExplicitLoadUnload(detect.provider)}
+                  onChange={(e) => setAutoUnloadAfterBench(e.target.checked)}
+                />
+                <span className="min-w-0">
+                  <span className="font-medium text-[var(--foreground)]">{msg().bench.autoUnloadLabel}</span>
+                  <span className="mt-0.5 block leading-snug">
+                    {msg().bench.autoUnloadHint}
+                    {detect && !providerSupportsExplicitLoadUnload(detect.provider)
+                      ? msg().bench.inactiveOnCurrentProvider
+                      : ""}
                   </span>
-                </label>
-                <div
-                  className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
-                  title={msg().bench.memFitTitle}
-                >
-                  <span className="mt-1 flex-1">
-                    <span id="fit-policy-label" className="font-medium text-[var(--foreground)]">{msg().bench.memFitLabel}</span>
-                    <span className="mt-0.5 block text-xs leading-snug">
-                      {msg().bench.memFitHintA}<b>{msg().bench.memFitUnload}</b>{msg().bench.memFitHintB}<b>{msg().bench.memFitSkip}</b>{msg().bench.memFitHintC}
-                      {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
-                    </span>
-                    {fitPolicy === "unload_other_models" && detect?.provider === "lm_studio" ? (
-                      <span className="mt-1 flex items-start gap-1 text-xs leading-snug">
-                        <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
-                        {msg().bench.memFitUnloadRiskHint}
-                      </span>
-                    ) : null}
+                </span>
+              </label>
+              <div className="grid gap-1 text-xs text-[var(--muted)]" title={msg().bench.memFitTitle}>
+                <span id="fit-policy-label" className="font-medium text-[var(--foreground)]">
+                  {msg().bench.memFitLabel}
+                </span>
+                <span className="leading-snug">
+                  {msg().bench.memFitHintA}
+                  <b>{msg().bench.memFitUnload}</b>
+                  {msg().bench.memFitHintB}
+                  <b>{msg().bench.memFitSkip}</b>
+                  {msg().bench.memFitHintC}
+                  {detect && detect.provider !== "lm_studio" ? msg().bench.inactiveOnCurrentProvider : ""}
+                </span>
+                {fitPolicy === "unload_other_models" && detect?.provider === "lm_studio" ? (
+                  <span className="flex items-start gap-1 leading-snug">
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--danger)]" aria-hidden />
+                    {msg().bench.memFitUnloadRiskHint}
                   </span>
-                  <select
-                    className="mt-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
-                    value={fitPolicy}
-                    disabled={detect?.provider !== "lm_studio"}
-                    aria-labelledby="fit-policy-label"
-                    onChange={(e) => setFitPolicy(e.target.value as "" | "skip" | "unload_other_models")}
-                  >
-                    <option value="">{msg().bench.memFitOptionLog}</option>
-                    <option value="unload_other_models">{msg().bench.memFitUnload}</option>
-                    <option value="skip">{msg().bench.memFitOptionSkip}</option>
-                  </select>
-                </div>
-                <div
-                  className="mt-2 flex items-start gap-2 text-sm text-[var(--muted)]"
-                  title={msg().bench.loadTtlTitle}
+                ) : null}
+                <select
+                  className="mt-1 w-full max-w-xs rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)]"
+                  value={fitPolicy}
+                  disabled={detect?.provider !== "lm_studio"}
+                  aria-labelledby="fit-policy-label"
+                  onChange={(e) => setFitPolicy(e.target.value as "" | "skip" | "unload_other_models")}
                 >
-                  <span className="mt-1 flex-1">
-                    <span id="load-ttl-label" className="font-medium text-[var(--foreground)]">{msg().bench.loadTtlLabel}</span>
-                    <span className="mt-0.5 block text-xs leading-snug">
-                      {msg().bench.loadTtlHintA}<code>ttl</code>{msg().bench.loadTtlHintB}<code>keep_alive</code>{msg().bench.loadTtlHintC}<code>/v1</code>{msg().bench.loadTtlHintD}
-                      {detect && !providerSupportsLoadTtl(detect.provider) ? msg().bench.inactiveOnCurrentProvider : ""}
-                    </span>
-                  </span>
+                  <option value="">{msg().bench.memFitOptionLog}</option>
+                  <option value="unload_other_models">{msg().bench.memFitUnload}</option>
+                  <option value="skip">{msg().bench.memFitOptionSkip}</option>
+                </select>
+              </div>
+              <div className="grid gap-1 text-xs text-[var(--muted)]" title={msg().bench.loadTtlTitle}>
+                <span id="load-ttl-label" className="font-medium text-[var(--foreground)]">
+                  {msg().bench.loadTtlLabel}
+                </span>
+                <span className="leading-snug">
+                  {msg().bench.loadTtlHintA}
+                  <code>ttl</code>
+                  {msg().bench.loadTtlHintB}
+                  <code>keep_alive</code>
+                  {msg().bench.loadTtlHintC}
+                  <code>/v1</code>
+                  {msg().bench.loadTtlHintD}
+                  {detect && !providerSupportsLoadTtl(detect.provider) ? msg().bench.inactiveOnCurrentProvider : ""}
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  placeholder={msg().bench.notApplied}
+                  className="mt-1 w-full max-w-xs rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--foreground)]"
+                  value={loadTtlSeconds}
+                  disabled={!detect || !providerSupportsLoadTtl(detect.provider)}
+                  aria-labelledby="load-ttl-label"
+                  onChange={(e) => setLoadTtlSeconds(e.target.value)}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section
+            className="rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm"
+            aria-labelledby="settings-group-contention"
+          >
+            <h3
+              id="settings-group-contention"
+              className="mb-3 border-b border-[var(--border)] pb-1.5 text-xs font-semibold text-[var(--foreground)]"
+            >
+              {msg().bench.settingsGroupContention}
+            </h3>
+            <label
+              className="flex cursor-pointer items-start gap-2 text-xs text-[var(--muted)]"
+              title={msg().bench.contentionGuardTitle}
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 shrink-0"
+                checked={contentionGuardEnabled}
+                onChange={(e) => setContentionGuardEnabled(e.target.checked)}
+              />
+              <span className="min-w-0">
+                <span className="font-medium text-[var(--foreground)]">{msg().bench.contentionGuardLabel}</span>
+                <span className="mt-0.5 block leading-snug">{msg().bench.contentionGuardHint}</span>
+              </span>
+            </label>
+            {contentionGuardEnabled ? (
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <label className="grid gap-1 text-xs text-[var(--muted)]">
+                  {msg().bench.preBenchTimeoutLabel}
                   <input
                     type="number"
-                    min={1}
-                    step={1}
-                    placeholder={msg().bench.notApplied}
-                    className="mt-1 w-24 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]"
-                    value={loadTtlSeconds}
-                    disabled={!detect || !providerSupportsLoadTtl(detect.provider)}
-                    aria-labelledby="load-ttl-label"
-                    onChange={(e) => setLoadTtlSeconds(e.target.value)}
+                    inputMode="numeric"
+                    min={0}
+                    className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-[var(--foreground)]"
+                    value={contentionPreBenchTimeoutSec}
+                    onChange={(e) => setContentionPreBenchTimeoutSec(e.target.value)}
                   />
-                </div>
-                <label
-                  className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-[var(--muted)]"
-                  title={msg().bench.contentionGuardTitle}
-                >
+                </label>
+                <label className="grid gap-1 text-xs text-[var(--muted)]" title={msg().bench.totalWaitBudgetTitle}>
+                  {msg().bench.totalWaitBudgetLabel}
                   <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={contentionGuardEnabled}
-                    onChange={(e) => setContentionGuardEnabled(e.target.checked)}
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={1800}
+                    className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-[var(--foreground)]"
+                    value={contentionTotalWaitBudgetSec}
+                    aria-describedby="total-wait-budget-hint"
+                    onChange={(e) => setContentionTotalWaitBudgetSec(e.target.value)}
                   />
-                  <span>
-                    <span className="font-medium text-[var(--foreground)]">{msg().bench.contentionGuardLabel}</span>
-                    <span className="mt-0.5 block text-xs leading-snug">
-                      {msg().bench.contentionGuardHint}
-                    </span>
-                  </span>
                 </label>
-                {contentionGuardEnabled ? (
-                  <div className="mt-2 ml-6 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
-                    <label className="flex items-center gap-1.5">
-                      {msg().bench.preBenchTimeoutLabel}
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        className="w-20 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
-                        value={contentionPreBenchTimeoutSec}
-                        onChange={(e) => setContentionPreBenchTimeoutSec(e.target.value)}
-                      />
-                    </label>
-                    <label className="flex items-center gap-1.5">
-                      {msg().bench.retriesPerRunLabel}
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        max={5}
-                        className="w-16 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1"
-                        value={contentionMaxRetries}
-                        onChange={(e) => setContentionMaxRetries(e.target.value)}
-                      />
-                    </label>
-                  </div>
-                ) : null}
-                <label className="grid gap-1">
-                  <span className="text-xs text-[var(--muted)]">{msg().bench.presetOverrideLabel}</span>
-                  <select
-                    className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs"
-                    value={presetOverride}
-                    onChange={(e) => setPresetOverride((e.target.value || "") as SamplingPresetName | "")}
-                  >
-                    <option value="">{msg().bench.presetAuto}</option>
-                    <option value="default">default</option>
-                    <option value="thinking_general">thinking_general</option>
-                    <option value="thinking_coding">thinking_coding</option>
-                    <option value="nonthinking_general">nonthinking_general</option>
-                    <option value="tool_call">tool_call</option>
-                  </select>
-                </label>
-                <label className="grid gap-1">
-                  <span className="text-xs text-[var(--muted)]">{msg().bench.samplingOverridesLabel}</span>
-                  <textarea
-                    className="min-h-[4.5rem] rounded border border-[var(--border)] bg-[var(--surface-2)] p-2 font-mono text-[11px] leading-snug text-[var(--foreground)]"
-                    value={samplingOverridesText}
-                    onChange={(e) => setSamplingOverridesText(e.target.value)}
-                    placeholder='{"temperature":0.8,"top_p":0.9}'
-                    spellCheck={false}
-                    aria-invalid={samplingOverridesInvalid}
-                    aria-describedby={samplingOverridesInvalid ? "sampling-overrides-error" : undefined}
+                <label className="grid gap-1 text-xs text-[var(--muted)]">
+                  {msg().bench.retriesPerRunLabel}
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={5}
+                    className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-[var(--foreground)]"
+                    value={contentionMaxRetries}
+                    onChange={(e) => setContentionMaxRetries(e.target.value)}
                   />
-                  {samplingOverridesInvalid ? (
-                    <span id="sampling-overrides-error" className="text-xs text-[var(--danger)]">
-                      {msg().bench.samplingOverridesInvalid}
-                    </span>
-                  ) : null}
                 </label>
+                <span id="total-wait-budget-hint" className="text-[11px] leading-snug sm:col-span-3">
+                  {msg().bench.totalWaitBudgetHint}
+                </span>
               </div>
-            </details>
-          </div>
+            ) : null}
+          </section>
+
+          <section
+            className="rounded border border-[var(--border)] bg-[var(--surface)] p-3 text-sm"
+            aria-labelledby="settings-group-sampling"
+          >
+            <h3
+              id="settings-group-sampling"
+              className="mb-3 border-b border-[var(--border)] pb-1.5 text-xs font-semibold text-[var(--foreground)]"
+            >
+              {msg().bench.settingsGroupSampling}
+            </h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1">
+                <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.presetOverrideLabel}</span>
+                <select
+                  className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 font-mono text-xs"
+                  value={presetOverride}
+                  onChange={(e) => setPresetOverride((e.target.value || "") as SamplingPresetName | "")}
+                >
+                  <option value="">{msg().bench.presetAuto}</option>
+                  <option value="default">default</option>
+                  <option value="thinking_general">thinking_general</option>
+                  <option value="thinking_coding">thinking_coding</option>
+                  <option value="nonthinking_general">nonthinking_general</option>
+                  <option value="tool_call">tool_call</option>
+                </select>
+              </label>
+              <label className="grid gap-1">
+                <span className="text-xs font-medium text-[var(--muted)]">{msg().bench.samplingOverridesLabel}</span>
+                <textarea
+                  className="min-h-[4.5rem] rounded border border-[var(--border)] bg-[var(--surface-2)] p-2 font-mono text-[11px] leading-snug text-[var(--foreground)]"
+                  value={samplingOverridesText}
+                  onChange={(e) => setSamplingOverridesText(e.target.value)}
+                  placeholder='{"temperature":0.8,"top_p":0.9}'
+                  spellCheck={false}
+                  aria-invalid={samplingOverridesInvalid}
+                  aria-describedby={samplingOverridesInvalid ? "sampling-overrides-error" : undefined}
+                />
+                {samplingOverridesInvalid ? (
+                  <span id="sampling-overrides-error" className="text-xs text-[var(--danger)]">
+                    {msg().bench.samplingOverridesInvalid}
+                  </span>
+                ) : null}
+              </label>
+            </div>
+          </section>
           </div>
         </StepSection>
 
