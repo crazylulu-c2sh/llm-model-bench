@@ -44,7 +44,7 @@ export const bench = {
   settingsInitial: "초기값",
   settingsRecommended: "권장값",
   settingsInitialTitle:
-    "하네스 공장 기본값으로 되돌립니다. 프로파일 자동, 사고 켜기, Qwen3.8 effort low, max_tokens 비움, 고급(로드·메모리·오염 가드)도 기본값. Base URL·API 키는 유지합니다.",
+    "하네스 공장 기본값으로 되돌립니다. 프로파일 자동, 사고 켜기, Qwen3.8 effort low, max_tokens 비움, 로드·메모리·오염 가드도 기본값. Base URL·API 키는 유지합니다.",
   settingsRecommendedTitle:
     "모델 카드 권장으로 맞춥니다. 사고 켜기, 처리량 모드 끄기, Qwen3.8 effort xhigh, max_tokens는 비워 시나리오별 권장값을 씁니다. 로드·메모리·오염 가드는 바꾸지 않습니다.",
   toggleTextTitle: (n: number) => `텍스트 시나리오 ${n}개 토글`,
@@ -113,6 +113,10 @@ export const bench = {
   contentionGuardLabel: "오염 가드 (다른 추론 감지 시 대기·재측정)",
   contentionGuardHint: "GPU util·/metrics·lms ps로 활성 추론을 감지합니다. 신호가 없는 환경에서는 자동으로 비실효 처리됩니다.",
   preBenchTimeoutLabel: "사전 대기 한도(초)",
+  totalWaitBudgetLabel: "런 전체 대기 한도(초)",
+  totalWaitBudgetTitle:
+    "사전 대기와 이터 사이 대기를 런 전체에서 합산합니다. 시나리오가 바뀌어도 리셋되지 않으며, 합이 이 값을 넘으면 벤치를 중단합니다. 기본 300초, 서버 상한 1800초.",
+  totalWaitBudgetHint: "시나리오·이터 대기를 합산합니다. 초과 시 런 중단(기본 300, 최대 1800).",
   retriesPerRunLabel: "런당 재시도 횟수",
 
   // 모델 선택 · 프로파일
@@ -137,7 +141,10 @@ export const bench = {
   qwen38ReasoningEffortHint:
     "모델 카드 기본은 xhigh지만 사고 토큰이 폭주해 하네스 기본은 low입니다. 정확도가 필요하면 올리세요.",
   preserveThinkingHint: "에이전트형 멀티턴에서만 켜는 것을 권장합니다.",
-  advancedSummary: "고급: 추론 · 샘플링 · 모델 로드/메모리 · 오염 가드",
+  settingsGroupProfile: "프로파일 · 사고",
+  settingsGroupLoad: "모델 로드 · 메모리",
+  settingsGroupContention: "오염 가드",
+  settingsGroupSampling: "샘플링",
   presetOverrideLabel: "preset 강제 (비우면 자동)",
   presetAuto: "자동",
   samplingOverridesLabel: "samplingOverrides (JSON 객체)",

@@ -42,6 +42,8 @@ export function factoryStep3Settings() {
     benchmarkThroughputMode: false,
     contentionGuardEnabled: true,
     contentionPreBenchTimeoutSec: "120",
+    /** 런 전역 누적 대기(초). 서버 기본 300_000ms, clamp 0..1_800_000. */
+    contentionTotalWaitBudgetSec: "300",
     contentionMaxRetries: "2",
     unloadOtherModels: false,
     autoUnloadAfterBench: false,
@@ -95,6 +97,7 @@ const PrefsSchema = z
     benchmarkThroughputMode: z.boolean().optional(),
     contentionGuardEnabled: z.boolean().optional(),
     contentionPreBenchTimeoutMs: z.number().int().nonnegative().optional(),
+    contentionTotalWaitBudgetMs: z.number().int().nonnegative().optional(),
     contentionMaxRetriesPerIteration: z.number().int().nonnegative().optional(),
   })
   .passthrough();
@@ -216,6 +219,8 @@ export function readInitialUiState() {
     contentionGuardEnabled: p.contentionGuardEnabled ?? true,
     contentionPreBenchTimeoutSec:
       p.contentionPreBenchTimeoutMs != null ? String(Math.round(p.contentionPreBenchTimeoutMs / 1000)) : "120",
+    contentionTotalWaitBudgetSec:
+      p.contentionTotalWaitBudgetMs != null ? String(Math.round(p.contentionTotalWaitBudgetMs / 1000)) : "300",
     contentionMaxRetries:
       p.contentionMaxRetriesPerIteration != null ? String(p.contentionMaxRetriesPerIteration) : "2",
   };
@@ -239,11 +244,11 @@ export type SaveUiSnapshot = {
   qwen38ReasoningEffort: Qwen38ReasoningEffort;
   presetOverride: SamplingPresetName | "";
   samplingOverridesText: string;
-  profileAdvancedOpen: boolean;
   selectedScenarioIds: string[];
   benchmarkThroughputMode: boolean;
   contentionGuardEnabled: boolean;
   contentionPreBenchTimeoutSec: string;
+  contentionTotalWaitBudgetSec: string;
   contentionMaxRetries: string;
 };
 
@@ -279,12 +284,15 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
     qwen38ReasoningEffort: s.qwen38ReasoningEffort,
     presetOverride: s.presetOverride || undefined,
     samplingOverridesJson: s.samplingOverridesText.trim() ? s.samplingOverridesText : undefined,
-    profileAdvancedOpen: s.profileAdvancedOpen,
     selectedScenarioIds: sanitizeSelectedScenarioIds(s.selectedScenarioIds),
     benchmarkThroughputMode: s.benchmarkThroughputMode,
     contentionGuardEnabled: s.contentionGuardEnabled,
     contentionPreBenchTimeoutMs: (() => {
       const n = Number(s.contentionPreBenchTimeoutSec.trim());
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n * 1000) : undefined;
+    })(),
+    contentionTotalWaitBudgetMs: (() => {
+      const n = Number(s.contentionTotalWaitBudgetSec.trim());
       return Number.isFinite(n) && n >= 0 ? Math.floor(n * 1000) : undefined;
     })(),
     contentionMaxRetriesPerIteration: (() => {
