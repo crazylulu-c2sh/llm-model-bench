@@ -1,6 +1,8 @@
 /**
  * GitHub main vs 로컬 main HEAD 비교 — 업데이트 배너용.
  *
+ * 로컬 branch/SHA는 프로세스 기동 시 1회만 스냅샷한다(pm2가 같은 워킹트리에서 pull돼도
+ * 재시작 전엔 실행 중인 빌드의 SHA로 비교). GitHub Compare만 캐시 TTL로 재조회한다.
  * fail-closed: git/GitHub 실패는 전부 `unavailable`(HTTP 200). 오프라인·방화벽에서도 벤치 UI를 깨지 않는다.
  * `git fetch`는 하지 않는다(자격증명·원격 변경 없음). Compare API만 사용.
  */
@@ -59,9 +61,21 @@ type CacheEntry = { expiresAt: number; result: UpdateCheckResult };
 
 let cache: CacheEntry | null = null;
 
+type LocalGitSnapshot =
+  | { ok: true; branch: string; sha: string | null }
+  | { ok: false; reason: "no_git" };
+
+/** 기동 시 1회 고정. `undefined` = 아직 안 읽음. 실패(`no_git`)도 재시도하지 않는다. */
+let localGit: LocalGitSnapshot | undefined;
+
 /** 테스트용 — 메모리 캐시 비우기. */
 export function _clearUpdateCheckCacheForTest(): void {
   cache = null;
+}
+
+/** 테스트용 — 로컬 git 스냅샷 해제(다음 조회/기동 훅이 다시 읽게). */
+export function _clearLocalGitSnapshotForTest(): void {
+  localGit = undefined;
 }
 
 function execFile(
@@ -116,6 +130,31 @@ async function git(root: string, gitArgs: readonly string[]): Promise<string | n
   } catch {
     return null;
   }
+}
+
+async function readLocalGitOnce(): Promise<LocalGitSnapshot> {
+  const root = resolveRepoRoot();
+  const branch = await git(root, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  if (!branch) {
+    return { ok: false, reason: "no_git" };
+  }
+  const sha = await git(root, ["rev-parse", "HEAD"]);
+  return { ok: true, branch, sha };
+}
+
+async function ensureLocalGit(): Promise<LocalGitSnapshot> {
+  if (localGit === undefined) {
+    localGit = await readLocalGitOnce();
+  }
+  return localGit;
+}
+
+/**
+ * 프로세스 기동 시 로컬 branch/SHA를 1회 고정한다. 이미 있으면 no-op.
+ * `serve()` 전에 호출해야 첫 HTTP 요청보다 앞선 pull이 스냅샷에 섞이지 않는다.
+ */
+export async function snapshotLocalGitAtBoot(): Promise<void> {
+  await ensureLocalGit();
 }
 
 type CompareJson = {
@@ -180,7 +219,7 @@ async function fetchGithubCompare(
 }
 
 /**
- * 로컬 git HEAD와 GitHub `main`을 비교한다.
+ * 기동 시 스냅샷한 로컬 HEAD와 GitHub `main`을 비교한다.
  * 예외를 밖으로 던지지 않는다 — 항상 `UpdateCheckResult`를 반환.
  */
 export async function checkForUpdate(): Promise<UpdateCheckResult> {
@@ -190,11 +229,11 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
   }
 
   try {
-    const root = resolveRepoRoot();
-    const branch = await git(root, ["rev-parse", "--abbrev-ref", "HEAD"]);
-    if (!branch) {
+    const snap = await ensureLocalGit();
+    if (!snap.ok) {
       return cachePut(unavailable("no_git"));
     }
+    const { branch } = snap;
     if (branch === "HEAD") {
       return cachePut({ status: "not_main", branch: "HEAD", reason: "detached_head" });
     }
@@ -202,7 +241,7 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
       return cachePut({ status: "not_main", branch, reason: "not_main" });
     }
 
-    const localSha = await git(root, ["rev-parse", "HEAD"]);
+    const localSha = snap.sha;
     if (!localSha || !/^[0-9a-f]{7,40}$/i.test(localSha)) {
       return cachePut(unavailable("no_git"));
     }

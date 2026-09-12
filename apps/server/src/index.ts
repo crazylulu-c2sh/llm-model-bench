@@ -5,6 +5,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { createApp } from "./app.js";
 import { tryOpenProdBenchDatabase } from "./db/database.js";
 import { loadCustomScenariosAtStartup } from "./custom-scenarios.js";
+import { snapshotLocalGitAtBoot } from "./update-check.js";
 
 // CORS + 인증 + 라우트(/api, /api/v1)는 createApp이 담당. 정적 서빙은 SPA 폴백이라 그 뒤에 붙인다.
 const app = createApp();
@@ -50,6 +51,8 @@ if (webDistEnv) {
 }
 
 const port = Number(process.env.PORT ?? 20080);
+
+await snapshotLocalGitAtBoot();
 
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`llm-bench-server listening on http://localhost:${info.port}`);

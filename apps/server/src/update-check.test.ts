@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   checkForUpdate,
+  snapshotLocalGitAtBoot,
+  _clearLocalGitSnapshotForTest,
   _clearUpdateCheckCacheForTest,
   _setExecFileForTest,
   _setFetchForTest,
@@ -60,6 +62,7 @@ afterEach(() => {
   _setFetchForTest(null);
   _setNowForTest(null);
   _clearUpdateCheckCacheForTest();
+  _clearLocalGitSnapshotForTest();
   delete process.env.GITHUB_REPO;
   delete process.env.GITHUB_TOKEN;
 });
@@ -67,6 +70,7 @@ afterEach(() => {
 describe("checkForUpdate", () => {
   beforeEach(() => {
     _clearUpdateCheckCacheForTest();
+    _clearLocalGitSnapshotForTest();
   });
 
   it("no git → unavailable", async () => {
@@ -270,5 +274,101 @@ describe("checkForUpdate", () => {
     _setFetchForTest(fetch);
     await checkForUpdate();
     expect(fetch).toHaveBeenCalled();
+  });
+
+  it("local git snapshot is frozen after first read even if working tree moves", async () => {
+    const SHA_B = "cccccccccccccccccccccccccccccccccccccccc";
+    let gitCalls = 0;
+    const installGit = (sha: string, branch: string) => {
+      _setExecFileForTest(((file: any, args: any, opts: any, cb: any) => {
+        void file;
+        void opts;
+        gitCalls += 1;
+        const list = args as string[];
+        if (list.includes("--abbrev-ref")) {
+          cb(null, `${branch}\n`, "");
+          return;
+        }
+        cb(null, `${sha}\n`, "");
+      }) as typeof import("node:child_process").execFile);
+    };
+
+    installGit(LOCAL_SHA, "main");
+    const fetch = vi.fn(
+      async (url: unknown) =>
+        new Response(
+          JSON.stringify({
+            status: String(url).includes(LOCAL_SHA) ? "ahead" : "identical",
+            ahead_by: String(url).includes(LOCAL_SHA) ? 2 : 0,
+            behind_by: 0,
+            commits: [{ sha: REMOTE_SHA }],
+          }),
+          { status: 200 },
+        ),
+    );
+    _setFetchForTest(fetch);
+    let t = 1_000_000;
+    _setNowForTest(() => t);
+
+    const first = await checkForUpdate();
+    expect(first).toMatchObject({ status: "behind", localSha: LOCAL_SHA, behindBy: 2 });
+    const gitCallsAfterFirst = gitCalls;
+    expect(gitCallsAfterFirst).toBeGreaterThan(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0]?.[0])).toContain(LOCAL_SHA);
+
+    installGit(SHA_B, "feature/x");
+    t += 61 * 60 * 1000;
+    const second = await checkForUpdate();
+    expect(second).toMatchObject({ status: "behind", localSha: LOCAL_SHA, behindBy: 2 });
+    expect(second.status).not.toBe("not_main");
+    expect(gitCalls).toBe(gitCallsAfterFirst);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(String(fetch.mock.calls[1]?.[0])).toContain(LOCAL_SHA);
+    expect(String(fetch.mock.calls[1]?.[0])).not.toContain(SHA_B);
+  });
+
+  it("snapshotLocalGitAtBoot is no-op on second call and freeze survives cache expiry", async () => {
+    let gitCalls = 0;
+    _setExecFileForTest(((file: any, args: any, opts: any, cb: any) => {
+      void file;
+      void opts;
+      gitCalls += 1;
+      const joined = (args as string[]).join(" ");
+      if (joined.includes("rev-parse --abbrev-ref HEAD")) {
+        cb(null, "main\n", "");
+        return;
+      }
+      cb(null, `${LOCAL_SHA}\n`, "");
+    }) as typeof import("node:child_process").execFile);
+
+    await snapshotLocalGitAtBoot();
+    const afterBoot = gitCalls;
+    expect(afterBoot).toBeGreaterThan(0);
+    await snapshotLocalGitAtBoot();
+    expect(gitCalls).toBe(afterBoot);
+
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: "identical", ahead_by: 0, behind_by: 0 }), { status: 200 }),
+    );
+    _setFetchForTest(fetch);
+    expect((await checkForUpdate()).localSha).toBe(LOCAL_SHA);
+    expect(gitCalls).toBe(afterBoot);
+  });
+
+  it("no_git snapshot is frozen — later git availability is ignored", async () => {
+    mockGitMissing();
+    const fetch = vi.fn();
+    _setFetchForTest(fetch);
+    let t = 1_000_000;
+    _setNowForTest(() => t);
+
+    expect((await checkForUpdate()).reason).toBe("no_git");
+    mockGitMain();
+    t += 6 * 60 * 1000;
+    const again = await checkForUpdate();
+    expect(again).toMatchObject({ status: "unavailable", reason: "no_git" });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
