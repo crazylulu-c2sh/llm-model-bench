@@ -49,7 +49,7 @@ describe("buildScenarioTimeIndex", () => {
     expect(stat?.iterMultiplier).toBe(4); // warmup_runs(1) + measured_runs(3)
   });
 
-  it("ignores zero-duration failure rows and skips warmup for vision scenarios", () => {
+  it("ignores zero-duration failure rows and includes vision warmups", () => {
     const latest: LatestByModelResponse = {
       base_url: "http://localhost:1234",
       items: [
@@ -72,7 +72,7 @@ describe("buildScenarioTimeIndex", () => {
     const idx = buildScenarioTimeIndex(latest);
     const stat = idx.get("m1::vision_table_ocr_a::chat_completions");
     expect(stat?.avgMs).toBe(4000);
-    expect(stat?.iterMultiplier).toBe(3); // measured_runs only, warmup skipped for vision
+    expect(stat?.iterMultiplier).toBe(4); // warmup_runs(1) + measured_runs(3)
   });
 
   it("returns an empty index for null input", () => {
