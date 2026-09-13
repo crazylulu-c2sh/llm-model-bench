@@ -1,4 +1,4 @@
-import { cleanModelDisplayName, isVisionScenario, parseModelQuant } from "@llm-bench/shared";
+import { cleanModelDisplayName, parseModelQuant } from "@llm-bench/shared";
 import type { BenchRunDetailResponse, LatestByModelResponse } from "../api-types";
 
 export type ScenarioTimeStat = { avgMs: number; iterMultiplier: number };
@@ -18,11 +18,12 @@ function scenarioKey(modelId: string, scenarioId: string, apiRoute: string): str
 }
 
 /**
- * 시나리오 1건의 반복 횟수(=warmup+measured, 비전은 워밍업 스킵). 과거 데이터 집계(statsFromRun)와
+ * 시나리오 1건의 반복 횟수(=warmup+measured). 과거 데이터 집계(statsFromRun)와
  * 라이브 ETA(App.tsx의 benchEta) 양쪽이 같은 규칙을 써야 하므로 이 한 곳에서만 정의한다.
  */
 export function defaultIterMultiplier(scenarioId: string, warmupRuns: number, measuredRuns: number): number {
-  return isVisionScenario(scenarioId) ? measuredRuns : warmupRuns + measuredRuns;
+  void scenarioId;
+  return warmupRuns + measuredRuns;
 }
 
 type RunScenarioStat = { scenarioId: string; apiRoute: string; avgMs: number; iterMultiplier: number };
