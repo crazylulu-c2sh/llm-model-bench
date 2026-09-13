@@ -1,5 +1,5 @@
 import { modelKey } from "@llm-bench/shared";
-import { compareScenarioBenchOrder, formatTtftMs, isAgentScenario, isVisionScenario, scoreToRubric } from "@llm-bench/shared";
+import { compareScenarioBenchOrder, isAgentScenario, isVisionScenario, scoreToRubric } from "@llm-bench/shared";
 import { apiRouteRank } from "./chart-types";
 import { compareModelBenchQueueOrder, compareStringsPinned } from "../lib/model-sort";
 import { buildModelColorMap } from "../lib/model-color";
@@ -382,83 +382,6 @@ export function ResultsTable({
           compareScenarioBenchOrder(a.original.scenario, b.original.scenario, benchScenarioOrder) ||
           apiRouteRank(a.original.api) - apiRouteRank(b.original.api) ||
           compareStringsPinned(a.original.api, b.original.api),
-      }),
-      columnHelper.accessor("ttft_ms", {
-        header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            title={m.results.table.colTtftTitle}
-            onClick={() => onColumnSort(column.id)}
-          >
-            TTFT (ms)
-            {sortDirIcon(column, sorting)}
-          </button>
-        ),
-        cell: ({ row, getValue }) => {
-          const v = getValue();
-          const win = winners.get(row.original.rowKey)?.ttft ?? false;
-          return (
-            <span
-              className={`inline-flex items-center gap-1 whitespace-nowrap font-mono text-xs${win ? " font-bold" : ""}`}
-              style={win ? { color: "var(--dir-lower)" } : undefined}
-              title={win ? m.results.table.ttftWinTitle : undefined}
-            >
-              {win ? <span aria-hidden>▾</span> : null}
-              {formatTtftMs(v)}
-              {row.original.reasoning_hidden ? (
-                // 위 오염 배지와 같은 이유 — role 없이는 aria-label이 무시돼 경고가 이름 없이 사라진다.
-                <span
-                  role="img"
-                  className="inline-flex items-center text-amber-500"
-                  title={m.results.table.reasoningHiddenTitle}
-                  aria-label={m.results.table.reasoningHiddenAria}
-                >
-                  <AlertTriangle className="size-3 shrink-0" aria-hidden />
-                </span>
-              ) : null}
-            </span>
-          );
-        },
-        sortingFn: "basic",
-      }),
-      columnHelper.accessor("output_tokens", {
-        header: ({ column }) => (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
-            title={m.results.table.colOutputTokensTitle}
-            onClick={() => onColumnSort(column.id)}
-          >
-            {m.results.table.colOutputTokens}
-            {sortDirIcon(column, sorting)}
-          </button>
-        ),
-        cell: ({ row, getValue }) => {
-          const v = getValue();
-          if (v === null || v === undefined) {
-            return <span className="whitespace-nowrap font-mono text-xs">—</span>;
-          }
-          const approx = row.original.tps_source === "approx";
-          return (
-            <span
-              className="whitespace-nowrap font-mono text-xs"
-              title={
-                approx
-                  ? m.results.table.outputTokensApproxTitle
-                  : m.results.table.outputTokensUsageTitle
-              }
-            >
-              {v}
-              {approx ? <span className="text-[var(--muted)]">*</span> : null}
-            </span>
-          );
-        },
-        sortingFn: (a, b) => {
-          const x = a.original.output_tokens ?? -1;
-          const y = b.original.output_tokens ?? -1;
-          return x - y;
-        },
       }),
       columnHelper.accessor("prefill_tps", {
         header: ({ column }) => (

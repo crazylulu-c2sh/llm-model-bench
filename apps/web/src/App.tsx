@@ -143,8 +143,11 @@ import {
   QWEN38_REASONING_EFFORTS,
   QWEN38_REASONING_EFFORT_RECOMMENDED,
   factoryStep3Settings,
+  readConnectionCredentials,
   readInitialUiState,
+  normalizeCredentialBaseUrl,
   saveUiSnapshot,
+  subscribeConnectionCredentials,
   type Qwen38ReasoningEffort,
 } from "./persisted-settings";
 import { useBaseUrlNames } from "./lib/base-url-names";
@@ -334,6 +337,7 @@ export function App() {
   }, [baseUrl, namedBaseUrls]);
   const [apiKey, setApiKey] = useState(boot.apiKey);
   const [persistApiKeyToDisk, setPersistApiKeyToDisk] = useState(boot.persistApiKeyToDisk);
+  const credentialsBaseUrlRef = useRef(boot.baseUrl);
   const [unloadOtherModels, setUnloadOtherModels] = useState(boot.unloadOtherModels);
   const [autoUnloadAfterBench, setAutoUnloadAfterBench] = useState(boot.autoUnloadAfterBench);
   const [loadTtlSeconds, setLoadTtlSeconds] = useState(boot.loadTtlSeconds);
@@ -572,6 +576,7 @@ export function App() {
   // App의 stale state가 stress 페이지의 공유 키 변경(baseUrl/apiKey 등)을 되돌리는 회귀 방지.
   useEffect(() => {
     if (!onBenchPage) return;
+    if (credentialsBaseUrlRef.current !== baseUrl) return;
     const t = window.setTimeout(() => {
       saveUiSnapshot({
         baseUrl,
@@ -626,6 +631,20 @@ export function App() {
     contentionTotalWaitBudgetSec,
     contentionMaxRetries,
   ]);
+
+  useEffect(() => {
+    credentialsBaseUrlRef.current = baseUrl;
+    const next = readConnectionCredentials(baseUrl);
+    setApiKey(next.apiKey);
+    setPersistApiKeyToDisk(next.persistApiKeyToDisk);
+  }, [baseUrl]);
+
+  useEffect(() => subscribeConnectionCredentials((changedUrl) => {
+    if (!onBenchPage || (changedUrl && changedUrl !== baseUrl)) return;
+    const next = readConnectionCredentials(baseUrl);
+    setApiKey((cur) => cur === next.apiKey ? cur : next.apiKey);
+    setPersistApiKeyToDisk((cur) => cur === next.persistApiKeyToDisk ? cur : next.persistApiKeyToDisk);
+  }), [baseUrl, onBenchPage]);
 
   // bench → 다른 라우트 전이 시 *즉시 flush*. 게이트가 debounce를 폐기해도 최종 값 보존.
   const latestBenchSnapshotRef = useRef({
@@ -1323,6 +1342,10 @@ export function App() {
   useEffect(() => { if (!detect) setSelected({}); }, [detect]);
 
   const runDetect = useCallback(async () => {
+    if (!normalizeCredentialBaseUrl(baseUrl)) {
+      toast.error(msg().common.incompleteSettings);
+      return;
+    }
     const isCurrent = beginDetection();
     setDetecting(true);
     setDetect(null);
@@ -2327,7 +2350,7 @@ export function App() {
       type="button"
       className="inline-flex items-center gap-2 rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
       onClick={() => void runDetect()}
-      disabled={detecting}
+      disabled={detecting || !normalizeCredentialBaseUrl(baseUrl)}
       aria-busy={detecting}
       aria-label={msg().bench.detectAria}
     >

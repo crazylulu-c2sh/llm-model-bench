@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { LmsAvailability, MonitorSnapshotResponse } from "@llm-bench/shared";
 import { usePollingFetch } from "./lib/monitor-polling";
 import {
+  readConnectionCredentials,
   readInitialMonitorState,
-  readSessionApiKey,
+  normalizeCredentialBaseUrl,
+  saveConnectionCredentials,
   saveMonitorSnapshot,
-  SESSION_API_KEY,
-  writeSessionApiKey,
+  subscribeConnectionCredentials,
   type MonitorProvider,
 } from "./persisted-settings";
 import { msg, useI18n } from "./i18n";
@@ -34,35 +35,27 @@ export function ProviderMonitorPage() {
   const [provider, setProvider] = useState<MonitorProvider>(boot.provider);
   const [pollEnabled, setPollEnabled] = useState(boot.pollEnabled);
   const [intervalMs, setIntervalMs] = useState<2000 | 5000 | 10000>(boot.intervalMs);
-  const [apiKey, setApiKey] = useState<string>(() => readSessionApiKey());
+  const [connection, setConnection] = useState(() => readConnectionCredentials(boot.baseUrl));
+  const credentialsBaseUrlRef = useRef(boot.baseUrl);
+  const { apiKey, persistApiKeyToDisk } = connection;
 
   useEffect(() => {
     saveMonitorSnapshot({ baseUrl, provider, pollEnabled, intervalMs });
   }, [baseUrl, provider, pollEnabled, intervalMs]);
 
   useEffect(() => {
-    writeSessionApiKey(apiKey);
-  }, [apiKey]);
+    credentialsBaseUrlRef.current = baseUrl;
+    setConnection(readConnectionCredentials(baseUrl));
+  }, [baseUrl]);
 
-  // 다른 탭에서 SESSION_API_KEY 변경 시 동기화.
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === SESSION_API_KEY) setApiKey(e.newValue ?? "");
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
+    if (credentialsBaseUrlRef.current !== baseUrl) return;
+    saveConnectionCredentials(baseUrl, connection);
+  }, [baseUrl, connection]);
 
-  // 같은 탭에서 다른 SPA 라우트가 키를 바꿨다가 모니터로 돌아왔을 때 재읽기.
-  useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState !== "visible") return;
-      const v = readSessionApiKey();
-      setApiKey((cur) => (cur !== v ? v : cur));
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, []);
+  useEffect(() => subscribeConnectionCredentials((changedUrl) => {
+    if (!changedUrl || changedUrl === baseUrl) setConnection(readConnectionCredentials(baseUrl));
+  }), [baseUrl]);
 
   const snapshotInit = useMemo<RequestInit>(
     () => ({
@@ -77,7 +70,7 @@ export function ProviderMonitorPage() {
     "/api/monitor/snapshot",
     snapshotInit,
     intervalMs,
-    pollEnabled,
+    pollEnabled && !!normalizeCredentialBaseUrl(baseUrl),
   );
 
   const avail = usePollingFetch<LmsAvailability>(
@@ -129,12 +122,24 @@ export function ProviderMonitorPage() {
             <input
               type="password"
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              onChange={(e) => setConnection((cur) => ({ ...cur, apiKey: e.target.value }))}
               className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 font-mono text-sm"
               placeholder={m.monitor.apiKeyPlaceholder}
               spellCheck={false}
               autoComplete="off"
             />
+          </label>
+          <label className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={persistApiKeyToDisk}
+              onChange={(e) => {
+                const next = { apiKey, persistApiKeyToDisk: e.target.checked };
+                setConnection(next);
+                saveConnectionCredentials(baseUrl, next);
+              }}
+            />
+            <span>{m.monitor.persistApiKey}</span>
           </label>
           <label className="flex items-center gap-2 text-xs">
             <input

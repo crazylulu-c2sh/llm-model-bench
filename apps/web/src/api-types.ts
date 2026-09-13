@@ -59,7 +59,7 @@ export type StatsModelLatestItem = {
   publisher?: string;
   base_url: string;
   provider: string;
-  finished_at: string;
+  finished_at: string | null;
   created_at: string;
   status: string;
   /** 측정 런이 있는 시나리오 개수 — 0이면 선택 불가 */

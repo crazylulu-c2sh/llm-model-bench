@@ -25,7 +25,7 @@ export const stress: Messages["stress"] = {
     heading: "1) Provider detection",
     apiKeyLabel: "API key (optional)",
     detectBtn: "Detect",
-    persistLabel: "Save API key in this browser (local disk, plaintext)",
+    persistLabel: "Save API key for this base URL (local disk, plaintext)",
     persistWarnBefore: "When off, it is kept only in this tab's ",
     persistWarnMid:
       ", so it survives refreshes but may be lost when the browser closes. When on, it remains in ",

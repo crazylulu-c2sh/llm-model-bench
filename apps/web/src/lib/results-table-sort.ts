@@ -12,7 +12,6 @@ export const BENCH_EXECUTION_SORT: SortingState = [
 export const RESULTS_FIRST_DESC_IDS = new Set([
   "tps",
   "prefill_tps",
-  "output_tokens",
   "quality",
   "agent",
 ]);

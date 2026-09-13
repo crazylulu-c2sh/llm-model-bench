@@ -8,6 +8,7 @@ export const common = {
   cancel: "취소",
   close: "닫기",
   processing: "처리 중…",
+  localTimeZone: (zone: string) => `표시 시간대: ${zone}`,
   copy: "복사",
   copied: "복사됨",
   retry: "다시 시도",

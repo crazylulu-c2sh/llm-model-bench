@@ -31,7 +31,7 @@ export const bench = {
   detecting: "프로바이더 감지 중…",
   apiKeyLabel: "API 키 (선택)",
   apiKeyPlaceholder: "Bearer / 게이트웨이 키",
-  persistApiKeyLabel: "이 브라우저에 API 키 저장 (로컬 디스크, 평문)",
+  persistApiKeyLabel: "이 Base URL에 API 키 저장 (로컬 디스크, 평문)",
   persistApiKeyHintA: "끄면 같은 탭에서만 ",
   persistApiKeyHintB: "에 보관되어 새로고침은 유지되나 브라우저를 닫으면 사라질 수 있습니다. 켜면 ",
   persistApiKeyHintC: " 평문으로 남으며 XSS 등에 노출될 수 있습니다.",

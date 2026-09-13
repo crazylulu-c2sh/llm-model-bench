@@ -10,6 +10,7 @@ export const common: Messages["common"] = {
   cancel: "キャンセル",
   close: "閉じる",
   processing: "処理中…",
+  localTimeZone: (zone) => `表示タイムゾーン: ${zone}`,
   copy: "コピー",
   copied: "コピーしました",
   retry: "再試行",

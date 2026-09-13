@@ -6,7 +6,8 @@ export const monitor: Messages["monitor"] = {
   polling: "ポーリング",
   interval: "間隔",
   intervalOption: (sec) => `${sec}秒`,
-  apiKeyLabel: "API Key（任意・セッション限定）",
+  apiKeyLabel: "API Key（任意・この Base URL 用）",
+  persistApiKey: "この Base URL に API キーを保存（平文）",
   apiKeyPlaceholder: "必要な場合に入力",
 
   noData: "データなし",

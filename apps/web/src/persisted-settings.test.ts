@@ -7,6 +7,9 @@ import {
   readInitialMonitorState,
   readInitialStressState,
   readInitialUiState,
+  normalizeCredentialBaseUrl,
+  readConnectionCredentials,
+  saveConnectionCredentials,
   saveMonitorSnapshot,
   saveStressSnapshot,
   STRESS_PREFS_STORAGE_KEY,
@@ -233,6 +236,32 @@ describe("readInitialUiState contention guard + v2→v3 migration", () => {
     expect(s.contentionPreBenchTimeoutSec).toBe("30");
     expect(s.contentionTotalWaitBudgetSec).toBe("900");
     expect(s.contentionMaxRetries).toBe("4");
+  });
+});
+
+describe("base URL scoped API credentials", () => {
+  it("normalizes only URL spelling that is safe to normalize", () => {
+    expect(normalizeCredentialBaseUrl(" HTTPS://EXAMPLE.com:443/api/// ")).toBe("https://example.com/api");
+    expect(normalizeCredentialBaseUrl("http://example.com:8080/api")).toBe("http://example.com:8080/api");
+    expect(normalizeCredentialBaseUrl("example.com:1234")).toBeNull();
+  });
+
+  it("isolates session and disk credentials by normalized base URL", () => {
+    saveConnectionCredentials("https://EXAMPLE.com:443/api/", { apiKey: "disk-key", persistApiKeyToDisk: true });
+    saveConnectionCredentials("http://example.com:1234", { apiKey: "session-key", persistApiKeyToDisk: false });
+
+    expect(readConnectionCredentials("https://example.com/api")).toEqual({ apiKey: "disk-key", persistApiKeyToDisk: true });
+    expect(readConnectionCredentials("http://EXAMPLE.COM:1234/")).toEqual({ apiKey: "session-key", persistApiKeyToDisk: false });
+    expect(readConnectionCredentials("http://example.com:9999")).toEqual({ apiKey: "", persistApiKeyToDisk: false });
+  });
+
+  it("does not restore legacy global credentials", () => {
+    window.localStorage.setItem(
+      PREFS_STORAGE_KEY,
+      JSON.stringify({ v: 3, baseUrl: "http://legacy.example", apiKey: "old", persistApiKeyToDisk: true }),
+    );
+    expect(readInitialUiState().apiKey).toBe("");
+    expect(readInitialUiState().persistApiKeyToDisk).toBe(false);
   });
 });
 

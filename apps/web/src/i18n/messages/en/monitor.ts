@@ -6,7 +6,8 @@ export const monitor: Messages["monitor"] = {
   polling: "Polling",
   interval: "Interval",
   intervalOption: (sec) => `${sec}s`,
-  apiKeyLabel: "API Key (optional, session only)",
+  apiKeyLabel: "API Key (optional, for this base URL)",
+  persistApiKey: "Save API key for this base URL (plaintext)",
   apiKeyPlaceholder: "Enter if required",
 
   noData: "No data",

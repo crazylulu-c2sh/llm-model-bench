@@ -21,6 +21,7 @@ import { defaultScenarioPromptPreview, defaultScenarioSystemPromptPreview } from
 import { compareModelIdAlphanumeric, compareModelKey, normalizeBaseUrl } from "./lib/model-sort";
 import { buildChartRowsFromBenchState, mergeBenchDetailsToState, type MetricsAgg } from "./stats/hydrateBenchUi";
 import { useI18n, msg } from "./i18n";
+import { localTimeZoneName } from "./lib/time-format";
 
 function statsItemHasResults(it: StatsModelLatestItem): boolean {
   return (it.scenario_count ?? 0) > 0;
@@ -101,10 +102,6 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
         return it != null && statsItemHasResults(it);
       }),
     );
-  }, [listItems]);
-
-  useEffect(() => {
-    setStatsListSorting(DEFAULT_STATS_MODEL_SORTING);
   }, [listItems]);
 
   const selectionKey = selectedIds.slice().sort().join("\0");
@@ -342,6 +339,7 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
         <p className="mb-3 text-xs text-[var(--muted)]">
           {m.stats.savedModelsDesc}
         </p>
+        <p className="mb-3 text-xs text-[var(--muted)]">{m.common.localTimeZone(localTimeZoneName())}</p>
         {listLoading ? (
           <div role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]">
             <Loader2 className="size-4 animate-spin" aria-hidden />
