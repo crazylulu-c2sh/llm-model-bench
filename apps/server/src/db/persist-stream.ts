@@ -20,6 +20,9 @@ export class BenchRunPersistence {
   private runId: string | null = null;
   private hadError = false;
   private cancelled = false;
+  private completedMeasurements = 0;
+  private completedWarmups = 0;
+  private warnings: Array<Record<string, unknown>> = [];
   private lastMeta: BenchRunMeta | null = null;
   /** `scenario_id|api_route` → 마지막 `scenario_start.user_prompt` (동적 프롬프트 정합) */
   private lastUserPromptByScenarioKey = new Map<string, string>();
@@ -35,6 +38,9 @@ export class BenchRunPersistence {
     this.logSeq = 0;
     this.hadError = false;
     this.cancelled = false;
+    this.completedMeasurements = 0;
+    this.completedWarmups = 0;
+    this.warnings = [];
     this.lastUserPromptByScenarioKey.clear();
     this.lastSystemPromptByScenarioKey.clear();
     insertRun(this.db, {
@@ -99,9 +105,23 @@ export class BenchRunPersistence {
         break;
       }
       case "scenario_end":
+        if (ev.phase === "measured") this.completedMeasurements += 1;
+        else if (ev.phase === "warmup") this.completedWarmups += 1;
         this.logLine(
           `scenario_end ${ev.scenario_id} ttft=${ev.metrics.ttft_ms ?? "null"} pass=${ev.quality?.pass ?? "n/a"}`,
         );
+        break;
+      case "warning":
+        this.warnings.push({
+          code: ev.code,
+          message: ev.message,
+          ...(ev.requested !== undefined ? { requested: ev.requested } : {}),
+          ...(ev.observed !== undefined ? { observed: ev.observed } : {}),
+          ...(ev.scenario_id ? { scenario_id: ev.scenario_id } : {}),
+          ...(ev.api_route ? { api_route: ev.api_route } : {}),
+        });
+        updateRunMetaJson(this.db, this.runId, { warnings: this.warnings });
+        this.logLine(`warning ${ev.code}: ${ev.message.slice(0, 500)}`);
         break;
       case "iteration_discarded":
         this.logLine(
@@ -165,7 +185,18 @@ export class BenchRunPersistence {
 
   finalize(): void {
     if (!this.db || !this.runId) return;
-    finishRun(this.db, this.runId, this.cancelled ? "cancelled" : this.hadError ? "partial" : "ok");
+    const planned = this.lastMeta?.planned_measurements ?? 0;
+    const status = this.cancelled
+      ? "cancelled"
+      : this.hadError
+        ? planned > 0 && this.completedMeasurements === 0 ? "error" : "partial"
+        : planned <= 0 || this.completedMeasurements >= planned ? "ok" : this.completedMeasurements > 0 ? "partial" : "error";
+    updateRunMetaJson(this.db, this.runId, {
+      completed_measurements: this.completedMeasurements,
+      completed_warmups: this.completedWarmups,
+      ...(this.warnings.length ? { warnings: this.warnings } : {}),
+    });
+    finishRun(this.db, this.runId, status);
     this.runId = null;
     this.lastMeta = null;
     this.lastUserPromptByScenarioKey.clear();

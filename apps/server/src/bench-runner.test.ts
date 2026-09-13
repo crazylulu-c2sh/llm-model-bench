@@ -812,8 +812,8 @@ describe("runBench wire — Qwen3.8 reasoning_effort (dual transport)", () => {
 });
 
 // Section A — vision-specific behavior (D5/D7) and judge integration
-describe("runBench vision D7 — warmup skips vision scenarios", () => {
-  it("does not call upstream for vision scenario during warmup iterations", async () => {
+describe("runBench vision warmup", () => {
+  it("uses the same vision request for warmup and measured iterations", async () => {
     let chatCalls = 0;
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
@@ -837,8 +837,8 @@ describe("runBench vision D7 — warmup skips vision scenarios", () => {
     )) {
       void _;
     }
-    // measured 1회만 호출되어야 한다 — warmup은 비전에서 스킵.
-    expect(chatCalls).toBe(1);
+    // warmup 1회와 measured 1회 모두 실제 비전 경로를 사용한다.
+    expect(chatCalls).toBe(2);
   });
 });
 

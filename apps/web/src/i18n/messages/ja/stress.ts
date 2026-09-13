@@ -199,6 +199,7 @@ export const stress: Messages["stress"] = {
   toast: {
     selectModel: "プロバイダーを検出してモデルを1つ選択してください。",
     benchError: (code) => `プロバイダーベンチのエラー: ${code}`,
+    runCompletionSummary: (completed, planned, warnings) => `完了 ${completed}/${planned} · 警告 ${warnings}件`,
     aborted: "中断しました — 部分的な結果は保持されます。",
     detectFailed: (status, detail) => `検出に失敗: ${status} ${detail}`,
     detectException: (err) => `検出例外: ${err}`,

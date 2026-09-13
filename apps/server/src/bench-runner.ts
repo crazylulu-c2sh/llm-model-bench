@@ -253,6 +253,8 @@ export function makeBenchRunMeta(
     // v11: 시나리오 프롬프트 하드닝(형식·앵커·deferral false-FAIL 제거) — 모델 입력이 바뀌어
     // 이전 런과 **비교 불가**. 채점 로직·threshold·ground-truth 는 불변.
     scenario_bundle_version: "11",
+    evaluation_protocol_version: "1",
+    warmup_protocol_version: "2",
     temperature: input.temperature ?? 0.2,
     max_tokens: input.max_tokens ?? 512,
     request_max_tokens: input.max_tokens ?? null,
@@ -261,6 +263,8 @@ export function makeBenchRunMeta(
     parallel: false,
     warmup_runs: input.warmupRuns ?? 1,
     measured_runs: input.measuredRuns ?? 3,
+    planned_warmups: scenarioIds.length * routes.length * (input.warmupRuns ?? 1),
+    planned_measurements: scenarioIds.length * routes.length * (input.measuredRuns ?? 3),
     unload_other_models: !!input.unloadOtherModels,
     auto_unload_after_bench: !!input.autoUnloadAfterBench,
     load_ttl_seconds:
@@ -696,13 +700,14 @@ export async function* runBench(
     if (prepared.contextLengthWarning) {
       const { requestedContextLength, actualContextLength } = prepared.contextLengthWarning;
       yield {
-        type: "error",
-        layer: "orchestrator",
+        type: "warning",
         code: "lm_studio_context_length_unconfirmed",
         message:
           `LM Studio가 요청한 context_length(${requestedContextLength})보다 큰 값` +
           `(${actualContextLength})으로 모델을 로드한 것으로 보입니다 — TTL 경로(JIT 로드)는 ` +
           `context_length를 강제할 수 없어 사후 확인만 가능합니다.`,
+        requested: requestedContextLength,
+        observed: actualContextLength,
       };
     }
     modelLoadedByThisBench = prepared.loadedByThisRun;
@@ -808,6 +813,9 @@ export async function* runBench(
           ttft_ms: number | null;
           total_ms: number;
           output_text: string;
+          reasoning_text?: string;
+          final_answer?: string;
+          response_separation?: "api_fields" | "known_markers" | "none";
           stream_completed: boolean;
           usage_output_tokens: number | null;
           /** provider 보고 입력/프롬프트 토큰(없으면 null). 프리필 TPS. */
@@ -874,12 +882,6 @@ export async function* runBench(
           const ref = calendarReferenceAt(new Date());
           const visionThisRun = isVisionScenario(scenarioId);
 
-          // D7: 비전 시나리오는 warmup 단계에서 호출하지 않는다 — 이미지
-          // 인코딩·멀티모달 API 비용을 warmup에서 중복시키지 않음.
-          if (isWarmup && visionThisRun) {
-            i++;
-            continue;
-          }
           // STEP 3: 이터레이션 간 유휴 게이트(워밍업 포함 모든 이터). 타임아웃/예산 초과면 런 중단.
           let segBaseline: InFlightBaseline | null = null;
           if (contentionCfg.enabled) {
@@ -970,6 +972,8 @@ export async function* runBench(
             type: "scenario_start",
             scenario_id: scenarioId,
             api_route,
+            phase: isWarmup ? "warmup" : "measured",
+            measurement_index: isWarmup ? undefined : i - meta.warmup_runs,
             system_prompt: systemPromptThisRun,
             user_prompt: userPromptThisRun,
             ...(visionRefs ? { image_refs: visionRefs } : {}),
@@ -1013,6 +1017,7 @@ export async function* runBench(
 
           try {
             let text = "";
+            let reasoningTextForRecord = "";
             /** 채점 전용 텍스트. null이면 `text` 사용. Anthropic 경로에서 추론(thinking)을 제외한
                 가시 본문+tool JSON으로 설정해 채점을 오염시키지 않으면서, `text`(output_text/throughput)는
                 추론을 포함하도록 분리한다. */
@@ -1340,6 +1345,7 @@ export async function* runBench(
                   continue;
                 }
                 scoreText = m.assistantText;
+                reasoningTextForRecord = m.reasoningText;
                 text = m.reasoningText ? `${m.reasoningText}${m.assistantText}` : m.assistantText;
                 break;
               }
@@ -1486,6 +1492,7 @@ export async function* runBench(
                 // 채점: 추론 제외(가시 본문 + tool JSON). output_text/throughput: 추론 포함(chat 경로와 동일).
                 if (m.sawThinkingBlock) sawThinkingBlock = true;
                 scoreText = m.text;
+                reasoningTextForRecord = m.reasoningText;
                 text = m.reasoningText ? `${m.reasoningText}${m.text}` : m.text;
                 ttft = m.ttftMs;
                 totalMs = m.totalMs;
@@ -1618,6 +1625,9 @@ export async function* runBench(
             //   reasoning_leaked_into_content(chat·분리채널 비어있을 때만)의 일반화 — 모든 라우트에서 판정.
             // - emptyResponse: 가시 content 비었고 tool_call도 없음 → 에이전트 정체(empty_turn).
             const visibleText = scoreText ?? text;
+            const finalAnswer = stripThinkingBlocks(visibleText);
+            const responseSeparation =
+              reasoningChars > 0 ? "api_fields" as const : finalAnswer !== visibleText.trim() ? "known_markers" as const : "none" as const;
             const channelTagLeak = stripThinkingBlocks(visibleText) !== visibleText.trim();
             const emptyResponse =
               stripThinkingBlocks(visibleText) === "" && invokedBenchTools.length === 0;
@@ -1634,6 +1644,9 @@ export async function* runBench(
                 ttft_ms: ttft,
                 total_ms: totalMs,
                 output_text: text,
+                ...(reasoningChars > 0 ? { reasoning_text: reasoningTextForRecord } : {}),
+                final_answer: finalAnswer,
+                response_separation: responseSeparation,
                 stream_completed: streamCompleted,
                 usage_output_tokens: usageOutputTokens,
                 usage_prompt_tokens: usagePromptTokens,
@@ -1674,6 +1687,8 @@ export async function* runBench(
               type: "scenario_end",
               scenario_id: scenarioId,
               api_route,
+              phase: isWarmup ? "warmup" : "measured",
+              measurement_index: isWarmup ? undefined : i - meta.warmup_runs,
               metrics: {
                 ttft_ms: ttft,
                 total_ms: totalMs,
@@ -1746,6 +1761,8 @@ export async function* runBench(
                 type: "scenario_end",
                 scenario_id: scenarioId,
                 api_route,
+                phase: isWarmup ? "warmup" : "measured",
+                measurement_index: isWarmup ? undefined : i - meta.warmup_runs,
                 metrics: {
                   ttft_ms: null,
                   total_ms: 0,
@@ -1859,7 +1876,12 @@ export async function* runBench(
       };
     }
 
-    yield { type: "run_finished", run_id: rid, ...(userCancelled ? { reason: "cancelled" as const } : {}) };
+    yield {
+      type: "run_finished",
+      run_id: rid,
+      ...(userCancelled ? { reason: "cancelled" as const, status: "cancelled" as const } : { status: "ok" as const }),
+      planned_measurements: meta.planned_measurements,
+    };
   } finally {
     unregisterRunControl(rid);
     if (

@@ -877,6 +877,14 @@ export const CompareThresholdsSchema = z.object({
 | regression thresholds | `qualityDropAbs` · `tpsRegressionPct` · `ttftRegressionPct` · `flagNewEmptyTurns`. |
 | WAL | 런 DB가 쓰는 SQLite write-ahead logging 모드. |
 
+## §11. 실행 완료·경고 계약
+
+새 실행은 `planned_measurements`와 `completed_measurements`를 기록합니다. 전체 측정이 끝나면 `ok`, 일부 측정 후 중단되면 `partial`, 측정 없이 실패하면 `error`, 사용자가 중단하면 `cancelled`입니다. 품질 `pass:false`는 측정 완료를 취소하지 않습니다.
+
+컨텍스트 불일치·TTL 미확인처럼 실행은 계속할 수 있는 관측은 `warning` 이벤트로 전달합니다. 경고에는 `code`, `message`, `requested`, `observed`, 관련 시나리오와 API 경로를 담고 DB의 새 런 메타에도 저장합니다. `error`는 실제 로딩·추론 실패에만 사용합니다. 기존 기록에는 새 집계를 소급하지 않습니다.
+
+비전 시나리오도 텍스트 시나리오와 같은 이미지·설정으로 지정된 워밍업 횟수를 실행합니다. 워밍업은 `completed_warmups`에 기록하고 점수·성능 집계에서는 제외하며, 측정 횟수와 워밍업 횟수는 실행 메타에서 구분합니다.
+
 ## 부록 B. 레퍼런스
 
 외부 출처는 본문에서 근거가 되는 정확한 지점마다 각주로 인용했으며, 이 페이지 맨 아래의 번호 목록으로 모입니다(각 항목에 `↩` 역링크). 내부 참고 문서는 아래에 정리합니다.

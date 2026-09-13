@@ -365,6 +365,17 @@ export type DetectResult = z.infer<typeof DetectResultSchema>;
 export const FitPolicySchema = z.enum(["skip", "unload_other_models"]).optional();
 export type FitPolicy = z.infer<typeof FitPolicySchema>;
 
+/** 실행 완료와 별개로 기록하는 관측·설정 경고. 기존 런에는 소급하지 않는다. */
+export const RunWarningSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  requested: z.unknown().optional(),
+  observed: z.unknown().optional(),
+  scenario_id: z.string().optional(),
+  api_route: z.enum(["chat_completions", "messages"]).optional(),
+});
+export type RunWarning = z.infer<typeof RunWarningSchema>;
+
 /** #174: `max_tokens` 실효값이 어느 소스에서 왔는지. `resolveEffectiveMaxTokens`와 값 집합 동일. */
 export const MaxTokensSourceSchema = z.enum([
   "request",
@@ -404,6 +415,8 @@ export const BenchRunMetaSchema = z.object({
   api_routes: z.array(z.enum(["chat_completions", "messages"])),
   scenario_ids: z.array(z.string()),
   scenario_bundle_version: z.string(),
+  evaluation_protocol_version: z.string().optional(),
+  warmup_protocol_version: z.string().optional(),
   temperature: z.number(),
   max_tokens: z.number(),
   /**
@@ -451,6 +464,12 @@ export const BenchRunMetaSchema = z.object({
   parallel: z.boolean(),
   warmup_runs: z.number(),
   measured_runs: z.number(),
+  /** 새 런에서만 채우는 완료 계약. 과거 기록에는 소급하지 않는다. */
+  planned_measurements: z.number().int().nonnegative().optional(),
+  completed_measurements: z.number().int().nonnegative().optional(),
+  planned_warmups: z.number().int().nonnegative().optional(),
+  completed_warmups: z.number().int().nonnegative().optional(),
+  warnings: z.array(RunWarningSchema).optional(),
   /** LM Studio: 벤치 대상 외 감지 모델에 unload 시도 여부 */
   unload_other_models: z.boolean().optional(),
   /** LM Studio: 이번 런이 모델을 로드한 경우에만 끝날 때 unload 시도 여부 */
@@ -546,6 +565,8 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     type: z.literal("scenario_start"),
     scenario_id: z.string(),
     api_route: z.enum(["chat_completions", "messages"]),
+    phase: z.enum(["warmup", "measured"]).optional(),
+    measurement_index: z.number().int().nonnegative().optional(),
     /** 실제 system 메시지 — 라이브 UI 상세와 요청 정합용 */
     system_prompt: z.string().optional(),
     /** 실제 user 메시지 — 라이브 UI 상세와 요청 정합용 */
@@ -564,6 +585,8 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     type: z.literal("scenario_end"),
     scenario_id: z.string(),
     api_route: z.enum(["chat_completions", "messages"]).optional(),
+    phase: z.enum(["warmup", "measured"]).optional(),
+    measurement_index: z.number().int().nonnegative().optional(),
     metrics: z.object({
       ttft_ms: z.number().nullable().optional(),
       total_ms: z.number(),
@@ -599,6 +622,19 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     run_id: z.string(),
     /** 사용자가 `/bench/:runId/stop`으로 긴급 정지했을 때만 채워짐(정상 완료 시 없음). */
     reason: z.enum(["cancelled"]).optional(),
+    status: z.enum(["ok", "partial", "error", "cancelled"]).optional(),
+    planned_measurements: z.number().int().nonnegative().optional(),
+    completed_measurements: z.number().int().nonnegative().optional(),
+    warnings: z.array(RunWarningSchema).optional(),
+  }),
+  z.object({
+    type: z.literal("warning"),
+    code: z.string(),
+    message: z.string(),
+    requested: z.unknown().optional(),
+    observed: z.unknown().optional(),
+    scenario_id: z.string().optional(),
+    api_route: z.enum(["chat_completions", "messages"]).optional(),
   }),
   z.object({
     type: z.literal("error"),
@@ -729,6 +765,10 @@ export const BenchResultSchema = z.object({
           ttft_ms: z.number().nullable(),
           total_ms: z.number(),
           output_text: z.string(),
+          /** 원본 결합 출력은 보존하고, 새 런은 분리된 추론·최종 답변도 함께 기록한다. */
+          reasoning_text: z.string().optional(),
+          final_answer: z.string().optional(),
+          response_separation: z.enum(["api_fields", "known_markers", "none"]).optional(),
           stream_completed: z.boolean(),
           /** provider 보고 출력 토큰 수(없으면 null/미존재). 있으면 디코드 TPS가 이 값을 사용. */
           usage_output_tokens: z.number().nullable().optional(),

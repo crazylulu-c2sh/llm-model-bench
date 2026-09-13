@@ -174,6 +174,8 @@ export function makeStressRunMeta(
       input.loadTtlSeconds > 0
         ? Math.floor(input.loadTtlSeconds)
         : undefined,
+    planned_measurements: Math.floor((ramp.max - ramp.start) / ramp.step) + 1,
+    completed_measurements: 0,
     created_at: new Date().toISOString(),
   };
   if (resolved) {
@@ -371,12 +373,14 @@ export async function* runStress(
     if (prepared.contextLengthWarning) {
       const { requestedContextLength, actualContextLength } = prepared.contextLengthWarning;
       yield {
-        type: "error",
+        type: "warning",
         code: "lm_studio_context_length_unconfirmed",
         message:
           `LM Studio가 요청한 context_length(${requestedContextLength})보다 큰 값` +
           `(${actualContextLength})으로 모델을 로드한 것으로 보입니다 — TTL 경로(JIT 로드)는 ` +
           `context_length를 강제할 수 없어 사후 확인만 가능합니다.`,
+        requested: requestedContextLength,
+        observed: actualContextLength,
       };
     }
     modelLoadedByThisRun = prepared.loadedByThisRun;
@@ -758,7 +762,16 @@ export async function* runStress(
       if (externalSignal?.aborted) break;
     }
 
-    yield { type: "run_finished", run_id: rid, stages };
+    const cancelled = externalSignal?.aborted === true;
+    const hasFailedRequests = stages.some((stage) => stage.error_rate > 0);
+    yield {
+      type: "run_finished",
+      run_id: rid,
+      stages,
+      status: cancelled ? "cancelled" : hasFailedRequests ? "partial" : stages.length > 0 ? "ok" : "error",
+      planned_measurements: stages.length,
+      completed_measurements: stages.filter((stage) => stage.requests_succeeded > 0).length,
+    };
   } finally {
     if (
       (input.provider === "lm_studio" || input.provider === "unsloth_studio") &&

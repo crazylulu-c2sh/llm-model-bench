@@ -877,6 +877,14 @@ Terms used across this document, grouped by the section that explains them in de
 | regression thresholds | `qualityDropAbs` · `tpsRegressionPct` · `ttftRegressionPct` · `flagNewEmptyTurns`. |
 | WAL | SQLite write-ahead logging mode used by the run DB. |
 
+## §11. Completion and warning contract
+
+New runs record `planned_measurements` and `completed_measurements`. A run is `ok` when all measurements finish, `partial` when some measurements finish before stopping, `error` when none finish because of a failure, and `cancelled` when the user stops it. `pass:false` quality results do not make a completed measurement incomplete.
+
+Recoverable observations such as context mismatch or unconfirmed TTL are emitted as `warning` events with `code`, `message`, `requested`, `observed`, and optional scenario and route fields. They are stored in new run metadata; `error` is reserved for actual load or inference failures. Historical records are not backfilled.
+
+Vision scenarios execute the configured warmup count with the same image and settings as measured runs. Warmups are recorded separately, excluded from score and performance aggregates, and retained in run metadata.
+
 ## Appendix B. References
 
 External sources are cited as footnotes at the exact spots they back up in the body; they collect into the numbered list at the end of this page (each with a `↩` back-link). Internal references are listed below.

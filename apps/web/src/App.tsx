@@ -278,6 +278,7 @@ type BenchStreamState = {
   lastScenarioStart: { sid: string; api: string } | null;
   iterInScenario: number;
   pendingRetry: boolean;
+  warningCount: number;
 };
 
 function makeBenchStreamState(): BenchStreamState {
@@ -289,6 +290,7 @@ function makeBenchStreamState(): BenchStreamState {
     lastScenarioStart: null,
     iterInScenario: 0,
     pendingRetry: false,
+    warningCount: 0,
   };
 }
 
@@ -1609,6 +1611,10 @@ export function App() {
       }
       if (ev.type === "run_finished") {
         state.sawRunFinished = true;
+        const warnings = ev.warnings?.length ?? state.warningCount;
+        if (ev.planned_measurements != null && ev.completed_measurements != null) {
+          pushBenchLine("warn", msg().bench.eventCompletionSummary(ev.completed_measurements, ev.planned_measurements, warnings));
+        }
         if (ev.reason === "cancelled") {
           state.cancelledByUser = true;
           pushBenchLine("warn", msg().bench.eventRunCancelled(modelId));
@@ -1617,6 +1623,11 @@ export function App() {
           pushBenchLine("ok", msg().bench.eventRunFinished(modelId));
         }
         setBenchCurrent({ modelId });
+      }
+      if (ev.type === "warning") {
+        state.warningCount += 1;
+        pushBenchLine("warn", `${ev.code}: ${ev.message}`);
+        appendLog(`warning ${ev.code}: ${ev.message}`);
       }
       if (ev.type === "token_delta") {
         setPreview((p) => (p + ev.text).slice(-8000));

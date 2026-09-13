@@ -282,6 +282,7 @@ export const bench: Messages["bench"] = {
   iterMeasured: (cur, total) => `測定 ${cur}/${total}`,
   eventScenarioStart: (scenarioId, api, iterLabel) => `開始 · ${scenarioId} · ${api} (${iterLabel})`,
   eventRunFinished: (modelId) => `ラン完了 · ${modelId}`,
+  eventCompletionSummary: (completed, planned, warnings) => `完了 ${completed}/${planned} · 警告 ${warnings}件`,
   eventRunCancelled: (modelId) => `停止しました · ${modelId}`,
   waitPhasePre: "事前",
   waitPhaseBetween: "反復間",
