@@ -281,6 +281,7 @@ export const bench: Messages["bench"] = {
   iterMeasured: (cur, total) => `measured ${cur}/${total}`,
   eventScenarioStart: (scenarioId, api, iterLabel) => `start · ${scenarioId} · ${api} (${iterLabel})`,
   eventRunFinished: (modelId) => `Run finished · ${modelId}`,
+  eventCompletionSummary: (completed, planned, warnings) => `Complete ${completed}/${planned} · ${warnings} warning(s)`,
   eventRunCancelled: (modelId) => `Stopped · ${modelId}`,
   waitPhasePre: "pre-bench",
   waitPhaseBetween: "between-iter",

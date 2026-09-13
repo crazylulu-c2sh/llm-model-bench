@@ -201,6 +201,7 @@ export const stress: Messages["stress"] = {
   toast: {
     selectModel: "Detect a provider and select one model.",
     benchError: (code) => `Provider bench error: ${code}`,
+    runCompletionSummary: (completed, planned, warnings) => `Complete ${completed}/${planned} · ${warnings} warning(s)`,
     aborted: "Aborted — partial results are kept.",
     detectFailed: (status, detail) => `Detection failed: ${status} ${detail}`,
     detectException: (err) => `Detection exception: ${err}`,

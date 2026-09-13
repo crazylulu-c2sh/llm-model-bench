@@ -38,7 +38,7 @@ const EMPTY_FILTERS: AppliedFilters = { workload_id: "", status: "", model_id: "
 
 const EMPTY_OPTIONS = {
   workload_ids: [] as string[],
-  statuses: [] as Array<"running" | "ok" | "partial" | "error">,
+  statuses: [] as Array<"running" | "ok" | "partial" | "error" | "cancelled">,
   model_ids: [] as string[],
   base_urls: [] as string[],
 };

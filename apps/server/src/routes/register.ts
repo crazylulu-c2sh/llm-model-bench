@@ -150,7 +150,7 @@ function categoriesFromMeasuredIds(joined: string | null): ScenarioCategory[] {
   return SCENARIO_CATEGORY_ORDER.filter((c) => present.has(c));
 }
 
-const STRESS_STATUS_VALUES = ["running", "ok", "partial", "error"] as const;
+const STRESS_STATUS_VALUES = ["running", "ok", "partial", "error", "cancelled"] as const;
 const emptyStressFilterOptions = () => ({
   workload_ids: [] as string[],
   statuses: [] as Array<(typeof STRESS_STATUS_VALUES)[number]>,

@@ -5,7 +5,7 @@ const FIELDS = [
   "temperature", "max_tokens", "request_max_tokens", "profile_max_tokens_override", "seed", "effective_sampling", "stop", "extra_body",
   "reasoning_effort", "profile_id", "profile_version", "profile_preset", "profile_task_mode",
   "profile_thinking_intent", "profile_preserve_thinking", "prompt_rules_applied",
-  "scenario_bundle_version",
+  "scenario_bundle_version", "evaluation_protocol_version", "warmup_protocol_version",
 ] as const;
 
 export function canonicalJson(value: unknown): string {

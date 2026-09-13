@@ -282,6 +282,7 @@ export const bench = {
   iterMeasured: (cur: number, total: number) => `측정 ${cur}/${total}`,
   eventScenarioStart: (scenarioId: string, api: string, iterLabel: string) => `시작 · ${scenarioId} · ${api} (${iterLabel})`,
   eventRunFinished: (modelId: string) => `런 완료 · ${modelId}`,
+  eventCompletionSummary: (completed: number, planned: number, warnings: number) => `완료 ${completed}/${planned} · 경고 ${warnings}건`,
   eventRunCancelled: (modelId: string) => `정지됨 · ${modelId}`,
   waitPhasePre: "사전",
   waitPhaseBetween: "반복간",

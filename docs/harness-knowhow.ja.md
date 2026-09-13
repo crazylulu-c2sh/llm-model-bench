@@ -873,6 +873,14 @@ export const CompareThresholdsSchema = z.object({
 | regression thresholds | `qualityDropAbs` · `tpsRegressionPct` · `ttftRegressionPct` · `flagNewEmptyTurns`。 |
 | WAL | 実行 DB が使う SQLite の write-ahead logging モード。 |
 
+## §11. 実行完了と警告の契約
+
+新しい実行では `planned_measurements` と `completed_measurements` を記録します。すべての測定が終われば `ok`、一部の測定後に停止すれば `partial`、測定なしで失敗すれば `error`、ユーザーが停止すれば `cancelled` です。品質の `pass:false` は完了した測定を未完了にはしません。
+
+コンテキスト不一致や TTL 未確認など、実行を継続できる観測は `warning` イベントとして `code`、`message`、`requested`、`observed`、任意のシナリオとルートを含めて送ります。新しい実行のメタデータに保存し、実際のロード・推論失敗だけを `error` とします。過去の記録は遡及更新しません。
+
+ビジョンシナリオも、測定と同じ画像・設定で指定回数のウォームアップを実行します。ウォームアップは別に記録し、スコアと性能集計から除外します。
+
 ## 付録 B. リファレンス
 
 外部の出典は、本文中で根拠となる正確な箇所に脚注として付けており、このページ末尾の番号付きリストにまとまります（各項目に `↩` の戻りリンク付き）。内部参照ドキュメントは以下に整理します。

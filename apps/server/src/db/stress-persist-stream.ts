@@ -4,6 +4,7 @@ import {
   finishStressRun,
   insertStressRun,
   markStressRunErrorPartial,
+  updateStressRunMetaJson,
   upsertStressStage,
 } from "./database.js";
 
@@ -15,6 +16,9 @@ import {
 export class StressRunPersistence {
   private runId: string | null = null;
   private hadError = false;
+  private cancelled = false;
+  private completedMeasurements = 0;
+  private warnings: Array<Record<string, unknown>> = [];
 
   constructor(private readonly db: DatabaseSync | null) {}
 
@@ -22,6 +26,9 @@ export class StressRunPersistence {
     if (!this.db) return;
     this.runId = meta.run_id;
     this.hadError = false;
+    this.cancelled = false;
+    this.completedMeasurements = 0;
+    this.warnings = [];
     insertStressRun(this.db, {
       run_id: meta.run_id,
       created_at: meta.created_at,
@@ -45,8 +52,16 @@ export class StressRunPersistence {
           concurrency: r.concurrency,
           result_json: JSON.stringify(r),
         });
+        this.completedMeasurements += r.requests_succeeded > 0 ? 1 : 0;
         break;
       }
+      case "warning":
+        this.warnings.push({ code: ev.code, message: ev.message, ...(ev.requested !== undefined ? { requested: ev.requested } : {}), ...(ev.observed !== undefined ? { observed: ev.observed } : {}) });
+        updateStressRunMetaJson(this.db, this.runId, { warnings: this.warnings });
+        break;
+      case "run_finished":
+        this.cancelled = ev.status === "cancelled";
+        break;
       case "error": {
         this.hadError = true;
         markStressRunErrorPartial(this.db, this.runId, ev.code, ev.message);
@@ -59,7 +74,16 @@ export class StressRunPersistence {
 
   finalize(): void {
     if (!this.db || !this.runId) return;
-    finishStressRun(this.db, this.runId, this.hadError ? "partial" : "ok");
+    const status = this.cancelled
+      ? "cancelled"
+      : this.hadError
+        ? this.completedMeasurements > 0 ? "partial" : "error"
+        : this.completedMeasurements > 0 ? "ok" : "error";
+    updateStressRunMetaJson(this.db, this.runId, {
+      completed_measurements: this.completedMeasurements,
+      ...(this.warnings.length ? { warnings: this.warnings } : {}),
+    });
+    finishStressRun(this.db, this.runId, status);
     this.runId = null;
   }
 }

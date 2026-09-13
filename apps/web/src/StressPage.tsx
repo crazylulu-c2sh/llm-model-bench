@@ -427,6 +427,16 @@ export function StressPage() {
             setStages(ev.stages);
             setRunStatus("finished");
             setStageStartedAt(null);
+            if (ev.planned_measurements != null && ev.completed_measurements != null) {
+              const warningCount = ev.warnings?.length ?? 0;
+              const summary = m.stress.toast.runCompletionSummary(ev.completed_measurements, ev.planned_measurements, warningCount);
+              if (warningCount > 0) toast.warning(summary);
+              else toast(summary);
+            }
+            break;
+          }
+          case "warning": {
+            toast.warning(`${ev.code}: ${ev.message}`);
             break;
           }
           // 서버는 model_loaded를 정상 emit하지만 이 switch에 케이스가 없어 그대로 버려졌다 —

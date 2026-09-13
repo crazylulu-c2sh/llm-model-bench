@@ -165,7 +165,7 @@ describe("실패 원인 보존 (#110 후속)", () => {
     p.finalize();
 
     const row = errorCodeOf(db, "run_err_1");
-    expect(row.status).toBe("partial");
+    expect(row.status).toBe("error");
     expect(row.error_code).toBe("load_failed");
     expect(row.error_message).toContain("500");
   });
@@ -193,7 +193,7 @@ describe("실패 원인 보존 (#110 후속)", () => {
     p.start(meta);
     p.finalize();
     const row = errorCodeOf(db, "run_ok_1");
-    expect(row.status).toBe("ok");
+    expect(row.status).toBe("error");
     expect(row.error_code).toBeNull();
   });
 });

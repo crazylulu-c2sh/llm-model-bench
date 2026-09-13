@@ -214,6 +214,7 @@ export const stress = {
   toast: {
     selectModel: "프로바이더를 감지하고 모델 1개를 선택하세요.",
     benchError: (code: string) => `프로바이더 벤치 오류: ${code}`,
+    runCompletionSummary: (completed: number, planned: number, warnings: number) => `완료 ${completed}/${planned} · 경고 ${warnings}건`,
     aborted: "중단됨 — 부분 결과가 유지됩니다.",
     detectFailed: (status: number, detail: string) => `감지 실패: ${status} ${detail}`,
     detectException: (err: string) => `감지 예외: ${err}`,

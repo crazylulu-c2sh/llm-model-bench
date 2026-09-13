@@ -287,8 +287,8 @@ export function finishStressRun(
     `UPDATE stress_runs SET
       finished_at = @finished_at,
       status = @status,
-      error_code = @error_code,
-      error_message = @error_message
+      error_code = COALESCE(@error_code, error_code),
+      error_message = COALESCE(@error_message, error_message)
      WHERE run_id = @run_id`,
   ).run({
     run_id,
@@ -297,6 +297,17 @@ export function finishStressRun(
     error_code: err?.code ?? null,
     error_message: err?.message?.slice(0, 2000) ?? null,
   });
+}
+
+export function updateStressRunMetaJson(db: DatabaseSync, run_id: string, patch: Record<string, unknown>): void {
+  const row = db.prepare(`SELECT meta_json FROM stress_runs WHERE run_id = ?`).get(run_id) as { meta_json?: string } | undefined;
+  if (!row?.meta_json) return;
+  let meta: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(row.meta_json) as unknown;
+    if (parsed && typeof parsed === "object") meta = parsed as Record<string, unknown>;
+  } catch { /* preserve the existing row if legacy JSON is malformed */ }
+  db.prepare(`UPDATE stress_runs SET meta_json = ? WHERE run_id = ?`).run(JSON.stringify({ ...meta, ...patch }), run_id);
 }
 
 export function markStressRunErrorPartial(

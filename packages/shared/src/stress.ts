@@ -16,7 +16,7 @@ export type StressScriptMatch = "ko" | "ja" | "latin" | "mixed" | "unknown";
 
 export type StressTpsSource = "usage" | "approx" | "mixed";
 
-export type StressRunStatus = "running" | "ok" | "partial" | "error";
+export type StressRunStatus = "running" | "ok" | "partial" | "error" | "cancelled";
 
 export interface StressRampConfig {
   /** 시작 동시성 (>= 1) */
@@ -49,7 +49,14 @@ export const StressRunMetaSchema = z.object({
   extra_body: z.record(z.string(), z.unknown()).optional(),
   reasoning_effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]).optional(),
   unload_other_models: z.boolean().optional(), auto_unload_after_bench: z.boolean().optional(),
-  skip_model_load: z.boolean().optional(), load_ttl_seconds: z.number().optional(), created_at: z.string(),
+  skip_model_load: z.boolean().optional(), load_ttl_seconds: z.number().optional(),
+  planned_measurements: z.number().int().nonnegative().optional(),
+  completed_measurements: z.number().int().nonnegative().optional(),
+  warnings: z.array(z.object({
+    code: z.string(), message: z.string(), requested: z.unknown().optional(), observed: z.unknown().optional(),
+    scenario_id: z.string().optional(), api_route: z.enum(["chat_completions", "messages"]).optional(),
+  })).optional(),
+  created_at: z.string(),
 });
 export type StressRunMeta = z.infer<typeof StressRunMetaSchema>;
 export const StressStageLatencyMsSchema = z.object({ p50: z.number().nullable(), p95: z.number().nullable() });
@@ -77,7 +84,12 @@ export const StressStreamEventSchema = z.discriminatedUnion("type", [
     stream_completed: z.boolean(), script_match: z.enum(["ko", "ja", "latin", "mixed", "unknown"]).optional(), error_code: z.string().optional(), error_message: z.string().optional() }),
   z.object({ type: z.literal("stress_stage_tick"), stage_index: z.number(), concurrency: z.number(), aggregate_tps_so_far: z.number().nullable(), succeeded_so_far: z.number() }),
   z.object({ type: z.literal("stress_stage_finished"), stage_index: z.number(), result: StressStageResultSchema }),
-  z.object({ type: z.literal("run_finished"), run_id: z.string(), stages: z.array(StressStageResultSchema) }),
+  z.object({ type: z.literal("run_finished"), run_id: z.string(), stages: z.array(StressStageResultSchema),
+    status: z.enum(["ok", "partial", "error", "cancelled"]).optional(),
+    planned_measurements: z.number().int().nonnegative().optional(),
+    completed_measurements: z.number().int().nonnegative().optional(),
+    warnings: z.array(z.object({ code: z.string(), message: z.string(), requested: z.unknown().optional(), observed: z.unknown().optional(), scenario_id: z.string().optional(), api_route: z.enum(["chat_completions", "messages"]).optional() })).optional() }),
+  z.object({ type: z.literal("warning"), code: z.string(), message: z.string(), requested: z.unknown().optional(), observed: z.unknown().optional(), scenario_id: z.string().optional(), api_route: z.enum(["chat_completions", "messages"]).optional() }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string(), partial: z.object({ stage_index: z.number().optional(), worker_index: z.number().optional() }).optional() }),
 ]);
 export type StressStreamEvent = z.infer<typeof StressStreamEventSchema>;
