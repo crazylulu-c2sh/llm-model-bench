@@ -198,12 +198,16 @@ test("누적 대기 한도는 기본 해제되고 선택값만 저장 및 전송
   await expect(input).toBeDisabled();
   await toggle.check();
   await expect(input).toHaveValue("300");
+  const between = page.getByRole("spinbutton", { name: "반복 사이 대기 한도(초)", exact: true });
+  await expect(between).toHaveValue("30");
+  await between.fill("60");
   await input.fill("900");
   await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem("llm-bench-ui-prefs") ?? "{}").contentionTotalWaitBudgetMs)).toBe(900000);
   await page.reload();
   await stepButton(page, 3).click();
   await expect(toggle).toBeChecked();
   await expect(input).toHaveValue("900");
+  await expect(between).toHaveValue("60");
   const axe = await new AxeBuilder({ page }).withTags([...AXE_TAGS]).analyze();
   expect(axe.violations).toEqual([]);
   await toggle.uncheck();
@@ -213,6 +217,7 @@ test("누적 대기 한도는 기본 해제되고 선택값만 저장 및 전송
   const request = page.waitForRequest((req) => req.method() === "POST" && req.url().endsWith("/api/bench/queue"));
   await runSelectedModelsAndWait(page);
   expect((await request).postDataJSON().bench).not.toHaveProperty("contentionTotalWaitBudgetMs");
+  expect((await request).postDataJSON().bench.contentionBetweenIterationTimeoutMs).toBe(60000);
   await stepButton(page, 3).click();
   await toggle.check();
   await input.fill("0");

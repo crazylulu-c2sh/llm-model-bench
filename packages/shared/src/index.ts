@@ -521,6 +521,31 @@ export const BenchRunMetaSchema = z.object({
 });
 export type BenchRunMeta = z.infer<typeof BenchRunMetaSchema>;
 
+/** Bounded, allowlisted contention observations; absent fields mean unavailable. */
+export const ContentionObservationSchema = z.object({
+  elapsed_ms: z.number(),
+  phase: z.enum(["pre_bench", "between_iterations"]),
+  scenario_id: z.string().optional(),
+  api_route: z.enum(["chat_completions", "messages"]).optional(),
+  reasons: z.array(z.string()),
+  gpu_util_pct: z.number().nullable().optional(),
+  gpu_threshold_pct: z.number(),
+  gpu_signal_available: z.boolean(),
+  prometheus_available: z.boolean(),
+  lms_available: z.boolean(),
+  mtplx_status: z.enum(["available", "unavailable", "unsupported", "disabled"]),
+  mtplx: z.object({
+    outstanding: z.number().int().nonnegative(), pending: z.number().int().nonnegative(),
+    active: z.number().int().nonnegative(), scheduler_active: z.number().int().nonnegative(),
+    foreground_active: z.number().int().nonnegative(),
+    requests_completed: z.number().int().nonnegative().optional(),
+    requests_cancelled: z.number().int().nonnegative().optional(),
+    keepalive_enabled: z.boolean(), keepalive_attentive: z.boolean().optional(),
+  }).optional(),
+  preceding_failure: z.object({ code: z.string(), scenario_id: z.string(), api_route: z.enum(["chat_completions", "messages"]) }).optional(),
+});
+export type ContentionObservation = z.infer<typeof ContentionObservationSchema>;
+
 export const StreamEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("run_started"),
@@ -647,6 +672,7 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
   /** 오염 가드: 다른 추론이 실행 중이라 사전/이터레이션 간 대기 중. */
   z.object({
     type: z.literal("contention_waiting"),
+    observation: ContentionObservationSchema.optional(),
     phase: z.enum(["pre_bench", "between_iterations"]),
     waiting_reason: z.string(),
     reasons: z.array(z.string()),
@@ -659,6 +685,7 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
   /** 오염 가드: 대기 후 유휴 확인되어 진행 재개. */
   z.object({
     type: z.literal("contention_resumed"),
+    observation: ContentionObservationSchema.optional(),
     phase: z.enum(["pre_bench", "between_iterations"]),
     waited_ms: z.number(),
     scenario_id: z.string().optional(),
@@ -698,6 +725,7 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     total_wait_ms: z.number(),
     /** v2: actual elapsed time after first busy observation, including subsequent probes. */
     wait_accounting_version: z.literal(2).optional(),
+    recent_observations: z.array(ContentionObservationSchema).max(20).optional(),
     guard_effective: z.boolean(),
     gpu_signal_available: z.boolean(),
     /** #185: guard_effective=false일 때의 구체적 사유(no_contention_signal_available 등, 진단용). */
@@ -944,7 +972,7 @@ export const BenchConfigSchema = z.object({
     contentionPollIntervalMs: z.number().int().positive().optional(),
     contentionMaxRetriesPerIteration: z.number().int().nonnegative().optional(),
     contentionPreBenchTimeoutMs: z.number().int().nonnegative().optional(),
-    contentionBetweenIterationTimeoutMs: z.number().int().nonnegative().optional(),
+    contentionBetweenIterationTimeoutMs: z.number().int().nonnegative().optional().describe("Per-iteration idle wait timeout in milliseconds, including warmups. Default 30000, capped at 300000; independent of the optional cumulative budget. Zero disallows additional waiting."),
     contentionTotalWaitBudgetMs: z.number().int().nonnegative().optional().describe(
       "Optional run-wide contention wait limit in milliseconds (maximum 1800000). Omit for no cumulative limit; 0 disallows waiting after busy is detected. Per-gate timeouts still apply.",
     ),

@@ -42,6 +42,7 @@ export function factoryStep3Settings() {
     benchmarkThroughputMode: false,
     contentionGuardEnabled: true,
     contentionPreBenchTimeoutSec: "120",
+    contentionBetweenIterationTimeoutSec: "30",
     /** 누적 제한은 opt-in. 활성화 시 제안값 300초. */
     contentionTotalWaitBudgetEnabled: false,
     contentionTotalWaitBudgetSec: "300",
@@ -107,6 +108,7 @@ const PrefsSchema = z
     benchmarkThroughputMode: z.boolean().optional(),
     contentionGuardEnabled: z.boolean().optional(),
     contentionPreBenchTimeoutMs: z.number().int().nonnegative().optional(),
+    contentionBetweenIterationTimeoutMs: z.number().int().nonnegative().optional(),
     contentionTotalWaitBudgetMs: z.number().int().nonnegative().optional(),
     contentionMaxRetriesPerIteration: z.number().int().nonnegative().optional(),
     credentialsByBaseUrl: z.record(z.string(), z.object({
@@ -319,6 +321,7 @@ export function readInitialUiState() {
     contentionGuardEnabled: p.contentionGuardEnabled ?? true,
     contentionPreBenchTimeoutSec:
       p.contentionPreBenchTimeoutMs != null ? String(Math.round(p.contentionPreBenchTimeoutMs / 1000)) : "120",
+    contentionBetweenIterationTimeoutSec: p.contentionBetweenIterationTimeoutMs != null ? String(p.contentionBetweenIterationTimeoutMs / 1000) : "30",
     contentionTotalWaitBudgetEnabled: p.contentionTotalWaitBudgetMs !== undefined,
     contentionTotalWaitBudgetSec:
       p.contentionTotalWaitBudgetMs != null ? String(Math.round(p.contentionTotalWaitBudgetMs / 1000)) : "300",
@@ -349,6 +352,7 @@ export type SaveUiSnapshot = {
   benchmarkThroughputMode: boolean;
   contentionGuardEnabled: boolean;
   contentionPreBenchTimeoutSec: string;
+  contentionBetweenIterationTimeoutSec: string;
   contentionTotalWaitBudgetEnabled: boolean;
   contentionTotalWaitBudgetSec: string;
   contentionMaxRetries: string;
@@ -393,6 +397,7 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
       const n = Number(s.contentionPreBenchTimeoutSec.trim());
       return Number.isFinite(n) && n >= 0 ? Math.floor(n * 1000) : undefined;
     })(),
+    contentionBetweenIterationTimeoutMs: betweenIterationWaitMs(s.contentionBetweenIterationTimeoutSec),
     contentionTotalWaitBudgetMs: contentionWaitBudgetMs(s.contentionTotalWaitBudgetEnabled, s.contentionTotalWaitBudgetSec),
     contentionMaxRetriesPerIteration: (() => {
       const n = Number(s.contentionMaxRetries.trim());
@@ -625,4 +630,9 @@ export function contentionWaitBudgetMs(enabled: boolean, seconds: string): numbe
   if (!enabled || !seconds.trim()) return undefined;
   const n = Number(seconds);
   return Number.isFinite(n) && n >= 0 ? Math.min(1_800_000, Math.floor(n * 1000)) : undefined;
+}
+
+export function betweenIterationWaitMs(seconds: string): number | undefined {
+  const ms = contentionWaitBudgetMs(true, seconds);
+  return ms === undefined ? undefined : Math.min(300_000, ms);
 }

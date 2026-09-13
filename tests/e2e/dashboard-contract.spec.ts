@@ -14,7 +14,13 @@ test("same model stays separate by server/settings in tables, chart filters and 
   await page.route("**/api/stats/model-latest", (route) => route.fulfill({ json: { items, sqlite_available: true } }));
   await page.route("**/api/runs/**", (route) => {
     const item = items.find((it) => route.request().url().includes(it.run_id))!;
-    return route.fulfill({ json: { meta: item, scenarios: [{ id: "chat_ping", api_route: "chat_completions", source_run_id: item.run_id,
+    return route.fulfill({ json: { meta: { ...item, contention_summary: { abort_reason: "between_iteration_wait_timeout", recent_observations: [{
+      phase: "between_iterations", elapsed_ms: 30000, scenario_id: "code_sort_py", api_route: "messages",
+      reasons: ["gpu_util=85%"], gpu_util_pct: 85, gpu_threshold_pct: 25, gpu_signal_available: true,
+      prometheus_available: false, lms_available: false, mtplx_status: "available",
+      mtplx: { outstanding: 0, pending: 0, active: 0, scheduler_active: 0, foreground_active: 0, keepalive_enabled: true },
+      preceding_failure: { code: "request_timeout", scenario_id: "code_sort_js", api_route: "messages" },
+    }] } }, scenarios: [{ id: "chat_ping", api_route: "chat_completions", source_run_id: item.run_id,
       prompt_preview: `prompt-${item.run_id}`, prompt_system_preview: "system", runs: [{ ttft_ms: 100, total_ms: 1000, output_text: `output-${item.run_id}`, stream_completed: true, usage_output_tokens: 20, quality: { pass: true, score: 1 } }] }] } });
   });
   await page.goto("/stats");
@@ -26,6 +32,12 @@ test("same model stays separate by server/settings in tables, chart filters and 
   await page.keyboard.press("Enter");
   await expect(saved.getByRole("checkbox").first()).not.toBeChecked();
   for (const checkbox of await saved.getByRole("checkbox").all()) await checkbox.check();
+  const diagnostics = page.locator("details").filter({ has: page.locator("summary", { hasText: "오염 가드 관측 기록" }) });
+  await expect(diagnostics).toHaveCount(3);
+  await diagnostics.first().locator("summary").click();
+  await expect(diagnostics.first()).toContainText("GPU 사용률 기준 초과");
+  await expect(diagnostics.first()).toContainText("직전 요청 실패: code_sort_js");
+  await expect(diagnostics.first()).toContainText("outstanding=0");
   const board = page.getByRole("table", { name: /총합 품질.*스코어보드/ });
   await expect(board.locator("tbody tr")).toHaveCount(3);
   const results = page.getByRole("heading", { name: "결과 테이블" }).locator("..");

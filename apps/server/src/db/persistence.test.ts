@@ -197,3 +197,25 @@ describe("실패 원인 보존 (#110 후속)", () => {
     expect(row.error_code).toBeNull();
   });
 });
+
+it("persists bounded contention observations and waiting/resumed events", () => {
+  const db = openBenchDatabase(":memory:");
+  try {
+    const persistence = new BenchRunPersistence(db);
+    const meta = makeBenchRunMeta(req("diagnostic-model"), detect, "diagnostic-run");
+    persistence.start(meta);
+    const observation = { phase: "between_iterations" as const, elapsed_ms: 1000, reasons: ["gpu_util=90%"],
+      gpu_util_pct: 90, gpu_threshold_pct: 25, gpu_signal_available: true,
+      prometheus_available: false, lms_available: false, mtplx_status: "unavailable" as const };
+    persistence.onEvent({ type: "contention_waiting", phase: "between_iterations", waiting_reason: "gpu_util=90%", reasons: observation.reasons,
+      elapsed_ms: 1000, gpu_signal_available: true, observation });
+    persistence.onEvent({ type: "contention_resumed", phase: "between_iterations", waited_ms: 2000, observation });
+    persistence.onEvent({ type: "contention_summary", total_iterations_discarded: 0, max_pre_bench_wait_ms: 0,
+      max_between_iteration_wait_ms: 2000, total_wait_ms: 2000, guard_effective: true, gpu_signal_available: true,
+      recent_observations: [observation] });
+    persistence.finalize();
+    expect(JSON.parse(getRunMetaJson(db, meta.run_id)!)).toMatchObject({ contention_summary: { recent_observations: [observation] } });
+    expect(db.prepare("SELECT line FROM bench_text_logs WHERE run_id = ? AND line LIKE 'contention_%'").all(meta.run_id)).toHaveLength(3);
+    expect(benchResultDetailFromDb(db, meta.run_id)?.meta).toHaveProperty("contention_summary");
+  } finally { db.close(); }
+});
