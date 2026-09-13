@@ -2,6 +2,10 @@ import type { Messages } from "../ko";
 
 // stats — ko와 키가 정확히 일치해야 함(타입이 강제).
 export const stats: Messages["stats"] = {
+  versionFilterLabel: "保存バージョン",
+  allVersions: "すべてのバージョン",
+  versionUnrecorded: "バージョン未記録",
+  versionPair: (evaluation: number | null, warmup: number | null) => `評価 ${evaluation ?? "未記録"} / ウォームアップ ${warmup ?? "未記録"}`,
   sqliteUnavailable: "SQLite を利用できません。サーバーの DB ファイルのパス・権限・ロック状態を確認してください。",
   someRunsFailed: (failed: number) => `一部のラン（${failed}件）を読み込めませんでした。`,
   savedModelsTitle: "保存済みモデル（シナリオ別の最新測定）",

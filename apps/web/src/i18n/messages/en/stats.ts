@@ -2,6 +2,10 @@ import type { Messages } from "../ko";
 
 // stats — ko와 키가 정확히 일치해야 함(타입이 강제).
 export const stats: Messages["stats"] = {
+  versionFilterLabel: "Saved version",
+  allVersions: "All versions",
+  versionUnrecorded: "Version not recorded",
+  versionPair: (evaluation: number | null, warmup: number | null) => `Evaluation ${evaluation ?? "not recorded"} / Warmup ${warmup ?? "not recorded"}`,
   sqliteUnavailable: "SQLite is unavailable. Check the server's DB file path, permissions and lock state.",
   someRunsFailed: (failed: number) => `Failed to load some runs (${failed}).`,
   savedModelsTitle: "Saved models (latest measurement per scenario)",

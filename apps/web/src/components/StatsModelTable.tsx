@@ -1,3 +1,4 @@
+import { savedVersion, savedVersionKey, savedVersionOptions } from "../stats/saved-version";
 import { SettingsDetails, comparisonLabel } from "../stats/comparison-presentation";
 import type { StatsModelLatestItem } from "../api-types";
 import {
@@ -176,9 +177,18 @@ export function StatsModelTable({
     return [...new Set(data.map((m) => normalizeBaseUrl(m.base_url)))].sort(compareStringsPinned);
   }, [data]);
 
+  const [versionFilter, setVersionFilter] = useState("");
+  const versionOptions = useMemo(() => savedVersionOptions(data.map(row => row.config)), [data]);
+  useEffect(() => {
+    setVersionFilter(current => !current || versionOptions.some(version => savedVersionKey(version) === current)
+      ? current : "");
+  }, [versionOptions]);
+  const matchesVersion = useCallback((row: StatsModelLatestItem) =>
+    !versionFilter || savedVersionKey(savedVersion(row.config)) === versionFilter, [versionFilter]);
+
   const matchesFilters = useCallback(
-    (m: StatsModelLatestItem) => matchesQuery(m) && matchesCategory(m) && matchesBaseUrl(m),
-    [matchesQuery, matchesCategory, matchesBaseUrl],
+    (m: StatsModelLatestItem) => matchesQuery(m) && matchesCategory(m) && matchesBaseUrl(m) && matchesVersion(m),
+    [matchesQuery, matchesCategory, matchesBaseUrl, matchesVersion],
   );
   // 실제 존재하는 카테고리별 모델 수 — 칩 배지·렌더 대상 결정용.
   const categoryCounts = useMemo(() => {
@@ -517,6 +527,23 @@ export function StatsModelTable({
             </button>
           ) : null}
         </div>
+        <label className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--muted)]">
+          <span>{msgs.stats.versionFilterLabel}</span>
+          <select
+            value={versionFilter}
+            onChange={(event) => setVersionFilter(event.target.value)}
+            className="max-w-[20rem] rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs"
+          >
+            <option value="">{msgs.stats.allVersions}</option>
+            {versionOptions.map(version => (
+              <option key={savedVersionKey(version)} value={savedVersionKey(version)}>
+                {version.evaluation === null && version.warmup === null
+                  ? msgs.stats.versionUnrecorded
+                  : msgs.stats.versionPair(version.evaluation, version.warmup)}
+              </option>
+            ))}
+          </select>
+        </label>
         {baseUrlOptions.length > 1 ? (
           <label className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--muted)]">
             <span className="whitespace-nowrap">Base URL</span>
