@@ -2100,3 +2100,25 @@ describe("agent_loop per-turn 예산은 UI 프로필 값에 덮이지 않는다"
     expect(await perTurnMaxTokens({ max_tokens: 8192 })).toEqual([8192]);
   });
 });
+
+
+describe("final-answer grading in the streamed benchmark", () => {
+  it("preserves raw reasoning while failing an empty final answer", async () => {
+    const raw = "<|channel>thought\nOnly reasoning<channel|>";
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      if (requestUrl(input).endsWith("/v1/chat/completions")) {
+        return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: raw } }] })}\n\ndata: [DONE]\n\n`,
+          { headers: { "content-type": "text/event-stream" } });
+      }
+      return jsonResponse({ models: [] });
+    });
+    const events: StreamEvent[] = [];
+    for await (const event of runBench(baseBenchRequest({ skipModelLoad: true }), lmStudioDetect(), { fetchImpl })) {
+      events.push(event);
+    }
+    const update = events.find(e => e.type === "metrics_update");
+    expect(update?.type).toBe("metrics_update");
+    if (update?.type !== "metrics_update") throw new Error("missing metrics");
+    expect(update.aggregate).toMatchObject({ runs: [{ output_text: raw, final_answer: "", empty_response: true, quality: { pass: false } }] });
+  });
+});

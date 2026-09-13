@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import type { LoadTtlStatus } from "@llm-bench/shared";
 import { verifyLmStudioTtlApplied } from "./lms-ttl-verify.js";
 import type { FetchLike } from "./detect.js";
@@ -50,6 +51,7 @@ export type LmStudioRestProbeResult = {
   observed_ttl_seconds?: number;
   context_verified: boolean;
   ttl_verified: boolean;
+  ttl_expiry_verified?: boolean;
   verification: "verified" | "unverified" | "rejected";
   body: string;
 };
@@ -299,62 +301,70 @@ export async function probeLmStudioNativeChat(
     fetchImpl?: FetchLike;
     apiKey?: string;
     signal?: AbortSignal;
+    /** Short-lived controlled experiment; never enabled in ordinary benchmarks. */
+    verifyExpiry?: boolean;
   },
 ): Promise<LmStudioRestProbeResult> {
   const fetchImpl = opts.fetchImpl ?? providerFetch;
   const root = apiRoot(baseUrl);
-  const url = `${root}/api/v1/chat`;
-  const r = await fetchImpl(url, {
-    method: "POST",
-    headers: headers(opts.apiKey),
-    signal: opts.signal,
-    body: JSON.stringify({
-      model: modelKey,
-      input: ".",
-      context_length: opts.contextLength,
-      ttl: opts.ttlSeconds,
-      store: false,
-      stream: false,
-    }),
+  const rejected = (status: number, body: string): LmStudioRestProbeResult => ({
+    candidate: "native_chat", model: modelKey,
+    requested_context_length: opts.contextLength, requested_ttl_seconds: opts.ttlSeconds,
+    http_status: status, request_accepted: false, context_verified: false,
+    ttl_verified: false, verification: "rejected", body,
   });
-  const body = (await r.text()).slice(0, 2000);
-  if (!r.ok || isErrorEnvelope(safeJson(body))) {
-    return {
-      candidate: "native_chat",
-      model: modelKey,
-      requested_context_length: opts.contextLength,
-      requested_ttl_seconds: opts.ttlSeconds,
-      http_status: r.status,
-      request_accepted: false,
-      context_verified: false,
-      ttl_verified: false,
-      verification: "rejected",
-      body,
-    };
+  if (!Number.isInteger(opts.contextLength) || opts.contextLength <= 0 ||
+      !Number.isInteger(opts.ttlSeconds) || opts.ttlSeconds <= 0 ||
+      (opts.verifyExpiry && opts.ttlSeconds > 60)) {
+    return rejected(0, "Positive integer settings required; expiry probes are limited to 60 seconds.");
   }
-
+  // JIT auto-eviction must not displace another user's resident model.
+  const before = await lmStudioListModels(baseUrl, { fetchImpl, apiKey: opts.apiKey });
+  if (!before.ok || before.models.some((m) => m.loaded_instances?.length)) {
+    return rejected(0, "Probe requires a verified empty model server.");
+  }
+  const started = Date.now();
+  const signal = opts.signal
+    ? AbortSignal.any([opts.signal, AbortSignal.timeout(120_000)])
+    : AbortSignal.timeout(120_000);
+  const r = await fetchImpl(`${root}/api/v1/chat`, {
+    method: "POST", headers: headers(opts.apiKey), signal,
+    body: JSON.stringify({ model: modelKey, input: ".", context_length: opts.contextLength,
+      ttl: opts.ttlSeconds, max_output_tokens: 1, store: false, stream: false }),
+  });
+  const text = await r.text();
+  const parsed = safeJson(text);
+  if (!r.ok || isErrorEnvelope(parsed)) return rejected(r.status, text.slice(0, 2000));
+  const instanceId = parsed && typeof parsed === "object"
+    ? (parsed as Record<string, unknown>).model_instance_id : undefined;
   const listed = await lmStudioListModels(baseUrl, { fetchImpl, apiKey: opts.apiKey });
-  const wanted = baseKey(modelKey);
-  const instance = listed.models
-    .filter((m) => typeof m.key === "string" && baseKey(m.key) === wanted)
-    .flatMap((m) => (Array.isArray(m.loaded_instances) ? m.loaded_instances : []))[0];
+  const instance = typeof instanceId === "string" && listed.ok
+    ? listed.models.flatMap((m) => m.loaded_instances ?? []).find((i) => i.id === instanceId)
+    : undefined;
   const observedContext = instance?.config?.context_length ?? instance?.context_length;
   const observedTtl = instance?.remaining_ttl_seconds;
   const contextVerified = observedContext === opts.contextLength;
-  const ttlVerified = typeof observedTtl === "number" && observedTtl > 0;
+  const elapsedSeconds = (Date.now() - started) / 1000;
+  const ttlVerified = typeof observedTtl === "number" && Number.isFinite(observedTtl) &&
+    observedTtl > 0 && observedTtl <= opts.ttlSeconds + 2 &&
+    observedTtl >= Math.max(0, opts.ttlSeconds - elapsedSeconds - 2);
+  let expiryVerified = false;
+  if (opts.verifyExpiry && contextVerified && ttlVerified) {
+    await sleep((observedTtl! + 2) * 1000, undefined, { signal });
+    const after = await lmStudioListModels(baseUrl, { fetchImpl, apiKey: opts.apiKey });
+    expiryVerified = after.ok && !after.models.some((m) =>
+      m.loaded_instances?.some((i) => i.id === instanceId));
+  }
   return {
-    candidate: "native_chat",
-    model: modelKey,
-    requested_context_length: opts.contextLength,
-    requested_ttl_seconds: opts.ttlSeconds,
-    http_status: r.status,
-    request_accepted: true,
+    candidate: "native_chat", model: modelKey,
+    requested_context_length: opts.contextLength, requested_ttl_seconds: opts.ttlSeconds,
+    http_status: r.status, request_accepted: true,
     ...(observedContext !== undefined ? { observed_context_length: observedContext } : {}),
     ...(observedTtl !== undefined ? { observed_ttl_seconds: observedTtl } : {}),
-    context_verified: contextVerified,
-    ttl_verified: ttlVerified,
-    verification: contextVerified && ttlVerified ? "verified" : "unverified",
-    body,
+    context_verified: contextVerified, ttl_verified: ttlVerified,
+    ttl_expiry_verified: expiryVerified,
+    verification: contextVerified && ttlVerified && expiryVerified ? "verified" : "unverified",
+    body: text.slice(0, 2000),
   };
 }
 

@@ -359,7 +359,11 @@ export function StatsModelTable({
         cell: (info) => <span className="whitespace-nowrap text-xs text-[var(--muted)]">{info.getValue()}</span>,
         sortingFn: "alphanumeric",
       }),
-      columnHelper.accessor("finished_at", {
+      columnHelper.accessor((row) => {
+        const value = Date.parse(row.finished_at ?? "");
+        return Number.isFinite(value) ? value : undefined;
+      }, {
+        id: "finished_at",
         header: ({ column }) => (
           <button
             type="button"
@@ -371,19 +375,19 @@ export function StatsModelTable({
           </button>
         ),
         cell: (info) => (
-          <span title={info.getValue() ?? undefined} className="whitespace-nowrap font-mono text-[10px] text-[var(--muted)]">
-            {formatIsoLocal(info.getValue())}
+          <span title={info.row.original.finished_at ?? undefined} className="whitespace-nowrap font-mono text-[10px] text-[var(--muted)]">
+            {formatIsoLocal(info.row.original.finished_at)}
           </span>
         ),
+        // TanStack applies desc itself; the comparator must remain ascending.
         sortingFn: (a, b) => {
-          const ta = Date.parse(a.original.finished_at ?? "");
-          const tb = Date.parse(b.original.finished_at ?? "");
-          if (!Number.isFinite(ta) || !Number.isFinite(tb)) {
-            if (!Number.isFinite(ta) && !Number.isFinite(tb)) return 0;
-            return Number.isFinite(ta) ? -1 : 1;
-          }
-          return tb - ta || Date.parse(b.original.created_at) - Date.parse(a.original.created_at) ||
-            b.original.run_id.localeCompare(a.original.run_id);
+          const time = (value: string | null | undefined) => {
+            const parsed = Date.parse(value ?? "");
+            return Number.isFinite(parsed) ? parsed : 0;
+          };
+          return time(a.original.finished_at) - time(b.original.finished_at) ||
+            time(a.original.created_at) - time(b.original.created_at) ||
+            a.original.run_id.localeCompare(b.original.run_id);
         },
         sortUndefined: "last",
       }),

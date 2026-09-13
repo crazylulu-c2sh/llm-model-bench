@@ -311,6 +311,8 @@ export function scoreScenario(
   output: string,
   ctx?: ScoreContext,
 ): { pass: boolean; score?: number; reason?: string; judge_pending?: true } {
+  // Grade only the visible final answer; preserve raw output in the runner.
+  output = stripThinkingBlocks(output);
   // #79/#83/#105: 레지스트리 시나리오(agent_loop·커스텀).
   //  1) 빌트인 agent_loop → 결정론 채점기(judge 불필요, API 키 없이도 재현 가능)
   //  2) judge 루브릭 보유(커스텀) → prefilter 통과 후 judge 대기

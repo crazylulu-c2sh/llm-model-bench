@@ -342,7 +342,8 @@ const fitsAfterUnload  = requiredWithOverhead <= free + residentRam - FIT_SAFETY
 - **Ollama**（`apps/server/src/ollama.ts`）: `ollamaKeepAliveLoad(baseUrl, model, { ttlSeconds })` は空プロンプト（`prompt: ""`, `stream: false`）で **ネイティブ** の `/api/generate` に POST し、生成せずにモデルをメモリへロードします（レスポンスは `done_reason: "load"`）。TTL は数値と duration の曖昧さを避けるため、明示的な Go duration 文字列として `keep_alive: "<seconds>s"` で送ります。
 - **`/v1` リセットの回避策**（`apps/server/src/bench-runner.ts` 参照）: まったく同じ `ollamaKeepAliveLoad` 呼び出しを、(1) 推論の *前* のプリロードとして、(2) ベンチ完了 *後* に再利用します。間に挟まる `/v1/chat/completions` 呼び出しがモデルを 5 分デフォルトに戻してしまうためです。ベンチ後の再適用はベストエフォートです。
 - **ベストエフォートのセマンティクス**: `ollamaKeepAliveLoad` は決して throw せず — ネットワーク／上流の失敗は `{ ok: false, status: 0, body }` を返す — ので、不安定な keep-alive が実行を中断させることはありません。大きなモデルのコールドロードは数十秒かかり得るため、寛容な 120 秒のタイムアウト（`OLLAMA_LOAD_TIMEOUT_MS`）を使います。
-- **REST 同時適用プローブ**: `probeLmStudioNativeChat()` は文書化された `/api/v1/chat` に `context_length`・`store:false` と実験的な `ttl` を同時に送り、直後に `/api/v1/models` の実際のインスタンスからコンテキストと残り TTL を確認します。2xx やエラー形でない本文だけでは対応を証明せず、`context_verified` と `ttl_verified` が両方 true の場合だけ検証済みと記録します。通常のベンチ経路は既存の JIT TTL と明示的 load の順序を維持します。
+- **検証範囲と採点の修正**: `probeLmStudioNativeChat()` は常駐モデルがあれば要求を中止します。要求 TTL と残存 TTL を経過時間と比較し、`verifyExpiry:true`（最大60秒）で同じインスタンスの自動アンロードまで確認した場合のみ `verified` を返します。即時確認のみなら `unverified` です。`scoreScenario()` と Judge は既知の思考ブロックを除いた最終回答を採点し、`evaluation_protocol_version=2` で以前の結果と区別します。
+- **ローカル REST 実測（2026-09-13、LM Studio 0.4.24+1、Gemma 4 E2B GGUF）**: 未ロード状態で `/api/v1/models/load` と `/api/v1/chat` に `context_length=4096` と `ttl=5` を送ると、両方が `400 unrecognized_keys (ttl)` を返しました。コンテキスト4096で明示ロードした後 `/v1/chat/completions` に `ttl=5` を送る方式は200でしたが、残存 TTL がなく8秒後も常駐していました。このバージョンの通常ベンチでは既存の JIT TTL 経路とコンテキスト警告を維持します。他のバージョンへ一般化しません。 対照の未ロード OpenAI JIT 要求では `ttl=5` が適用され8秒以内に自動アンロードされましたが、`context_length=4096` は無視され、実際のコンテキストは131072でした。
 
 | プロバイダー | 関数 | エンドポイント | TTL フィールド／形 |
 | --- | --- | --- | --- |

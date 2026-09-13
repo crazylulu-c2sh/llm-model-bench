@@ -76,3 +76,10 @@ describe("partitionThinkingBlocks", () => {
     expect(stripThinkingBlocks(raw)).toBe("Hello");
   });
 });
+
+
+it("keeps an unfinished think block out of the visible answer", () => {
+  const raw = "<think>reasoning stopped before the closing token";
+  expect(stripThinkingBlocks(raw)).toBe("");
+  expect(partitionThinkingBlocks(raw)).toEqual({ thinking: raw, response: "" });
+});
