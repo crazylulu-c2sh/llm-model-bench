@@ -1,6 +1,10 @@
 // stats 네임스페이스 — 통계 페이지·저장된 모델 표. ko가 진실의 원천.
 export const stats = {
   // StatsPage
+  versionFilterLabel: "저장 버전",
+  allVersions: "전체 버전",
+  versionUnrecorded: "버전 미기록",
+  versionPair: (evaluation: number | null, warmup: number | null) => `평가 ${evaluation ?? "미기록"} / 워밍업 ${warmup ?? "미기록"}`,
   sqliteUnavailable: "SQLite를 사용할 수 없습니다. 서버의 DB 파일 경로·권한·잠금 상태를 확인하세요.",
   someRunsFailed: (failed: number) => `일부 런(${failed}건)을 불러오지 못했습니다.`,
   savedModelsTitle: "저장된 모델 (시나리오별 최신 측정)",

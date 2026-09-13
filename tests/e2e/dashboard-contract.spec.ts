@@ -108,3 +108,56 @@ test("stats default order is newest first, with missing timestamps last", async 
   await expect(rows.nth(1)).toContainText("newest");
   await expect(rows.nth(2)).toContainText("missing");
 });
+
+test("saved version filters combine with search and URL without clearing hidden selections", async ({ page }) => {
+  const versions = [
+    { evaluation_protocol_version: "2", warmup_protocol_version: "2" },
+    { evaluation_protocol_version: "1", warmup_protocol_version: "2" },
+    {},
+    { evaluation_protocol_version: "2" },
+  ];
+  const records = versions.map((config, i) => ({ ...items[0], run_id: `version-${i}`,
+    model_id: `version-model-${i}`, config_id: `version-config-${i}`, config,
+    base_url: i === 1 ? serverB : serverA, categories: i === 3 ? ["vision"] : ["text"],
+  }));
+  await page.route("**/api/stats/model-latest", route => route.fulfill({ json: { items: records, sqlite_available: true } }));
+  await page.route("**/api/runs/**", route => {
+    const meta = records.find(item => route.request().url().includes(item.run_id))!;
+    return route.fulfill({ json: { meta, scenarios: [{ id: "chat_ping", api_route: "chat_completions",
+      runs: [{ ttft_ms: 100, total_ms: 1000, output_text: "pong", stream_completed: true, quality: { pass: true } }] }] } });
+  });
+  await page.goto("/stats");
+  const saved = page.getByRole("table", { name: "저장된 모델 통계" });
+  const version = page.getByRole("combobox", { name: "저장 버전", exact: true });
+  const baseUrl = page.getByRole("combobox", { name: "Base URL", exact: true });
+  await baseUrl.selectOption("");
+  await expect(version).toHaveValue("");
+  await expect(version.locator("option")).toHaveText([
+    "전체 버전", "평가 2 / 워밍업 2", "평가 2 / 워밍업 미기록", "평가 1 / 워밍업 2", "버전 미기록",
+  ]);
+  await version.selectOption({ label: "평가 2 / 워밍업 2" });
+  await expect(saved.locator("tbody tr")).toHaveCount(1);
+  await expect(saved.locator("tbody tr")).toContainText("version-model-0");
+  await saved.getByRole("button", { name: "표시된 선택 가능 항목 전체 선택" }).click();
+  await version.selectOption({ label: "평가 1 / 워밍업 2" });
+  await expect(saved.locator("tbody tr")).toContainText("version-model-1");
+  const visionCategory = page.getByRole("button", { name: /^비전/ });
+  await visionCategory.click();
+  await expect(saved).toContainText("일치하는 모델이 없습니다");
+  await visionCategory.click();
+  await baseUrl.selectOption(serverA);
+  await expect(saved).toContainText("일치하는 모델이 없습니다");
+  await expect(version.locator("option")).toHaveCount(5);
+  await baseUrl.selectOption("");
+  await page.getByRole("textbox", { name: "저장된 모델 필터" }).fill("version-model-0");
+  await expect(saved).toContainText("일치하는 모델이 없습니다");
+  await page.getByRole("textbox", { name: "저장된 모델 필터" }).fill("");
+  await version.selectOption({ label: "버전 미기록" });
+  await expect(saved.locator("tbody tr")).toContainText("version-model-2");
+  await version.selectOption("");
+  await expect(saved.locator("tbody tr")).toHaveCount(4);
+  await expect(saved.locator("tbody tr").filter({ hasText: "version-model-0" }).getByRole("checkbox")).toBeChecked();
+  await expect(saved.locator("tbody tr").filter({ hasText: "version-model-1" }).getByRole("checkbox")).not.toBeChecked();
+  const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a"]).analyze();
+  expect(axe.violations).toEqual([]);
+});
