@@ -5,6 +5,7 @@ import { join } from "node:path";
 // ESM import는 호이스팅되지만 DB 오픈이 지연 실행이라 이 시점 대입으로 충분하다(app.test.ts와 동일).
 process.env.BENCH_DB_PATH = join(tmpdir(), `llm-bench-queuetest-${process.pid}.sqlite`);
 import type { BenchQueueSnapshot, DetectResult } from "@llm-bench/shared";
+import * as contention from "./contention-probe.js";
 import { createApp } from "./app.js";
 import {
   _bufferedCountForTests,
@@ -695,4 +696,36 @@ describe("서버 소유 큐 — 자원 정리", () => {
       clearSpy.mockRestore();
     }
   }, 20_000);
+});
+
+
+it("an exhausted optional wait budget terminates each run and closes the queue", async () => {
+  stubUpstream();
+  const probe = vi.spyOn(contention, "makeContentionProbe").mockReturnValue({
+    sampleIdle: async () => ({ active: true, reasons: ["server_running=1 waiting=0"],
+      gpuUtilPct: null, gpuSignalAvailable: false, hasActiveSignal: true, loaded: [] }),
+    segmentBaseline: async () => ({ loadedIds: [], expiresById: {} }),
+    sampleInFlight: async () => ({ contended: false, reasons: [] }),
+  });
+  try {
+    const baseUrl = "http://127.0.0.1:9190";
+    const models = ["busy-a", "busy-b"];
+    const response = await req("/api/bench/queue", jsonPost({
+      detect: detectFor(baseUrl, models), model_ids: models,
+      bench: { ...benchConfig(baseUrl), contentionGuardEnabled: true, contentionTotalWaitBudgetMs: 0 },
+    }));
+    expect(response.status).toBe(200);
+    const collected = collectSse(response);
+    await waitForEvent(collected, (event) => event.type === "queue_finished");
+    await collected.done;
+    expect(collected.events.filter((e) => e.type === "error" && e.code === "total_wait_budget_exceeded")).toHaveLength(2);
+    expect(collected.events.filter((e) => e.type === "contention_summary")).toHaveLength(2);
+    expect(collected.events.filter((e) => e.type === "queue_model_finished")).toHaveLength(2);
+    const snapshot = await snapshotOf(await queueIdFrom(collected));
+    expect(snapshot.status).toBe("finished");
+    expect(snapshot.models.every((m) => m.status === "failed")).toBe(true);
+    expect(held).toHaveLength(0);
+  } finally {
+    probe.mockRestore();
+  }
 });

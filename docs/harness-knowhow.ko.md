@@ -421,7 +421,7 @@ type ContentionConfig = {
   maxRetriesPerIteration: number;   // clamp 0..5,          default 2
   preBenchTimeoutMs: number;        // clamp 0..600_000,    default 120_000
   betweenIterationTimeoutMs: number;// clamp 0..300_000,    default 30_000
-  totalWaitBudgetMs: number;        // clamp 0..1_800_000,  default 300_000 (run-global accumulator)
+  totalWaitBudgetMs: number | undefined; // opt-in, clamp 0..1_800_000; undefined = no cumulative limit
   gpuUtilThresholdPct: number;      // clamp 1..100,        default 25
   requiredConsecutiveIdle: number;  // clamp 1..5,          default 2 (debounce before resuming)
   serverMetricsEnabled: boolean;    // default true
@@ -440,6 +440,8 @@ type ContentionConfig = {
 | Ollama churn | 모델별 `expires_at` | — | `expires_at`가 baseline을 넘어 전진 → `expires_at_advanced` (동일 모델 외부 요청) |
 
 **게이트 루프 동작.** `runIdleGate`는 async generator입니다. 첫 샘플이 유휴면 즉시 반환하고(`waitedMs: 0`), 바쁜 샘플이면 `contention_waiting` 이벤트를 방출하는 폴 루프에 진입합니다(중복 제거 — 첫 폴, reason 변경 시, 또는 5폴마다 방출). `requiredConsecutiveIdle`회 연속 유휴 샘플 이후에만 재개하며 `contention_resumed`를 방출합니다. 타임아웃과 `totalWaitBudgetMs`는 매 폴마다 루프 *안에서* 재확인합니다(진입 시점만 검사하면 sleep 중 초과를 잡지 못함). 성공하면 in-flight 모니터가 diff할 baseline을 `loadedToBaseline(sampleIdle.loaded)`로 만듭니다 — 마지막 유휴 샘플의 재고를 재사용해 `segmentBaseline()`용 추가 HTTP(`/api/ps` 등)를 치지 않습니다.
+
+**누적 대기 제한은 선택 적용입니다.** `contentionTotalWaitBudgetMs` 미전송은 누적 제한 없음이며, 숫자를 보내면 0..1,800,000ms로 적용합니다. 0은 busy 감지 시 추가 대기를 허용하지 않고 `null`은 요청 스키마에서 거부합니다. UI는 신규 설정에서 해제되어 있고 활성화 제안값은 300초입니다. 기존 저장 숫자는 보존하며 체크 해제 또는 빈 입력은 필드를 제거합니다. 사전 120초·반복 사이 30초의 개별 제한과 측정별 재시도 2회는 유지됩니다. `runIdleGate`는 첫 busy 판정부터 연속 유휴 확인까지 상태 조회와 sleep의 실제 경과시간을 단조 시계로 합산합니다. 첫 유휴 조회·모델 로드·워밍업/측정 실행·사용자 일시정지는 누적 대상이 아닙니다. sleep은 남은 한도로 제한하고, 조회 전후의 한도 검사를 유휴 성공보다 먼저 수행하여 초과 후 재개를 막습니다. 한도를 소진했어도 처음부터 유휴인 게이트는 통과합니다. `bench-runner.ts`는 활성 여부를 `contention_total_wait_budget_enabled`로 저장하고 요약에 `wait_accounting_version: 2`를 기록합니다. 버전 없는 과거 sleep 합산 결과는 재계산하지 않습니다. 중단 시 완료된 측정과 단일 요약을 보존합니다. GPU 잔여 부하와 외부 작업을 이 신호만으로 구분하지 않습니다.
 
 **In-flight 모니터 teardown 경쟁.** `startInflightMonitor`는 **비동기** `stop()`을 반환합니다. 내부 `sampleInFlight`는 의도적으로 teardown abort 신호 *없이* 호출됩니다 — 그래서 `stopRequested`가 이미 세팅된 상태에서도 in-flight 양성 감지가 `catch`에 삼켜지지 않고 존중됩니다. 폴 사이의 *sleep*만 중단 가능하며(별도 `AbortController`인 `sleepCtrl`을 통해), teardown이 빠르게 깨어나면서도 감지를 결코 잃지 않게 합니다. 감지 시 `onDetect(reasons)`를 발화하고, 그 러너 콜백이 `contentionController.abort()`를 호출합니다. 요청 자체는 결합된 `reqSignal = AbortSignal.any([controller.signal, contentionController.signal])`(요청 타임아웃 OR 경합)을 수신하므로, abort가 in-flight 요청을 해체합니다. 그다음 러너는 측정된 그 반복을 폐기하고 같은 인덱스를 재실행하며(`iteration_discarded`), 최대 `maxRetriesPerIteration`까지 반복합니다.
 

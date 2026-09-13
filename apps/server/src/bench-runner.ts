@@ -280,6 +280,7 @@ export function makeBenchRunMeta(
     contention_max_retries_per_iteration: cc.maxRetriesPerIteration,
     contention_pre_bench_timeout_ms: cc.preBenchTimeoutMs,
     contention_between_iteration_timeout_ms: cc.betweenIterationTimeoutMs,
+    contention_total_wait_budget_enabled: cc.totalWaitBudgetMs !== undefined,
     contention_total_wait_budget_ms: cc.totalWaitBudgetMs,
     contention_gpu_util_threshold_pct: cc.gpuUtilThresholdPct,
     contention_required_consecutive_idle: cc.requiredConsecutiveIdle,
@@ -544,7 +545,7 @@ export async function* runBench(
     contentionLmsCliActivityEnabled: input.contentionLmsCliActivityEnabled,
   });
   const clock: Clock = {
-    now: opts.now ?? (() => Date.now()),
+    now: opts.now ?? (() => performance.now()),
     sleep: opts.sleep ?? defaultSleep,
   };
   const contentionProbe: ContentionProbe =
@@ -780,6 +781,7 @@ export async function* runBench(
         max_pre_bench_wait_ms: maxPreWait,
         max_between_iteration_wait_ms: 0,
         total_wait_ms: waitAccum.total,
+        wait_accounting_version: 2,
         guard_effective: guardEffective,
         gpu_signal_available: gpuSignalAvailable,
         ...(noSignalReason ? { no_signal_reason: noSignalReason } : {}),
@@ -1869,6 +1871,7 @@ export async function* runBench(
         max_pre_bench_wait_ms: maxPreWait,
         max_between_iteration_wait_ms: maxBetweenWait,
         total_wait_ms: waitAccum.total,
+        wait_accounting_version: 2,
         guard_effective: guardEffective,
         gpu_signal_available: gpuSignalAvailable,
         ...(noSignalReason ? { no_signal_reason: noSignalReason } : {}),

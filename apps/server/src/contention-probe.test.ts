@@ -404,6 +404,69 @@ describe("runIdleGate", () => {
   });
 });
 
+describe("optional cumulative wait deadlines", () => {
+  it("defaults to no cumulative limit and preserves explicit zero", () => {
+    expect(baseCfg.totalWaitBudgetMs).toBeUndefined();
+    expect(resolveContentionConfig({ provider: "lm_studio", contentionTotalWaitBudgetMs: 0 }).totalWaitBudgetMs).toBe(0);
+  });
+
+  it("counts subsequent slow probes, excluding the first idle probe", async () => {
+    const clock = fakeClock();
+    const probe = scriptedProbe([false, true, true]);
+    const sample = probe.sampleIdle.bind(probe);
+    probe.sampleIdle = async () => { clock.ticks += 250; return sample(); };
+    const accum = { total: 0 };
+    const { result } = await drainGate(runIdleGate(probe, baseCfg, clock, { phase: "between_iterations", waitAccum: accum }));
+    expect(result).toMatchObject({ idle: true, waitedMs: 2500 });
+    expect(accum.total).toBe(2500);
+    await drainGate(runIdleGate(probe, baseCfg, clock, { phase: "between_iterations", waitAccum: accum }));
+    expect(accum.total).toBe(2500);
+  });
+
+  it.each([2000, 2100])("rejects idle returned at or after the %ims deadline", async (probeDelay) => {
+    const clock = fakeClock();
+    const probe = scriptedProbe([false, true]);
+    const sample = probe.sampleIdle.bind(probe);
+    let calls = 0;
+    probe.sampleIdle = async () => { if (calls++ > 0) clock.ticks += probeDelay; return sample(); };
+    const cfg = resolveContentionConfig({ provider: "lm_studio", contentionTotalWaitBudgetMs: 3000, contentionRequiredConsecutiveIdle: 1 });
+    const accum = { total: 0 };
+    const { result, events } = await drainGate(runIdleGate(probe, cfg, clock, { phase: "between_iterations", waitAccum: accum }));
+    expect(result).toMatchObject({ idle: false, code: "total_wait_budget_exceeded" });
+    expect(accum.total).toBe(1000 + probeDelay);
+    expect(events).not.toContainEqual(expect.objectContaining({ type: "contention_resumed" }));
+  });
+
+  it("caps sleep to the remaining cumulative budget and allows initially idle gates afterward", async () => {
+    const clock = fakeClock();
+    const cfg = resolveContentionConfig({ provider: "lm_studio", contentionTotalWaitBudgetMs: 1500 });
+    const accum = { total: 1250 };
+    const { result } = await drainGate(runIdleGate(scriptedProbe([false, true]), cfg, clock, { phase: "between_iterations", waitAccum: accum }));
+    expect(result).toMatchObject({ idle: false, waitedMs: 250, code: "total_wait_budget_exceeded" });
+    expect(clock.ticks).toBe(250);
+    expect(accum.total).toBe(1500);
+    const idle = await drainGate(runIdleGate(scriptedProbe([true]), cfg, clock, { phase: "between_iterations", waitAccum: accum }));
+    expect(idle.result).toMatchObject({ idle: true, waitedMs: 0 });
+  });
+
+  it("zero rejects busy without sleeping", async () => {
+    const clock = fakeClock();
+    const cfg = resolveContentionConfig({ provider: "lm_studio", contentionTotalWaitBudgetMs: 0 });
+    const { result } = await drainGate(runIdleGate(scriptedProbe([false]), cfg, clock, { phase: "pre_bench", waitAccum: { total: 0 } }));
+    expect(result).toMatchObject({ idle: false, code: "total_wait_budget_exceeded" });
+    expect(clock.ticks).toBe(0);
+  });
+
+  it("keeps per-gate deadlines with cumulative limit disabled, even after a large prior total", async () => {
+    const clock = fakeClock();
+    const cfg = resolveContentionConfig({ provider: "lm_studio", contentionBetweenIterationTimeoutMs: 1250 });
+    const accum = { total: 900_000 };
+    const { result } = await drainGate(runIdleGate(scriptedProbe([false, false, false]), cfg, clock, { phase: "between_iterations", waitAccum: accum }));
+    expect(result).toMatchObject({ idle: false, code: "between_iteration_wait_timeout", waitedMs: 1250 });
+    expect(accum.total).toBe(901_250);
+  });
+});
+
 describe("startInflightMonitor teardown (lost-detection race)", () => {
   function idleProbe(sampleInFlight: ContentionProbe["sampleInFlight"]): ContentionProbe {
     return {

@@ -117,9 +117,9 @@ export const bench: Messages["bench"] = {
     "Detects active inference via GPU util·/metrics·lms ps. In environments with no signal it is automatically treated as ineffective.",
   preBenchTimeoutLabel: "Pre-bench wait limit (sec)",
   totalWaitBudgetLabel: "Run-wide wait budget (sec)",
-  totalWaitBudgetTitle:
-    "Sums pre-bench and between-iteration waits for the whole run. Not reset per scenario; exceeding this aborts the bench. Default 300s, server cap 1800s.",
-  totalWaitBudgetHint: "Cumulative across scenarios and iterations. Exceeding it aborts the run (default 300, max 1800).",
+  totalWaitBudgetEnabledLabel: "Limit cumulative wait for this run",
+  totalWaitBudgetTitle: "Off by default. Counts elapsed time from busy detection through confirmed idle recovery. Per-gate timeouts and retry limits still apply.",
+  totalWaitBudgetHint: "Optional · suggested 300s, maximum 1800s. Zero stops on busy detection; blank means no cumulative limit.",
   retriesPerRunLabel: "Retries per run",
 
   // Model selection · profile

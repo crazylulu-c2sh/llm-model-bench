@@ -115,9 +115,9 @@ export const bench = {
   contentionGuardHint: "GPU util·/metrics·lms ps로 활성 추론을 감지합니다. 신호가 없는 환경에서는 자동으로 비실효 처리됩니다.",
   preBenchTimeoutLabel: "사전 대기 한도(초)",
   totalWaitBudgetLabel: "런 전체 대기 한도(초)",
-  totalWaitBudgetTitle:
-    "사전 대기와 이터 사이 대기를 런 전체에서 합산합니다. 시나리오가 바뀌어도 리셋되지 않으며, 합이 이 값을 넘으면 벤치를 중단합니다. 기본 300초, 서버 상한 1800초.",
-  totalWaitBudgetHint: "시나리오·이터 대기를 합산합니다. 초과 시 런 중단(기본 300, 최대 1800).",
+  totalWaitBudgetEnabledLabel: "런 전체 누적 대기 제한",
+  totalWaitBudgetTitle: "기본 해제. busy 감지 이후 유휴 복귀 확인까지의 실제 대기를 합산합니다. 개별 대기 제한과 재시도 제한은 계속 적용됩니다.",
+  totalWaitBudgetHint: "선택 적용 · 활성화 시 300초, 최대 1800초. 0은 busy 감지 시 즉시 중단하며, 빈 값은 누적 제한 없음입니다.",
   retriesPerRunLabel: "런당 재시도 횟수",
 
   // 모델 선택 · 프로파일

@@ -42,7 +42,8 @@ export function factoryStep3Settings() {
     benchmarkThroughputMode: false,
     contentionGuardEnabled: true,
     contentionPreBenchTimeoutSec: "120",
-    /** 런 전역 누적 대기(초). 서버 기본 300_000ms, clamp 0..1_800_000. */
+    /** 누적 제한은 opt-in. 활성화 시 제안값 300초. */
+    contentionTotalWaitBudgetEnabled: false,
     contentionTotalWaitBudgetSec: "300",
     contentionMaxRetries: "2",
     unloadOtherModels: false,
@@ -318,6 +319,7 @@ export function readInitialUiState() {
     contentionGuardEnabled: p.contentionGuardEnabled ?? true,
     contentionPreBenchTimeoutSec:
       p.contentionPreBenchTimeoutMs != null ? String(Math.round(p.contentionPreBenchTimeoutMs / 1000)) : "120",
+    contentionTotalWaitBudgetEnabled: p.contentionTotalWaitBudgetMs !== undefined,
     contentionTotalWaitBudgetSec:
       p.contentionTotalWaitBudgetMs != null ? String(Math.round(p.contentionTotalWaitBudgetMs / 1000)) : "300",
     contentionMaxRetries:
@@ -347,6 +349,7 @@ export type SaveUiSnapshot = {
   benchmarkThroughputMode: boolean;
   contentionGuardEnabled: boolean;
   contentionPreBenchTimeoutSec: string;
+  contentionTotalWaitBudgetEnabled: boolean;
   contentionTotalWaitBudgetSec: string;
   contentionMaxRetries: string;
 };
@@ -390,10 +393,7 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
       const n = Number(s.contentionPreBenchTimeoutSec.trim());
       return Number.isFinite(n) && n >= 0 ? Math.floor(n * 1000) : undefined;
     })(),
-    contentionTotalWaitBudgetMs: (() => {
-      const n = Number(s.contentionTotalWaitBudgetSec.trim());
-      return Number.isFinite(n) && n >= 0 ? Math.floor(n * 1000) : undefined;
-    })(),
+    contentionTotalWaitBudgetMs: contentionWaitBudgetMs(s.contentionTotalWaitBudgetEnabled, s.contentionTotalWaitBudgetSec),
     contentionMaxRetriesPerIteration: (() => {
       const n = Number(s.contentionMaxRetries.trim());
       return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
@@ -618,4 +618,11 @@ export function saveMonitorSnapshot(s: MonitorSaveSnapshot): void {
   } catch {
     /* storage full / disabled */
   }
+}
+
+/** Shared by persistence and request construction: blank never means zero. */
+export function contentionWaitBudgetMs(enabled: boolean, seconds: string): number | undefined {
+  if (!enabled || !seconds.trim()) return undefined;
+  const n = Number(seconds);
+  return Number.isFinite(n) && n >= 0 ? Math.min(1_800_000, Math.floor(n * 1000)) : undefined;
 }

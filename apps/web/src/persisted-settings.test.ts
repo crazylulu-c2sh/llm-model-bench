@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  contentionWaitBudgetMs,
+  saveUiSnapshot,
   DEFAULT_LOAD_TTL_SECONDS,
   MONITOR_PREFS_STORAGE_KEY,
   PREFS_STORAGE_KEY,
@@ -198,10 +200,11 @@ describe("readInitialMonitorState", () => {
 });
 
 describe("readInitialUiState contention guard + v2→v3 migration", () => {
-  it("defaults: guard enabled, 120s pre-bench wait, 300s run-wide budget, 2 retries", () => {
+  it("defaults: guard enabled, 120s pre-bench wait, cumulative budget disabled, 2 retries", () => {
     const s = readInitialUiState();
     expect(s.contentionGuardEnabled).toBe(true);
     expect(s.contentionPreBenchTimeoutSec).toBe("120");
+    expect(s.contentionTotalWaitBudgetEnabled).toBe(false);
     expect(s.contentionTotalWaitBudgetSec).toBe("300");
     expect(s.contentionMaxRetries).toBe("2");
   });
@@ -217,6 +220,7 @@ describe("readInitialUiState contention guard + v2→v3 migration", () => {
     // 새 필드는 기본값으로
     expect(s.contentionGuardEnabled).toBe(true);
     expect(s.contentionMaxRetries).toBe("2");
+    expect(s.contentionTotalWaitBudgetEnabled).toBe(false);
     expect(s.contentionTotalWaitBudgetSec).toBe("300");
   });
 
@@ -234,6 +238,7 @@ describe("readInitialUiState contention guard + v2→v3 migration", () => {
     const s = readInitialUiState();
     expect(s.contentionGuardEnabled).toBe(false);
     expect(s.contentionPreBenchTimeoutSec).toBe("30");
+    expect(s.contentionTotalWaitBudgetEnabled).toBe(true);
     expect(s.contentionTotalWaitBudgetSec).toBe("900");
     expect(s.contentionMaxRetries).toBe("4");
   });
@@ -348,5 +353,25 @@ describe("readInitialUiState loadTtlSeconds", () => {
       JSON.stringify({ v: 3, loadTtlSeconds: "oops" }),
     );
     expect(readInitialUiState().loadTtlSeconds).toBe(String(DEFAULT_LOAD_TTL_SECONDS));
+  });
+});
+
+describe("optional wait budget persistence", () => {
+  it.each([0, 300_000, 900_000])("preserves legacy %ims then removes it on disable", (budget) => {
+    window.localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify({ v: 3, contentionTotalWaitBudgetMs: budget }));
+    const state = readInitialUiState();
+    expect(state.contentionTotalWaitBudgetEnabled).toBe(true);
+    expect(contentionWaitBudgetMs(true, state.contentionTotalWaitBudgetSec)).toBe(budget);
+    saveUiSnapshot({ ...state, contentionTotalWaitBudgetEnabled: false });
+    expect(JSON.parse(window.localStorage.getItem(PREFS_STORAGE_KEY)!)).not.toHaveProperty("contentionTotalWaitBudgetMs");
+    expect(readInitialUiState().contentionTotalWaitBudgetEnabled).toBe(false);
+  });
+
+  it.each([
+    [false, "300", undefined], [true, "", undefined], [true, "  ", undefined],
+    [true, "0", 0], [true, "300", 300_000], [true, "9999", 1_800_000],
+    [true, "-1", undefined], [true, "NaN", undefined],
+  ] as const)("serializes enabled=%s seconds=%s safely", (enabled, seconds, expected) => {
+    expect(contentionWaitBudgetMs(enabled, seconds)).toBe(expected);
   });
 });
