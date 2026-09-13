@@ -1,3 +1,4 @@
+import { ResultPlaceholderCells, withResultPlaceholder, type PlaceholderColumn } from "./result-placeholder-columns";
 import { modelKey } from "@llm-bench/shared";
 import { compareScenarioBenchOrder, isAgentScenario, isVisionScenario, scoreToRubric } from "@llm-bench/shared";
 import { apiRouteRank } from "./chart-types";
@@ -231,7 +232,7 @@ export function ResultsTable({
     state: { sorting },
     onSortingChange: setSorting,
     columns: [
-      columnHelper.accessor("model_id", {
+      withResultPlaceholder(columnHelper.accessor("model_id", {
         header: ({ column }) => (
           <button
             type="button"
@@ -262,8 +263,8 @@ export function ResultsTable({
           );
         },
         sortingFn: modelSortFn,
-      }),
-      columnHelper.accessor((row) => row.thinking_intent ?? "", {
+      }), "model"),
+      withResultPlaceholder(columnHelper.accessor((row) => row.thinking_intent ?? "", {
         id: "thinking_intent",
         header: ({ column }) => (
           <button
@@ -292,8 +293,8 @@ export function ResultsTable({
           );
         },
         sortingFn: "alphanumeric",
-      }),
-      columnHelper.accessor((row) => row.reasoning_effort ?? "", {
+      }), "unknown"),
+      withResultPlaceholder(columnHelper.accessor((row) => row.reasoning_effort ?? "", {
         id: "reasoning_effort",
         header: ({ column }) => (
           <button
@@ -323,9 +324,9 @@ export function ResultsTable({
           );
         },
         sortingFn: "alphanumeric",
-      }),
+      }), "unknown"),
       // #211 ModelLabel과 동일 위계: API(muted 상단) + 시나리오(mono 하단). API 단독 열은 두지 않는다.
-      columnHelper.accessor("scenario", {
+      withResultPlaceholder(columnHelper.accessor("scenario", {
         header: ({ column }) => (
           <button
             type="button"
@@ -382,8 +383,8 @@ export function ResultsTable({
           compareScenarioBenchOrder(a.original.scenario, b.original.scenario, benchScenarioOrder) ||
           apiRouteRank(a.original.api) - apiRouteRank(b.original.api) ||
           compareStringsPinned(a.original.api, b.original.api),
-      }),
-      columnHelper.accessor("prefill_tps", {
+      }), "scenario"),
+      withResultPlaceholder(columnHelper.accessor("prefill_tps", {
         header: ({ column }) => (
           <button
             type="button"
@@ -446,8 +447,8 @@ export function ResultsTable({
           const y = b.original.prefill_tps ?? -1;
           return x - y;
         },
-      }),
-      columnHelper.accessor("tps", {
+      }), "metric"),
+      withResultPlaceholder(columnHelper.accessor("tps", {
         header: ({ column }) => (
           <button
             type="button"
@@ -500,8 +501,8 @@ export function ResultsTable({
           const y = b.original.tps ?? -1;
           return x - y;
         },
-      }),
-      columnHelper.accessor((row) => row.score ?? (row.pass === true ? 1 : row.pass === false ? 0 : -1), {
+      }), "metric"),
+      withResultPlaceholder(columnHelper.accessor((row) => row.score ?? (row.pass === true ? 1 : row.pass === false ? 0 : -1), {
         id: "quality",
         header: ({ column }) => (
           <button
@@ -568,10 +569,10 @@ export function ResultsTable({
           );
         },
         sortingFn: "basic",
-      }),
+      }), "quality"),
       ...(anyAgentRow
         ? [
-            columnHelper.accessor(
+            withResultPlaceholder(columnHelper.accessor(
               (row) => {
                 if (row.agent_completion_reason === "completed") {
                   return 1000 + (row.turns_to_completion ?? 0);
@@ -639,10 +640,10 @@ export function ResultsTable({
                 );
               },
               sortingFn: "basic",
-            }),
+            }), "metric"),
           ]
         : []),
-    ],
+    ] satisfies PlaceholderColumn[],
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getRowId: (r) => r.rowKey,
@@ -688,6 +689,7 @@ export function ResultsTable({
                     return (
                       <th
                         key={h.id}
+                        data-column-id={h.column.id}
                         scope="col"
                         aria-sort={
                           h.column.getCanSort()
@@ -728,12 +730,13 @@ export function ResultsTable({
                       onRowClick(row.original);
                     }}
                   >
-                    {row.getVisibleCells().map((cell, ci) => (
+                    {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}
-                        className={`p-2 align-middle${ci === 0 ? " relative" : ""}`}
+                        data-column-id={cell.column.id}
+                        className={`p-2 align-middle${cell.column.id === "model_id" ? " relative" : ""}`}
                       >
-                        {ci === 0 && barColor ? (
+                        {cell.column.id === "model_id" && barColor ? (
                           <span
                             className="absolute inset-y-0 left-0 w-[3px]"
                             style={{ background: barColor }}
@@ -751,39 +754,15 @@ export function ResultsTable({
                 return (
                 // 예약 행도 "무엇이 남았는지"를 읽는 정보다 — muted @40%는 두 테마 모두 2:1 미만이라
                 // 전경색 @70%(다크 8.2:1 · 라이트 5.7:1)로 흐린 느낌은 유지하되 대비를 지킨다.
-                // Think/Effort/Prefill/Decode(+Agent)는 thead와 열 수를 맞추기 위한 플레이스홀더(예약 시점엔 meta 없음).
+                // 플레이스홀더의 개수·순서·표시 의미는 현재 보이는 열 정의만 따른다.
                 // 지금 측정 중인 행은 흐리지 않는다 — 에이전트처럼 한 칸이 긴 구간에서 "안 도는 것처럼" 보이지 않게.
                 <tr
                   key={pr.rowKey}
                   className={`border-t border-[var(--border)]${isActive ? " bg-[var(--surface)]" : " opacity-70"}`}
                   aria-hidden="true"
                 >
-                  <td className="relative p-2">
-                    {isActive ? (
-                      <span className="absolute inset-y-0 left-0 w-[3px] bg-[var(--accent)]" aria-hidden />
-                    ) : null}
-                    <span className="whitespace-nowrap text-xs text-[var(--foreground)]">
-                      <ModelLabel modelId={pr.model_id} size={14} className="max-w-[20rem]" />
-                    </span>
-                  </td>
-                  <td className="p-2">
-                    <span className="text-xs text-[var(--muted)]">—</span>
-                  </td>
-                  <td className="p-2">
-                    <span className="text-xs text-[var(--muted)]">—</span>
-                  </td>
-                  <td className="p-2">
-                    <span className="inline-flex min-w-0 flex-col leading-tight text-xs">
-                      <span className="truncate text-[10px] text-[var(--muted)]">{pr.api}</span>
-                      <span className="font-mono text-[var(--foreground)]">{pr.scenario}</span>
-                    </span>
-                  </td>
-                  <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
-                  <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
-                  <td className="p-2"><div className="h-3 w-12 animate-pulse rounded bg-[var(--border)]" /></td>
-                  {anyAgentRow ? (
-                    <td className="p-2"><div className="h-3 w-12 animate-pulse rounded bg-[var(--border)]" /></td>
-                  ) : null}
+                  <ResultPlaceholderCells columns={table.getVisibleLeafColumns()} row={pr}
+                    state="pending" active={isActive} unrunLabel={m.results.table.unrunBadge} />
                 </tr>
                 );
               })}
@@ -796,49 +775,8 @@ export function ResultsTable({
                   className="border-t border-[var(--border)] opacity-70"
                   aria-label={m.results.table.unrunAria(sr.scenario, reasonLabel)}
                 >
-                  <td className="relative p-2">
-                    <span className="whitespace-nowrap text-xs text-[var(--foreground)]">
-                      <ModelLabel modelId={sr.model_id} size={14} className="max-w-[20rem]" />
-                    </span>
-                  </td>
-                  <td className="p-2">
-                    <span className="text-xs text-[var(--muted)]">—</span>
-                  </td>
-                  <td className="p-2">
-                    <span className="text-xs text-[var(--muted)]">—</span>
-                  </td>
-                  <td className="p-2">
-                    <span className="inline-flex min-w-0 flex-col leading-tight text-xs">
-                      <span className="truncate text-[10px] text-[var(--muted)]">{sr.api}</span>
-                      <span className="font-mono text-[var(--foreground)]">{sr.scenario}</span>
-                    </span>
-                  </td>
-                  <td className="p-2">
-                    <span className="text-xs text-[var(--muted)]">—</span>
-                  </td>
-                  <td className="p-2">
-                    <span className="text-xs text-[var(--muted)]">—</span>
-                  </td>
-                  <td className="p-2">
-                    <span className="text-xs text-[var(--muted)]">—</span>
-                  </td>
-                  <td className="p-2">
-                    <span className="text-xs text-[var(--muted)]">—</span>
-                  </td>
-                  <td className="p-2">
-                    <span
-                      className="inline-flex items-center justify-center gap-1"
-                      title={reasonLabel}
-                    >
-                      <CircleX className="size-3.5 shrink-0 text-[var(--chart-fail)]" aria-hidden />
-                      <span className="text-xs text-[var(--foreground)]">{m.results.table.unrunBadge}</span>
-                    </span>
-                  </td>
-                  {anyAgentRow ? (
-                    <td className="p-2">
-                      <span className="text-xs text-[var(--muted)]">—</span>
-                    </td>
-                  ) : null}
+                  <ResultPlaceholderCells columns={table.getVisibleLeafColumns()} row={sr}
+                    state="skipped" reasonLabel={reasonLabel} unrunLabel={m.results.table.unrunBadge} />
                 </tr>
                 );
               })}

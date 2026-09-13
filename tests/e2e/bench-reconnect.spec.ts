@@ -183,6 +183,11 @@ test.describe("끝난 큐 자동 복원 범위", () => {
     await expect(resultRows(page)).toHaveCount(SCENARIOS.length);
     await expect(skippedUnrunRows(page)).toHaveCount((MODEL_IDS.length - 1) * SCENARIOS.length);
     expect(detailRequests.length, "완료 모델의 결과를 DB에서 가져왔어야 한다").toBeGreaterThan(0);
+    const table = resultsTable(page);
+    const headerIds = await table.locator("thead th").evaluateAll(cells => cells.map(cell => cell.getAttribute("data-column-id")));
+    for (const row of await table.locator("tbody tr").all()) {
+      expect(await row.locator("td").evaluateAll(cells => cells.map(cell => cell.getAttribute("data-column-id")))).toEqual(headerIds);
+    }
   });
 });
 
@@ -230,9 +235,11 @@ test.describe("서버 큐 재연결", () => {
     const table = resultsTable(page);
     const skeletons = pendingSkeletonRows(page);
     await expect(skeletons).not.toHaveCount(0);
-    // Think/Effort 열 추가 후 pending 수동 td가 thead와 어긋나면 시나리오가 Think 칸으로 밀린다.
-    const headerCount = await table.locator("thead th").count();
-    await expect(skeletons.first().locator("td")).toHaveCount(headerCount);
+    const headerIds = await table.locator("thead th").evaluateAll(cells => cells.map(cell => cell.getAttribute("data-column-id")));
+    for (const row of await table.locator("tbody tr").all()) {
+      expect(await row.locator("td").evaluateAll(cells => cells.map(cell => cell.getAttribute("data-column-id")))).toEqual(headerIds);
+    }
+
   });
 
   /**
