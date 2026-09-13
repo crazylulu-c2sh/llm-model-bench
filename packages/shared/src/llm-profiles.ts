@@ -102,7 +102,7 @@ const GEMMA_ORPHAN_THOUGHT_PREFIX = /^<\|channel>thought\n\s*/i;
 
 export const THINK_BLOCK_PATTERN_SOURCE =
   REDACTED_THINK_BLOCK +
-  "|<think>[\\s\\S]*?</think>" +
+  "|<think>[\\s\\S]*?(?:</think>|$)" +
   "|<\\|think\\|>[\\s\\S]*?(?:<\\|end_of_thought\\|>|<\\|end\\|>|<\\|start_header_id\\|>|<\\|im_end\\|>|$)" +
   "|<\\|channel\\|>thought[\\s\\S]*?<channel\\|>" +
   "|<\\|channel>thought[\\s\\S]*?<channel\\|>" +

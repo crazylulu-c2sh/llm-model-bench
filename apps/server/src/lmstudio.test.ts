@@ -29,32 +29,60 @@ function requestUrl(input: RequestInfo | URL): string {
 }
 
 describe("probeLmStudioNativeChat", () => {
-  it("sends context, ttl, and store=false, then verifies the loaded instance", async () => {
-    const calls: Array<{ url: string; body?: Record<string, unknown> }> = [];
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = requestUrl(input);
-      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined;
-      calls.push({ url, body });
-      if (url.endsWith("/api/v1/chat")) return jsonResponse({ output: "ok" });
-      if (url.endsWith("/api/v1/models")) {
-        return jsonResponse({ models: [{ key: "model", loaded_instances: [{ config: { context_length: 4096 }, remaining_ttl_seconds: 42 }] }] });
+  function mockProbe(ttl: number, disappears = true, resident = false) {
+    let reads = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      if (requestUrl(input).endsWith("/api/v1/chat")) {
+        return jsonResponse({ model_instance_id: "probe-instance" });
       }
-      return jsonResponse({ error: "unexpected" }, 404);
+      reads++;
+      return jsonResponse({ models: [{ key: "model", loaded_instances:
+        (reads === 1 ? resident : reads === 2 || !disappears)
+          ? [{ id: "probe-instance", config: { context_length: 4096 }, remaining_ttl_seconds: ttl }]
+          : [] }] });
     });
+    return fetchImpl;
+  }
 
+  it("requires observed expiry, not just a matching positive TTL", async () => {
+    const fetchImpl = mockProbe(1);
     const result = await probeLmStudioNativeChat("http://localhost:1234/v1", "model", {
-      contextLength: 4096,
-      ttlSeconds: 60,
-      fetchImpl,
+      contextLength: 4096, ttlSeconds: 1, fetchImpl, verifyExpiry: true,
     });
+    expect(result).toMatchObject({ verification: "verified", ttl_expiry_verified: true });
+    expect(JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body))).toMatchObject({
+      context_length: 4096, ttl: 1, store: false, max_output_tokens: 1,
+    });
+  });
 
-    expect(result.verification).toBe("verified");
-    expect(result.context_verified).toBe(true);
-    expect(result.ttl_verified).toBe(true);
-    expect(calls[0]).toMatchObject({
-      url: "http://localhost:1234/api/v1/chat",
-      body: { model: "model", input: ".", context_length: 4096, ttl: 60, store: false, stream: false },
+  it("keeps immediate config verification provisional", async () => {
+    const result = await probeLmStudioNativeChat("http://localhost:1234", "model", {
+      contextLength: 4096, ttlSeconds: 60, fetchImpl: mockProbe(59),
     });
+    expect(result).toMatchObject({ ttl_verified: true, ttl_expiry_verified: false, verification: "unverified" });
+  });
+
+  it("rejects an unrelated default TTL", async () => {
+    const result = await probeLmStudioNativeChat("http://localhost:1234", "model", {
+      contextLength: 4096, ttlSeconds: 60, fetchImpl: mockProbe(3600),
+    });
+    expect(result).toMatchObject({ ttl_verified: false, verification: "unverified" });
+  });
+
+  it("does not claim expiry when the instance remains resident", async () => {
+    const result = await probeLmStudioNativeChat("http://localhost:1234", "model", {
+      contextLength: 4096, ttlSeconds: 1, fetchImpl: mockProbe(1, false), verifyExpiry: true,
+    });
+    expect(result).toMatchObject({ ttl_expiry_verified: false, verification: "unverified" });
+  });
+
+  it("does not send inference when another model is resident", async () => {
+    const fetchImpl = mockProbe(60, false, true);
+    const result = await probeLmStudioNativeChat("http://localhost:1234", "model", {
+      contextLength: 4096, ttlSeconds: 60, fetchImpl,
+    });
+    expect(result.verification).toBe("rejected");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("does not treat an error envelope with HTTP 200 as support", async () => {
@@ -63,9 +91,7 @@ describe("probeLmStudioNativeChat", () => {
       return jsonResponse({ models: [] });
     });
     const result = await probeLmStudioNativeChat("http://localhost:1234", "model", {
-      contextLength: 4096,
-      ttlSeconds: 60,
-      fetchImpl,
+      contextLength: 4096, ttlSeconds: 60, fetchImpl,
     });
     expect(result.request_accepted).toBe(false);
     expect(result.verification).toBe("rejected");

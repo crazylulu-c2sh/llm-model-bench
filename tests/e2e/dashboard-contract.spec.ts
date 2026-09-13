@@ -84,3 +84,27 @@ for (const [path, api] of [["/stats", "/api/stats/model-latest"], ["/provider-st
     await expect(page.getByText(/요청 실패 \(HTTP 401\)/)).toBeVisible();
   });
 }
+
+
+test("stats default order is newest first, with missing timestamps last", async ({ page }) => {
+  const ordered = [
+    { ...items[0], run_id: "older", model_id: "older", finished_at: "2026-09-01T00:00:00Z" },
+    { ...items[1], run_id: "missing", model_id: "missing", finished_at: null },
+    { ...items[2], base_url: serverA, run_id: "newest", model_id: "newest", finished_at: "2026-09-02T00:00:00Z" },
+  ];
+  await page.route("**/api/stats/model-latest", route => route.fulfill({ json: { items: ordered, sqlite_available: true } }));
+  await page.goto("/stats");
+  const table = page.getByRole("table", { name: "저장된 모델 통계" });
+  const rows = table.locator("tbody tr");
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toContainText("newest");
+  await expect(rows.nth(1)).toContainText("older");
+  await expect(rows.nth(2)).toContainText("missing");
+  const header = table.getByRole("columnheader").filter({ hasText: "완료" });
+  await expect(header).toHaveAttribute("aria-sort", "descending");
+  await header.getByRole("button").click();
+  await expect(header).toHaveAttribute("aria-sort", "ascending");
+  await expect(rows.nth(0)).toContainText("older");
+  await expect(rows.nth(1)).toContainText("newest");
+  await expect(rows.nth(2)).toContainText("missing");
+});

@@ -253,7 +253,7 @@ export function makeBenchRunMeta(
     // v11: 시나리오 프롬프트 하드닝(형식·앵커·deferral false-FAIL 제거) — 모델 입력이 바뀌어
     // 이전 런과 **비교 불가**. 채점 로직·threshold·ground-truth 는 불변.
     scenario_bundle_version: "11",
-    evaluation_protocol_version: "1",
+    evaluation_protocol_version: "2",
     warmup_protocol_version: "2",
     temperature: input.temperature ?? 0.2,
     max_tokens: input.max_tokens ?? 512,
@@ -1562,8 +1562,8 @@ export async function* runBench(
               // #79/#83: 레지스트리 시나리오는 텍스트/산출물 judge, 그 외(비전)는 이미지 judge.
               const regDef = getScenarioDef(scenarioId);
               quality = regDef?.judge
-                ? await runJudgeForRegisteredScenario(regDef, scoreText ?? text, fetchImpl)
-                : await runJudgeForVisionScenario(scenarioId, text, fetchImpl);
+                ? await runJudgeForRegisteredScenario(regDef, stripThinkingBlocks(scoreText ?? text), fetchImpl)
+                : await runJudgeForVisionScenario(scenarioId, stripThinkingBlocks(scoreText ?? text), fetchImpl);
             }
             // emit 직전 내부 플래그 제거 — SSE/DB에는 노출되지 않게 한다.
             if (quality && quality.judge_pending === true) {

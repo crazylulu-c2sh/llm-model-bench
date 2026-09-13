@@ -95,6 +95,13 @@ describe("buildMessages stress_long_context_ko", () => {
 });
 
 describe("scoreScenario chat_hello / chat_ping", () => {
+  it("rejects reasoning-only output and grades the final answer", () => {
+    for (const id of ["chat_hello", "chat_ping"] as const) {
+      expect(scoreScenario(id, "<|channel>thought\nOnly reasoning<channel|>").pass).toBe(false);
+      expect(scoreScenario(id, "<think>unfinished reasoning").pass).toBe(false);
+      expect(scoreScenario(id, "<|channel>thought\nReasoning<channel|>pong").pass).toBe(true);
+    }
+  });
   it("fails on empty or whitespace-only output", () => {
     expect(scoreScenario("chat_hello", "").pass).toBe(false);
     expect(scoreScenario("chat_hello", "   ").pass).toBe(false);
