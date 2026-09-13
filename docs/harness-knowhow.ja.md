@@ -421,7 +421,7 @@ type ContentionConfig = {
   maxRetriesPerIteration: number;   // clamp 0..5,          default 2
   preBenchTimeoutMs: number;        // clamp 0..600_000,    default 120_000
   betweenIterationTimeoutMs: number;// clamp 0..300_000,    default 30_000
-  totalWaitBudgetMs: number;        // clamp 0..1_800_000,  default 300_000 (run-global accumulator)
+  totalWaitBudgetMs: number | undefined; // opt-in, clamp 0..1_800_000; undefined = no cumulative limit
   gpuUtilThresholdPct: number;      // clamp 1..100,        default 25
   requiredConsecutiveIdle: number;  // clamp 1..5,          default 2 (debounce before resuming)
   serverMetricsEnabled: boolean;    // default true
@@ -440,6 +440,8 @@ type ContentionConfig = {
 | Ollama churn | モデルごとの `expires_at` | — | `expires_at` がベースラインを超えて前進 → `expires_at_advanced`（同一モデルへの外部リクエスト） |
 
 **ゲートループの仕組み。** `runIdleGate` は async generator です。最初のサンプルがアイドルなら即座に返り（`waitedMs: 0`）、ビジーなサンプルはポーリングループに入り、`contention_waiting` イベントを発行（重複排除 — 最初のポーリング時、reason 変化時、または 5 回ごとのポーリングで発行）し、`requiredConsecutiveIdle` 回連続でアイドルサンプルが得られて初めて再開し `contention_resumed` を発行します。タイムアウトと `totalWaitBudgetMs` はループの *内側* で毎ポーリング再チェックされます（入口だけのチェックでは sleep 中の超過を捕捉できません）。成功時は、in-flight モニターが差分を取る baseline を `loadedToBaseline(sampleIdle.loaded)` で作ります — 最後のアイドルサンプルの在庫を再利用し、`segmentBaseline()` 用の追加 HTTP（`/api/ps` など）を打ちません。
+
+**累積待機制限は任意適用です。** `contentionTotalWaitBudgetMs` の省略は累積制限なし、数値指定は0..1,800,000msに制限します。0はbusy検出後の追加待機を許可せず、`null` はリクエストスキーマで拒否します。新規UI設定は無効で、有効時の推奨値は300秒です。既存の保存数値は保持し、チェック解除または空欄はフィールドを削除します。個別制限（開始前120秒・反復間30秒）と測定ごとの再試行2回は維持します。`runIdleGate` は最初のbusy判定から連続アイドル確認まで、状態照会とsleepの実経過時間を単調時計で合算します。最初からアイドルの照会、ロード、ウォームアップ・測定実行、ユーザーの一時停止は累積対象外です。sleepは残り時間以内に制限し、照会前後の期限判定をアイドル成功より先に行って超過後の再開を防ぎます。累積上限到達後も最初からアイドルなら通過します。`bench-runner.ts` はメタデータに `contention_total_wait_budget_enabled`、要約に `wait_accounting_version: 2` を記録します。バージョンなしの過去のsleep合計は再計算しません。中断時も完了済み測定と単一の要約を保持します。この信号だけではGPU残留負荷と外部作業を区別できません。
 
 **in-flight モニターのティアダウン競合。** `startInflightMonitor` は **async** な `stop()` を返します。内部の `sampleInFlight` は意図的にティアダウンの abort シグナル *なし* で呼ばれるので、`stopRequested` が既に立っていても in-flight での陽性検出は尊重され、`catch` に飲み込まれません。ポーリング間の *sleep* だけが（別の `AbortController`、`sleepCtrl` 経由で）中断可能で、検出を失うことなくティアダウンを素早く起こせます。検出時は `onDetect(reasons)` を発火し、そのランナーコールバックが `contentionController.abort()` を呼びます。リクエスト自体は結合された `reqSignal = AbortSignal.any([controller.signal, contentionController.signal])`（リクエストタイムアウト OR 競合）を監視しているので、abort が in-flight リクエストをティアダウンします。ランナーはその測定済み反復を破棄し、同じインデックスを `maxRetriesPerIteration` まで再実行します（`iteration_discarded`）。
 

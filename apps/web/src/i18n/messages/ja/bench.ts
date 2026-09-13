@@ -117,9 +117,9 @@ export const bench: Messages["bench"] = {
     "GPU util·/metrics·lms ps でアクティブな推論を検出します。信号がない環境では自動的に無効として扱われます。",
   preBenchTimeoutLabel: "事前待機の上限(秒)",
   totalWaitBudgetLabel: "ラン全体の待機上限(秒)",
-  totalWaitBudgetTitle:
-    "事前待機とイテレーション間待機をラン全体で合算します。シナリオが変わってもリセットされず、合計がこの値を超えるとベンチを中断します。既定 300 秒、サーバー上限 1800 秒。",
-  totalWaitBudgetHint: "シナリオ・イテレーションの待機を合算します。超過するとラン中断（既定 300、最大 1800）。",
+  totalWaitBudgetEnabledLabel: "ラン全体の累積待機を制限",
+  totalWaitBudgetTitle: "既定では無効。busy 検出からアイドル復帰確認までの実経過時間を合算します。個別の待機制限と再試行制限は引き続き適用されます。",
+  totalWaitBudgetHint: "任意適用 · 有効時の推奨値300秒、最大1800秒。0はbusy検出時に中断、空欄は累積制限なしです。",
   retriesPerRunLabel: "ラン当たりのリトライ回数",
 
   // モデル選択 · プロファイル

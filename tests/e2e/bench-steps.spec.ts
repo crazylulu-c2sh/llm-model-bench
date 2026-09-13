@@ -186,3 +186,37 @@ test.describe("모델 벤치 6단계 아코디언", () => {
     expect(results.violations).toEqual([]);
   });
 });
+
+test("누적 대기 한도는 기본 해제되고 선택값만 저장 및 전송한다", async ({ page }) => {
+  await mockBackend(page);
+  await page.goto("/");
+  await detectAndSelectFirstModel(page);
+  await stepButton(page, 3).click();
+  const toggle = page.getByRole("checkbox", { name: "런 전체 누적 대기 제한", exact: true });
+  const input = page.getByRole("spinbutton", { name: "런 전체 대기 한도(초)", exact: true });
+  await expect(toggle).not.toBeChecked();
+  await expect(input).toBeDisabled();
+  await toggle.check();
+  await expect(input).toHaveValue("300");
+  await input.fill("900");
+  await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem("llm-bench-ui-prefs") ?? "{}").contentionTotalWaitBudgetMs)).toBe(900000);
+  await page.reload();
+  await stepButton(page, 3).click();
+  await expect(toggle).toBeChecked();
+  await expect(input).toHaveValue("900");
+  const axe = await new AxeBuilder({ page }).withTags([...AXE_TAGS]).analyze();
+  expect(axe.violations).toEqual([]);
+  await toggle.uncheck();
+  await expect.poll(async () => page.evaluate(() => Object.hasOwn(JSON.parse(localStorage.getItem("llm-bench-ui-prefs") ?? "{}"), "contentionTotalWaitBudgetMs"))).toBe(false);
+  await page.reload();
+  await detectAndSelectFirstModel(page);
+  const request = page.waitForRequest((req) => req.method() === "POST" && req.url().endsWith("/api/bench/queue"));
+  await runSelectedModelsAndWait(page);
+  expect((await request).postDataJSON().bench).not.toHaveProperty("contentionTotalWaitBudgetMs");
+  await stepButton(page, 3).click();
+  await toggle.check();
+  await input.fill("0");
+  const zeroRequest = page.waitForRequest((req) => req.method() === "POST" && req.url().endsWith("/api/bench/queue"));
+  await runSelectedModelsAndWait(page);
+  expect((await zeroRequest).postDataJSON().bench.contentionTotalWaitBudgetMs).toBe(0);
+});

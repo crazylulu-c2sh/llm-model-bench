@@ -496,6 +496,7 @@ export const BenchRunMetaSchema = z.object({
   contention_max_retries_per_iteration: z.number().optional(),
   contention_pre_bench_timeout_ms: z.number().optional(),
   contention_between_iteration_timeout_ms: z.number().optional(),
+  contention_total_wait_budget_enabled: z.boolean().optional(),
   contention_total_wait_budget_ms: z.number().optional(),
   contention_gpu_util_threshold_pct: z.number().optional(),
   contention_required_consecutive_idle: z.number().optional(),
@@ -695,6 +696,8 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
     max_pre_bench_wait_ms: z.number(),
     max_between_iteration_wait_ms: z.number(),
     total_wait_ms: z.number(),
+    /** v2: actual elapsed time after first busy observation, including subsequent probes. */
+    wait_accounting_version: z.literal(2).optional(),
     guard_effective: z.boolean(),
     gpu_signal_available: z.boolean(),
     /** #185: guard_effective=false일 때의 구체적 사유(no_contention_signal_available 등, 진단용). */
@@ -942,7 +945,9 @@ export const BenchConfigSchema = z.object({
     contentionMaxRetriesPerIteration: z.number().int().nonnegative().optional(),
     contentionPreBenchTimeoutMs: z.number().int().nonnegative().optional(),
     contentionBetweenIterationTimeoutMs: z.number().int().nonnegative().optional(),
-    contentionTotalWaitBudgetMs: z.number().int().nonnegative().optional(),
+    contentionTotalWaitBudgetMs: z.number().int().nonnegative().optional().describe(
+      "Optional run-wide contention wait limit in milliseconds (maximum 1800000). Omit for no cumulative limit; 0 disallows waiting after busy is detected. Per-gate timeouts still apply.",
+    ),
     contentionGpuUtilThresholdPct: z.number().optional(),
     contentionRequiredConsecutiveIdle: z.number().int().positive().optional(),
     contentionServerMetricsEnabled: z.boolean().optional(),

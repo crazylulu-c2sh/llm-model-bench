@@ -33,7 +33,7 @@ export type ContentionConfig = {
   maxRetriesPerIteration: number;
   preBenchTimeoutMs: number;
   betweenIterationTimeoutMs: number;
-  totalWaitBudgetMs: number;
+  totalWaitBudgetMs: number | undefined;
   gpuUtilThresholdPct: number;
   requiredConsecutiveIdle: number;
   serverMetricsEnabled: boolean;
@@ -68,7 +68,9 @@ export function resolveContentionConfig(input: ContentionConfigInput): Contentio
     maxRetriesPerIteration: clampNum(input.contentionMaxRetriesPerIteration, 0, 5, 2),
     preBenchTimeoutMs: clampNum(input.contentionPreBenchTimeoutMs, 0, 600_000, 120_000),
     betweenIterationTimeoutMs: clampNum(input.contentionBetweenIterationTimeoutMs, 0, 300_000, 30_000),
-    totalWaitBudgetMs: clampNum(input.contentionTotalWaitBudgetMs, 0, 1_800_000, 300_000),
+    totalWaitBudgetMs: input.contentionTotalWaitBudgetMs == null
+      ? undefined
+      : clampNum(input.contentionTotalWaitBudgetMs, 0, 1_800_000, 300_000),
     gpuUtilThresholdPct: clampNum(input.contentionGpuUtilThresholdPct, 1, 100, 25),
     requiredConsecutiveIdle: clampNum(input.contentionRequiredConsecutiveIdle, 1, 5, 2),
     serverMetricsEnabled: input.contentionServerMetricsEnabled ?? true,
@@ -484,7 +486,7 @@ export function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-export const defaultClock: Clock = { now: () => Date.now(), sleep: defaultSleep };
+export const defaultClock: Clock = { now: () => performance.now(), sleep: defaultSleep };
 
 export type GatePhase = "pre_bench" | "between_iterations";
 
@@ -526,7 +528,8 @@ export async function* runIdleGate(
   const start = clock.now();
   const thisTimeout =
     params.phase === "pre_bench" ? cfg.preBenchTimeoutMs : cfg.betweenIterationTimeoutMs;
-  let sawBusy = false;
+  let busyStart: number | undefined;
+  let accountedAt: number | undefined;
   let consecutiveIdle = 0;
   let lastReasonKey = "";
   let polls = 0;
@@ -534,17 +537,48 @@ export async function* runIdleGate(
   let gpuSignalAvailable = false;
   let noSignalReason: string | undefined;
 
+  // Account wall time only after busy was observed; the first idle probe is free.
+  const accountWait = () => {
+    if (accountedAt === undefined) return;
+    const now = clock.now();
+    params.waitAccum.total += Math.max(0, now - accountedAt);
+    accountedAt = now;
+  };
+  const limitResult = (): GateResult | undefined => {
+    if (busyStart === undefined) return;
+    const code = cfg.totalWaitBudgetMs !== undefined && params.waitAccum.total >= cfg.totalWaitBudgetMs
+      ? "total_wait_budget_exceeded"
+      : clock.now() - start >= thisTimeout
+        ? params.phase === "pre_bench" ? "pre_bench_wait_timeout" : "between_iteration_wait_timeout"
+        : undefined;
+    if (code) return {
+      idle: false, waitedMs: clock.now() - busyStart, effective,
+      gpuSignalAvailable, noSignalReason, code,
+    };
+  };
+
   for (;;) {
+    accountWait();
+    const beforeProbe = limitResult();
+    if (beforeProbe) return beforeProbe;
     const s = await probe.sampleIdle();
     effective = s.hasActiveSignal;
     gpuSignalAvailable = s.gpuSignalAvailable;
     noSignalReason = s.hasActiveSignal ? undefined : s.reasons[0];
-    const waited = clock.now() - start;
+    if (s.active && busyStart === undefined) {
+      busyStart = clock.now();
+      accountedAt = busyStart;
+    }
+    accountWait();
+    // Check before accepting idle: a slow final probe must not bypass the deadline.
+    const afterProbe = limitResult();
+    if (afterProbe) return afterProbe;
+    const waited = busyStart === undefined ? 0 : clock.now() - busyStart;
 
     if (!s.active) {
       // sampleIdle이 이미 가져온 재고로 baseline을 만들어 /api/ps 등 중복 HTTP를 피한다.
       const baseline = loadedToBaseline(s.loaded);
-      if (!sawBusy) {
+      if (busyStart === undefined) {
         return {
           idle: true,
           waitedMs: 0,
@@ -573,7 +607,6 @@ export async function* runIdleGate(
         };
       }
     } else {
-      sawBusy = true;
       consecutiveIdle = 0;
       const reasonKey = s.reasons[0] ?? "busy";
       if (polls === 0 || reasonKey !== lastReasonKey || polls % 5 === 0) {
@@ -593,31 +626,11 @@ export async function* runIdleGate(
     }
     polls++;
 
-    if (params.waitAccum.total >= cfg.totalWaitBudgetMs) {
-      return {
-        idle: false,
-        waitedMs: waited,
-        effective,
-        gpuSignalAvailable,
-        noSignalReason,
-        code: "total_wait_budget_exceeded",
-      };
-    }
-    if (clock.now() - start >= thisTimeout) {
-      return {
-        idle: false,
-        waitedMs: waited,
-        effective,
-        gpuSignalAvailable,
-        noSignalReason,
-        code:
-          params.phase === "pre_bench"
-            ? "pre_bench_wait_timeout"
-            : "between_iteration_wait_timeout",
-      };
-    }
-    await clock.sleep(cfg.pollIntervalMs);
-    params.waitAccum.total += cfg.pollIntervalMs;
+    await clock.sleep(Math.min(
+      cfg.pollIntervalMs,
+      Math.max(0, thisTimeout - (clock.now() - start)),
+      cfg.totalWaitBudgetMs === undefined ? Infinity : Math.max(0, cfg.totalWaitBudgetMs - params.waitAccum.total),
+    ));
   }
 }
 

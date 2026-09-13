@@ -2,6 +2,9 @@ import type { DetectResult, StreamEvent } from "@llm-bench/shared";
 import { describe, expect, it, vi } from "vitest";
 import { runBench, type BenchRequest } from "./bench-runner.js";
 import { _resetStreamUsageCacheForTests } from "./openai-fetch.js";
+import { openBenchDatabase, getRunMetaJson } from "./db/database.js";
+import { BenchRunPersistence } from "./db/persist-stream.js";
+import { benchResultDetailFromDb } from "./db/run-queries.js";
 import type { ContentionProbe } from "./contention-probe.js";
 
 function requestUrl(input: RequestInfo | URL): string {
@@ -245,7 +248,10 @@ describe("runBench contention guard", () => {
     expect(chatCall).toBe(2); // warmup + measured both issued requests
   });
 
-  it("(10) between-iteration wait timeout aborts but keeps prior clean aggregate", async () => {
+  it.each([
+    { budget: undefined, code: "between_iteration_wait_timeout" },
+    { budget: 1500, code: "total_wait_budget_exceeded" },
+  ])("wait timeout $code preserves prior clean aggregate", async ({ budget, code }) => {
     let chatCall = 0;
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       if (requestUrl(input).endsWith("/v1/chat/completions")) {
@@ -256,16 +262,35 @@ describe("runBench contention guard", () => {
     }) as unknown as typeof fetch;
     // pre-bench idle, iter0 between-gate idle, iter1 between-gate permanently busy → times out.
     const events = await collect(
-      req({ measuredRuns: 2, contentionBetweenIterationTimeoutMs: 2000, contentionPollIntervalMs: 1000 }),
+      req({ measuredRuns: 2, contentionTotalWaitBudgetMs: budget, contentionBetweenIterationTimeoutMs: 2000, contentionPollIntervalMs: 1000 }),
       fetchImpl,
       fakeProbe({ idleActiveSeq: [false, false, true, true, true, true, true, true] }),
     );
-    expect(events.some((e) => e.type === "error" && e.code === "between_iteration_wait_timeout")).toBe(true);
+    expect(events.some((e) => e.type === "error" && e.code === code)).toBe(true);
     // (MEDIUM 수정) 대기 타임아웃 abort라도 그 이전에 깨끗이 끝난 iter0 집계는 유지된다.
     const mu = events.find((e) => e.type === "metrics_update") as { aggregate: { runs: unknown[] } } | undefined;
     expect(mu).toBeTruthy();
     expect(mu!.aggregate.runs).toHaveLength(1);
     expect(events.filter((e) => e.type === "contention_summary")).toHaveLength(1);
+    expect(events.find((e) => e.type === "contention_summary")).toMatchObject({ wait_accounting_version: 2, abort_reason: code });
+    const db = openBenchDatabase(":memory:");
+    try {
+      const started = events.find((e) => e.type === "run_started");
+      expect(started?.meta).toBeDefined();
+      const persistence = new BenchRunPersistence(db);
+      persistence.start(started!.meta!);
+      for (const event of events) persistence.onEvent(event);
+      persistence.finalize();
+      const stored = benchResultDetailFromDb(db, started!.run_id);
+      expect(db.prepare("SELECT status FROM bench_runs WHERE run_id = ?").get(started!.run_id)).toMatchObject({ status: "partial" });
+      expect(stored?.scenarios[0].runs).toHaveLength(1);
+      expect(JSON.parse(getRunMetaJson(db, started!.run_id)!)).toMatchObject({
+        contention_total_wait_budget_enabled: budget !== undefined,
+        contention_summary: { wait_accounting_version: 2, abort_reason: code },
+      });
+    } finally {
+      db.close();
+    }
     expect(chatCall).toBe(1); // iter1 요청 전에 게이트가 막음
   });
 

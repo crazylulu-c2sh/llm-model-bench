@@ -149,6 +149,7 @@ import {
   saveUiSnapshot,
   subscribeConnectionCredentials,
   type Qwen38ReasoningEffort,
+  contentionWaitBudgetMs,
 } from "./persisted-settings";
 import { useBaseUrlNames } from "./lib/base-url-names";
 import { loadTtlNotice } from "./lib/load-ttl-message";
@@ -438,6 +439,7 @@ export function App() {
   /** 오염 가드: 다른 추론 감지 시 대기/폐기·재측정. */
   const [contentionGuardEnabled, setContentionGuardEnabled] = useState(boot.contentionGuardEnabled);
   const [contentionPreBenchTimeoutSec, setContentionPreBenchTimeoutSec] = useState(boot.contentionPreBenchTimeoutSec);
+  const [contentionTotalWaitBudgetEnabled, setContentionTotalWaitBudgetEnabled] = useState(boot.contentionTotalWaitBudgetEnabled);
   const [contentionTotalWaitBudgetSec, setContentionTotalWaitBudgetSec] = useState(boot.contentionTotalWaitBudgetSec);
   const [contentionMaxRetries, setContentionMaxRetries] = useState(boot.contentionMaxRetries);
   const [reasoningEffort, setReasoningEffort] = useState<"minimal" | "low" | "medium" | "high">(boot.reasoningEffort);
@@ -602,6 +604,7 @@ export function App() {
         benchmarkThroughputMode,
         contentionGuardEnabled,
         contentionPreBenchTimeoutSec,
+        contentionTotalWaitBudgetEnabled,
         contentionTotalWaitBudgetSec,
         contentionMaxRetries,
       });
@@ -630,6 +633,7 @@ export function App() {
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
+    contentionTotalWaitBudgetEnabled,
     contentionTotalWaitBudgetSec,
     contentionMaxRetries,
   ]);
@@ -671,6 +675,7 @@ export function App() {
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
+    contentionTotalWaitBudgetEnabled,
     contentionTotalWaitBudgetSec,
     contentionMaxRetries,
   });
@@ -696,6 +701,7 @@ export function App() {
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
+    contentionTotalWaitBudgetEnabled,
     contentionTotalWaitBudgetSec,
     contentionMaxRetries,
   };
@@ -1418,6 +1424,7 @@ export function App() {
         benchmarkThroughputMode,
         contentionGuardEnabled,
         contentionPreBenchTimeoutSec,
+        contentionTotalWaitBudgetEnabled,
         contentionTotalWaitBudgetSec,
         contentionMaxRetries,
       });
@@ -1472,6 +1479,7 @@ export function App() {
     setBenchmarkThroughputMode(f.benchmarkThroughputMode);
     setContentionGuardEnabled(f.contentionGuardEnabled);
     setContentionPreBenchTimeoutSec(f.contentionPreBenchTimeoutSec);
+    setContentionTotalWaitBudgetEnabled(f.contentionTotalWaitBudgetEnabled);
     setContentionTotalWaitBudgetSec(f.contentionTotalWaitBudgetSec);
     setContentionMaxRetries(f.contentionMaxRetries);
     setUnloadOtherModels(f.unloadOtherModels);
@@ -1953,14 +1961,7 @@ export function App() {
             ...(Number.isFinite(Number(contentionPreBenchTimeoutSec)) && contentionPreBenchTimeoutSec.trim()
               ? { contentionPreBenchTimeoutMs: Math.max(0, Math.floor(Number(contentionPreBenchTimeoutSec) * 1000)) }
               : {}),
-            ...(Number.isFinite(Number(contentionTotalWaitBudgetSec)) && contentionTotalWaitBudgetSec.trim()
-              ? {
-                  contentionTotalWaitBudgetMs: Math.min(
-                    1_800_000,
-                    Math.max(0, Math.floor(Number(contentionTotalWaitBudgetSec) * 1000)),
-                  ),
-                }
-              : {}),
+            contentionTotalWaitBudgetMs: contentionWaitBudgetMs(contentionTotalWaitBudgetEnabled, contentionTotalWaitBudgetSec),
             ...(Number.isFinite(Number(contentionMaxRetries)) && contentionMaxRetries.trim()
               ? { contentionMaxRetriesPerIteration: Math.max(0, Math.floor(Number(contentionMaxRetries))) }
               : {}),
@@ -2025,6 +2026,7 @@ export function App() {
     contentionGuardEnabled,
     contentionMaxRetries,
     contentionPreBenchTimeoutSec,
+    contentionTotalWaitBudgetEnabled,
     contentionTotalWaitBudgetSec,
     describeBenchConflict,
     detect,
@@ -3185,19 +3187,31 @@ export function App() {
                     onChange={(e) => setContentionPreBenchTimeoutSec(e.target.value)}
                   />
                 </label>
-                <label className="grid gap-1 text-xs text-[var(--muted)]" title={msg().bench.totalWaitBudgetTitle}>
-                  {msg().bench.totalWaitBudgetLabel}
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    max={1800}
-                    className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-[var(--foreground)]"
-                    value={contentionTotalWaitBudgetSec}
-                    aria-describedby="total-wait-budget-hint"
-                    onChange={(e) => setContentionTotalWaitBudgetSec(e.target.value)}
-                  />
-                </label>
+                <div className="grid gap-1 text-xs text-[var(--muted)]" title={msg().bench.totalWaitBudgetTitle}>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={contentionTotalWaitBudgetEnabled}
+                      onChange={(e) => setContentionTotalWaitBudgetEnabled(e.target.checked)}
+                      aria-describedby="total-wait-budget-hint"
+                    />
+                    {msg().bench.totalWaitBudgetEnabledLabel}
+                  </label>
+                  <label className="grid gap-1">
+                    {msg().bench.totalWaitBudgetLabel}
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={1800}
+                      disabled={!contentionTotalWaitBudgetEnabled}
+                      className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-[var(--foreground)] disabled:opacity-50"
+                      value={contentionTotalWaitBudgetSec}
+                      aria-describedby="total-wait-budget-hint"
+                      onChange={(e) => setContentionTotalWaitBudgetSec(e.target.value)}
+                    />
+                  </label>
+                </div>
                 <label className="grid gap-1 text-xs text-[var(--muted)]">
                   {msg().bench.retriesPerRunLabel}
                   <input

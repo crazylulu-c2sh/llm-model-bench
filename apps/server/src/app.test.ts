@@ -655,6 +655,11 @@ describe("OpenAPI spec", () => {
         components: { schemas: Record<string, unknown> };
       };
       expect(spec.openapi).toBe("3.1.0");
+      for (const name of ["BenchStreamBody", "BenchQueueStartBody"]) {
+        expect(spec.components.schemas[name]).toMatchObject({ properties: { bench: { properties: {
+          contentionTotalWaitBudgetMs: { description: expect.stringContaining("Omit for no cumulative limit") },
+        } } } });
+      }
       for (const path of [
         "/health",
         "/update-check",
