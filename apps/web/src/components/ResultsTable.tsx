@@ -399,6 +399,16 @@ export function ResultsTable({
           const v = getValue();
           const agent = isAgentScenario(row.original.scenario);
           const hidden = row.original.reasoning_hidden;
+          const reasoningHiddenBadge = hidden ? (
+            <span
+              role="img"
+              className="inline-flex items-center text-amber-500"
+              title={m.results.table.reasoningHiddenTitle}
+              aria-label={m.results.table.reasoningHiddenTitle}
+            >
+              <AlertTriangle className="size-3 shrink-0" aria-hidden />
+            </span>
+          ) : null;
           const extra = [
             hidden ? m.results.table.reasoningHiddenTitle : "",
             agent ? m.results.table.agentTurnSumTitle : "",
@@ -409,10 +419,11 @@ export function ResultsTable({
             const missing = m.results.table.prefillMissingTitle;
             return (
               <span
-                className="whitespace-nowrap font-mono text-xs"
+                className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-xs"
                 title={extra ? `${missing} ${extra}` : missing}
               >
                 —
+                {reasoningHiddenBadge}
               </span>
             );
           }
@@ -420,12 +431,13 @@ export function ResultsTable({
           const baseTitle = win ? m.results.table.prefillWinTitle : m.results.table.colPrefillTpsTitle;
           return (
             <span
-              className={`whitespace-nowrap font-mono text-xs${win ? " font-bold" : ""}`}
+              className={`inline-flex items-center gap-1 whitespace-nowrap font-mono text-xs${win ? " font-bold" : ""}`}
               style={win ? { color: "var(--dir-higher)" } : undefined}
               title={extra ? `${baseTitle} ${extra}` : baseTitle}
             >
               {win ? <span aria-hidden className="mr-0.5">▴</span> : null}
               {v}
+              {reasoningHiddenBadge}
             </span>
           );
         },
@@ -766,8 +778,6 @@ export function ResultsTable({
                       <span className="font-mono text-[var(--foreground)]">{pr.scenario}</span>
                     </span>
                   </td>
-                  <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
-                  <td className="p-2"><div className="h-3 w-8 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-10 animate-pulse rounded bg-[var(--border)]" /></td>
                   <td className="p-2"><div className="h-3 w-12 animate-pulse rounded bg-[var(--border)]" /></td>
