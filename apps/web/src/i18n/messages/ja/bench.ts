@@ -26,7 +26,7 @@ export const bench: Messages["bench"] = {
   detecting: "プロバイダーを検出中…",
   apiKeyLabel: "API キー (任意)",
   apiKeyPlaceholder: "Bearer / ゲートウェイキー",
-  persistApiKeyLabel: "このブラウザに API キーを保存 (ローカルディスク・平文)",
+  persistApiKeyLabel: "この Base URL に API キーを保存 (ローカルディスク・平文)",
   persistApiKeyHintA: "オフにすると同じタブ内の ",
   persistApiKeyHintB:
     " にのみ保持され、リロードでは維持されますがブラウザを閉じると消える場合があります。オンにすると ",

@@ -24,7 +24,7 @@ export const stress: Messages["stress"] = {
     heading: "1) プロバイダー検出",
     apiKeyLabel: "API key（任意）",
     detectBtn: "検出",
-    persistLabel: "このブラウザにAPIキーを保存（ローカルディスク・平文）",
+    persistLabel: "この Base URL に API キーを保存（ローカルディスク・平文）",
     persistWarnBefore: "オフにすると同じタブ内でのみ ",
     persistWarnMid:
       " に保存され、リロードでは維持されますがブラウザを閉じると消えることがあります。オンにすると ",

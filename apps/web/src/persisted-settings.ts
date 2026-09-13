@@ -58,9 +58,18 @@ export function factoryStep3Settings() {
 }
 
 export const PREFS_STORAGE_KEY = "llm-bench-ui-prefs";
-export const SESSION_API_KEY = "llm-bench-api-key";
+const SESSION_API_KEYS_STORAGE_KEY = "llm-bench-api-keys-v2";
+const LEGACY_SESSION_API_KEY = "llm-bench-api-key";
+const CONNECTION_CREDENTIALS_EVENT = "llm-bench:connection-credentials";
 
-const STORAGE_VERSION = 3 as const;
+const STORAGE_VERSION = 4 as const;
+
+export type ConnectionCredentials = {
+  apiKey: string;
+  persistApiKeyToDisk: boolean;
+};
+
+type PersistedCredentials = Record<string, ConnectionCredentials>;
 
 const PrefsSchema = z
   .object({
@@ -99,6 +108,10 @@ const PrefsSchema = z
     contentionPreBenchTimeoutMs: z.number().int().nonnegative().optional(),
     contentionTotalWaitBudgetMs: z.number().int().nonnegative().optional(),
     contentionMaxRetriesPerIteration: z.number().int().nonnegative().optional(),
+    credentialsByBaseUrl: z.record(z.string(), z.object({
+      apiKey: z.string(),
+      persistApiKeyToDisk: z.boolean(),
+    })).optional(),
   })
   .passthrough();
 
@@ -112,8 +125,8 @@ function safeParsePrefs(raw: string | null): Partial<UiPrefs> {
     const j = JSON.parse(raw) as unknown;
     if (typeof j !== "object" || j === null) return {};
     const obj = j as Record<string, unknown>;
-    // v2 → v3는 필드 추가뿐(하위호환) — 재스탬프로 기존 prefs 보존. v1은 아래 legacy 경로.
-    if (!("v" in obj) || obj.v === 2) obj.v = STORAGE_VERSION;
+    // v2/v3는 필드 추가뿐(하위호환) — 재스탬프로 기존 prefs 보존. v1은 아래 legacy 경로.
+    if (!("v" in obj) || obj.v === 2 || obj.v === 3) obj.v = STORAGE_VERSION;
     if (obj.profileId === "minimax_m27") obj.profileId = "minimax";
     const parsed = PrefsSchema.safeParse(obj);
     if (parsed.success) return parsed.data;
@@ -139,7 +152,13 @@ function safeParsePrefs(raw: string | null): Partial<UiPrefs> {
 
 export function readPrefsFromDisk(): Partial<UiPrefs> {
   if (typeof window === "undefined") return {};
-  return safeParsePrefs(localStorage.getItem(PREFS_STORAGE_KEY));
+  const prefs = safeParsePrefs(localStorage.getItem(PREFS_STORAGE_KEY));
+  if (Object.prototype.hasOwnProperty.call(prefs, "apiKey") || Object.prototype.hasOwnProperty.call(prefs, "persistApiKeyToDisk")) {
+    const { apiKey: _legacyKey, persistApiKeyToDisk: _legacyPersist, ...clean } = prefs;
+    writePrefsToDisk({ ...clean, v: STORAGE_VERSION } as UiPrefs);
+    return clean;
+  }
+  return prefs;
 }
 
 function writePrefsToDisk(prefs: UiPrefs) {
@@ -147,15 +166,95 @@ function writePrefsToDisk(prefs: UiPrefs) {
   localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs));
 }
 
-export function readSessionApiKey(): string {
-  if (typeof window === "undefined") return "";
-  return sessionStorage.getItem(SESSION_API_KEY) ?? "";
+export function normalizeCredentialBaseUrl(value: string): string | null {
+  const input = value.trim();
+  if (!input) return null;
+  try {
+    const url = new URL(input);
+    if (!url.protocol || !url.hostname) return null;
+    url.hostname = url.hostname.toLowerCase();
+    if ((url.protocol === "http:" && url.port === "80") || (url.protocol === "https:" && url.port === "443")) {
+      url.port = "";
+    }
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
 }
 
-export function writeSessionApiKey(value: string) {
+function readSessionApiKeys(): PersistedCredentials {
+  if (typeof window === "undefined") return {};
+  try {
+    sessionStorage.removeItem(LEGACY_SESSION_API_KEY);
+    const raw = sessionStorage.getItem(SESSION_API_KEYS_STORAGE_KEY);
+    const value = raw ? JSON.parse(raw) : {};
+    return value && typeof value === "object" ? value as PersistedCredentials : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeSessionApiKeyForUrl(baseUrl: string, apiKey: string) {
   if (typeof window === "undefined") return;
-  if (value) sessionStorage.setItem(SESSION_API_KEY, value);
-  else sessionStorage.removeItem(SESSION_API_KEY);
+  const key = normalizeCredentialBaseUrl(baseUrl);
+  if (!key) return;
+  const all = readSessionApiKeys();
+  if (apiKey) all[key] = { apiKey, persistApiKeyToDisk: false };
+  else delete all[key];
+  try {
+    if (Object.keys(all).length) sessionStorage.setItem(SESSION_API_KEYS_STORAGE_KEY, JSON.stringify(all));
+    else sessionStorage.removeItem(SESSION_API_KEYS_STORAGE_KEY);
+  } catch { /* storage disabled */ }
+}
+
+function dispatchCredentialsChanged(baseUrl: string) {
+  if (typeof window.dispatchEvent === "function") {
+    window.dispatchEvent(new CustomEvent(CONNECTION_CREDENTIALS_EVENT, { detail: baseUrl }));
+  }
+}
+
+export function readConnectionCredentials(baseUrl: string): ConnectionCredentials {
+  const key = normalizeCredentialBaseUrl(baseUrl);
+  if (!key || typeof window === "undefined") return { apiKey: "", persistApiKeyToDisk: false };
+  const prefs = readPrefsFromDisk();
+  const persisted = prefs.credentialsByBaseUrl?.[key];
+  if (persisted?.persistApiKeyToDisk) return persisted;
+  const session = readSessionApiKeys()[key];
+  if (session?.apiKey) return { apiKey: session.apiKey, persistApiKeyToDisk: false };
+  return { apiKey: "", persistApiKeyToDisk: false };
+}
+
+export function saveConnectionCredentials(baseUrl: string, credentials: ConnectionCredentials) {
+  if (typeof window === "undefined") return;
+  const key = normalizeCredentialBaseUrl(baseUrl);
+  if (!key) return;
+  const current = readPrefsFromDisk();
+  const credentialsByBaseUrl: PersistedCredentials = { ...(current.credentialsByBaseUrl ?? {}) };
+  delete credentialsByBaseUrl[key];
+    if (credentials.persistApiKeyToDisk && credentials.apiKey) {
+      credentialsByBaseUrl[key] = { apiKey: credentials.apiKey, persistApiKeyToDisk: true };
+      writeSessionApiKeyForUrl(baseUrl, "");
+  } else {
+    writeSessionApiKeyForUrl(baseUrl, credentials.apiKey);
+  }
+  const { apiKey: _legacyKey, persistApiKeyToDisk: _legacyPersist, ...clean } = current;
+  writePrefsToDisk({ ...clean, v: STORAGE_VERSION, credentialsByBaseUrl } as UiPrefs);
+  dispatchCredentialsChanged(key);
+}
+
+export function subscribeConnectionCredentials(listener: (baseUrl: string) => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const onCustom = (event: Event) => listener(String((event as CustomEvent).detail ?? ""));
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === PREFS_STORAGE_KEY) listener("");
+  };
+  window.addEventListener(CONNECTION_CREDENTIALS_EVENT, onCustom);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(CONNECTION_CREDENTIALS_EVENT, onCustom);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 // #79/#83: 커스텀/agent 시나리오 id 형태(lowercase). PUBLIC built-in 외에 이 패턴도 보존해
@@ -187,10 +286,10 @@ export function readInitialUiState() {
     };
   }
   const p = readPrefsFromDisk();
-  const persist = p.persistApiKeyToDisk === true;
-  const apiKey = persist ? (p.apiKey ?? "") : readSessionApiKey();
+  const baseUrl = typeof p.baseUrl === "string" && p.baseUrl.length ? p.baseUrl : DEFAULT_BASE;
+  const credentials = readConnectionCredentials(baseUrl);
   return {
-    baseUrl: typeof p.baseUrl === "string" && p.baseUrl.length ? p.baseUrl : DEFAULT_BASE,
+    baseUrl,
     unloadOtherModels: p.unloadOtherModels ?? false,
     autoUnloadAfterBench: p.autoUnloadAfterBench ?? false,
     // 저장값이 없으면(이 필드가 생기기 전 설정 포함) 기본 TTL로 떨어진다 — 사용자가 명시적으로
@@ -202,8 +301,8 @@ export function readInitialUiState() {
     fitPolicy: (p.fitPolicy ?? "") as "" | "skip" | "unload_other_models",
     hlPreview: p.hlPreview ?? false,
     hlLog: p.hlLog ?? false,
-    persistApiKeyToDisk: persist,
-    apiKey,
+    persistApiKeyToDisk: credentials.persistApiKeyToDisk,
+    apiKey: credentials.apiKey,
     profileId: (p.profileId ?? "auto") as "auto" | LlmProfileFamily,
     profileMaxTokens:
       p.profileMaxTokens != null && Number.isFinite(p.profileMaxTokens) ? String(p.profileMaxTokens) : "",
@@ -256,6 +355,7 @@ export type SaveUiSnapshot = {
 export function saveUiSnapshot(s: SaveUiSnapshot) {
   if (typeof window === "undefined") return;
 
+  const existing = readPrefsFromDisk();
   const prefs: UiPrefs = {
     v: STORAGE_VERSION,
     baseUrl: s.baseUrl,
@@ -270,7 +370,6 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
     fitPolicy: s.fitPolicy || undefined,
     hlPreview: s.hlPreview,
     hlLog: s.hlLog,
-    persistApiKeyToDisk: s.persistApiKeyToDisk,
     profileId: s.profileId,
     profileMaxTokens: (() => {
       const t = s.profileMaxTokens.trim();
@@ -300,16 +399,9 @@ export function saveUiSnapshot(s: SaveUiSnapshot) {
       return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
     })(),
   };
-
-  if (s.persistApiKeyToDisk) {
-    prefs.apiKey = s.apiKey;
-    writeSessionApiKey("");
-  } else {
-    delete prefs.apiKey;
-    writeSessionApiKey(s.apiKey);
-  }
-
+  prefs.credentialsByBaseUrl = existing.credentialsByBaseUrl;
   writePrefsToDisk(prefs);
+  saveConnectionCredentials(s.baseUrl, { apiKey: s.apiKey, persistApiKeyToDisk: s.persistApiKeyToDisk });
 }
 
 export function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {

@@ -20,7 +20,7 @@ import {
   stressRunToJson,
 } from "./lib/stress-export";
 import { workloadLabel } from "./lib/stress-labels";
-import { formatIsoLocal } from "./lib/time-format";
+import { formatIsoLocal, localTimeZoneName } from "./lib/time-format";
 import { useBaseUrlNames } from "./lib/base-url-names";
 import { useI18n, msg } from "./i18n";
 
@@ -344,6 +344,7 @@ export function StressStatsPage() {
 
       <section className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-4 shadow-sm">
         <h2 className="mb-3 text-sm font-semibold text-[var(--foreground)]">{m.stress.stats.runsHeading(items.length, hasMore)}</h2>
+        <p className="mb-3 text-xs text-[var(--muted)]">{m.common.localTimeZone(localTimeZoneName())}</p>
         {listLoading && items.length === 0 ? (
           <div role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]">
             <Loader2 className="size-4 animate-spin" aria-hidden /> {m.stress.stats.loading}

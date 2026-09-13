@@ -23,8 +23,9 @@ import { BaseUrlValue } from "./BaseUrlValue";
 import { ModelLabel } from "./ModelLabel";
 import { useI18n, type Messages } from "../i18n";
 import { cycleColumnSort, isSameSorting } from "../lib/column-sort-cycle";
+import { formatIsoLocal } from "../lib/time-format";
 
-export const DEFAULT_STATS_MODEL_SORTING: SortingState = [{ id: "model_id", desc: false }];
+export const DEFAULT_STATS_MODEL_SORTING: SortingState = [{ id: "finished_at", desc: true }];
 
 /** 내림차순을 먼저 쓰는 열(완료 시각·시나리오 수). */
 const STATS_FIRST_DESC = new Set(["finished_at", "scenario_count"]);
@@ -370,9 +371,21 @@ export function StatsModelTable({
           </button>
         ),
         cell: (info) => (
-          <span className="whitespace-nowrap font-mono text-[10px] text-[var(--muted)]">{info.getValue().slice(0, 19)}</span>
+          <span title={info.getValue() ?? undefined} className="whitespace-nowrap font-mono text-[10px] text-[var(--muted)]">
+            {formatIsoLocal(info.getValue())}
+          </span>
         ),
-        sortingFn: "alphanumeric",
+        sortingFn: (a, b) => {
+          const ta = Date.parse(a.original.finished_at ?? "");
+          const tb = Date.parse(b.original.finished_at ?? "");
+          if (!Number.isFinite(ta) || !Number.isFinite(tb)) {
+            if (!Number.isFinite(ta) && !Number.isFinite(tb)) return 0;
+            return Number.isFinite(ta) ? -1 : 1;
+          }
+          return tb - ta || Date.parse(b.original.created_at) - Date.parse(a.original.created_at) ||
+            b.original.run_id.localeCompare(a.original.run_id);
+        },
+        sortUndefined: "last",
       }),
       columnHelper.accessor((row) => row.scenario_count ?? 0, {
         id: "scenario_count",

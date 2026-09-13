@@ -65,11 +65,11 @@ describe("isSameSorting", () => {
 describe("results cycleColumnSort", () => {
   it("default → asc → desc → default (오름 우선 열)", () => {
     let s = BENCH_EXECUTION_SORT;
-    s = cycleResultsSort("ttft_ms", s);
-    expect(s).toEqual([{ id: "ttft_ms", desc: false }]);
-    s = cycleResultsSort("ttft_ms", s);
-    expect(s).toEqual([{ id: "ttft_ms", desc: true }]);
-    s = cycleResultsSort("ttft_ms", s);
+    s = cycleResultsSort("reasoning_effort", s);
+    expect(s).toEqual([{ id: "reasoning_effort", desc: false }]);
+    s = cycleResultsSort("reasoning_effort", s);
+    expect(s).toEqual([{ id: "reasoning_effort", desc: true }]);
+    s = cycleResultsSort("reasoning_effort", s);
     expect(s).toEqual(BENCH_EXECUTION_SORT);
   });
 

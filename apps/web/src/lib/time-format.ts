@@ -19,16 +19,14 @@ export function formatTimeWithMs(ts: number): string {
   return `${hh}:${mm}:${ss}.${ms}`;
 }
 
-/** ISO 8601 문자열을 로컬 타임존의 `YYYY-MM-DD HH:MM:SS`로 포맷. null/잘못된 입력은 "—". */
-export function formatIsoLocal(iso: string | null | undefined): string {
+/** ISO 8601 문자열을 브라우저 로컬 타임존·UI 로케일로 초 단위 포맷. null/잘못된 입력은 "—". */
+export function formatIsoLocal(iso: string | null | undefined, locale?: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  const yyyy = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${yyyy}-${mo}-${dd} ${hh}:${mm}:${ss}`;
+  return new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "medium", hour12: false }).format(d);
+}
+
+export function localTimeZoneName(locale?: string): string {
+  return new Intl.DateTimeFormat(locale).resolvedOptions().timeZone || "local";
 }

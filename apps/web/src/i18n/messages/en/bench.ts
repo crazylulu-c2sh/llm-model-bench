@@ -26,7 +26,7 @@ export const bench: Messages["bench"] = {
   detecting: "Detecting provider…",
   apiKeyLabel: "API key (optional)",
   apiKeyPlaceholder: "Bearer / gateway key",
-  persistApiKeyLabel: "Save API key in this browser (local disk, plaintext)",
+  persistApiKeyLabel: "Save API key for this base URL (local disk, plaintext)",
   persistApiKeyHintA: "When off, it is kept only in this tab's ",
   persistApiKeyHintB:
     " so it survives a reload but may be lost when you close the browser. When on, it stays in ",

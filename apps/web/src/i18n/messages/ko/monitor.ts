@@ -5,7 +5,8 @@ export const monitor = {
   polling: "폴링",
   interval: "주기",
   intervalOption: (sec: number) => `${sec}초`,
-  apiKeyLabel: "API Key (선택, 세션 한정)",
+  apiKeyLabel: "API Key (선택, 이 Base URL에만 적용)",
+  persistApiKey: "이 Base URL에 API 키 저장 (평문)",
   apiKeyPlaceholder: "필요한 경우 입력",
 
   // 공통 상태 문구

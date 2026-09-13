@@ -24,9 +24,12 @@ import { StressResultTable } from "./components/StressResultTable";
 import { StressTpsChart } from "./components/StressTpsChart";
 import {
   readInitialStressState,
+  readConnectionCredentials,
+  normalizeCredentialBaseUrl,
   readInitialUiState,
   saveStressSnapshot,
   saveUiSnapshot,
+  subscribeConnectionCredentials,
   type StressSaveSnapshot,
 } from "./persisted-settings";
 
@@ -74,7 +77,22 @@ export function StressPage() {
   const [baseUrl, setBaseUrl] = useState(boot.baseUrl);
   const [apiKey, setApiKey] = useState(boot.apiKey);
   const [persistApiKeyToDisk, setPersistApiKeyToDisk] = useState(boot.persistApiKeyToDisk);
+  const credentialsBaseUrlRef = useRef(boot.baseUrl);
   const { detect, setDetect, beginDetection } = useConnectionDetection(baseUrl, apiKey);
+
+  useEffect(() => {
+    credentialsBaseUrlRef.current = baseUrl;
+    const next = readConnectionCredentials(baseUrl);
+    setApiKey(next.apiKey);
+    setPersistApiKeyToDisk(next.persistApiKeyToDisk);
+  }, [baseUrl]);
+
+  useEffect(() => subscribeConnectionCredentials((changedUrl) => {
+    if (changedUrl && changedUrl !== baseUrl) return;
+    const next = readConnectionCredentials(baseUrl);
+    setApiKey((cur) => cur === next.apiKey ? cur : next.apiKey);
+    setPersistApiKeyToDisk((cur) => cur === next.persistApiKeyToDisk ? cur : next.persistApiKeyToDisk);
+  }), [baseUrl]);
   const [detecting, setDetecting] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   // 이전 런에서 저장한 모델 id — 첫 detect 이후 1회만 자동 선택에 사용 후 무효화.
@@ -108,6 +126,7 @@ export function StressPage() {
   // 영속 저장: 공유 키 (debounce 350ms).
   // boot은 마운트 시 고정 — deps에 넣지 않음 (변경 시 deps만 추가하면 매번 다시 저장).
   useEffect(() => {
+    if (credentialsBaseUrlRef.current !== baseUrl) return;
     const t = window.setTimeout(() => {
       saveUiSnapshot({
         ...boot,
@@ -201,6 +220,10 @@ export function StressPage() {
   useEffect(() => { if (!detect) setSelectedModelId(null); }, [detect]);
 
   const onDetect = useCallback(async () => {
+    if (!normalizeCredentialBaseUrl(baseUrl)) {
+      setErrorLine(msg().common.incompleteSettings);
+      return;
+    }
     const isCurrent = beginDetection();
     setDetecting(true);
     setErrorLine(null);
@@ -497,7 +520,7 @@ export function StressPage() {
             type="button"
             className="inline-flex items-center gap-1 rounded bg-[var(--accent)] px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"
             onClick={onDetect}
-            disabled={detecting || running}
+            disabled={detecting || running || !normalizeCredentialBaseUrl(baseUrl)}
           >
             {detecting ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
             {m.stress.detect.detectBtn}

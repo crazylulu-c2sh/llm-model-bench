@@ -10,6 +10,7 @@ export const common: Messages["common"] = {
   cancel: "Cancel",
   close: "Close",
   processing: "Processing…",
+  localTimeZone: (zone) => `Display time zone: ${zone}`,
   copy: "Copy",
   copied: "Copied",
   retry: "Retry",
