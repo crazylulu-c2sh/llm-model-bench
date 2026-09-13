@@ -10,6 +10,7 @@ import {
   lmStudioLoad,
   lmStudioUnload,
   looksLikeLmStudioTtlRejection,
+  probeLmStudioNativeChat,
   SAFE_LOAD_CONTEXT_LENGTH_CAP,
   SAFE_LOAD_CONTEXT_LENGTH_FLOOR,
 } from "./lmstudio.js";
@@ -26,6 +27,50 @@ function jsonResponse(obj: unknown, status = 200) {
 function requestUrl(input: RequestInfo | URL): string {
   return typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 }
+
+describe("probeLmStudioNativeChat", () => {
+  it("sends context, ttl, and store=false, then verifies the loaded instance", async () => {
+    const calls: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined;
+      calls.push({ url, body });
+      if (url.endsWith("/api/v1/chat")) return jsonResponse({ output: "ok" });
+      if (url.endsWith("/api/v1/models")) {
+        return jsonResponse({ models: [{ key: "model", loaded_instances: [{ config: { context_length: 4096 }, remaining_ttl_seconds: 42 }] }] });
+      }
+      return jsonResponse({ error: "unexpected" }, 404);
+    });
+
+    const result = await probeLmStudioNativeChat("http://localhost:1234/v1", "model", {
+      contextLength: 4096,
+      ttlSeconds: 60,
+      fetchImpl,
+    });
+
+    expect(result.verification).toBe("verified");
+    expect(result.context_verified).toBe(true);
+    expect(result.ttl_verified).toBe(true);
+    expect(calls[0]).toMatchObject({
+      url: "http://localhost:1234/api/v1/chat",
+      body: { model: "model", input: ".", context_length: 4096, ttl: 60, store: false, stream: false },
+    });
+  });
+
+  it("does not treat an error envelope with HTTP 200 as support", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      if (requestUrl(input).endsWith("/api/v1/chat")) return jsonResponse({ error: "ttl is not supported" });
+      return jsonResponse({ models: [] });
+    });
+    const result = await probeLmStudioNativeChat("http://localhost:1234", "model", {
+      contextLength: 4096,
+      ttlSeconds: 60,
+      fetchImpl,
+    });
+    expect(result.request_accepted).toBe(false);
+    expect(result.verification).toBe("rejected");
+  });
+});
 
 describe("lmStudioIsModelLoaded", () => {
   it("returns loaded=true when target key has loaded_instances", async () => {

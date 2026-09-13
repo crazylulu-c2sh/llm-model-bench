@@ -342,6 +342,7 @@ const fitsAfterUnload  = requiredWithOverhead <= free + residentRam - FIT_SAFETY
 - **Ollama** (`apps/server/src/ollama.ts`): `ollamaKeepAliveLoad(baseUrl, model, { ttlSeconds })`는 **네이티브** `/api/generate`에 빈 프롬프트(`prompt: ""`, `stream: false`)로 POST하여, 생성 없이 모델만 메모리에 적재합니다(응답 `done_reason: "load"`). TTL은 숫자 vs 기간 문자열의 모호성을 피하려고 명시적 Go duration 문자열인 `keep_alive: "<seconds>s"` 형태로 보냅니다.
 - **`/v1` 리셋 우회책** (`apps/server/src/bench-runner.ts` 참고): 동일한 `ollamaKeepAliveLoad` 호출을 (1) 추론 *전* preload로, (2) 벤치마크 완료 *후*에 재사용합니다. 그 사이의 `/v1/chat/completions` 호출들이 모델을 다시 기본 5분으로 리셋했을 것이기 때문입니다. 벤치 후 재적용은 best-effort입니다.
 - **Best-effort 시맨틱스**: `ollamaKeepAliveLoad`는 절대 throw하지 않습니다 — 네트워크/업스트림 실패 시 `{ ok: false, status: 0, body }`를 반환하므로 불안정한 keep-alive가 런을 중단시킬 수 없습니다. 큰 모델의 콜드 로드는 수십 초가 걸릴 수 있으므로 넉넉한 120초 타임아웃(`OLLAMA_LOAD_TIMEOUT_MS`)을 씁니다.
+- **REST 동시 적용 검증**: `probeLmStudioNativeChat()`은 문서화된 `/api/v1/chat`에 `context_length`·`store:false`와 실험용 `ttl`을 함께 보내고, 직후 `/api/v1/models`의 실제 인스턴스에서 컨텍스트와 남은 TTL을 확인합니다. 2xx 또는 `{"error": ...}`가 아닌 응답만으로 지원을 판정하지 않으며, 결과의 `context_verified`·`ttl_verified`가 모두 true일 때만 검증 완료로 기록합니다. 일반 벤치 경로는 기존 JIT TTL·명시적 load 순서를 유지합니다.
 
 | 프로바이더 | 함수 | 엔드포인트 | TTL 필드 / 형태 |
 | --- | --- | --- | --- |
