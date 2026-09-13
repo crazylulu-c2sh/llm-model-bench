@@ -342,6 +342,7 @@ const fitsAfterUnload  = requiredWithOverhead <= free + residentRam - FIT_SAFETY
 - **Ollama**（`apps/server/src/ollama.ts`）: `ollamaKeepAliveLoad(baseUrl, model, { ttlSeconds })` は空プロンプト（`prompt: ""`, `stream: false`）で **ネイティブ** の `/api/generate` に POST し、生成せずにモデルをメモリへロードします（レスポンスは `done_reason: "load"`）。TTL は数値と duration の曖昧さを避けるため、明示的な Go duration 文字列として `keep_alive: "<seconds>s"` で送ります。
 - **`/v1` リセットの回避策**（`apps/server/src/bench-runner.ts` 参照）: まったく同じ `ollamaKeepAliveLoad` 呼び出しを、(1) 推論の *前* のプリロードとして、(2) ベンチ完了 *後* に再利用します。間に挟まる `/v1/chat/completions` 呼び出しがモデルを 5 分デフォルトに戻してしまうためです。ベンチ後の再適用はベストエフォートです。
 - **ベストエフォートのセマンティクス**: `ollamaKeepAliveLoad` は決して throw せず — ネットワーク／上流の失敗は `{ ok: false, status: 0, body }` を返す — ので、不安定な keep-alive が実行を中断させることはありません。大きなモデルのコールドロードは数十秒かかり得るため、寛容な 120 秒のタイムアウト（`OLLAMA_LOAD_TIMEOUT_MS`）を使います。
+- **REST 同時適用プローブ**: `probeLmStudioNativeChat()` は文書化された `/api/v1/chat` に `context_length`・`store:false` と実験的な `ttl` を同時に送り、直後に `/api/v1/models` の実際のインスタンスからコンテキストと残り TTL を確認します。2xx やエラー形でない本文だけでは対応を証明せず、`context_verified` と `ttl_verified` が両方 true の場合だけ検証済みと記録します。通常のベンチ経路は既存の JIT TTL と明示的 load の順序を維持します。
 
 | プロバイダー | 関数 | エンドポイント | TTL フィールド／形 |
 | --- | --- | --- | --- |

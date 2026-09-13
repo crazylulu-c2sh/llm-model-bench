@@ -39,6 +39,21 @@ type LmStudioListedModel = {
   loaded_instances?: LmStudioLoadedInstance[];
 };
 
+export type LmStudioRestProbeResult = {
+  candidate: "native_chat";
+  model: string;
+  requested_context_length: number;
+  requested_ttl_seconds: number;
+  http_status: number;
+  request_accepted: boolean;
+  observed_context_length?: number;
+  observed_ttl_seconds?: number;
+  context_verified: boolean;
+  ttl_verified: boolean;
+  verification: "verified" | "unverified" | "rejected";
+  body: string;
+};
+
 /**
  * 네이티브 REST 오리진 루트. 문서화된 baseUrl 기본형은 `http://host:1234/v1`(OpenAI 호환)이라
  * 접미사를 벗기지 않으면 `/v1/api/v1/models`를 때리게 되고, LM Studio는 그런 경로에
@@ -266,6 +281,81 @@ export async function lmStudioLoad(
     return { ok: r.ok, status: r.status, body: t.slice(0, 2000) };
   }
   return last;
+}
+
+/**
+ * 문서화된 native chat 경로에 context와 TTL을 동시에 보내는 실측 후보.
+ *
+ * 이 함수는 일반 벤치 준비 경로에서 자동 호출하지 않는다. 네이티브 chat의
+ * `ttl`은 문서에 보장된 필드가 아니므로, HTTP 성공을 지원 판정으로 사용하지
+ * 않고 요청 직후 모델 목록의 실제 인스턴스 값을 확인하는 검증용 경로다.
+ */
+export async function probeLmStudioNativeChat(
+  baseUrl: string,
+  modelKey: string,
+  opts: {
+    contextLength: number;
+    ttlSeconds: number;
+    fetchImpl?: FetchLike;
+    apiKey?: string;
+    signal?: AbortSignal;
+  },
+): Promise<LmStudioRestProbeResult> {
+  const fetchImpl = opts.fetchImpl ?? providerFetch;
+  const root = apiRoot(baseUrl);
+  const url = `${root}/api/v1/chat`;
+  const r = await fetchImpl(url, {
+    method: "POST",
+    headers: headers(opts.apiKey),
+    signal: opts.signal,
+    body: JSON.stringify({
+      model: modelKey,
+      input: ".",
+      context_length: opts.contextLength,
+      ttl: opts.ttlSeconds,
+      store: false,
+      stream: false,
+    }),
+  });
+  const body = (await r.text()).slice(0, 2000);
+  if (!r.ok || isErrorEnvelope(safeJson(body))) {
+    return {
+      candidate: "native_chat",
+      model: modelKey,
+      requested_context_length: opts.contextLength,
+      requested_ttl_seconds: opts.ttlSeconds,
+      http_status: r.status,
+      request_accepted: false,
+      context_verified: false,
+      ttl_verified: false,
+      verification: "rejected",
+      body,
+    };
+  }
+
+  const listed = await lmStudioListModels(baseUrl, { fetchImpl, apiKey: opts.apiKey });
+  const wanted = baseKey(modelKey);
+  const instance = listed.models
+    .filter((m) => typeof m.key === "string" && baseKey(m.key) === wanted)
+    .flatMap((m) => (Array.isArray(m.loaded_instances) ? m.loaded_instances : []))[0];
+  const observedContext = instance?.config?.context_length ?? instance?.context_length;
+  const observedTtl = instance?.remaining_ttl_seconds;
+  const contextVerified = observedContext === opts.contextLength;
+  const ttlVerified = typeof observedTtl === "number" && observedTtl > 0;
+  return {
+    candidate: "native_chat",
+    model: modelKey,
+    requested_context_length: opts.contextLength,
+    requested_ttl_seconds: opts.ttlSeconds,
+    http_status: r.status,
+    request_accepted: true,
+    ...(observedContext !== undefined ? { observed_context_length: observedContext } : {}),
+    ...(observedTtl !== undefined ? { observed_ttl_seconds: observedTtl } : {}),
+    context_verified: contextVerified,
+    ttl_verified: ttlVerified,
+    verification: contextVerified && ttlVerified ? "verified" : "unverified",
+    body,
+  };
 }
 
 /**
