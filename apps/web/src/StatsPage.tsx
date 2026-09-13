@@ -1,3 +1,4 @@
+import { ContentionDiagnostics } from "./components/ContentionDiagnostics";
 import { comparisonId } from "@llm-bench/shared";
 import { ComparisonPresentationContext, comparisonLabel, type ComparisonPresentation } from "./stats/comparison-presentation";
 import type { SortingState } from "@tanstack/react-table";
@@ -340,6 +341,8 @@ export function StatsPage({ connectedBaseUrl }: { connectedBaseUrl?: string } = 
           {m.stats.savedModelsDesc}
         </p>
         <p className="mb-3 text-xs text-[var(--muted)]">{m.common.localTimeZone(localTimeZoneName())}</p>
+        {sortedBenchDetails.map((detail) => <ContentionDiagnostics key={detail.meta.run_id}
+          runLabel={`${detail.meta.model_id} · ${detail.meta.run_id}`} summary={detail.meta.contention_summary} />)}
         {listLoading ? (
           <div role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]">
             <Loader2 className="size-4 animate-spin" aria-hidden />

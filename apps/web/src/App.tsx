@@ -1,3 +1,4 @@
+import { contentionReasonText } from "./lib/contention-diagnostics";
 import { useConnectionDetection } from "./useConnectionDetection";
 import type {
   BenchQueueModelStatus,
@@ -150,6 +151,7 @@ import {
   subscribeConnectionCredentials,
   type Qwen38ReasoningEffort,
   contentionWaitBudgetMs,
+  betweenIterationWaitMs,
 } from "./persisted-settings";
 import { useBaseUrlNames } from "./lib/base-url-names";
 import { loadTtlNotice } from "./lib/load-ttl-message";
@@ -439,6 +441,7 @@ export function App() {
   /** 오염 가드: 다른 추론 감지 시 대기/폐기·재측정. */
   const [contentionGuardEnabled, setContentionGuardEnabled] = useState(boot.contentionGuardEnabled);
   const [contentionPreBenchTimeoutSec, setContentionPreBenchTimeoutSec] = useState(boot.contentionPreBenchTimeoutSec);
+  const [contentionBetweenIterationTimeoutSec, setContentionBetweenIterationTimeoutSec] = useState(boot.contentionBetweenIterationTimeoutSec);
   const [contentionTotalWaitBudgetEnabled, setContentionTotalWaitBudgetEnabled] = useState(boot.contentionTotalWaitBudgetEnabled);
   const [contentionTotalWaitBudgetSec, setContentionTotalWaitBudgetSec] = useState(boot.contentionTotalWaitBudgetSec);
   const [contentionMaxRetries, setContentionMaxRetries] = useState(boot.contentionMaxRetries);
@@ -604,6 +607,7 @@ export function App() {
         benchmarkThroughputMode,
         contentionGuardEnabled,
         contentionPreBenchTimeoutSec,
+        contentionBetweenIterationTimeoutSec,
         contentionTotalWaitBudgetEnabled,
         contentionTotalWaitBudgetSec,
         contentionMaxRetries,
@@ -633,6 +637,7 @@ export function App() {
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
+    contentionBetweenIterationTimeoutSec,
     contentionTotalWaitBudgetEnabled,
     contentionTotalWaitBudgetSec,
     contentionMaxRetries,
@@ -675,6 +680,7 @@ export function App() {
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
+    contentionBetweenIterationTimeoutSec,
     contentionTotalWaitBudgetEnabled,
     contentionTotalWaitBudgetSec,
     contentionMaxRetries,
@@ -701,6 +707,7 @@ export function App() {
     benchmarkThroughputMode,
     contentionGuardEnabled,
     contentionPreBenchTimeoutSec,
+    contentionBetweenIterationTimeoutSec,
     contentionTotalWaitBudgetEnabled,
     contentionTotalWaitBudgetSec,
     contentionMaxRetries,
@@ -1424,6 +1431,7 @@ export function App() {
         benchmarkThroughputMode,
         contentionGuardEnabled,
         contentionPreBenchTimeoutSec,
+        contentionBetweenIterationTimeoutSec,
         contentionTotalWaitBudgetEnabled,
         contentionTotalWaitBudgetSec,
         contentionMaxRetries,
@@ -1479,6 +1487,7 @@ export function App() {
     setBenchmarkThroughputMode(f.benchmarkThroughputMode);
     setContentionGuardEnabled(f.contentionGuardEnabled);
     setContentionPreBenchTimeoutSec(f.contentionPreBenchTimeoutSec);
+    setContentionBetweenIterationTimeoutSec(f.contentionBetweenIterationTimeoutSec);
     setContentionTotalWaitBudgetEnabled(f.contentionTotalWaitBudgetEnabled);
     setContentionTotalWaitBudgetSec(f.contentionTotalWaitBudgetSec);
     setContentionMaxRetries(f.contentionMaxRetries);
@@ -1645,7 +1654,7 @@ export function App() {
         const gpu = ev.gpu_util_pct != null ? ` · GPU ${ev.gpu_util_pct}%` : "";
         pushBenchLine(
           "warn",
-          msg().bench.eventContentionWaiting(where, ev.waiting_reason, gpu, ev.elapsed_ms),
+          msg().bench.eventContentionWaiting(where, contentionReasonText(ev.observation, ev.waiting_reason), gpu, ev.elapsed_ms),
         );
         setEtaPaused(true);
       }
@@ -1673,6 +1682,9 @@ export function App() {
         );
       }
       if (ev.type === "contention_summary") {
+        if (ev.abort_reason && ev.recent_observations?.length) {
+          pushBenchLine("warn", contentionReasonText(ev.recent_observations.at(-1), ev.abort_reason));
+        }
         if (ev.abort_reason && modelId) {
           const code = ev.abort_reason;
           setUnrunReasonByModel((prev) => ({ ...prev, [modelId]: { code } }));
@@ -1961,6 +1973,7 @@ export function App() {
             ...(Number.isFinite(Number(contentionPreBenchTimeoutSec)) && contentionPreBenchTimeoutSec.trim()
               ? { contentionPreBenchTimeoutMs: Math.max(0, Math.floor(Number(contentionPreBenchTimeoutSec) * 1000)) }
               : {}),
+            contentionBetweenIterationTimeoutMs: betweenIterationWaitMs(contentionBetweenIterationTimeoutSec),
             contentionTotalWaitBudgetMs: contentionWaitBudgetMs(contentionTotalWaitBudgetEnabled, contentionTotalWaitBudgetSec),
             ...(Number.isFinite(Number(contentionMaxRetries)) && contentionMaxRetries.trim()
               ? { contentionMaxRetriesPerIteration: Math.max(0, Math.floor(Number(contentionMaxRetries))) }
@@ -2026,6 +2039,7 @@ export function App() {
     contentionGuardEnabled,
     contentionMaxRetries,
     contentionPreBenchTimeoutSec,
+    contentionBetweenIterationTimeoutSec,
     contentionTotalWaitBudgetEnabled,
     contentionTotalWaitBudgetSec,
     describeBenchConflict,
@@ -3186,6 +3200,15 @@ export function App() {
                     value={contentionPreBenchTimeoutSec}
                     onChange={(e) => setContentionPreBenchTimeoutSec(e.target.value)}
                   />
+                </label>
+                <label className="grid gap-1 text-xs text-[var(--muted)]">
+                  {msg().bench.betweenIterationTimeoutLabel}
+                  <input type="number" inputMode="numeric" min={0} max={300} aria-label={msg().bench.betweenIterationTimeoutLabel}
+                    className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-[var(--foreground)]"
+                    value={contentionBetweenIterationTimeoutSec}
+                    onChange={(e) => setContentionBetweenIterationTimeoutSec(e.target.value)}
+                    aria-describedby="between-iteration-wait-hint" />
+                  <span id="between-iteration-wait-hint">{msg().bench.betweenIterationTimeoutHint}</span>
                 </label>
                 <div className="grid gap-1 text-xs text-[var(--muted)]" title={msg().bench.totalWaitBudgetTitle}>
                   <label className="flex items-center gap-2">

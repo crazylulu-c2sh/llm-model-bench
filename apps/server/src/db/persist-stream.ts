@@ -143,6 +143,10 @@ export class BenchRunPersistence {
         );
         break;
       }
+      case "contention_waiting":
+      case "contention_resumed":
+        this.logLine(`${ev.type} ${JSON.stringify(ev)}`);
+        break;
       case "contention_summary": {
         // effective 등 사전 probe 후에야 확정되는 값을 meta_json에 patch(INSERT엔 없음).
         const { type: _t, ...summary } = ev;

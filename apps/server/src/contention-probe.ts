@@ -1,9 +1,10 @@
-import type { GpuSnapshot, LoadedModelInfo, StreamEvent } from "@llm-bench/shared";
+import type { ContentionObservation, GpuSnapshot, LoadedModelInfo, StreamEvent } from "@llm-bench/shared";
 import { getGpuSnapshot } from "./system-info.js";
 import { isLmsCliEnabled, lmsPs, type LmsExecResult } from "./lms-cli.js";
 import { collectLmStudioLoaded, collectOllamaLoaded } from "./monitor-collect.js";
 import { baseKey } from "./lmstudio.js";
 import { isTargetOnServerHost } from "./util/localhost.js";
+import { parseMtplxHealth } from "./mtplx-contention.js";
 import { providerFetch } from "./provider-fetch.js";
 
 /**
@@ -217,6 +218,7 @@ export type IdleSample = {
    * 이 샘플에서 이미 가져온 로드 재고.
    * `runIdleGate`가 성공 시 `segmentBaseline()`을 다시 치지 않고 baseline으로 쓴다.
    */
+  diagnostics?: Pick<ContentionObservation, "mtplx_status" | "mtplx" | "prometheus_available" | "lms_available">;
   loaded: LoadedModelInfo[];
 };
 
@@ -291,6 +293,29 @@ export function makeContentionProbe(opts: MakeProbeOpts): ContentionProbe {
   const metricsCapable =
     cfg.serverMetricsEnabled && (provider === "openai_compatible" || provider === "manual");
   let metricsUnavailable = false;
+  let mtplxUnsupported = false;
+  let mtplxPending: Promise<{ status: ContentionObservation["mtplx_status"]; state?: ContentionObservation["mtplx"] }> | undefined;
+  function fetchMtplx(): Promise<{ status: ContentionObservation["mtplx_status"]; state?: ContentionObservation["mtplx"] }> {
+    if (!cfg.serverMetricsEnabled || provider !== "openai_compatible") return Promise.resolve({ status: "disabled" as const });
+    if (mtplxUnsupported) return Promise.resolve({ status: "unsupported" as const });
+    if (mtplxPending) return mtplxPending;
+    mtplxPending = (async () => {
+      try {
+        const response = await fetchImpl(`${openAiRootFromBaseUrl(baseUrl)}/health`, {
+          headers: authHeaders(apiKey), signal: AbortSignal.timeout(3000),
+        });
+        if (!response.ok) {
+          mtplxUnsupported = response.status === 404 || response.status === 405;
+          return { status: mtplxUnsupported ? "unsupported" as const : "unavailable" as const };
+        }
+        const state = parseMtplxHealth(await response.json());
+        // Schema mismatches may be transient: do not reuse a previous idle state.
+        return state ? { status: "available" as const, state } : { status: "unavailable" as const };
+      } catch { return { status: "unavailable" as const }; }
+    })().finally(() => { mtplxPending = undefined; });
+    return mtplxPending;
+  }
+
   // Ollama `/api/ps` · LM Studio `/api/v1/models` 등 재고 HTTP — 4xx/5xx면 런 단위로 접음
   // (/metrics의 metricsUnavailable과 동일). 전송 실패(status 없음/0)는 일시 오류로 재시도.
   let loadedUnavailable = false;
@@ -363,11 +388,12 @@ export function makeContentionProbe(opts: MakeProbeOpts): ContentionProbe {
 
   return {
     async sampleIdle(signal?: AbortSignal): Promise<IdleSample> {
-      const [loaded, metrics, lms, gpuSnap] = await Promise.all([
+      const [loaded, metrics, lms, gpuSnap, mtplx] = await Promise.all([
         collectLoaded(),
         fetchConcurrency(signal),
         lmsActivity(),
         gpu(),
+        fetchMtplx(),
       ]);
       const reasons: string[] = [];
       let active = false;
@@ -391,6 +417,13 @@ export function makeContentionProbe(opts: MakeProbeOpts): ContentionProbe {
           reasons.push(`server_running=${metrics.running} waiting=${metrics.waiting}`);
         }
       }
+      if (mtplx.state) {
+        hasActiveSignal = true;
+        if (mtplx.state.outstanding > 0) {
+          active = true;
+          reasons.push(`mtplx_outstanding=${mtplx.state.outstanding} pending=${mtplx.state.pending}`);
+        }
+      }
       if (lms) {
         hasActiveSignal = true;
         const q = lms.queuedByKey.get(targetKey) ?? 0;
@@ -407,7 +440,8 @@ export function makeContentionProbe(opts: MakeProbeOpts): ContentionProbe {
         );
         reasons.push(foreignLoaded ? "inventory_only_no_active_signal" : "no_contention_signal_available");
       }
-      return { active, reasons, gpuUtilPct, gpuSignalAvailable, hasActiveSignal, loaded };
+      return { active, reasons, gpuUtilPct, gpuSignalAvailable, hasActiveSignal, loaded,
+        diagnostics: { mtplx_status: mtplx.status, mtplx: mtplx.state, prometheus_available: metrics != null, lms_available: lms != null } };
     },
 
     async segmentBaseline(): Promise<InFlightBaseline> {
@@ -418,10 +452,11 @@ export function makeContentionProbe(opts: MakeProbeOpts): ContentionProbe {
       baseline: InFlightBaseline,
       signal?: AbortSignal,
     ): Promise<InFlightSample> {
-      const [loaded, metrics, lms] = await Promise.all([
+      const [loaded, metrics, lms, mtplx] = await Promise.all([
         collectLoaded(),
         fetchConcurrency(signal),
         lmsActivity(),
+        fetchMtplx(),
       ]);
       const reasons: string[] = [];
       let contended = false;
@@ -430,6 +465,10 @@ export function makeContentionProbe(opts: MakeProbeOpts): ContentionProbe {
       if (metrics && (metrics.running >= 2 || metrics.waiting >= 1)) {
         contended = true;
         reasons.push(`server_running=${metrics.running} waiting=${metrics.waiting}`);
+      }
+      if (mtplx.state && mtplx.state.outstanding >= 2) {
+        contended = true;
+        reasons.push(`mtplx_outstanding=${mtplx.state.outstanding} pending=${mtplx.state.pending}`);
       }
       // lms: 우리 모델 generating은 기대값. 다른 모델 generating 또는 우리 모델 queued>0 ⇒ 경합.
       if (lms) {
@@ -511,7 +550,7 @@ export type GateParams = {
   scenarioId?: string;
   apiRoute?: "chat_completions" | "messages";
   /** 사전+이터 누적 대기(런 전역, 공유 객체). */
-  waitAccum: { total: number };
+  waitAccum: { total: number; observations?: ContentionObservation[]; precedingFailure?: ContentionObservation["preceding_failure"] };
 };
 
 /**
@@ -544,6 +583,13 @@ export async function* runIdleGate(
     params.waitAccum.total += Math.max(0, now - accountedAt);
     accountedAt = now;
   };
+  let observation: ContentionObservation | undefined;
+  const remember = () => {
+    if (!observation) return;
+    const observations = params.waitAccum.observations ??= [];
+    observations.push(observation);
+    if (observations.length > 20) observations.shift();
+  };
   const limitResult = (): GateResult | undefined => {
     if (busyStart === undefined) return;
     const code = cfg.totalWaitBudgetMs !== undefined && params.waitAccum.total >= cfg.totalWaitBudgetMs
@@ -560,7 +606,7 @@ export async function* runIdleGate(
   for (;;) {
     accountWait();
     const beforeProbe = limitResult();
-    if (beforeProbe) return beforeProbe;
+    if (beforeProbe) { remember(); return beforeProbe; }
     const s = await probe.sampleIdle();
     effective = s.hasActiveSignal;
     gpuSignalAvailable = s.gpuSignalAvailable;
@@ -570,6 +616,17 @@ export async function* runIdleGate(
       accountedAt = busyStart;
     }
     accountWait();
+    observation = {
+      elapsed_ms: busyStart === undefined ? 0 : clock.now() - busyStart,
+      phase: params.phase, scenario_id: params.scenarioId, api_route: params.apiRoute,
+      reasons: s.active ? s.reasons : busyStart !== undefined && consecutiveIdle + 1 < cfg.requiredConsecutiveIdle ? ["idle_confirmation_pending"] : [],
+      gpu_util_pct: s.gpuUtilPct, gpu_threshold_pct: cfg.gpuUtilThresholdPct,
+      gpu_signal_available: s.gpuSignalAvailable,
+      prometheus_available: false, lms_available: false, mtplx_status: "unavailable",
+      ...s.diagnostics,
+      preceding_failure: params.waitAccum.precedingFailure,
+    };
+    remember();
     // Check before accepting idle: a slow final probe must not bypass the deadline.
     const afterProbe = limitResult();
     if (afterProbe) return afterProbe;
@@ -592,6 +649,7 @@ export async function* runIdleGate(
       if (consecutiveIdle >= cfg.requiredConsecutiveIdle) {
         yield {
           type: "contention_resumed",
+          observation,
           phase: params.phase,
           waited_ms: waited,
           scenario_id: params.scenarioId,
@@ -612,6 +670,7 @@ export async function* runIdleGate(
       if (polls === 0 || reasonKey !== lastReasonKey || polls % 5 === 0) {
         yield {
           type: "contention_waiting",
+          observation,
           phase: params.phase,
           waiting_reason: reasonKey,
           reasons: s.reasons,

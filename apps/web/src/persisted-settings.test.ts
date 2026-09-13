@@ -375,3 +375,16 @@ describe("optional wait budget persistence", () => {
     expect(contentionWaitBudgetMs(enabled, seconds)).toBe(expected);
   });
 });
+
+describe("between-iteration wait settings", () => {
+  it("defaults to 30 seconds and preserves explicit zero across reload", () => {
+    expect(readInitialUiState().contentionBetweenIterationTimeoutSec).toBe("30");
+    saveUiSnapshot({ ...readInitialUiState(), contentionBetweenIterationTimeoutSec: "0" });
+    expect(readInitialUiState().contentionBetweenIterationTimeoutSec).toBe("0");
+    saveUiSnapshot({ ...readInitialUiState(), contentionBetweenIterationTimeoutSec: "" });
+    expect(readInitialUiState().contentionBetweenIterationTimeoutSec).toBe("30");
+    expect(JSON.parse(window.localStorage.getItem(PREFS_STORAGE_KEY)!)).not.toHaveProperty("contentionBetweenIterationTimeoutMs");
+    saveUiSnapshot({ ...readInitialUiState(), contentionBetweenIterationTimeoutSec: "999" });
+    expect(readInitialUiState().contentionBetweenIterationTimeoutSec).toBe("300");
+  });
+});

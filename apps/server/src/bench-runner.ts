@@ -559,7 +559,7 @@ export async function* runBench(
       fetchImpl,
     });
   // 런 전역 오염 가드 상태.
-  const waitAccum = { total: 0 };
+  const waitAccum: import("./contention-probe.js").GateParams["waitAccum"] = { total: 0 };
   let guardEffective = false;
   let gpuSignalAvailable = false;
   /** #185: 신호 소스가 0개일 때의 구체적 사유(no_contention_signal_available 등, 진단용). */
@@ -773,7 +773,7 @@ export async function* runBench(
         type: "error",
         layer: "orchestrator",
         code,
-        message: `다른 추론이 실행 중이라 대기 한도(${code})를 넘겨 벤치를 시작하지 못했습니다.`,
+        message: `유휴 확인 대기 한도(${code})를 넘겨 벤치를 시작하지 못했습니다.`,
       };
       yield {
         type: "contention_summary",
@@ -782,6 +782,7 @@ export async function* runBench(
         max_between_iteration_wait_ms: 0,
         total_wait_ms: waitAccum.total,
         wait_accounting_version: 2,
+        recent_observations: waitAccum.observations,
         guard_effective: guardEffective,
         gpu_signal_available: gpuSignalAvailable,
         ...(noSignalReason ? { no_signal_reason: noSignalReason } : {}),
@@ -900,13 +901,14 @@ export async function* runBench(
                 type: "error",
                 layer: "orchestrator",
                 code: contentionAbortReason,
-                message: `다른 추론 대기 한도(${contentionAbortReason})를 넘겨 벤치를 중단합니다.`,
+                message: `유휴 확인 대기 한도(${contentionAbortReason})를 넘겨 벤치를 중단합니다.`,
                 partial: { scenarioId, api_route },
               };
               fatalStop = true;
               break;
             }
             segBaseline = gate.baseline ?? null;
+            waitAccum.precedingFailure = undefined;
           }
           const measuredGuarded = guardActive && !isWarmup && segBaseline != null;
           /** STEP 5/6: 이번 이터가 경합으로 오염됐는가(측정 런에서만 true 가능). */
@@ -1730,6 +1732,7 @@ export async function* runBench(
               : isAbortLikeError(e)
                 ? "request_timeout"
                 : "upstream_exception";
+            waitAccum.precedingFailure = { code, scenario_id: scenarioId, api_route };
             const message = isImageTooLarge
               ? errMsg
               : isAbortLikeError(e)
@@ -1872,6 +1875,7 @@ export async function* runBench(
         max_between_iteration_wait_ms: maxBetweenWait,
         total_wait_ms: waitAccum.total,
         wait_accounting_version: 2,
+        recent_observations: waitAccum.observations,
         guard_effective: guardEffective,
         gpu_signal_available: gpuSignalAvailable,
         ...(noSignalReason ? { no_signal_reason: noSignalReason } : {}),
