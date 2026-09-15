@@ -2,17 +2,19 @@ name: CI
 
 on:
   pull_request:
-    # 기본 types는 [opened, synchronize, reopened]뿐이라, base가 main으로 **재타깃**될 때
-    # (스택 PR의 부모가 머지돼 GitHub이 자동 재타깃하는 경우 포함) 워크플로가 아예 안 걸린다.
-    # 재타깃은 `edited`로 온다(`base_changed`라는 activity type은 존재하지 않는다).
-    # types에 없는 값을 적으면 오류 없이 조용히 무시되니 주의.
-    types: [opened, synchronize, reopened, edited]
+    # base가 main으로 **재타깃**될 때(스택 PR의 부모 머지 후 자동 재타깃 포함)는 `edited`로만 오는데,
+    # 여기에 `edited`를 직접 넣지 않는다 — 제목·본문 수정에도 발생해서, 같은 이름의 스킵 체크가 정상 결과를
+    # 가리고 같은 concurrency 그룹의 진행 중인 실행까지 취소한다(#229·#230). 재타깃은 ci-retarget.yml이
+    # base가 실제로 바뀐 경우에만 이 워크플로를 `workflow_call`로 부른다.
+    types: [opened, synchronize, reopened]
     branches: [main]
   push:
     branches: [main]
+  workflow_call: # ci-retarget.yml 전용 (재타깃)
   workflow_dispatch: # 수동 재실행용
 
 # 같은 ref의 이전 실행은 취소 (PR 재푸시 / main 재푸시).
+# ci-retarget.yml에서 호출되면 `github` 컨텍스트가 호출자 것이라 그룹이 `CI retarget-<ref>`가 되어 일반 실행과 겹치지 않는다.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -24,11 +26,6 @@ permissions:
 jobs:
   build-check:
     name: typecheck · build · test · e2e
-    # `edited`는 제목·본문 수정에도 발생한다. base가 실제로 바뀐 재타깃일 때만 실행한다.
-    if: >-
-      github.event_name != 'pull_request'
-      || github.event.action != 'edited'
-      || github.event.changes.base != null
     runs-on: ubuntu-latest
     timeout-minutes: 25 # 첫 실행(playwright --with-deps apt + e2e webServer 180s + retries) 여유
     steps:
@@ -80,11 +77,6 @@ jobs:
 
   docker:
     name: docker build (api · web)
-    # `edited`는 제목·본문 수정에도 발생한다. base가 실제로 바뀐 재타깃일 때만 실행한다.
-    if: >-
-      github.event_name != 'pull_request'
-      || github.event.action != 'edited'
-      || github.event.changes.base != null
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
