@@ -536,6 +536,8 @@ export function App() {
   const [modelTableSorting, setModelTableSorting] = useState<SortingState>(() => DEFAULT_MODEL_TABLE_SORTING);
   const [modelOrderIds, setModelOrderIds] = useState<string[]>([]);
   const [benchQueueDraft, setBenchQueueDraft] = useState<DetectModel[]>([]);
+  /** `requestBench` 시점의 선택 — 갭 채우기가 큐를 줄여도 칩 stale 판정의 기준이 된다. */
+  const [benchRequestedModelIds, setBenchRequestedModelIds] = useState<string[]>([]);
   /**
    * 실행 중인 런의 권위 있는 계획(서버 큐 스냅샷·run_started.meta에서 온다).
    * 진행률·예약 행·ETA·스코어보드가 이걸 읽는다 — 폼 상태를 읽으면 재접속한 탭에서 분모가 0이 된다.
@@ -813,9 +815,10 @@ export function App() {
         queuedIds: activeRunPlanView.modelIds,
         statusById: benchModelStatus,
         selectedIds: orderedSelectedModels.map((m) => m.id),
+        requestedIds: benchRequestedModelIds,
         currentModelId: benchCurrent?.modelId ?? null,
       }),
-    [running, benchPaused, activeRunPlanView, benchModelStatus, orderedSelectedModels, benchCurrent],
+    [running, benchPaused, activeRunPlanView, benchModelStatus, orderedSelectedModels, benchRequestedModelIds, benchCurrent],
   );
 
   // ── 6단계 아코디언 ──────────────────────────────────────────────────────────
@@ -1403,6 +1406,7 @@ export function App() {
     setLog([]);
     // 재감지는 새 대상이다 — 이전 계획이 남으면 새 프로바이더 아래 옛 큐 칩과 분모가 살아남는다.
     setBenchRunPlan(null);
+    setBenchRequestedModelIds([]);
     setUnrunReasonByModel({});
     setBenchModelStatus({});
     setDetailAggregate({});
@@ -2013,6 +2017,7 @@ export function App() {
       return;
     }
     setRunning(true);
+    setBenchRequestedModelIds(orderedSelectedModels.map((m) => m.id));
     setRows([]);
     setUnrunReasonByModel({});
     setBenchScenarioOrder([]);
@@ -2122,6 +2127,7 @@ export function App() {
     handleQueueStreamEvent,
     pushBenchLine,
     visibleSelectedScenarioIds,
+    orderedSelectedModels,
   ]);
 
   /** 큐에서 이미 끝난 모델의 결과를 SQLite에서 되살린다. 라이브 스트림을 막지 않도록 await 하지 않는다. */

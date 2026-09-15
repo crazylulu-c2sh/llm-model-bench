@@ -233,12 +233,14 @@ describe("resolveQueueItems — 칩 소스 2단", () => {
   });
 
   test("실행 후 선택을 바꾸면 이전 실행의 칩이 남지 않는다", () => {
-    // 큐에 있던 모델을 빼면 다음 실행 계획이다. 모델을 추가하기만 한 경우(갭 채우기)는 부분열이라 남긴다.
     expect(
       resolveQueueItems(
-        source({ queuedIds: ["a", "b"], statusById: { a: "failed", b: "done" }, selectedIds: ["a"] }),
+        source({ queuedIds: ["a"], statusById: { a: "failed" }, selectedIds: ["a", "b"] }),
       ),
-    ).toEqual([{ id: "a", status: "pending" }]);
+    ).toEqual([
+      { id: "a", status: "pending" },
+      { id: "b", status: "pending" },
+    ]);
   });
 
   test("갭 채우기로 모델을 빼도 실행 직후 결과 칩이 남는다", () => {
@@ -248,9 +250,28 @@ describe("resolveQueueItems — 칩 소스 2단", () => {
           queuedIds: ["a"],
           statusById: { a: "done-with-errors" },
           selectedIds: ["a", "b", "c"],
+          requestedIds: ["a", "b", "c"],
         }),
       ),
     ).toEqual([{ id: "a", status: "done-with-errors" }]);
+  });
+
+  test("갭 채우기 후 선택을 추가하면 다음 실행 미리보기로 돌아간다", () => {
+    expect(
+      resolveQueueItems(
+        source({
+          queuedIds: ["a"],
+          statusById: { a: "done-with-errors" },
+          selectedIds: ["a", "b", "c", "d"],
+          requestedIds: ["a", "b", "c"],
+        }),
+      ),
+    ).toEqual([
+      { id: "a", status: "pending" },
+      { id: "b", status: "pending" },
+      { id: "c", status: "pending" },
+      { id: "d", status: "pending" },
+    ]);
   });
 
   test("재연결로 큐를 복원했으면 선택이 비어도 결과 칩이 남는다", () => {

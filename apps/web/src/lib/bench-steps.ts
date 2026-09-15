@@ -166,21 +166,17 @@ export type QueueSource = {
   statusById: Readonly<Record<string, QueueModelStatus>>;
   /** `orderedSelectedModels`의 id — 실행 전/선택 변경 후 폴백. */
   selectedIds: string[];
+  /**
+   * `requestBench` 시점의 선택 모델 id. 있으면 현재 선택과 비교해 stale을 본다.
+   * 갭 채우기가 큐에서 뺀 모델은 여기에 남아 오검출이 없고, 사용자가 선택만 바꾸면 잡힌다.
+   */
+  requestedIds?: string[];
   /** 새로고침 후 재연결처럼 큐가 비어 있는데 실행 중인 경우의 폴백. */
   currentModelId: string | null;
 };
 
-/** `queued`가 `selected`에 같은 상대 순서로 들어 있으면 부분열 — 갭 채우기가 모델을 빼도 stale이 아니다. */
-function isSubsequence(queued: readonly string[], selected: readonly string[]): boolean {
-  if (queued.length === 0) return true;
-  let i = 0;
-  for (const id of selected) {
-    if (id === queued[i]) {
-      i += 1;
-      if (i === queued.length) return true;
-    }
-  }
-  return false;
+function sameOrder(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
 }
 
 /**
@@ -193,8 +189,10 @@ export function resolveQueueItems(source: QueueSource): QueueItem[] {
   if (source.queuedIds.length > 0) {
     // 선택이 비어 있으면 "선택을 바꿨다"고 볼 수 없다 — 재접속한 탭은 모델을 고른 적이 없어서
     // 이 가드가 없으면 런이 끝나는 순간 복원한 결과 칩이 통째로 사라진다.
+    const baseline =
+      source.requestedIds && source.requestedIds.length > 0 ? source.requestedIds : source.queuedIds;
     const staleAfterRun =
-      !source.running && source.selectedIds.length > 0 && !isSubsequence(source.queuedIds, source.selectedIds);
+      !source.running && source.selectedIds.length > 0 && !sameOrder(source.selectedIds, baseline);
     if (!staleAfterRun) {
       return source.queuedIds.map((id) => {
         const status = source.statusById[id] ?? "pending";
