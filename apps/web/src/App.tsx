@@ -1,6 +1,7 @@
 import { contentionReasonText } from "./lib/contention-diagnostics";
 import { useConnectionDetection } from "./useConnectionDetection";
 import type {
+  BenchGapPreviewResponse,
   BenchQueueModelStatus,
   BenchQueueSnapshot,
   BenchQueueStreamEvent,
@@ -53,6 +54,7 @@ import {
   History,
   KeyRound,
   Link2,
+  ListFilter,
   Loader2,
   MessageSquare,
   Monitor,
@@ -528,9 +530,14 @@ export function App() {
   const [hlPreview, setHlPreview] = useState(boot.hlPreview);
   const [hlLog, setHlLog] = useState(boot.hlLog);
   const [benchConfirmOpen, setBenchConfirmOpen] = useState(false);
+  const [benchFillMissing, setBenchFillMissing] = useState(false);
+  const [gapFillPreview, setGapFillPreview] = useState<BenchGapPreviewResponse | null>(null);
+  const [gapFillPreviewing, setGapFillPreviewing] = useState(false);
   const [modelTableSorting, setModelTableSorting] = useState<SortingState>(() => DEFAULT_MODEL_TABLE_SORTING);
   const [modelOrderIds, setModelOrderIds] = useState<string[]>([]);
   const [benchQueueDraft, setBenchQueueDraft] = useState<DetectModel[]>([]);
+  /** `requestBench` 시점의 선택 — 갭 채우기가 큐를 줄여도 칩 stale 판정의 기준이 된다. */
+  const [benchRequestedModelIds, setBenchRequestedModelIds] = useState<string[]>([]);
   /**
    * 실행 중인 런의 권위 있는 계획(서버 큐 스냅샷·run_started.meta에서 온다).
    * 진행률·예약 행·ETA·스코어보드가 이걸 읽는다 — 폼 상태를 읽으면 재접속한 탭에서 분모가 0이 된다.
@@ -562,6 +569,7 @@ export function App() {
   const [preRunEstimateRaw, setPreRunEstimateRaw] = useState<LatestByModelResponse | null>(null);
   /** requestBench가 취소·재호출됐을 때 먼저 시작한 요청이 나중에 도착해 최신 결과를 덮어쓰지 않도록 하는 순번. */
   const preRunEstimateRequestIdRef = useRef(0);
+  const gapFillPreviewRequestIdRef = useRef(0);
   /** 이번 런에서 (model,scenario,api) 단위별로 실측된 total_ms 누적 — 라이브 ETA 블렌딩용. */
   const [liveObserved, setLiveObserved] = useState<Map<string, { sum: number; n: number }>>(new Map());
   /** 오염 가드 대기 중이면 true — ETA 수치는 그대로 두고 "대기 중" 문구로만 전환. */
@@ -807,9 +815,10 @@ export function App() {
         queuedIds: activeRunPlanView.modelIds,
         statusById: benchModelStatus,
         selectedIds: orderedSelectedModels.map((m) => m.id),
+        requestedIds: benchRequestedModelIds,
         currentModelId: benchCurrent?.modelId ?? null,
       }),
-    [running, benchPaused, activeRunPlanView, benchModelStatus, orderedSelectedModels, benchCurrent],
+    [running, benchPaused, activeRunPlanView, benchModelStatus, orderedSelectedModels, benchRequestedModelIds, benchCurrent],
   );
 
   // ── 6단계 아코디언 ──────────────────────────────────────────────────────────
@@ -909,10 +918,17 @@ export function App() {
   /** 확인 다이얼로그의 모델별 예상 소요 시간. 과거 데이터(정확 일치·양자화 폴백) 전무면 해당 모델은 맵에서 빠짐(=숨김). */
   const preRunEstimates = useMemo(() => {
     const map = new Map<string, ReturnType<typeof estimateModelMs>>();
+    const previewById = new Map(
+      (gapFillPreview?.models ?? []).map((m) => [m.model_id, m] as const),
+    );
     for (const m of benchQueueDraft) {
+      const scenarioIds =
+        benchFillMissing && previewById.has(m.id)
+          ? (previewById.get(m.id)?.missing_scenario_ids ?? [])
+          : visibleSelectedScenarioIds;
       const est = estimateModelMs(
         m.id,
-        visibleSelectedScenarioIds,
+        scenarioIds,
         activeBenchApiRoutes,
         preRunExactIndex,
         preRunBaseIndex,
@@ -920,7 +936,15 @@ export function App() {
       if (est) map.set(m.id, est);
     }
     return map;
-  }, [benchQueueDraft, visibleSelectedScenarioIds, activeBenchApiRoutes, preRunExactIndex, preRunBaseIndex]);
+  }, [
+    benchQueueDraft,
+    benchFillMissing,
+    gapFillPreview,
+    visibleSelectedScenarioIds,
+    activeBenchApiRoutes,
+    preRunExactIndex,
+    preRunBaseIndex,
+  ]);
 
   const preRunQueueTotal = useMemo(() => {
     let ms = 0;
@@ -934,6 +958,19 @@ export function App() {
     }
     return { ms, covered, total: benchQueueDraft.length };
   }, [benchQueueDraft, preRunEstimates]);
+
+  const gapFillSkippedModels = useMemo(() => {
+    if (!benchFillMissing || !gapFillPreview) return [];
+    const runnable = new Set(
+      gapFillPreview.models.filter((m) => m.missing_scenario_ids.length > 0).map((m) => m.model_id),
+    );
+    return orderedSelectedModels.filter(
+      (m) => !runnable.has(m.id) && gapFillPreview.models.some((row) => row.model_id === m.id),
+    );
+  }, [benchFillMissing, gapFillPreview, orderedSelectedModels]);
+
+  const gapFillAllCovered =
+    benchFillMissing && !!gapFillPreview && !gapFillPreviewing && benchQueueDraft.length === 0;
 
   /** 실행 중 남은 시간(ETA). 시나리오 완료 시점마다 갱신되는 계단식 값 — 과거+실측 데이터가 전혀 없으면 null(=숨김). */
   const benchEta = useMemo((): BenchEta | undefined => {
@@ -1369,6 +1406,7 @@ export function App() {
     setLog([]);
     // 재감지는 새 대상이다 — 이전 계획이 남으면 새 프로바이더 아래 옛 큐 칩과 분모가 살아남는다.
     setBenchRunPlan(null);
+    setBenchRequestedModelIds([]);
     setUnrunReasonByModel({});
     setBenchModelStatus({});
     setDetailAggregate({});
@@ -1808,6 +1846,11 @@ export function App() {
           modelIds: [...ev.model_ids],
           index: prev?.index ?? 0,
           scenarioIds: [...ev.plan.scenario_ids],
+          scenarioIdsByModel: ev.plan.scenario_ids_by_model
+            ? Object.fromEntries(
+                Object.entries(ev.plan.scenario_ids_by_model).map(([id, ids]) => [id, [...ids]]),
+              )
+            : undefined,
           apiRoutes: [...ev.plan.api_routes],
           warmupRuns: ev.plan.warmup_runs,
           measuredRuns: ev.plan.measured_runs,
@@ -1911,7 +1954,61 @@ export function App() {
     return msg().bench.queueConflictActive;
   }, []);
 
-  const runBench = useCallback(async (modelsToRun: DetectModel[]) => {
+  const buildBenchQueueBody = useCallback(
+    (modelIds: string[], fillMissing: boolean) => {
+      if (!detect) return null;
+      return {
+        detect,
+        bench: {
+          baseUrl: detect.baseUrl,
+          apiKey: apiKey || undefined,
+          provider: detect.provider,
+          skipModelLoad: !providerSupportsExplicitLoadUnload(detect.provider),
+          unloadOtherModels,
+          autoUnloadAfterBench,
+          ...(loadTtlSecondsNum ? { loadTtlSeconds: loadTtlSecondsNum } : {}),
+          ...(fitPolicy ? { fitPolicy } : {}),
+          publicAssetsOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
+          scenarioIds: visibleSelectedScenarioIds,
+          ...(benchmarkThroughputMode ? { apiRoutes: ["chat_completions"] as const } : {}),
+          contentionGuardEnabled,
+          ...(Number.isFinite(Number(contentionPreBenchTimeoutSec)) && contentionPreBenchTimeoutSec.trim()
+            ? { contentionPreBenchTimeoutMs: Math.max(0, Math.floor(Number(contentionPreBenchTimeoutSec) * 1000)) }
+            : {}),
+          contentionBetweenIterationTimeoutMs: betweenIterationWaitMs(contentionBetweenIterationTimeoutSec),
+          contentionTotalWaitBudgetMs: contentionWaitBudgetMs(contentionTotalWaitBudgetEnabled, contentionTotalWaitBudgetSec),
+          ...(Number.isFinite(Number(contentionMaxRetries)) && contentionMaxRetries.trim()
+            ? { contentionMaxRetriesPerIteration: Math.max(0, Math.floor(Number(contentionMaxRetries))) }
+            : {}),
+          ...buildBenchIntentPayload(),
+        },
+        model_ids: modelIds,
+        ...(fillMissing ? { fill_missing_scenarios: true as const } : {}),
+      };
+    },
+    [
+      apiKey,
+      autoUnloadAfterBench,
+      benchmarkThroughputMode,
+      buildBenchIntentPayload,
+      contentionGuardEnabled,
+      contentionMaxRetries,
+      contentionPreBenchTimeoutSec,
+      contentionBetweenIterationTimeoutSec,
+      contentionTotalWaitBudgetEnabled,
+      contentionTotalWaitBudgetSec,
+      detect,
+      fitPolicy,
+      loadTtlSecondsNum,
+      unloadOtherModels,
+      visibleSelectedScenarioIds,
+    ],
+  );
+
+  const runBench = useCallback(async (
+    modelsToRun: DetectModel[],
+    opts?: { fillMissing?: boolean; scenarioIdsByModel?: Record<string, string[]> },
+  ) => {
     if (!detect) return;
     const models = modelsToRun;
     if (!models.length) {
@@ -1920,6 +2017,7 @@ export function App() {
       return;
     }
     setRunning(true);
+    setBenchRequestedModelIds(orderedSelectedModels.map((m) => m.id));
     setRows([]);
     setUnrunReasonByModel({});
     setBenchScenarioOrder([]);
@@ -1940,55 +2038,46 @@ export function App() {
     let sawQueueFinished = false;
     let wasCancelled = false;
     const modelIds = models.map((m) => m.id);
+    const unionScenarioIds = opts?.scenarioIdsByModel
+      ? [...new Set(Object.values(opts.scenarioIdsByModel).flat())]
+      : visibleSelectedScenarioIds;
     // queue_started가 오기 전까지 쓸 잠정 계획 — 진행률이 잠깐이라도 0/0으로 보이지 않게.
     setBenchRunPlan(
       planFromForm({
         modelIds,
-        scenarioIds: visibleSelectedScenarioIds,
+        scenarioIds: unionScenarioIds.length ? unionScenarioIds : visibleSelectedScenarioIds,
         apiRoutes: activeBenchApiRoutes,
+        scenarioIdsByModel: opts?.scenarioIdsByModel,
       }),
     );
     setBenchModelStatus(Object.fromEntries(modelIds.map((id) => [id, "pending" as QueueModelStatus])));
     queueCursorRef.current = { modelId: null, state: makeBenchStreamState() };
     try {
       // 모델 큐는 서버가 소유한다 — 탭을 닫거나 새로고침해도 남은 모델이 계속 실행된다.
+      const body = buildBenchQueueBody(modelIds, !!opts?.fillMissing);
+      if (!body) return;
       const r = await fetch("/api/bench/queue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          detect,
-          bench: {
-            baseUrl: detect.baseUrl,
-            apiKey: apiKey || undefined,
-            provider: detect.provider,
-            skipModelLoad: !providerSupportsExplicitLoadUnload(detect.provider),
-            unloadOtherModels,
-            autoUnloadAfterBench,
-            ...(loadTtlSecondsNum ? { loadTtlSeconds: loadTtlSecondsNum } : {}),
-            ...(fitPolicy ? { fitPolicy } : {}),
-            publicAssetsOrigin: typeof window !== "undefined" ? window.location.origin : undefined,
-            scenarioIds: visibleSelectedScenarioIds,
-            ...(benchmarkThroughputMode ? { apiRoutes: ["chat_completions"] as const } : {}),
-            contentionGuardEnabled,
-            ...(Number.isFinite(Number(contentionPreBenchTimeoutSec)) && contentionPreBenchTimeoutSec.trim()
-              ? { contentionPreBenchTimeoutMs: Math.max(0, Math.floor(Number(contentionPreBenchTimeoutSec) * 1000)) }
-              : {}),
-            contentionBetweenIterationTimeoutMs: betweenIterationWaitMs(contentionBetweenIterationTimeoutSec),
-            contentionTotalWaitBudgetMs: contentionWaitBudgetMs(contentionTotalWaitBudgetEnabled, contentionTotalWaitBudgetSec),
-            ...(Number.isFinite(Number(contentionMaxRetries)) && contentionMaxRetries.trim()
-              ? { contentionMaxRetriesPerIteration: Math.max(0, Math.floor(Number(contentionMaxRetries))) }
-              : {}),
-            ...buildBenchIntentPayload(),
-          },
-          model_ids: modelIds,
-        }),
+        body: JSON.stringify(body),
       });
       if (!r.ok || !r.body) {
         anyHttpFail = true;
         const conflict = await describeBenchConflict(r);
+        let extra: string | null = null;
+        if (!conflict && (r.status === 400 || r.status === 503)) {
+          try {
+            const errBody = (await r.json()) as { error?: string };
+            if (errBody.error === "nothing_to_run") extra = msg().bench.nothingToRunGapFill;
+            else if (errBody.error === "sqlite_unavailable") extra = msg().bench.sqliteUnavailableGapFill;
+          } catch {
+            extra = null;
+          }
+        }
+        const detail = conflict ?? extra;
         appendLog(`bench queue http error ${r.status}`);
-        pushBenchLine("err", conflict ?? `HTTP ${r.status}`);
-        if (conflict) toast.error(conflict);
+        pushBenchLine("err", detail ?? `HTTP ${r.status}`);
+        if (detail) toast.error(detail);
       } else {
         await consumeSseJsonLines(r.body, (ev) => {
           if (ev.type === "queue_finished") {
@@ -2030,26 +2119,15 @@ export function App() {
         break;
     }
   }, [
-    apiKey,
     appendLog,
     activeBenchApiRoutes,
-    autoUnloadAfterBench,
-    benchmarkThroughputMode,
-    buildBenchIntentPayload,
-    contentionGuardEnabled,
-    contentionMaxRetries,
-    contentionPreBenchTimeoutSec,
-    contentionBetweenIterationTimeoutSec,
-    contentionTotalWaitBudgetEnabled,
-    contentionTotalWaitBudgetSec,
+    buildBenchQueueBody,
     describeBenchConflict,
     detect,
-    fitPolicy,
     handleQueueStreamEvent,
-    loadTtlSecondsNum,
     pushBenchLine,
-    unloadOtherModels,
     visibleSelectedScenarioIds,
+    orderedSelectedModels,
   ]);
 
   /** 큐에서 이미 끝난 모델의 결과를 SQLite에서 되살린다. 라이브 스트림을 막지 않도록 await 하지 않는다. */
@@ -2303,7 +2381,7 @@ export function App() {
     void fetch(`/api/bench/${benchRunId}/stop`, { method: "POST" }).catch(() => {});
   }, [benchRunPlan, benchRunId]);
 
-  const requestBench = useCallback(() => {
+  const requestBench = useCallback((mode: "full" | "gap" = "full") => {
     if (!detect) return;
     if (visibleSelectedScenarioIds.length === 0) {
       toast.error(msg().bench.selectScenarioToRun);
@@ -2314,6 +2392,8 @@ export function App() {
       toast.error(msg().bench.selectModelToBench);
       return;
     }
+    setBenchFillMissing(mode === "gap");
+    setGapFillPreview(null);
     setBenchQueueDraft([...models]);
     setBenchConfirmOpen(true);
     setPreRunEstimateRaw(null);
@@ -2336,12 +2416,68 @@ export function App() {
         // 예상 시간은 보조 정보 — 조회 실패는 무시(숨김 상태 유지)
       }
     })();
-  }, [detect, orderedSelectedModels, visibleSelectedScenarioIds.length]);
+    if (mode !== "gap") {
+      setGapFillPreviewing(false);
+      return;
+    }
+    const previewId = ++gapFillPreviewRequestIdRef.current;
+    setGapFillPreviewing(true);
+    void (async () => {
+      const body = buildBenchQueueBody(models.map((m) => m.id), true);
+      if (!body) {
+        setGapFillPreviewing(false);
+        return;
+      }
+      try {
+        const r = await fetch("/api/bench/queue/gap-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (gapFillPreviewRequestIdRef.current !== previewId) return;
+        if (!r.ok) {
+          setBenchConfirmOpen(false);
+          toast.error(msg().bench.gapFillPreviewFailed);
+          return;
+        }
+        const data = (await r.json()) as BenchGapPreviewResponse;
+        if (gapFillPreviewRequestIdRef.current !== previewId) return;
+        if (data.sqlite_available === false) {
+          setBenchConfirmOpen(false);
+          toast.error(msg().bench.sqliteUnavailableGapFill);
+          return;
+        }
+        setGapFillPreview(data);
+        const runnable = models.filter((m) => {
+          const row = data.models.find((x) => x.model_id === m.id);
+          return (row?.missing_scenario_ids.length ?? 0) > 0;
+        });
+        setBenchQueueDraft(runnable);
+      } catch {
+        if (gapFillPreviewRequestIdRef.current !== previewId) return;
+        setBenchConfirmOpen(false);
+        toast.error(msg().bench.gapFillPreviewFailed);
+      } finally {
+        if (gapFillPreviewRequestIdRef.current === previewId) setGapFillPreviewing(false);
+      }
+    })();
+  }, [buildBenchQueueBody, detect, orderedSelectedModels, visibleSelectedScenarioIds.length]);
 
   const handleConfirmBench = useCallback(() => {
     setBenchConfirmOpen(false);
-    void runBench(benchQueueDraft);
-  }, [benchQueueDraft, runBench]);
+    const byModel =
+      benchFillMissing && gapFillPreview
+        ? Object.fromEntries(
+            gapFillPreview.models
+              .filter((m) => m.missing_scenario_ids.length > 0)
+              .map((m) => [m.model_id, m.missing_scenario_ids]),
+          )
+        : undefined;
+    void runBench(benchQueueDraft, {
+      fillMissing: benchFillMissing,
+      scenarioIdsByModel: byModel && Object.keys(byModel).length ? byModel : undefined,
+    });
+  }, [benchFillMissing, benchQueueDraft, gapFillPreview, runBench]);
 
   const moveBenchQueueDraft = useCallback((index: number, delta: -1 | 1) => {
     setBenchQueueDraft((prev) => {
@@ -2391,8 +2527,10 @@ export function App() {
       <Toaster richColors theme={themeResolved} position="bottom-right" closeButton />
       <ConfirmDialog
         open={benchConfirmOpen}
-        title={msg().bench.runSelected}
+        title={benchFillMissing ? msg().bench.confirmRunMissingTitle : msg().bench.runSelected}
         confirmLabel={msg().bench.confirmRun}
+        pending={gapFillPreviewing}
+        confirmDisabled={gapFillAllCovered}
         onCancel={() => setBenchConfirmOpen(false)}
         onConfirm={handleConfirmBench}
       >
@@ -2408,7 +2546,14 @@ export function App() {
                   ? msg().bench.confirmUnslothLoadNote
                   : ""}
             </p>
-            <p className="mt-1 text-xs text-[var(--muted)]">{msg().bench.confirmReorderHint}</p>
+            {benchFillMissing ? (
+              <p className="mt-1 text-xs text-[var(--muted)]">{msg().bench.confirmGapFillHint}</p>
+            ) : null}
+            {gapFillAllCovered ? (
+              <p className="mt-2 text-sm text-[var(--foreground)]">{msg().bench.gapFillAllCovered}</p>
+            ) : (
+              <p className="mt-1 text-xs text-[var(--muted)]">{msg().bench.confirmReorderHint}</p>
+            )}
             {preRunQueueTotal.covered > 0 ? (
               <p className="mt-1 text-xs text-[var(--muted)]">
                 {msg().bench.estimatedTotalLabel(
@@ -2418,6 +2563,7 @@ export function App() {
                 )}
               </p>
             ) : null}
+            {benchQueueDraft.length > 0 ? (
             <ol className="mt-2 max-h-48 list-decimal space-y-1.5 overflow-y-auto overscroll-contain pl-5 text-[var(--foreground)]">
               {benchQueueDraft.map((m, i) => {
                 const estimate = preRunEstimates.get(m.id);
@@ -2435,6 +2581,20 @@ export function App() {
                       {m.label && m.label !== m.id ? (
                         <span className="truncate font-sans text-[10px] text-[var(--muted)]">{m.label}</span>
                       ) : null}
+                      {benchFillMissing && gapFillPreview
+                        ? (() => {
+                            const row = gapFillPreview.models.find((x) => x.model_id === m.id);
+                            if (!row) return null;
+                            return (
+                              <span className="truncate font-sans text-[10px] text-[var(--muted)]">
+                                {msg().bench.gapFillModelSummary(
+                                  row.missing_scenario_ids.length,
+                                  row.covered_scenario_ids.length,
+                                )}
+                              </span>
+                            );
+                          })()
+                        : null}
                       {estimate && estimate.usedFallbackFor.length > 0 ? (
                         <span className="truncate font-sans text-[10px] text-[var(--muted)]">
                           {fallbackQuant
@@ -2474,6 +2634,30 @@ export function App() {
                 );
               })}
             </ol>
+            ) : null}
+            {gapFillSkippedModels.length > 0 ? (
+              <div className="mt-3">
+                <p className="text-xs font-medium text-[var(--foreground)]">{msg().bench.gapFillSkippedHeading}</p>
+                <ul className="mt-1 list-disc space-y-1 pl-5 font-mono text-xs">
+                  {gapFillSkippedModels.map((m) => {
+                    const row = gapFillPreview?.models.find((x) => x.model_id === m.id);
+                    return (
+                      <li key={m.id}>
+                        <span className="truncate">{m.id}</span>
+                        {row ? (
+                          <span className="ml-1 font-sans text-[var(--muted)]">
+                            {msg().bench.gapFillModelSummary(
+                              row.missing_scenario_ids.length,
+                              row.covered_scenario_ids.length,
+                            )}
+                          </span>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : null}
             <ul className="mt-2 space-y-1 text-xs">
               {unloadOtherModels && providerSupportsExplicitLoadUnload(detect.provider) ? (
                 <li>{msg().bench.confirmUnloadOthersOn}</li>
@@ -3383,7 +3567,7 @@ export function App() {
                         ? "bg-[var(--accent)] text-white"
                         : "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]",
                     ].join(" ")}
-                    onClick={requestBench}
+                    onClick={() => requestBench("full")}
                     disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
                     aria-busy={running}
                     aria-label={msg().bench.runSelectedAria}
@@ -3391,6 +3575,17 @@ export function App() {
                   >
                     {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Play className="size-4" aria-hidden />}
                     {msg().bench.runSelected}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm disabled:opacity-50"
+                    onClick={() => requestBench("gap")}
+                    disabled={!detect || running || visibleSelectedScenarioIds.length === 0}
+                    aria-label={msg().bench.runMissingAria}
+                    title={visibleSelectedScenarioIds.length === 0 ? msg().bench.selectScenarioTitle : undefined}
+                  >
+                    <ListFilter className="size-4" aria-hidden />
+                    {msg().bench.runMissing}
                   </button>
                   {running ? (
                     <button

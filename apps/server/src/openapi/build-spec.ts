@@ -2,6 +2,7 @@ import { LmsModelBody, LmsNativeModelBody } from "../monitor-routes.js";
 import { z } from "zod";
 import {
   BaseUrlNameInputSchema,
+  BenchGapPreviewResponseSchema,
   BenchQueueSnapshotSchema,
   BenchQueueStartBodySchema,
   BenchQueueStreamEventSchema,
@@ -375,7 +376,11 @@ export function buildOpenApiSpec(): object {
             "`bench`는 큐 전체가 공유하는 **의도**이며 `modelId`가 없다 — reasoning effort 두 칸" +
             "(`reasoningEffort`=gpt-oss 계열, `qwen38ReasoningEffort`=Qwen3.8 계열)을 함께 보내면 " +
             "서버가 모델마다 해석한다. 연결이 끊겨도 큐는 계속 돌므로, " +
-            "`GET /bench/queue/{queueId}/reconnect`로 다시 붙고 정지는 반드시 stop 엔드포인트로 하라.",
+            "`GET /bench/queue/{queueId}/reconnect`로 다시 붙고 정지는 반드시 stop 엔드포인트로 하라. " +
+            "`fill_missing_scenarios: true`이면 현재 `config_id`(통계와 같은 설정 그룹)로 실측이 없는 " +
+            "시나리오만 모델별로 실행하고, 전부 커버된 모델은 큐에서 뺀다. 후보 집합은 `bench.scenarioIds`. " +
+            "미리보기는 `POST /bench/queue/gap-preview`(큐를 만들지 않음). SQLite가 없으면 503, " +
+            "빠진 시나리오가 하나도 없으면 400 `nothing_to_run`.",
           requestBody: {
             required: true,
             content: { "application/json": { schema: ref("BenchQueueStartBody") } },
@@ -386,7 +391,14 @@ export function buildOpenApiSpec(): object {
               "BenchQueueStreamEvent SSE 스트림 — 모델별 StreamEvent 전부 + 큐 레벨 이벤트" +
                 "(queue_started/queue_model_started/queue_model_finished/queue_paused/queue_resumed/queue_finished)",
             ),
-            "400": badRequest,
+            "400": {
+              description:
+                "Zod 검증 실패, detect/bench baseUrl 불일치(`detect_target_mismatch`), 또는 " +
+                "`fill_missing_scenarios`인데 현재 설정으로 실행할 시나리오가 없음(`nothing_to_run`).",
+            },
+            "503": {
+              description: "`fill_missing_scenarios`인데 SQLite를 열 수 없음. 본문 `{ error: \"sqlite_unavailable\" }`.",
+            },
             "409": {
               description:
                 "사유가 두 가지이고 본문의 `error`로 갈린다. " +
@@ -437,6 +449,23 @@ export function buildOpenApiSpec(): object {
                 },
               },
             },
+          },
+        },
+      },
+      "/bench/queue/gap-preview": {
+        post: {
+          tags: ["bench"],
+          summary: "현재 설정으로 빠진 시나리오만 미리보기(큐를 시작하지 않음)",
+          description:
+            "`POST /bench/queue`와 같은 바디. 모델마다 현재 `config_id`로 실측이 없는 시나리오 id를 돌려준다. " +
+            "큐 잠금을 잡지 않으며 SQLite가 없으면 200 + `sqlite_available: false`.",
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: ref("BenchQueueStartBody") } },
+          },
+          responses: {
+            "200": jsonResponse("BenchGapPreviewResponse", "모델별 미실측·이미 최신 시나리오"),
+            "400": badRequest,
           },
         },
       },
@@ -781,6 +810,7 @@ export function buildOpenApiSpec(): object {
         BaseUrlNameInput: jsonSchema(BaseUrlNameInputSchema),
         BenchStreamBody: jsonSchema(BenchStreamBodySchema),
         BenchQueueStartBody: jsonSchema(BenchQueueStartBodySchema),
+        BenchGapPreviewResponse: jsonSchema(BenchGapPreviewResponseSchema),
         BenchQueueSnapshot: jsonSchema(BenchQueueSnapshotSchema),
         BenchQueueStreamEvent: jsonSchema(BenchQueueStreamEventSchema),
         StressStreamBody: jsonSchema(StressStreamBodySchema),

@@ -296,6 +296,22 @@ export async function mockQueueStart(
   },
 ): Promise<void> {
   const runIdFor = options.runIdFor ?? ((modelId) => `${options.queueId}-${modelId}`);
+  await page.route("**/api/bench/queue/gap-preview", (route) => {
+    const body = route.request().postDataJSON() as {
+      model_ids?: string[];
+      bench?: { scenarioIds?: string[] };
+    } | null;
+    const modelIds = body?.model_ids ?? [];
+    const scenarioIds = body?.bench?.scenarioIds ?? options.plan.scenario_ids;
+    return fulfillJson(route, {
+      sqlite_available: true,
+      models: modelIds.map((model_id) => ({
+        model_id,
+        missing_scenario_ids: scenarioIds,
+        covered_scenario_ids: [],
+      })),
+    });
+  });
   await page.route("**/api/bench/queue", (route) => {
     const body = route.request().postDataJSON() as { model_ids?: string[] } | null;
     const modelIds = body?.model_ids ?? [];

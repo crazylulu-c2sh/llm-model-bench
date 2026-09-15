@@ -172,6 +172,8 @@ export const bench: Messages["bench"] = {
   // Bench run action
   runSelected: "Bench selected models",
   runSelectedAria: "Run bench on selected models",
+  runMissing: "Missing scenarios only",
+  runMissingAria: "Run bench only for scenarios missing latest-settings results",
   selectScenarioTitle: "Select at least one scenario to run",
   pauseBtn: "Pause",
   pauseBtnAria: "Pause the running bench",
@@ -182,6 +184,17 @@ export const bench: Messages["bench"] = {
 
   // Bench run confirm dialog
   confirmRun: "Run bench",
+  confirmRunMissingTitle: "Run missing scenarios only",
+  confirmGapFillHint:
+    "Runs only scenarios that have no measurement under the current bench settings. Older-version results do not count as latest.",
+  gapFillModelSummary: (missing: number, covered: number) =>
+    `${missing} to run · ${covered} already current`,
+  gapFillSkippedHeading: "Already current — skipped",
+  gapFillAllCovered: "Every selected model and scenario already has results for the current settings.",
+  gapFillPreviewFailed: "Could not look up missing scenarios.",
+  sqliteUnavailableGapFill:
+    "SQLite is unavailable, so missing scenarios cannot be determined. Check the server DB path, permissions, and locks.",
+  nothingToRunGapFill: "Nothing to run. Everything already has results for the current settings.",
   confirmOrderLabel: "Run order · ",
   confirmOrderUnit: " models",
   confirmLmStudioLoadNote: " · load/unload may run in LM Studio.",

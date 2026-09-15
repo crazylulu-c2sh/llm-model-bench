@@ -1,4 +1,4 @@
-import type { BenchProfileIntent, DetectResult } from "@llm-bench/shared";
+import type { BenchProfileIntent, BenchQueueStartBody, DetectResult, LlmProfileFamily, SamplingPresetName } from "@llm-bench/shared";
 import { benchProfileForModel } from "@llm-bench/shared";
 import type { BenchRequest } from "./bench-runner.js";
 import { runOneBenchModel } from "./bench-run-driver.js";
@@ -20,6 +20,54 @@ import {
  */
 
 export type BenchQueueBaseRequest = Omit<BenchRequest, "modelId" | "profile" | "profileMaxTokens">;
+
+/** 큐 시작 바디의 `bench` → 공유 베이스 요청 + 모델별 해석용 의도. */
+export function queueBaseAndIntent(bench: BenchQueueStartBody["bench"]): {
+  base: BenchQueueBaseRequest;
+  intent: BenchProfileIntent;
+} {
+  const base: BenchQueueBaseRequest = {
+    baseUrl: bench.baseUrl,
+    apiKey: bench.apiKey,
+    provider: bench.provider,
+    scenarioIds: bench.scenarioIds as BenchRequest["scenarioIds"],
+    temperature: bench.temperature,
+    max_tokens: bench.max_tokens,
+    requestTimeoutMs: bench.requestTimeoutMs,
+    warmupRuns: bench.warmupRuns,
+    measuredRuns: bench.measuredRuns,
+    skipModelLoad: bench.skipModelLoad,
+    unloadOtherModels: bench.unloadOtherModels,
+    autoUnloadAfterBench: bench.autoUnloadAfterBench,
+    loadTtlSeconds: bench.loadTtlSeconds,
+    fitPolicy: bench.fitPolicy,
+    publicAssetsOrigin: bench.publicAssetsOrigin,
+    apiRoutes: bench.apiRoutes,
+    contentionGuardEnabled: bench.contentionGuardEnabled,
+    contentionPollIntervalMs: bench.contentionPollIntervalMs,
+    contentionMaxRetriesPerIteration: bench.contentionMaxRetriesPerIteration,
+    contentionPreBenchTimeoutMs: bench.contentionPreBenchTimeoutMs,
+    contentionBetweenIterationTimeoutMs: bench.contentionBetweenIterationTimeoutMs,
+    contentionTotalWaitBudgetMs: bench.contentionTotalWaitBudgetMs,
+    contentionGpuUtilThresholdPct: bench.contentionGpuUtilThresholdPct,
+    contentionRequiredConsecutiveIdle: bench.contentionRequiredConsecutiveIdle,
+    contentionServerMetricsEnabled: bench.contentionServerMetricsEnabled,
+    contentionLmsCliActivityEnabled: bench.contentionLmsCliActivityEnabled,
+  };
+  const intent: BenchProfileIntent = {
+    profileId: bench.profileId as LlmProfileFamily | "auto" | undefined,
+    taskMode: bench.taskMode,
+    thinkingIntent: bench.thinkingIntent,
+    preserveThinking: bench.preserveThinking,
+    presetOverride: bench.presetOverride as SamplingPresetName | undefined,
+    samplingOverrides: bench.samplingOverrides,
+    reasoningEffort: bench.reasoningEffort,
+    qwen38ReasoningEffort: bench.qwen38ReasoningEffort,
+    profileMaxTokens: bench.profileMaxTokens,
+    benchmarkThroughputMode: bench.benchmarkThroughputMode,
+  };
+  return { base, intent };
+}
 
 /** 모델별 프로파일을 의도에서 다시 해석한다 — 큐에 gpt-oss와 Qwen3.8이 섞여도 각자 값이 간다. */
 export function benchRequestForQueueModel(
@@ -51,8 +99,10 @@ export function driveBenchQueue(args: {
   base: BenchQueueBaseRequest;
   intent: BenchProfileIntent;
   modelIds: string[];
+  /** 갭 채우기: 모델마다 다른 시나리오 목록. 없으면 `base.scenarioIds`를 공유한다. */
+  scenarioIdsByModel?: Record<string, string[]>;
 }): void {
-  const { queueId, detect, base, intent, modelIds } = args;
+  const { queueId, detect, base, intent, modelIds, scenarioIdsByModel } = args;
   void (async () => {
     const snapshot = getQueueSnapshot(queueId);
     if (!snapshot) return;
@@ -92,8 +142,13 @@ export function driveBenchQueue(args: {
           index: i,
           model_id: modelId,
         });
+        const missing = scenarioIdsByModel?.[modelId];
+        const modelBase =
+          missing && missing.length > 0
+            ? { ...base, scenarioIds: missing as BenchRequest["scenarioIds"] }
+            : base;
         const outcome = await runOneBenchModel({
-          req: benchRequestForQueueModel(base, modelId, intent),
+          req: benchRequestForQueueModel(modelBase, modelId, intent),
           detect,
           queueId,
           onEvent: (ev) => {

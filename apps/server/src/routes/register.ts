@@ -3,12 +3,11 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type {
-  BenchProfileIntent,
   BenchRunMeta,
   DetectResult,
-  StreamEvent,
   LlmProfileFamily,
   SamplingPresetName,
+  StreamEvent,
   StressRunMeta,
   StressStreamEvent,
 } from "@llm-bench/shared";
@@ -28,8 +27,9 @@ import { runOneBenchModel } from "../bench-run-driver.js";
 import {
   benchRequestForQueueModel,
   driveBenchQueue,
-  type BenchQueueBaseRequest,
+  queueBaseAndIntent,
 } from "../bench-queue-runner.js";
+import { planGapFill } from "../bench-gap-fill.js";
 import {
   activeQueueForBaseUrl,
   createQueue,
@@ -696,18 +696,81 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
     return c.json({ runs, queues: listQueues(norm) });
   });
 
-  // ── 서버 소유 모델 큐 ────────────────────────────────────────────────────
-  // 여러 모델을 서버가 순차 실행한다. 클라이언트는 구독자일 뿐이라 새로고침하거나 탭을 닫아도
-  // 큐가 끝까지 진행되고, 탭 두 개가 각자 큐를 몰아 같은 GPU에 벤치를 겹치는 일이 원천 차단된다.
-  app.post(`${prefix}/bench/queue`, async (c) => {
+  // 갭 채우기 미리보기 — 큐를 만들지 않고 현재 config_id 기준 미실측 시나리오만 돌려준다.
+  app.post(`${prefix}/bench/queue/gap-preview`, async (c) => {
     const parsed = BenchQueueStartBodySchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const { detect, bench, model_ids } = parsed.data;
     if (normalizeBaseUrl(detect.baseUrl) !== normalizeBaseUrl(bench.baseUrl)) {
       return c.json({ error: "detect_target_mismatch" }, 400);
     }
+    const { base, intent } = queueBaseAndIntent(bench);
+    try {
+      const dbMod = await import("../db/database.js");
+      const db = dbMod.tryOpenProdBenchDatabase();
+      if (!db) {
+        return c.json({
+          sqlite_available: false,
+          sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG,
+          models: [],
+        });
+      }
+      const plan = planGapFill({ db, detect, base, intent, modelIds: model_ids });
+      return c.json({ sqlite_available: true, models: plan.models });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[llm-bench-server] /api/bench/queue/gap-preview 실패:", msg);
+      return c.json({
+        sqlite_available: false,
+        sqlite_error: SQLITE_PUBLIC_UNAVAILABLE_MSG,
+        models: [],
+      });
+    }
+  });
+
+  // ── 서버 소유 모델 큐 ────────────────────────────────────────────────────
+  // 여러 모델을 서버가 순차 실행한다. 클라이언트는 구독자일 뿐이라 새로고침하거나 탭을 닫아도
+  // 큐가 끝까지 진행되고, 탭 두 개가 각자 큐를 몰아 같은 GPU에 벤치를 겹치는 일이 원천 차단된다.
+  app.post(`${prefix}/bench/queue`, async (c) => {
+    const parsed = BenchQueueStartBodySchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const { detect, bench, model_ids: requestedModelIds, fill_missing_scenarios } = parsed.data;
+    if (normalizeBaseUrl(detect.baseUrl) !== normalizeBaseUrl(bench.baseUrl)) {
+      return c.json({ error: "detect_target_mismatch" }, 400);
+    }
     // 실제 추론 대상(detect.baseUrl)으로 잠근다 — bench.baseUrl은 runBench가 I/O에 쓰지 않는다.
     const baseUrl = normBaseUrl(detect.baseUrl);
+    const { base, intent } = queueBaseAndIntent(bench);
+    let model_ids = requestedModelIds;
+    let scenarioIdsByModel: Record<string, string[]> | undefined;
+    let unionScenarioIds: string[] | undefined;
+
+    if (fill_missing_scenarios) {
+      try {
+        const dbMod = await import("../db/database.js");
+        const db = dbMod.tryOpenProdBenchDatabase();
+        if (!db) {
+          return c.json(
+            { error: "sqlite_unavailable", message: SQLITE_PUBLIC_UNAVAILABLE_MSG },
+            503,
+          );
+        }
+        const gap = planGapFill({ db, detect, base, intent, modelIds: requestedModelIds });
+        if (gap.runnableModelIds.length === 0) {
+          return c.json({ error: "nothing_to_run" }, 400);
+        }
+        model_ids = gap.runnableModelIds;
+        scenarioIdsByModel = gap.scenarioIdsByModel;
+        unionScenarioIds = gap.unionScenarioIds;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[llm-bench-server] fill_missing_scenarios 계산 실패:", msg);
+        return c.json(
+          { error: "sqlite_unavailable", message: SQLITE_PUBLIC_UNAVAILABLE_MSG },
+          503,
+        );
+      }
+    }
 
     // 아래 블록에는 await가 없다 — 같은 tick에 도착한 두 요청이 모두 통과하지 않도록
     // 충돌 검사와 큐 등록이 원자적으로 일어나야 한다(Node 단일 스레드).
@@ -731,51 +794,14 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       );
     }
 
-    const base: BenchQueueBaseRequest = {
-      baseUrl: bench.baseUrl,
-      apiKey: bench.apiKey,
-      provider: bench.provider,
-      scenarioIds: bench.scenarioIds as BenchRequest["scenarioIds"],
-      temperature: bench.temperature,
-      max_tokens: bench.max_tokens,
-      requestTimeoutMs: bench.requestTimeoutMs,
-      warmupRuns: bench.warmupRuns,
-      measuredRuns: bench.measuredRuns,
-      skipModelLoad: bench.skipModelLoad,
-      unloadOtherModels: bench.unloadOtherModels,
-      autoUnloadAfterBench: bench.autoUnloadAfterBench,
-      loadTtlSeconds: bench.loadTtlSeconds,
-      fitPolicy: bench.fitPolicy,
-      publicAssetsOrigin: bench.publicAssetsOrigin,
-      apiRoutes: bench.apiRoutes,
-      contentionGuardEnabled: bench.contentionGuardEnabled,
-      contentionPollIntervalMs: bench.contentionPollIntervalMs,
-      contentionMaxRetriesPerIteration: bench.contentionMaxRetriesPerIteration,
-      contentionPreBenchTimeoutMs: bench.contentionPreBenchTimeoutMs,
-      contentionBetweenIterationTimeoutMs: bench.contentionBetweenIterationTimeoutMs,
-      contentionTotalWaitBudgetMs: bench.contentionTotalWaitBudgetMs,
-      contentionGpuUtilThresholdPct: bench.contentionGpuUtilThresholdPct,
-      contentionRequiredConsecutiveIdle: bench.contentionRequiredConsecutiveIdle,
-      contentionServerMetricsEnabled: bench.contentionServerMetricsEnabled,
-      contentionLmsCliActivityEnabled: bench.contentionLmsCliActivityEnabled,
-    };
-    // 큐 전체가 공유하는 "의도" — 모델별 해석은 러너가 benchProfileForModel로 다시 한다.
-    const intent: BenchProfileIntent = {
-      profileId: bench.profileId as LlmProfileFamily | "auto" | undefined,
-      taskMode: bench.taskMode,
-      thinkingIntent: bench.thinkingIntent,
-      preserveThinking: bench.preserveThinking,
-      presetOverride: bench.presetOverride as SamplingPresetName | undefined,
-      samplingOverrides: bench.samplingOverrides,
-      reasoningEffort: bench.reasoningEffort,
-      qwen38ReasoningEffort: bench.qwen38ReasoningEffort,
-      profileMaxTokens: bench.profileMaxTokens,
-      benchmarkThroughputMode: bench.benchmarkThroughputMode,
-    };
-
     // 계획은 첫 모델 기준으로 한 번만 뽑는다(시나리오·라우트·반복 수는 모델과 무관).
+    // 갭 채우기는 합집합 + 모델별 목록을 실어 진행률 분모가 맞는다.
     const planMeta = makeBenchRunMeta(
-      benchRequestForQueueModel(base, model_ids[0], intent),
+      benchRequestForQueueModel(
+        unionScenarioIds?.length ? { ...base, scenarioIds: unionScenarioIds as typeof base.scenarioIds } : base,
+        model_ids[0],
+        intent,
+      ),
       detect,
       "plan",
     );
@@ -786,13 +812,21 @@ export function registerApiRoutes(app: Hono, prefix: string): void {
       provider: bench.provider,
       modelIds: model_ids,
       plan: {
-        scenario_ids: [...planMeta.scenario_ids],
+        scenario_ids: [...(unionScenarioIds ?? planMeta.scenario_ids)],
         api_routes: [...planMeta.api_routes],
         warmup_runs: planMeta.warmup_runs,
         measured_runs: planMeta.measured_runs,
+        ...(scenarioIdsByModel ? { scenario_ids_by_model: scenarioIdsByModel } : {}),
       },
     });
-    driveBenchQueue({ queueId, detect, base, intent, modelIds: model_ids });
+    driveBenchQueue({
+      queueId,
+      detect,
+      base,
+      intent,
+      modelIds: model_ids,
+      scenarioIdsByModel,
+    });
     const sub = subscribeToQueue(queueId);
     if (!sub) return c.json({ error: "queue_gone" }, 500);
     return c.newResponse(sseStreamFromSubscription(sub), { status: 200, headers: SSE_HEADERS });

@@ -54,7 +54,7 @@ for await (const ev of runBench(req, detect)) {
 }
 ```
 
-- **두 소비자.** `runOneBenchModel`은 두 곳에서 호출됩니다 — 단발 실행 라우트 `POST /bench/stream`(`apps/server/src/routes/register.ts`)과 서버 소유 큐 러너 `runQueue`(`apps/server/src/bench-queue-runner.ts`). 큐 러너는 모델 목록을 순차로 돌며 매 모델마다 `runOneBenchModel`을 호출하고, `onEvent`를 큐 레벨 브로드캐스트(`publishQueueEvent`)로 잇습니다 — **서버가 유일한 스케줄러이고, 웹 탭들은 전부 읽기 전용 구독자**입니다.
+- **두 소비자.** `runOneBenchModel`은 두 곳에서 호출됩니다 — 단발 실행 라우트 `POST /bench/stream`(`apps/server/src/routes/register.ts`)과 서버 소유 큐 러너 `driveBenchQueue`(`apps/server/src/bench-queue-runner.ts`). 큐 러너는 모델 목록을 순차로 돌며 매 모델마다 `runOneBenchModel`을 호출하고, `onEvent`를 큐 레벨 브로드캐스트(`publishQueueEvent`)로 잇습니다 — **서버가 유일한 스케줄러이고, 웹 탭들은 전부 읽기 전용 구독자**입니다. `POST /bench/queue`에 `fill_missing_scenarios: true`를 실으면 `apps/server/src/bench-gap-fill.ts`가 현재 `config_id`(통계와 같은 설정 그룹)로 실측이 없는 시나리오만 모델별로 고르고, 전부 커버된 모델은 큐에서 빼 로드조차 하지 않습니다. 미리보기는 잠금 없이 `POST /bench/queue/gap-preview`입니다. 후보 집합은 요청의 `scenarioIds`이며, 실패·빈 `runs`와 구버전 `config_id` 결과는 최신으로 치지 않습니다.
 
 - **전송(단발 실행 라우트).** `POST /bench/stream`은 실행 루프를 응답 스트림과 완전히 분리합니다 — `void runOneBenchModel(...).finally(...)`로 fire-and-forget 실행하므로, 브라우저가 새로고침 등으로 연결을 끊어도(`ReadableStream.cancel()`) 런은 끝까지 계속됩니다. 재할당 가능한 컨트롤러 참조를 `controllerBox`로 감싸 `cancel()` 이후의 `push()`가 조용히 무시되게 하고, 일시정지 중 수 분간 이벤트가 없어도 리버스 프록시/브라우저의 idle-read 타임아웃에 끊기지 않도록 15초 간격 SSE 주석 줄(`: ping\n\n`)로 keepalive를 보냅니다:
 
@@ -663,7 +663,7 @@ export LLM_JUDGE_MODEL=claude-opus-4-7
 | `apps/server/src/db/persist-stream.ts` | `BenchRunPersistence` — 라이브 벤치 중 `StreamEvent`를 `bench_*` 행으로 접음 |
 | `apps/server/src/db/stress-persist-stream.ts` | `StressRunPersistence` — 스트레스 런에 대한 같은 패턴(`stress_runs` / `stress_stages`) |
 
-설정별 병합은 `bench-config.ts`의 버전 있는 `config_id`를 사용합니다. 추론·샘플링·토큰 한도·프로필 및 프롬프트 번들 버전은 설정에 포함하고 반복 횟수·선택 시나리오·로드 수명은 제외합니다. `database.ts`의 v5 마이그레이션은 기존 메타에서 키를 복원하고 불완전한 구버전은 실행별로 격리합니다. `/stats/model-latest`는 설정별 항목과 `config`, `config_complete`를 반환합니다. `/runs/:runId?profile=merged`는 요청한 런과 같은 설정만 병합하고 `source_run_id`를 유지합니다. `latest-by-model`, scoreboard, 모델 지정 compare는 최신 런의 설정 그룹 하나만 선택합니다. 설정 분리 후 항목 수가 늘거나 커버리지가 줄어드는 것은 다른 조건의 실측을 섞지 않기 때문입니다. 명시 요청 상한(`request_max_tokens`, `profile_max_tokens_override`)도 신규 메타에 보존합니다. 이 정보가 없는 이전 기록은 프로필 권장값과 실제 명시 상한을 구별할 수 없으므로 설정 불완전으로 표시하고 실행별로 분리합니다.
+설정별 병합은 `bench-config.ts`의 버전 있는 `config_id`를 사용합니다. 추론·샘플링·토큰 한도·프로필 및 프롬프트 번들 버전은 설정에 포함하고 반복 횟수·선택 시나리오·로드 수명은 제외합니다. `database.ts`의 v5 마이그레이션은 기존 메타에서 키를 복원하고 불완전한 구버전은 실행별로 격리합니다. `/stats/model-latest`는 설정별 항목과 `config`, `config_complete`를 반환합니다. `/runs/:runId?profile=merged`는 요청한 런과 같은 설정만 병합하고 `source_run_id`를 유지합니다. `latest-by-model`, scoreboard, 모델 지정 compare는 최신 런의 설정 그룹 하나만 선택합니다. 설정 분리 후 항목 수가 늘거나 커버리지가 줄어드는 것은 다른 조건의 실측을 섞지 않기 때문입니다. 명시 요청 상한(`request_max_tokens`, `profile_max_tokens_override`)도 신규 메타에 보존합니다. 이 정보가 없는 이전 기록은 프로필 권장값과 실제 명시 상한을 구별할 수 없으므로 설정 불완전으로 표시하고 실행별로 분리합니다. `profile_id`가 `unknown`이면 `profile_version` 없이도 설정이 완전해 런 간 `config_id`가 같고, v6 마이그레이션이 저장 키를 그 규칙으로 재계산합니다. 불완전 설정은 갭 커버로 치지 않습니다. 같은 `config_id` 그룹을 갭 채우기에도 씁니다 — 웹의 「빠진 시나리오만」은 선택된 시나리오 중 그 그룹에 실측이 없는 것만 다시 돌리고, 결과는 기존처럼 시나리오×라우트별 최신 실측으로 병합됩니다.
 
 - `database.ts`의 `migrate()`가 만드는 테이블:
 

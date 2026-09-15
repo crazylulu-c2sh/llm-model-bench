@@ -54,7 +54,7 @@ for await (const ev of runBench(req, detect)) {
 }
 ```
 
-- **2 つのコンシューマ。** `runOneBenchModel` は 2 か所から呼ばれます — 単発実行ルート `POST /bench/stream`（`apps/server/src/routes/register.ts`）と、サーバー所有のキューランナー `runQueue`（`apps/server/src/bench-queue-runner.ts`）です。キューランナーはモデル一覧を順番に処理し、モデルごとに `runOneBenchModel` を呼んで `onEvent` をキューレベルのブロードキャスト（`publishQueueEvent`）に接続します — **サーバーが唯一のスケジューラであり、Web タブはすべて読み取り専用の購読者です。**
+- **2 つのコンシューマ。** `runOneBenchModel` は 2 か所から呼ばれます — 単発実行ルート `POST /bench/stream`（`apps/server/src/routes/register.ts`）と、サーバー所有のキューランナー `driveBenchQueue`（`apps/server/src/bench-queue-runner.ts`）です。キューランナーはモデル一覧を順番に処理し、モデルごとに `runOneBenchModel` を呼んで `onEvent` をキューレベルのブロードキャスト（`publishQueueEvent`）に接続します — **サーバーが唯一のスケジューラであり、Web タブはすべて読み取り専用の購読者です。** `POST /bench/queue` に `fill_missing_scenarios: true` を付けると `apps/server/src/bench-gap-fill.ts` が現在の `config_id`（統計と同じ設定グループ）で実測がないシナリオだけをモデルごとに残し、すべて揃っているモデルはキューから外してロードもしません。プレビューはロックなしの `POST /bench/queue/gap-preview` です。候補集合はリクエストの `scenarioIds` で、失敗・空の `runs` と旧 `config_id` の結果は最新とはみなしません。
 
 - **トランスポート（単発実行ルート）。** `POST /bench/stream` は実行ループをレスポンスストリームから完全に切り離します — `void runOneBenchModel(...).finally(...)` で fire-and-forget 実行するため、ブラウザが接続を切っても（更新などで `ReadableStream.cancel()` が呼ばれても）ランは最後まで続行されます。再代入可能なコントローラ参照を `controllerBox` に包んで `cancel()` 後の `push()` を静かに無視させ、一時停止中に数分間イベントが無くてもリバースプロキシ・ブラウザの idle-read タイムアウトで切断されないよう、15 秒間隔の SSE コメント行（`: ping\n\n`）で keepalive を送ります:
 
@@ -663,7 +663,7 @@ export LLM_JUDGE_MODEL=claude-opus-4-7
 | `apps/server/src/db/persist-stream.ts` | `BenchRunPersistence` — ライブベンチ中に `StreamEvent` を `bench_*` 行へ畳み込む |
 | `apps/server/src/db/stress-persist-stream.ts` | `StressRunPersistence` — ストレス実行向けの同パターン（`stress_runs` / `stress_stages`） |
 
-設定別の統合は `bench-config.ts` のバージョン付き `config_id` を使用します。推論・サンプリング・トークン上限・プロファイルとプロンプトバンドルのバージョンを含み、反復回数・選択シナリオ・ロード寿命を除外します。`database.ts` の v5 移行は既存メタデータからキーを復元し、不完全な旧記録を実行ごとに分離します。`/stats/model-latest` は設定別の項目と `config`、`config_complete` を返します。`/runs/:runId?profile=merged` は指定実行と同じ設定だけを統合し、`source_run_id` を保持します。`latest-by-model`、scoreboard、モデル指定 compare は最新実行の設定グループだけを選択します。移行後の項目増加やカバレッジ減少は異なる条件の測定を混ぜないためです。 新しいメタデータには明示上限（`request_max_tokens`、`profile_max_tokens_override`）も保持します。この情報がない旧記録は推奨値と明示上限を区別できないため、不完全と表示して実行ごとに分離します。
+設定別の統合は `bench-config.ts` のバージョン付き `config_id` を使用します。推論・サンプリング・トークン上限・プロファイルとプロンプトバンドルのバージョンを含み、反復回数・選択シナリオ・ロード寿命を除外します。`database.ts` の v5 移行は既存メタデータからキーを復元し、不完全な旧記録を実行ごとに分離します。`/stats/model-latest` は設定別の項目と `config`、`config_complete` を返します。`/runs/:runId?profile=merged` は指定実行と同じ設定だけを統合し、`source_run_id` を保持します。`latest-by-model`、scoreboard、モデル指定 compare は最新実行の設定グループだけを選択します。移行後の項目増加やカバレッジ減少は異なる条件の測定を混ぜないためです。 新しいメタデータには明示上限（`request_max_tokens`、`profile_max_tokens_override`）も保持します。この情報がない旧記録は推奨値と明示上限を区別できないため、不完全と表示して実行ごとに分離します。`profile_id` が `unknown` なら `profile_version` がなくても設定は完全でラン間の `config_id` が安定し、v6 マイグレーションがその規則で保存キーを再計算します。不完全設定はギャップのカバーにしません。同じ `config_id` グループをギャップ埋めにも使います — Web の「未測定シナリオのみ」は、そのグループに実測がない選択シナリオだけを再実行し、結果はこれまでどおりシナリオ×ルート別の最新実測として統合されます。
 
 - `database.ts` の `migrate()` が作るテーブル:
 

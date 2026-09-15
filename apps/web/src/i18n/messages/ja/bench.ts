@@ -172,6 +172,8 @@ export const bench: Messages["bench"] = {
   // ベンチ実行アクション
   runSelected: "選択モデルをベンチ",
   runSelectedAria: "選択モデルのベンチを実行",
+  runMissing: "未測定シナリオのみ",
+  runMissingAria: "最新設定の結果がないシナリオだけベンチを実行",
   selectScenarioTitle: "実行するシナリオを 1 つ以上選択してください",
   pauseBtn: "一時停止",
   pauseBtnAria: "実行中のベンチを一時停止",
@@ -182,6 +184,17 @@ export const bench: Messages["bench"] = {
 
   // ベンチ実行確認ダイアログ
   confirmRun: "ベンチ実行",
+  confirmRunMissingTitle: "未測定シナリオのみ実行",
+  confirmGapFillHint:
+    "現在のベンチ設定で実測がないシナリオだけ実行します。旧バージョンの結果は最新とはみなしません。",
+  gapFillModelSummary: (missing: number, covered: number) =>
+    `実行 ${missing} 件 · 最新済み ${covered} 件`,
+  gapFillSkippedHeading: "最新済み — スキップ",
+  gapFillAllCovered: "選択したモデル・シナリオはすべて現在の設定で結果があります。",
+  gapFillPreviewFailed: "未測定シナリオを照会できませんでした。",
+  sqliteUnavailableGapFill:
+    "SQLite を使えないため未測定シナリオを特定できません。サーバーの DB パス・権限・ロックを確認してください。",
+  nothingToRunGapFill: "実行するシナリオがありません。すべて現在の設定の結果があります。",
   confirmOrderLabel: "実行順 · モデル ",
   confirmOrderUnit: "個",
   confirmLmStudioLoadNote: " · LM Studio でロード/アンロードが動作する場合があります。",

@@ -243,6 +243,37 @@ describe("resolveQueueItems — 칩 소스 2단", () => {
     ]);
   });
 
+  test("갭 채우기로 모델을 빼도 실행 직후 결과 칩이 남는다", () => {
+    expect(
+      resolveQueueItems(
+        source({
+          queuedIds: ["a"],
+          statusById: { a: "done-with-errors" },
+          selectedIds: ["a", "b", "c"],
+          requestedIds: ["a", "b", "c"],
+        }),
+      ),
+    ).toEqual([{ id: "a", status: "done-with-errors" }]);
+  });
+
+  test("갭 채우기 후 선택을 추가하면 다음 실행 미리보기로 돌아간다", () => {
+    expect(
+      resolveQueueItems(
+        source({
+          queuedIds: ["a"],
+          statusById: { a: "done-with-errors" },
+          selectedIds: ["a", "b", "c", "d"],
+          requestedIds: ["a", "b", "c"],
+        }),
+      ),
+    ).toEqual([
+      { id: "a", status: "pending" },
+      { id: "b", status: "pending" },
+      { id: "c", status: "pending" },
+      { id: "d", status: "pending" },
+    ]);
+  });
+
   test("재연결로 큐를 복원했으면 선택이 비어도 결과 칩이 남는다", () => {
     // 재접속한 탭은 모델을 고른 적이 없어 selectedIds가 비어 있다. 이걸 "선택을 바꿨다"로 보면
     // 런이 끝나는 순간(running:false) 복원해 둔 칩이 통째로 사라진다.

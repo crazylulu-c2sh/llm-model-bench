@@ -1003,8 +1003,27 @@ export const BenchQueueStartBodySchema = z.object({
     benchmarkThroughputMode: z.boolean().optional(),
   }),
   model_ids: z.array(z.string().min(1)).min(1).max(64),
+  /**
+   * true면 현재 `config_id`로 실측이 없는 시나리오만 모델별로 실행한다.
+   * 후보 집합은 `bench.scenarioIds`(미전송 시 텍스트 기본 8개). 서버가 시작 시점에 다시 계산한다.
+   */
+  fill_missing_scenarios: z.boolean().optional(),
 });
 export type BenchQueueStartBody = z.infer<typeof BenchQueueStartBodySchema>;
+
+export const BenchGapPreviewModelSchema = z.object({
+  model_id: z.string(),
+  missing_scenario_ids: z.array(z.string()),
+  covered_scenario_ids: z.array(z.string()),
+});
+export type BenchGapPreviewModel = z.infer<typeof BenchGapPreviewModelSchema>;
+
+export const BenchGapPreviewResponseSchema = z.object({
+  sqlite_available: z.boolean(),
+  sqlite_error: z.string().optional(),
+  models: z.array(BenchGapPreviewModelSchema),
+});
+export type BenchGapPreviewResponse = z.infer<typeof BenchGapPreviewResponseSchema>;
 
 export const StressStreamBodySchema = z.object({
   detect: DetectResultSchema,

@@ -18,6 +18,10 @@ export type BenchRunPlan = {
   index: number;
   /** 서버가 실제로 실행하는 시나리오. 모르면 빈 배열 — 지어내지 않는다. */
   scenarioIds: string[];
+  /**
+   * 갭 채우기: 모델마다 다른 시나리오 목록. 없으면 모든 모델이 `scenarioIds`를 공유한다.
+   */
+  scenarioIdsByModel?: Record<string, string[]>;
   apiRoutes: string[];
   warmupRuns: number;
   measuredRuns: number;
@@ -31,12 +35,47 @@ export type BenchRunPlan = {
 export type BenchPlanView = {
   modelIds: string[];
   scenarioIds: string[];
+  scenarioIdsByModel?: Record<string, string[]>;
   apiRoutes: string[];
   hasPlan: boolean;
 };
 
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
+}
+
+function isStringArrayRecord(v: unknown): v is Record<string, string[]> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  return Object.values(v).every(isStringArray);
+}
+
+function cloneStringArrayRecord(v: Record<string, string[]>): Record<string, string[]> {
+  return Object.fromEntries(Object.entries(v).map(([k, ids]) => [k, [...ids]]));
+}
+
+function unionScenarioIdsFromByModel(
+  modelIds: readonly string[],
+  byModel: Record<string, string[]>,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const modelId of modelIds) {
+    for (const id of byModel[modelId] ?? []) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
+export function scenarioIdsForModel(
+  view: Pick<BenchPlanView, "scenarioIds" | "scenarioIdsByModel">,
+  modelId: string,
+): string[] {
+  const by = view.scenarioIdsByModel;
+  if (by && Object.prototype.hasOwnProperty.call(by, modelId)) return by[modelId] ?? [];
+  return view.scenarioIds;
 }
 
 /**
@@ -58,6 +97,10 @@ export function planFromQueueSnapshot(snapshot: BenchQueueSnapshot | null | unde
     // 완료 큐는 index가 models.length라 범위를 벗어난다 — 마지막 위치로 보정한다.
     index: Math.min(Math.max(rawIndex, 0), Math.max(modelIds.length - 1, 0)),
     scenarioIds: plan && isStringArray(plan.scenario_ids) ? plan.scenario_ids : [],
+    scenarioIdsByModel:
+      plan && isStringArrayRecord(plan.scenario_ids_by_model)
+        ? cloneStringArrayRecord(plan.scenario_ids_by_model)
+        : undefined,
     apiRoutes: plan && isStringArray(plan.api_routes) ? plan.api_routes : [],
     warmupRuns: typeof plan?.warmup_runs === "number" ? plan.warmup_runs : 1,
     measuredRuns: typeof plan?.measured_runs === "number" ? plan.measured_runs : 3,
@@ -74,12 +117,16 @@ export function planFromForm(input: {
   modelIds: string[];
   scenarioIds: string[];
   apiRoutes: string[];
+  scenarioIdsByModel?: Record<string, string[]>;
 }): BenchRunPlan {
   return {
     queueId: null,
     modelIds: [...input.modelIds],
     index: 0,
     scenarioIds: [...input.scenarioIds],
+    scenarioIdsByModel: input.scenarioIdsByModel
+      ? cloneStringArrayRecord(input.scenarioIdsByModel)
+      : undefined,
     apiRoutes: [...input.apiRoutes],
     warmupRuns: 1,
     measuredRuns: 3,
@@ -118,6 +165,18 @@ export function mergePlanWithRunMeta(
       source: "server",
     };
   }
+  if (plan.scenarioIdsByModel) {
+    const nextBy = cloneStringArrayRecord(plan.scenarioIdsByModel);
+    if (scenarioIds) nextBy[modelId] = [...scenarioIds];
+    return {
+      ...plan,
+      scenarioIdsByModel: nextBy,
+      scenarioIds: unionScenarioIdsFromByModel(plan.modelIds, nextBy),
+      apiRoutes: apiRoutes ?? plan.apiRoutes,
+      warmupRuns: warmupRuns ?? plan.warmupRuns,
+      measuredRuns: measuredRuns ?? plan.measuredRuns,
+    };
+  }
   return {
     ...plan,
     scenarioIds: scenarioIds ?? plan.scenarioIds,
@@ -147,6 +206,7 @@ export function resolvePlanView(input: {
     modelIds: plan.modelIds,
     // 서버가 계획을 못 준 구간에서는 폼 값이라도 쓰는 편이 0/0보다 낫다.
     scenarioIds: plan.scenarioIds.length ? plan.scenarioIds : input.formScenarioIds,
+    scenarioIdsByModel: plan.scenarioIdsByModel,
     apiRoutes: plan.apiRoutes.length ? plan.apiRoutes : input.formApiRoutes,
     hasPlan: true,
   };
@@ -158,7 +218,15 @@ export function planTotals(
   completedCount: number,
 ): { completed: number; total: number; pct: number } {
   const routeCount = Math.max(view.apiRoutes.length, 1);
-  const total = view.modelIds.length * view.scenarioIds.length * routeCount;
+  let total: number;
+  if (view.scenarioIdsByModel) {
+    total = 0;
+    for (const modelId of view.modelIds) {
+      total += scenarioIdsForModel(view, modelId).length * routeCount;
+    }
+  } else {
+    total = view.modelIds.length * view.scenarioIds.length * routeCount;
+  }
   const completed = Math.max(0, completedCount);
   // 복원한 행이 계획보다 많을 수 있다(계획이 줄어든 재연결) — 100%를 넘기지 않는다.
   const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
@@ -178,11 +246,13 @@ export function planPendingUnits(
   view: BenchPlanView,
   completedRowKeys: ReadonlySet<string>,
 ): PendingUnit[] {
-  if (view.apiRoutes.length === 0 || view.scenarioIds.length === 0) return [];
+  if (view.apiRoutes.length === 0) return [];
   const out: PendingUnit[] = [];
   for (const modelId of view.modelIds) {
+    const scenarios = scenarioIdsForModel(view, modelId);
+    if (scenarios.length === 0) continue;
     for (const api of view.apiRoutes) {
-      for (const scenario of view.scenarioIds) {
+      for (const scenario of scenarios) {
         const rowKey = scenarioRowKey(scenario, api, modelId);
         if (!completedRowKeys.has(rowKey)) out.push({ rowKey, model_id: modelId, scenario, api });
       }

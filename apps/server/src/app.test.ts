@@ -669,6 +669,7 @@ describe("OpenAPI spec", () => {
         "/bench/stream",
         // 서버 소유 큐 6종 — 에이전트가 스펙만 보고 큐를 몰 수 있어야 한다.
         "/bench/queue",
+        "/bench/queue/gap-preview",
         "/bench/queue/{queueId}",
         "/bench/queue/{queueId}/reconnect",
         "/bench/queue/{queueId}/pause",
@@ -683,6 +684,7 @@ describe("OpenAPI spec", () => {
         "StreamEvent",
         "ScoreboardResponse",
         "BenchQueueStartBody",
+        "BenchGapPreviewResponse",
         "BenchQueueSnapshot",
         "BenchQueueStreamEvent",
       ]) {

@@ -144,6 +144,11 @@ export const BenchQueuePlanSchema = z.object({
   api_routes: z.array(z.enum(["chat_completions", "messages"])),
   warmup_runs: z.number(),
   measured_runs: z.number(),
+  /**
+   * 갭 채우기: 모델마다 실제로 돌릴 시나리오. 없으면 모든 모델이 `scenario_ids`를 공유한다.
+   * `scenario_ids`는 합집합(구 클라이언트·표시용)을 유지한다.
+   */
+  scenario_ids_by_model: z.record(z.string(), z.array(z.string())).optional(),
 });
 export type BenchQueuePlan = z.infer<typeof BenchQueuePlanSchema>;
 
