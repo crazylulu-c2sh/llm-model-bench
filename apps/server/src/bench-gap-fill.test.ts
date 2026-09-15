@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DetectResult } from "@llm-bench/shared";
 import { makeBenchRunMeta, type BenchRequest } from "./bench-runner.js";
-import { benchSettingsCanonical } from "./bench-config.js";
+import { benchConfig } from "./bench-config.js";
 import {
   measuredKeysFromMerged,
   planGapFill,
@@ -14,6 +14,7 @@ import {
   upsertScenarioAggregate,
 } from "./db/database.js";
 import { benchRequestForQueueModel, type BenchQueueBaseRequest } from "./bench-queue-runner.js";
+import { mergedBenchDetailFromDb } from "./db/run-queries.js";
 
 const detect: DetectResult = {
   provider: "openai_compatible",
@@ -172,7 +173,7 @@ describe("planGapFill", () => {
     seedRun(db, oldReq, "run_old", [{ id: "chat_hello" }, { id: "chat_ping" }]);
     const currentMeta = makeBenchRunMeta(queueReq("mx", { apiRoutes: ["chat_completions"] }), detect, "plan");
     const oldMeta = makeBenchRunMeta(oldReq, detect, "run_old");
-    expect(benchSettingsCanonical(currentMeta)).not.toBe(benchSettingsCanonical(oldMeta));
+    expect(benchConfig(currentMeta, "plan").config_id).not.toBe(benchConfig(oldMeta, "run_old").config_id);
 
     const plan = planGapFill({
       db,
@@ -246,5 +247,42 @@ describe("planGapFill", () => {
     expect(plan.runnableModelIds).toEqual([qwen]);
     expect(plan.models.find((m) => m.model_id === gpt)?.missing_scenario_ids).toEqual([]);
     expect(plan.models.find((m) => m.model_id === qwen)?.missing_scenario_ids).toEqual(["chat_hello", "chat_ping"]);
+  });
+
+  it("unknown-profile partial runs share config_id so merged coverage accumulates", () => {
+    const db = openBenchDatabase(":memory:");
+    const modelId = "acme/mystery-7b";
+    const chatOnly = { ...detect, capabilities: { openaiChat: true, anthropicMessages: false } };
+    const chatBase: BenchQueueBaseRequest = { ...base, apiRoutes: ["chat_completions"] };
+    seedRun(db, queueReq(modelId, { apiRoutes: ["chat_completions"] }), "run_hello", [{ id: "chat_hello" }]);
+    const afterHello = planGapFill({
+      db,
+      detect: chatOnly,
+      base: chatBase,
+      intent: {},
+      modelIds: [modelId],
+    });
+    expect(afterHello.scenarioIdsByModel[modelId]).toEqual(["chat_ping"]);
+    expect(afterHello.models[0]?.covered_scenario_ids).toEqual(["chat_hello"]);
+
+    seedRun(db, queueReq(modelId, { apiRoutes: ["chat_completions"] }), "run_ping", [{ id: "chat_ping" }]);
+    const reqMeta = makeBenchRunMeta(queueReq(modelId, { apiRoutes: ["chat_completions"] }), chatOnly, "plan");
+    expect(reqMeta.profile_id).toBe("unknown");
+    expect(benchConfig(reqMeta, "plan").config_complete).toBe(true);
+    const merged = mergedBenchDetailFromDb(db, modelId, detect.baseUrl.replace(/\/+$/, ""), {
+      config_id: benchConfig(reqMeta, "plan").config_id,
+      provider: reqMeta.provider,
+    });
+    expect(merged?.scenarios.map((s) => s.id).sort()).toEqual(["chat_hello", "chat_ping"]);
+
+    const afterBoth = planGapFill({
+      db,
+      detect: chatOnly,
+      base: chatBase,
+      intent: {},
+      modelIds: [modelId],
+    });
+    expect(afterBoth.runnableModelIds).toEqual([]);
+    expect(afterBoth.models[0]?.covered_scenario_ids).toEqual(["chat_hello", "chat_ping"]);
   });
 });

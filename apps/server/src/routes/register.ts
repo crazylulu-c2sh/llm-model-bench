@@ -5,6 +5,8 @@ import { randomUUID } from "node:crypto";
 import type {
   BenchRunMeta,
   DetectResult,
+  LlmProfileFamily,
+  SamplingPresetName,
   StreamEvent,
   StressRunMeta,
   StressStreamEvent,

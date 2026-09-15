@@ -25,6 +25,24 @@ describe("benchmark settings identity", () => {
     const a = meta("a");
     expect(benchConfig(a, "a").config_id).not.toBe(benchConfig({ ...a, ...change }, "a").config_id);
   });
+  it("treats profile_id unknown as complete without profile_version so config_id is stable", () => {
+    const mysteryDetect: DetectResult = { ...detect, models: [{ id: "acme/mystery-7b" }] };
+    const a = makeBenchRunMeta(
+      {
+        baseUrl: detect.baseUrl,
+        provider: detect.provider,
+        modelId: "acme/mystery-7b",
+        profile: { thinkingIntent: "on" },
+      },
+      mysteryDetect,
+      "run_a",
+    );
+    const b = { ...a, run_id: "run_b" };
+    expect(a.profile_id).toBe("unknown");
+    expect(a.profile_version).toBeUndefined();
+    expect(benchConfig(a, "run_a").config_complete).toBe(true);
+    expect(benchConfig(a, "run_a").config_id).toBe(benchConfig(b, "run_b").config_id);
+  });
   it("isolates incomplete metadata per run without guessing current defaults", () => {
     expect(benchConfig({}, "a").config_complete).toBe(false);
     expect(benchConfig({}, "a").config_id).not.toBe(benchConfig({}, "b").config_id);
@@ -63,6 +81,43 @@ describe("benchmark settings identity", () => {
       expect(latest.scenarios).toHaveLength(1);
       expect(latest.meta.config_id).not.toBe(old.meta.config_id);
     } finally { db.close(); }
+  });
+  it("v6 recomputes stored unknown-profile config_id under the complete-settings rule", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bench-config-v6-"));
+    const path = join(dir, "bench.sqlite");
+    try {
+      let db = openBenchDatabase(path);
+      const mysteryDetect: DetectResult = { ...detect, models: [{ id: "acme/mystery-7b" }] };
+      const m = makeBenchRunMeta(
+        {
+          baseUrl: detect.baseUrl,
+          provider: detect.provider,
+          modelId: "acme/mystery-7b",
+          profile: { thinkingIntent: "on" },
+        },
+        mysteryDetect,
+        "legacy-unknown",
+      );
+      insertRun(db, {
+        run_id: m.run_id,
+        created_at: m.created_at,
+        base_url: m.base_url,
+        provider: m.provider,
+        model_id: m.model_id,
+        meta: m,
+        status: "ok",
+      });
+      db.prepare("UPDATE bench_runs SET config_id = ? WHERE run_id = ?").run("v1:pre-v6-island", m.run_id);
+      db.exec("DELETE FROM schema_migrations WHERE version >= 6");
+      db.close();
+      db = openBenchDatabase(path);
+      expect(db.prepare("SELECT config_id FROM bench_runs WHERE run_id = ?").get(m.run_id)).toMatchObject({
+        config_id: benchConfig(m, m.run_id).config_id,
+      });
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
   it("backfills version 4 databases transactionally and is idempotent", () => {
     const dir = mkdtempSync(join(tmpdir(), "bench-config-"));

@@ -170,8 +170,17 @@ export type QueueSource = {
   currentModelId: string | null;
 };
 
-function sameOrder(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((id, i) => id === b[i]);
+/** `queued`가 `selected`에 같은 상대 순서로 들어 있으면 부분열 — 갭 채우기가 모델을 빼도 stale이 아니다. */
+function isSubsequence(queued: readonly string[], selected: readonly string[]): boolean {
+  if (queued.length === 0) return true;
+  let i = 0;
+  for (const id of selected) {
+    if (id === queued[i]) {
+      i += 1;
+      if (i === queued.length) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -185,7 +194,7 @@ export function resolveQueueItems(source: QueueSource): QueueItem[] {
     // 선택이 비어 있으면 "선택을 바꿨다"고 볼 수 없다 — 재접속한 탭은 모델을 고른 적이 없어서
     // 이 가드가 없으면 런이 끝나는 순간 복원한 결과 칩이 통째로 사라진다.
     const staleAfterRun =
-      !source.running && source.selectedIds.length > 0 && !sameOrder(source.queuedIds, source.selectedIds);
+      !source.running && source.selectedIds.length > 0 && !isSubsequence(source.queuedIds, source.selectedIds);
     if (!staleAfterRun) {
       return source.queuedIds.map((id) => {
         const status = source.statusById[id] ?? "pending";

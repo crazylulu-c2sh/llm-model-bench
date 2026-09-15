@@ -880,4 +880,78 @@ describe("fill_missing_scenarios / gap-preview", () => {
     expect(r.status).toBe(400);
     expect(await r.json()).toEqual({ error: "nothing_to_run" });
   });
+
+  it("unknown-profile gap coverage uses the same config_id group as merged stats", async () => {
+    const { finishRun, insertRun, tryOpenProdBenchDatabase, upsertScenarioAggregate } = await import(
+      "./db/database.js"
+    );
+    const { makeBenchRunMeta } = await import("./bench-runner.js");
+    const { benchRequestForQueueModel, queueBaseAndIntent } = await import("./bench-queue-runner.js");
+    const { benchConfig: settingsId } = await import("./bench-config.js");
+    const { mergedBenchDetailFromDb } = await import("./db/run-queries.js");
+    const db = tryOpenProdBenchDatabase();
+    expect(db).not.toBeNull();
+    const baseUrl = "http://127.0.0.1:9204";
+    const modelId = "acme/mystery-7b";
+    const detect = detectFor(baseUrl, [modelId]);
+    const bench = { ...benchConfig(baseUrl), scenarioIds: ["chat_hello", "chat_ping"] };
+    const { base, intent } = queueBaseAndIntent(bench);
+    const seed = (runId: string, scenarioId: string) => {
+      const meta = makeBenchRunMeta(benchRequestForQueueModel(base, modelId, intent), detect, runId);
+      insertRun(db!, {
+        run_id: meta.run_id,
+        created_at: meta.created_at,
+        base_url: meta.base_url.replace(/\/+$/, ""),
+        provider: meta.provider,
+        model_id: meta.model_id,
+        meta,
+        status: "running",
+      });
+      upsertScenarioAggregate(db!, {
+        run_id: meta.run_id,
+        scenario_id: scenarioId,
+        api_route: "chat_completions",
+        aggregate_json: JSON.stringify({
+          runs: [{ ttft_ms: 1, total_ms: 10, output_text: scenarioId, stream_completed: true }],
+        }),
+        prompt_preview: "p",
+        prompt_system_preview: "sp",
+      });
+      finishRun(db!, meta.run_id, "ok");
+      return meta;
+    };
+    const helloMeta = seed("mystery-hello", "chat_hello");
+    expect(helloMeta.profile_id).toBe("unknown");
+    expect(settingsId(helloMeta, helloMeta.run_id).config_complete).toBe(true);
+
+    const preview1 = await req(
+      "/api/bench/queue/gap-preview",
+      jsonPost({ detect, bench, model_ids: [modelId] }),
+    );
+    expect(preview1.status).toBe(200);
+    const body1 = (await preview1.json()) as {
+      models: Array<{ missing_scenario_ids: string[]; covered_scenario_ids: string[] }>;
+    };
+    expect(body1.models[0]?.missing_scenario_ids).toEqual(["chat_ping"]);
+    expect(body1.models[0]?.covered_scenario_ids).toEqual(["chat_hello"]);
+
+    seed("mystery-ping", "chat_ping");
+    const cfg = settingsId(helloMeta, helloMeta.run_id);
+    const merged = mergedBenchDetailFromDb(db!, modelId, baseUrl, {
+      config_id: cfg.config_id,
+      provider: helloMeta.provider,
+    });
+    expect(merged?.scenarios.map((s) => s.id).sort()).toEqual(["chat_hello", "chat_ping"]);
+
+    const preview2 = await req(
+      "/api/bench/queue/gap-preview",
+      jsonPost({ detect, bench, model_ids: [modelId] }),
+    );
+    expect(preview2.status).toBe(200);
+    const body2 = (await preview2.json()) as {
+      models: Array<{ missing_scenario_ids: string[]; covered_scenario_ids: string[] }>;
+    };
+    expect(body2.models[0]?.missing_scenario_ids).toEqual([]);
+    expect(body2.models[0]?.covered_scenario_ids).toEqual(["chat_hello", "chat_ping"]);
+  });
 });

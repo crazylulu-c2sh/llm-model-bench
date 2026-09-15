@@ -88,6 +88,23 @@ export function closeProdBenchDatabase(): void {
   }
 }
 
+function recomputeStoredConfigIds(db: DatabaseSync): void {
+  const update = db.prepare("UPDATE bench_runs SET config_id = ? WHERE run_id = ?");
+  const rows = db.prepare("SELECT run_id, meta_json FROM bench_runs").all() as Array<{
+    run_id: string;
+    meta_json: string;
+  }>;
+  for (const r of rows) {
+    let meta: Record<string, unknown> = {};
+    try {
+      meta = JSON.parse(r.meta_json);
+    } catch {
+      // isolate unreadable legacy metadata
+    }
+    update.run(benchConfig(meta ?? {}, r.run_id).config_id, r.run_id);
+  }
+}
+
 function migrate(db: DatabaseSync): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -192,15 +209,21 @@ function migrate(db: DatabaseSync): void {
     db.exec("BEGIN IMMEDIATE");
     try {
       db.exec("ALTER TABLE bench_runs ADD COLUMN config_id TEXT");
-      const update = db.prepare("UPDATE bench_runs SET config_id = ? WHERE run_id = ?");
-      const rows = db.prepare("SELECT run_id, meta_json FROM bench_runs").all() as Array<{ run_id: string; meta_json: string }>;
-      for (const r of rows) {
-        let meta: Record<string, unknown> = {};
-        try { meta = JSON.parse(r.meta_json); } catch { /* isolate unreadable legacy metadata */ }
-        update.run(benchConfig(meta ?? {}, r.run_id).config_id, r.run_id);
-      }
+      recomputeStoredConfigIds(db);
       db.exec("CREATE INDEX idx_bench_runs_config ON bench_runs (base_url, model_id, provider, config_id, finished_at DESC)");
       db.prepare("INSERT INTO schema_migrations (version) VALUES (5)").run();
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
+  }
+  if (currentVersion < 6) {
+    // unknown 프로필을 완전 설정으로 보게 바뀌어, 예전에 run_id로 격리된 키를 설정 본문으로 재계산한다.
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      recomputeStoredConfigIds(db);
+      db.prepare("INSERT INTO schema_migrations (version) VALUES (6)").run();
       db.exec("COMMIT");
     } catch (e) {
       db.exec("ROLLBACK");
