@@ -12,6 +12,7 @@ export type ConfirmDialogProps = {
   cancelLabel?: string;
   variant?: "default" | "danger";
   pending?: boolean;
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -24,6 +25,7 @@ export function ConfirmDialog({
   cancelLabel,
   variant = "default",
   pending = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -95,7 +97,7 @@ export function ConfirmDialog({
             type="button"
             className={confirmClass}
             onClick={onConfirm}
-            disabled={pending}
+            disabled={pending || confirmDisabled}
           >
             {pending ? m.common.processing : (confirmLabel ?? m.common.confirm)}
           </button>

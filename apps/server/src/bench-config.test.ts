@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { benchConfig } from "./bench-config.js";
+import { benchConfig, benchSettingsCanonical } from "./bench-config.js";
 import { makeBenchRunMeta } from "./bench-runner.js";
 import { finishRun, insertRun, listLatestFinishedRunSummaries, openBenchDatabase, upsertScenarioAggregate } from "./db/database.js";
 import { mergedBenchDetailFromDb, mergedBenchDetailFromRunId } from "./db/run-queries.js";
@@ -28,6 +28,11 @@ describe("benchmark settings identity", () => {
   it("isolates incomplete metadata per run without guessing current defaults", () => {
     expect(benchConfig({}, "a").config_complete).toBe(false);
     expect(benchConfig({}, "a").config_id).not.toBe(benchConfig({}, "b").config_id);
+  });
+  it("settings canonical ignores run isolation so gap-fill can match unknown-profile runs", () => {
+    expect(benchSettingsCanonical({ temperature: 0.2, max_tokens: 512 })).toBe(
+      benchSettingsCanonical({ temperature: 0.2, max_tokens: 512, run_id: "other" }),
+    );
   });
   it("separates explicit request budgets even when a profile overwrites root max_tokens", () => {
     const profile = { profileId: "gemma4" as const };

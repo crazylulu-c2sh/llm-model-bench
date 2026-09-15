@@ -18,6 +18,13 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
+/** Workload settings only — no per-run isolation. Complete `config_id` hashes this payload. */
+export function benchSettingsCanonical(meta: object): string {
+  const rec = meta as Record<string, unknown>;
+  const settings = Object.fromEntries(FIELDS.map((k) => [k, rec[k] ?? null]));
+  return canonicalJson({ version: 1, settings });
+}
+
 export function benchConfig(meta: Record<string, unknown>, runId: string) {
   const complete = typeof meta.temperature === "number" && typeof meta.max_tokens === "number"
     && Object.hasOwn(meta, "request_max_tokens") && Object.hasOwn(meta, "profile_max_tokens_override")
@@ -25,7 +32,9 @@ export function benchConfig(meta: Record<string, unknown>, runId: string) {
     && (meta.profile_id == null || (typeof meta.profile_version === "number"
       && meta.effective_sampling != null && typeof meta.profile_thinking_intent === "string"));
   const settings = Object.fromEntries(FIELDS.map((k) => [k, meta[k] ?? null]));
-  const canonical = canonicalJson({ version: 1, settings, ...(!complete ? { legacy_run_id: runId } : {}) });
+  const canonical = complete
+    ? benchSettingsCanonical(meta)
+    : canonicalJson({ version: 1, settings, legacy_run_id: runId });
   return {
     config_id: `v1:${createHash("sha256").update(canonical).digest("hex")}`,
     config: settings,

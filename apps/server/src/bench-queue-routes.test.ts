@@ -161,6 +161,17 @@ const startQueue = (baseUrl: string, modelIds: string[]) =>
     jsonPost({ detect: detectFor(baseUrl, modelIds), bench: benchConfig(baseUrl), model_ids: modelIds }),
   );
 
+const startQueueFillMissing = (baseUrl: string, modelIds: string[]) =>
+  req(
+    "/api/bench/queue",
+    jsonPost({
+      detect: detectFor(baseUrl, modelIds),
+      bench: benchConfig(baseUrl),
+      model_ids: modelIds,
+      fill_missing_scenarios: true,
+    }),
+  );
+
 const snapshotOf = async (queueId: string): Promise<BenchQueueSnapshot> => {
   const r = await req(`/api/bench/queue/${queueId}`);
   expect(r.status).toBe(200);
@@ -728,4 +739,145 @@ it("an exhausted optional wait budget terminates each run and closes the queue",
   } finally {
     probe.mockRestore();
   }
+});
+
+describe("fill_missing_scenarios / gap-preview", () => {
+  it("gap-preview lists every selected scenario as missing when the DB is empty", async () => {
+    const baseUrl = "http://127.0.0.1:9201";
+    const r = await req(
+      "/api/bench/queue/gap-preview",
+      jsonPost({
+        detect: detectFor(baseUrl, ["gap-empty"]),
+        bench: benchConfig(baseUrl),
+        model_ids: ["gap-empty"],
+      }),
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as {
+      sqlite_available: boolean;
+      models: Array<{ model_id: string; missing_scenario_ids: string[]; covered_scenario_ids: string[] }>;
+    };
+    expect(body.sqlite_available).toBe(true);
+    expect(body.models).toEqual([
+      { model_id: "gap-empty", missing_scenario_ids: ["chat_ping"], covered_scenario_ids: [] },
+    ]);
+  });
+
+  it("fill_missing starts only uncovered scenarios and drops fully covered models", async () => {
+    const { finishRun, insertRun, tryOpenProdBenchDatabase, upsertScenarioAggregate } = await import(
+      "./db/database.js"
+    );
+    const { makeBenchRunMeta } = await import("./bench-runner.js");
+    const { queueBaseAndIntent } = await import("./bench-queue-runner.js");
+    const db = tryOpenProdBenchDatabase();
+    expect(db).not.toBeNull();
+    const baseUrl = "http://127.0.0.1:9202";
+    const detect = detectFor(baseUrl, ["gap-full", "gap-partial"]);
+    const { base, intent } = queueBaseAndIntent(benchConfig(baseUrl));
+    const meta = makeBenchRunMeta(
+      (await import("./bench-queue-runner.js")).benchRequestForQueueModel(base, "gap-full", intent),
+      detect,
+      "gap-full-run",
+    );
+    insertRun(db!, {
+      run_id: meta.run_id,
+      created_at: meta.created_at,
+      base_url: meta.base_url.replace(/\/+$/, ""),
+      provider: meta.provider,
+      model_id: meta.model_id,
+      meta,
+      status: "running",
+    });
+    upsertScenarioAggregate(db!, {
+      run_id: meta.run_id,
+      scenario_id: "chat_ping",
+      api_route: "chat_completions",
+      aggregate_json: JSON.stringify({
+        runs: [{ ttft_ms: 1, total_ms: 10, output_text: "pong", stream_completed: true }],
+      }),
+      prompt_preview: "p",
+      prompt_system_preview: "sp",
+    });
+    finishRun(db!, meta.run_id, "ok");
+
+    const preview = await req(
+      "/api/bench/queue/gap-preview",
+      jsonPost({
+        detect,
+        bench: benchConfig(baseUrl),
+        model_ids: ["gap-full", "gap-partial"],
+      }),
+    );
+    expect(preview.status).toBe(200);
+    const previewBody = (await preview.json()) as {
+      models: Array<{ model_id: string; missing_scenario_ids: string[] }>;
+    };
+    expect(previewBody.models.find((m) => m.model_id === "gap-full")?.missing_scenario_ids).toEqual([]);
+    expect(previewBody.models.find((m) => m.model_id === "gap-partial")?.missing_scenario_ids).toEqual(["chat_ping"]);
+
+    stubUpstream();
+    const started = await startQueueFillMissing(baseUrl, ["gap-full", "gap-partial"]);
+    expect(started.status).toBe(200);
+    const collected = collectSse(started);
+    await waitForEvent(collected, (e) => e.type === "queue_started");
+    const startedEv = find(collected, "queue_started")!;
+    expect(startedEv.model_ids).toEqual(["gap-partial"]);
+    const plan = startedEv.plan as { scenario_ids: string[]; scenario_ids_by_model?: Record<string, string[]> };
+    expect(plan.scenario_ids).toEqual(["chat_ping"]);
+    expect(plan.scenario_ids_by_model).toEqual({ "gap-partial": ["chat_ping"] });
+    await waitForUpstream(1);
+    finishHeld(0);
+    await waitForEvent(collected, (e) => e.type === "queue_finished");
+    await collected.done;
+  });
+
+  it("fill_missing returns 400 nothing_to_run when every model is already current", async () => {
+    const { finishRun, insertRun, tryOpenProdBenchDatabase, upsertScenarioAggregate } = await import(
+      "./db/database.js"
+    );
+    const { makeBenchRunMeta } = await import("./bench-runner.js");
+    const { benchRequestForQueueModel, queueBaseAndIntent } = await import("./bench-queue-runner.js");
+    const db = tryOpenProdBenchDatabase();
+    expect(db).not.toBeNull();
+    const baseUrl = "http://127.0.0.1:9203";
+    const detect = detectFor(baseUrl, ["gap-done"]);
+    const { base, intent } = queueBaseAndIntent(benchConfig(baseUrl));
+    const meta = makeBenchRunMeta(
+      benchRequestForQueueModel(base, "gap-done", intent),
+      detect,
+      "gap-done-run",
+    );
+    insertRun(db!, {
+      run_id: meta.run_id,
+      created_at: meta.created_at,
+      base_url: meta.base_url.replace(/\/+$/, ""),
+      provider: meta.provider,
+      model_id: meta.model_id,
+      meta,
+      status: "running",
+    });
+    upsertScenarioAggregate(db!, {
+      run_id: meta.run_id,
+      scenario_id: "chat_ping",
+      api_route: "chat_completions",
+      aggregate_json: JSON.stringify({
+        runs: [{ ttft_ms: 1, total_ms: 10, output_text: "pong", stream_completed: true }],
+      }),
+      prompt_preview: "p",
+      prompt_system_preview: "sp",
+    });
+    finishRun(db!, meta.run_id, "ok");
+
+    const r = await req(
+      "/api/bench/queue",
+      jsonPost({
+        detect,
+        bench: benchConfig(baseUrl),
+        model_ids: ["gap-done"],
+        fill_missing_scenarios: true,
+      }),
+    );
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ error: "nothing_to_run" });
+  });
 });

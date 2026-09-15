@@ -190,6 +190,29 @@ describe("planFromQueueSnapshot — 서버 스냅샷이 단일 소스", () => {
     );
     expect(Object.keys(out?.statusById ?? {})).toEqual([GPT_OSS, QWEN38, GEMMA4]);
   });
+
+  test("scenario_ids_by_model이 있으면 모델별 목록을 복사한다", () => {
+    const out = planFromQueueSnapshot(
+      snapshot({
+        models: [queueModel(GPT_OSS), queueModel(QWEN38)],
+        plan: {
+          scenario_ids: ["text_basic", "vision_basic"],
+          api_routes: ["chat_completions"],
+          warmup_runs: 1,
+          measured_runs: 3,
+          scenario_ids_by_model: {
+            [GPT_OSS]: ["vision_basic"],
+            [QWEN38]: ["text_basic", "vision_basic"],
+          },
+        },
+      }),
+    );
+    expect(out?.scenarioIdsByModel).toEqual({
+      [GPT_OSS]: ["vision_basic"],
+      [QWEN38]: ["text_basic", "vision_basic"],
+    });
+    expect(out?.scenarioIds).toEqual(["text_basic", "vision_basic"]);
+  });
 });
 
 describe("planFromForm — queue_started 전 잠정 계획", () => {
@@ -298,6 +321,22 @@ describe("mergePlanWithRunMeta — run_started.meta로 확정", () => {
     expect(mergePlanWithRunMeta(before, undefined, GPT_OSS)).toBe(before);
     expect(mergePlanWithRunMeta(null, null, GPT_OSS)).toBeNull();
   });
+
+  test("scenarioIdsByModel이 있으면 그 모델만 갱신하고 공유 목록을 합집합으로 맞춘다", () => {
+    const before = plan({
+      scenarioIds: ["text_basic", "vision_basic"],
+      scenarioIdsByModel: {
+        [GPT_OSS]: ["vision_basic"],
+        [QWEN38]: ["text_basic"],
+      },
+    });
+    const out = mergePlanWithRunMeta(before, { scenario_ids: ["agent_tool"] }, QWEN38);
+    expect(out?.scenarioIdsByModel).toEqual({
+      [GPT_OSS]: ["vision_basic"],
+      [QWEN38]: ["agent_tool"],
+    });
+    expect(out?.scenarioIds).toEqual(["vision_basic", "agent_tool"]);
+  });
 });
 
 describe("resolvePlanView — 계획 우선, 폼 폴백", () => {
@@ -378,6 +417,22 @@ describe("planTotals — 진행률", () => {
   test("완료 수는 음수로 내려가지 않는다", () => {
     expect(planTotals(view(), -3)).toEqual({ completed: 0, total: 1, pct: 0 });
   });
+
+  test("scenarioIdsByModel이 있으면 합집합×모델수가 아니라 모델별 합이 분모다", () => {
+    const out = planTotals(
+      view({
+        modelIds: [GPT_OSS, QWEN38],
+        scenarioIds: ["text_basic", "vision_basic"],
+        scenarioIdsByModel: {
+          [GPT_OSS]: ["vision_basic"],
+          [QWEN38]: ["text_basic", "vision_basic"],
+        },
+        apiRoutes: ["chat_completions"],
+      }),
+      1,
+    );
+    expect(out).toEqual({ completed: 1, total: 3, pct: 33 });
+  });
 });
 
 describe("planPendingUnits — 예약 스켈레톤 단위", () => {
@@ -441,6 +496,25 @@ describe("planPendingUnits — 예약 스켈레톤 단위", () => {
     expect(planPendingUnits(view({ scenarioIds: [] }), new Set())).toEqual([]);
     expect(planPendingUnits(view({ apiRoutes: [] }), new Set())).toEqual([]);
     expect(planPendingUnits(view({ modelIds: [] }), new Set())).toEqual([]);
+  });
+
+  test("scenarioIdsByModel이 있으면 그 모델의 시나리오만 예약한다", () => {
+    const units = planPendingUnits(
+      view({
+        modelIds: [GPT_OSS, QWEN38],
+        scenarioIds: ["text_basic", "vision_basic"],
+        scenarioIdsByModel: {
+          [GPT_OSS]: ["vision_basic"],
+          [QWEN38]: ["text_basic"],
+        },
+        apiRoutes: ["chat_completions"],
+      }),
+      new Set(),
+    );
+    expect(units.map((u) => u.rowKey)).toEqual([
+      scenarioRowKey("vision_basic", "chat_completions", GPT_OSS),
+      scenarioRowKey("text_basic", "chat_completions", QWEN38),
+    ]);
   });
 });
 

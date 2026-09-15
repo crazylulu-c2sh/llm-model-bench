@@ -170,6 +170,8 @@ export const bench = {
   // 벤치 실행 액션
   runSelected: "선택 모델 벤치",
   runSelectedAria: "선택 모델 벤치 실행",
+  runMissing: "빠진 시나리오만",
+  runMissingAria: "최신 설정 결과가 없는 시나리오만 벤치 실행",
   selectScenarioTitle: "실행할 시나리오를 1개 이상 선택하세요",
   pauseBtn: "일시정지",
   pauseBtnAria: "벤치 실행 일시정지",
@@ -180,6 +182,17 @@ export const bench = {
 
   // 벤치 실행 확인 다이얼로그
   confirmRun: "벤치 실행",
+  confirmRunMissingTitle: "빠진 시나리오만 실행",
+  confirmGapFillHint:
+    "현재 벤치 설정으로 실측이 없는 시나리오만 실행합니다. 구버전 결과는 최신으로 치지 않습니다.",
+  gapFillModelSummary: (missing: number, covered: number) =>
+    `돌릴 ${missing}개 · 이미 최신 ${covered}개`,
+  gapFillSkippedHeading: "이미 최신 — 건너뜀",
+  gapFillAllCovered: "선택한 모델·시나리오는 모두 현재 설정으로 결과가 있습니다.",
+  gapFillPreviewFailed: "빠진 시나리오를 조회하지 못했습니다.",
+  sqliteUnavailableGapFill:
+    "SQLite를 사용할 수 없어 빠진 시나리오를 찾을 수 없습니다. 서버의 DB 파일 경로·권한·잠금 상태를 확인하세요.",
+  nothingToRunGapFill: "실행할 시나리오가 없습니다. 모두 현재 설정 결과가 있습니다.",
   confirmOrderLabel: "실행 순서 · 모델 ",
   confirmOrderUnit: "개",
   confirmLmStudioLoadNote: " · LM Studio에서 로드/언로드가 동작할 수 있습니다.",

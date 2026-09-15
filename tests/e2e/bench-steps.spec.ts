@@ -225,3 +225,32 @@ test("누적 대기 한도는 기본 해제되고 선택값만 저장 및 전송
   await runSelectedModelsAndWait(page);
   expect((await zeroRequest).postDataJSON().bench.contentionTotalWaitBudgetMs).toBe(0);
 });
+
+test("빠진 시나리오만 확인은 fill_missing_scenarios를 보내고 기본 버튼은 전체를 돌린다", async ({ page }) => {
+  await mockBackend(page);
+  await page.goto("/");
+  await detectAndSelectFirstModel(page);
+
+  await expect(
+    page.getByRole("button", { name: /Run bench on selected models|선택 모델 벤치 실행/ }),
+  ).toBeVisible();
+
+  await page
+    .getByRole("button", {
+      name: /Run bench only for scenarios missing latest-settings results|최신 설정 결과가 없는 시나리오만 벤치 실행/,
+    })
+    .click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: /Run missing scenarios only|빠진 시나리오만 실행/ })).toBeVisible();
+  await expect(dialog).toContainText(/돌릴|to run/);
+
+  const gapRequest = page.waitForRequest((req) => req.method() === "POST" && req.url().endsWith("/api/bench/queue"));
+  await dialog.getByRole("button", { name: /^(Run bench|벤치 실행)$/ }).click();
+  expect((await gapRequest).postDataJSON().fill_missing_scenarios).toBe(true);
+  await expect(queueChips(page)).toContainText(/done|완료/, { timeout: 15_000 });
+  await expect(page.getByRole("progressbar")).toHaveCount(0, { timeout: 15_000 });
+  await expect(
+    page.getByRole("button", { name: /Run bench on selected models|선택 모델 벤치 실행/ }),
+  ).toBeVisible();
+});
