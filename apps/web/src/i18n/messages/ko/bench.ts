@@ -1,4 +1,5 @@
 // bench 네임스페이스 — 벤치 페이지 UI(연결·감지·모델 선택·시나리오·실행 진행·차트·결과·이벤트 로그). ko가 진실의 원천.
+import type { InferenceEngine } from "@llm-bench/shared";
 
 // 벤치 스트림 error 이벤트 코드 → 사람이 읽는 힌트. 알 수 없는 코드는 힌트 없음(null 폴백).
 const errors: Record<string, string> = {
@@ -367,8 +368,8 @@ export const bench = {
   partialModelList: "모델 목록 경로 일부만 응답했습니다.",
   detectStep: (hint: string) => `감지 단계: ${hint}`,
   modelCount: (n: number) => `모델 ${n}개`,
-  /** OpenAI 호환 엔진 힌트 — 고유명사 유지. */
-  engineLabel: (engine: "sglang" | "vllm" | "llamacpp" | "tgi") => {
+  /** OpenAI 호환 엔진 힌트 — 고유명사 유지. 반환 타입을 명시해 enum에 값이 늘면 case 누락이 컴파일 오류가 된다. */
+  engineLabel: (engine: InferenceEngine): string => {
     switch (engine) {
       case "sglang":
         return "SGLang";
@@ -378,6 +379,8 @@ export const bench = {
         return "llama.cpp";
       case "tgi":
         return "TGI";
+      case "apple_fm":
+        return "Apple Foundation Models";
     }
   },
 

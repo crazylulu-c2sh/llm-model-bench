@@ -311,8 +311,9 @@ export type LmStudioModel = z.infer<typeof LmStudioModelSchema>;
 /**
  * OpenAI 호환 서버의 실제 추론 엔진 힌트.
  * `ProviderKind`는 `openai_compatible`로 유지하고, 연결 시 1회 지문으로만 채운다(구응답은 부재).
+ * `apple_fm`: Apple Foundation Models 위의 OpenAI 호환 서버가 `/health`에 `engine:"apple_fm"`으로 자기 신고.
  */
-export const InferenceEngineSchema = z.enum(["sglang", "vllm", "llamacpp", "tgi"]);
+export const InferenceEngineSchema = z.enum(["sglang", "vllm", "llamacpp", "tgi", "apple_fm"]);
 export type InferenceEngine = z.infer<typeof InferenceEngineSchema>;
 
 export const DetectResultSchema = z.object({
@@ -333,11 +334,15 @@ export const DetectResultSchema = z.object({
       compatibility_type: z.string().optional(),
       /** #182: 양자화(예: Q4_K_M) — LM Studio `/api/v0/models` 확장에서만 제공. */
       quantization: z.string().optional(),
-      /** #182: 아키텍처(예: qwen35) — LM Studio `/api/v0/models` 확장에서만 제공. */
+      /**
+       * #182: 아키텍처(예: qwen35) — LM Studio `/api/v0/models` 확장, 또는 OpenAI 호환 `/v1/models` 행의
+       * 비어 있지 않은 문자열 `arch`(예: Apple Foundation Models 서버의 variant 표시명).
+       */
       arch: z.string().optional(),
       /**
-       * 이 모델이 지원하는 최대 컨텍스트(토큰) — LM Studio `/api/v0/models` 확장에서만 제공.
-       * 로드 시 안전한 `context_length` 상한을 계산하는 입력으로만 쓴다(#194 후속).
+       * 이 모델이 지원하는 최대 컨텍스트(토큰) — LM Studio `/api/v0/models` 확장, 또는 OpenAI 호환
+       * `/v1/models` 행의 양수 `context_length`. 로드 시 안전한 `context_length` 상한 계산에는
+       * LM Studio 값만 쓴다(#194 후속). OpenAI 호환 값은 기록·표시용.
        */
       max_context_length: z.number().optional(),
     }),
@@ -349,10 +354,15 @@ export const DetectResultSchema = z.object({
   }),
   reachability: ReachabilitySchema.optional(),
   /**
-   * OpenAI 호환 백엔드의 엔진 지문(SGLang `/server_info`, vLLM `/metrics`의 `vllm:` 게이지).
+   * OpenAI 호환 백엔드의 엔진 지문(Apple FM `/health`, SGLang `/server_info`, vLLM 등 `/metrics` 게이지).
    * 미탐지·구버전 응답은 null/부재.
    */
   engine: InferenceEngineSchema.nullable().optional(),
+  /**
+   * 엔진이 스스로 보고한 버전 문자열(현재는 `apple_fm`의 `/health.engine_version`만 — 서버 버전·OS 빌드·variant 등).
+   * 비교 식별자(comparisonId·config_id)에는 넣지 않는다. 없으면 부재.
+   */
+  engine_version: z.string().optional(),
 });
 export type DetectResult = z.infer<typeof DetectResultSchema>;
 
@@ -405,9 +415,15 @@ export const BenchRunMetaSchema = z.object({
    */
   engine: InferenceEngineSchema.nullable().optional(),
   /**
+   * 엔진 자기 보고 버전(detect.engine_version 복사, 현재 `apple_fm`만). 재현·라벨용이며 비교 식별자에는
+   * 들어가지 않는다 — OS·모델 에셋이 바뀌어도 같은 비교 행으로 합쳐지므로 갭 채우기 대신 전체 재실행이 안전하다.
+   */
+  engine_version: z.string().optional(),
+  /**
    * #182: 실행엔진/양자화/아키텍처 — detect.models[]에서 modelId로 매칭해 그대로 복사(LM Studio
-   * `/api/v0/models` 확장에서만 제공, 없으면 필드 부재). "어느 백엔드/빌드에서 effort가 먹혔나"를
-   * 사후 대조하는 데 쓴다 — reasoning_effort 미적용이 GGUF 빌드별로 갈리는 사례(#182)가 계기.
+   * `/api/v0/models` 확장에서 제공, `arch`는 OpenAI 호환 `/v1/models` 행에서도 올 수 있음. 없으면 필드 부재).
+   * "어느 백엔드/빌드에서 effort가 먹혔나"를 사후 대조하는 데 쓴다 — reasoning_effort 미적용이 GGUF
+   * 빌드별로 갈리는 사례(#182)가 계기.
    */
   compatibility_type: z.string().optional(),
   quantization: z.string().optional(),

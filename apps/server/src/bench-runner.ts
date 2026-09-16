@@ -241,6 +241,8 @@ export function makeBenchRunMeta(
     // 게시자(조직): detect가 만든 것과 같은 규칙으로 해석한다(단일 소스: detect.ts#resolvePublisher).
     publisher: resolvePublisher(input.modelId, detectedModel?.publisher),
     engine: detect.engine ?? null,
+    // 엔진 자기 보고 버전(apple_fm). 비교 식별자에는 넣지 않는다 — 재현·라벨용.
+    engine_version: detect.engine_version,
     compatibility_type: detectedModel?.compatibility_type,
     quantization: detectedModel?.quantization,
     arch: detectedModel?.arch,

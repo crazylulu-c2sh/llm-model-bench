@@ -181,6 +181,36 @@ describe("makeBenchRunMeta engine info (#182)", () => {
     expect(meta.compatibility_type).toBeUndefined();
     expect(meta.quantization).toBeUndefined();
     expect(meta.arch).toBeUndefined();
+    expect(meta.engine_version).toBeUndefined();
+  });
+
+  it("copies engine/engine_version and the /v1/models row arch for an Apple FM openai_compatible detect", () => {
+    const engineVersion =
+      "apple-fm-server/0.1.0; macOS 27.0 (26A428); AFM 3 Core Advanced; assets 1a2b3c4d; continuation=sentinel; tool_value_guides=off";
+    const detect: DetectResult = {
+      provider: "openai_compatible",
+      baseUrl: "http://127.0.0.1:18976",
+      models: [
+        { id: "decoy-model", arch: "Decoy" },
+        { id: "apple-afm-3-core-advanced", arch: "AFM 3 Core Advanced", max_context_length: 8192 },
+      ],
+      steps: [],
+      capabilities: { openaiChat: true, anthropicMessages: false },
+      engine: "apple_fm",
+      engine_version: engineVersion,
+    };
+    const meta = makeBenchRunMeta(
+      baseBenchRequest({
+        baseUrl: "http://127.0.0.1:18976",
+        provider: "openai_compatible",
+        modelId: "apple-afm-3-core-advanced",
+      }),
+      detect,
+      "run_engine_3",
+    );
+    expect(meta.engine).toBe("apple_fm");
+    expect(meta.engine_version).toBe(engineVersion);
+    expect(meta.arch).toBe("AFM 3 Core Advanced");
   });
 });
 
