@@ -103,7 +103,8 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 - `${base}/api/v1/models` → `provider: "lm_studio"` (`{ models: [{ key, type, display_name, publisher, ... }] }` 기대; `publisher`는 DetectResult로 통과, 없으면 id의 `org/` 접두 폴백). **200이라도 본문에 네이티브 `models` 배열이 없으면 LM Studio로 단정하지 않고 다음 후보로 넘어갑니다** — LM Studio는 모르는 경로에도 `200 + {"error": …}`를 돌려주므로, 상태 코드만 믿으면 "모델 0개인 정상 연결"이라는 가짜 성공이 만들어집니다
 - `${base}/api/tags` → `provider: "ollama"` (`{ models: [{ name, model, size }] }` 기대; publisher는 id의 `org/` 접두만)
 - `${base}/api/models/list` → `provider: "unsloth_studio"` (`{ models: [...], default_models: [...] }` 지문; `is_audio`/`is_diffusion` 제외). **401은 Unsloth로 단정하지 않고** step만 남긴 뒤 `/v1/models`로 계속합니다 — Studio는 `sk-unsloth-…` API 키가 필요합니다
-- `${base}/v1/models` → `provider: "openai_compatible"` (`{ data: [{ id }] }` 기대; publisher는 id의 `org/` 접두만). 성공 직후 엔진 힌트만 한 번 더 채웁니다(`ProviderKind`는 바꾸지 않음):
+- `${base}/v1/models` → `provider: "openai_compatible"` (`{ data: [{ id }] }` 기대; publisher는 id의 `org/` 접두만). 행에 비어 있지 않은 문자열 `arch`나 양수 `context_length`가 있으면 `models[].arch`·`max_context_length`로 옮깁니다(`arch`는 목록 필터에 넘기지 않음 — variant 이름이 `_mtp` 등으로 끝나도 모델이 사라지지 않게). 성공 직후 엔진 힌트만 한 번 더 채웁니다(`ProviderKind`는 바꾸지 않음):
+  - `${base}/health` 본문이 `engine: "apple_fm"`이면 `engine: "apple_fm"`과 서버가 자기 보고한 `engine_version`(서버 버전·OS 빌드·variant 등, 공백 제거·200자 상한)을 싣습니다. 형태가 다르거나 요청이 실패하면 `apple_fm_health` 실패 step만 남기고 아래 순서로 계속합니다 — `/health`는 MTPLX 등 다른 서버도 쓰는 흔한 경로입니다
   - `${base}/server_info`(없으면 레거시 `${base}/get_server_info`) → `version` + SGLang 네이티브 필드(`internal_states`·`mem_fraction_static` 등)면 `engine: "sglang"`
   - 아니면 `${base}/metrics` 본문을 **한 번** 읽어 접두로 분류(우선순위 vllm → llamacpp → tgi): `vllm:num_requests_*` → `"vllm"`, `llamacpp:requests_*` → `"llamacpp"`, `tgi_batch_current_size`/`tgi_queue_size` → `"tgi"`
   - 알려진 게이지가 없으면 `engine: null` — 프로브 실패는 `openai_compatible` 반환을 막지 않음. llama.cpp는 `--metrics` 미활성이면 miss
@@ -115,7 +116,7 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 // "lm_studio" | "ollama" | "unsloth_studio" | "openai_compatible" | "manual"
 
-export type InferenceEngine = "sglang" | "vllm" | "llamacpp" | "tgi"; // DetectResult.engine / BenchRunMeta.engine
+export type InferenceEngine = "sglang" | "vllm" | "llamacpp" | "tgi" | "apple_fm"; // DetectResult.engine / BenchRunMeta.engine
 
 export async function detectProvider(
   rawBaseUrl: string,
@@ -126,7 +127,7 @@ export async function detectProvider(
 
 ### 해석(Resolve) → capability 객체
 
-감지된 각 provider는 `capabilities: { openaiChat: boolean; anthropicMessages: boolean }`를 실어 나릅니다. LM Studio·Ollama·Unsloth Studio는 **고정** capability 상수를 씁니다(가짜 모델 프로브가 오해를 부르는 `400`/`404` 코드를 돌려주므로 프로빙을 생략). `openai_compatible`과 `manual`은 `probeCapabilities()`가 실측하는데, 이 함수는 `/v1/chat/completions`와 `/v1/messages`에 더미 요청을 POST하고 `routeLikelyAvailable(status, body)`를 호출합니다 — `2xx`, 404가 아닌 `4xx`, 또는 본문이 `{`로 시작하는 `404`를 "라우트 존재"로 취급합니다.
+감지된 각 provider는 `capabilities: { openaiChat: boolean; anthropicMessages: boolean }`를 실어 나릅니다. LM Studio·Ollama·Unsloth Studio는 **고정** capability 상수를 씁니다(가짜 모델 프로브가 오해를 부르는 `400`/`404` 코드를 돌려주므로 프로빙을 생략). `openai_compatible`과 `manual`은 `probeCapabilities()`가 실측하는데, 이 함수는 `/v1/chat/completions`와 `/v1/messages`에 더미 요청을 POST하고 응답을 판정합니다. chat 프로브는 `routeLikelyAvailable(status, body)`로 `2xx`, 404가 아닌 `4xx`, 또는 본문이 `{`로 시작하는 `404`를 "라우트 존재"로 취급합니다. messages 프로브는 더 엄격한 `messagesRouteLikelyAvailable(status, body)`를 씁니다 — JSON `404`는 `JSON.parse`→`JSON.stringify`한 텍스트가 `/model/i`와 맞고 `/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\/\S*/`(메서드+경로 되풀이)와는 맞지 않을 때만 참입니다. llama.cpp `File Not Found`, FastAPI `{"detail":"Not Found"}`, `fm serve`의 `Not found: POST \/v1\/messages` 같은 "라우트 없음" JSON 404를 Anthropic 라우트로 오판하지 않기 위해서이고, 왕복 직렬화는 `\/`로 이스케이프된 슬래시를 되돌려 경로 정규식에 걸리게 합니다. chat 쪽을 느슨하게 둔 이유는 오판 비용이 비대칭이기 때문입니다 — chat을 놓치면 `no_routes`로 런 전체가 실패하지만, messages를 놓치면 그 라우트만 빠집니다.
 
 | 프로바이더 | caps 출처 | `openaiChat` | `anthropicMessages` |
 |---|---|---|---|
@@ -185,6 +186,7 @@ export function resolveBenchApiRoutes(
 - `approxOutputTokens`는 폴백 추정치로, `Math.max(0, Math.ceil(outText.length / 4))` — 고전적인 ~토큰당 4자 휴리스틱입니다.
 - 두 어댑터 모두 추정치에 추론 토큰을 포함시켜 두 프로바이더가 비교 가능하게 합니다: OpenAI의 `outText`(= `combined`)에는 이미 추론이 들어 있고, Anthropic은 추론을 `text`에서 빼 두는 대신 명시적으로 다시 더합니다: `Math.ceil((reasoningText.length + outText.length) / 4)`.
 - UI·스코어보드의 **디코드 TPS**는 llama.cpp / oMLX 관례입니다: 분모 `decode_ms = total_ms − ttft_ms`, 분자 `max(0, output_tokens − 1)` (첫 토큰은 프리필+샘플에 포함). `ttft` 없음 / `decode_ms ≤ 0` / 출력 토큰 ≤ 1 → `null`(표시 `—`). 소스: `packages/shared/src/tps.ts`의 `decodeTokensPerSecondFromRun`.
+- **단일 버스트도 `null`입니다.** 두 스트림 파서는 출력 델타(content·reasoning·tool call)를 실은 `reader.read()` 배치 수 `outputDeltaBatches`와 첫 출력 종류 `firstOutputKind`(`text`|`reasoning`|`tool_call`)를 기록하고, 러너가 이를 `scenario_end.metrics`와 `aggregate_json` 런에 `output_delta_batches`·`first_output_kind`로 싣습니다. 배치가 1개 이하면 출력 전체가 한 덩어리로 온 것이라(인자를 스트리밍하지 않고 호출을 생성 끝에 통째로 보내는 Apple Foundation Models, 확산 모델 등) `decode_ms`가 네트워크 지연 수 ms뿐이고 디코드 TPS가 수천~수백만 tok/s로 부풉니다 — 이런 행 하나가 상한 없는 속도 점수 평균을 수십 배로 끌어올립니다. 또 `decode_ms`가 `MIN_DECODE_WINDOW_MS`(10ms) 미만이면 배치 수와 무관하게 `null`이라, 필드가 없는 구 런도 같은 하한으로 걸러집니다. 하한은 기존 DB 실측으로 정했습니다: 디코드 가능한 7,568 런 중 10ms 미만 502건의 96%가 1,000 tok/s 이상이었고 600 tok/s 미만은 출력 2토큰짜리 6건뿐이었으며, 20ms로 올리면 0.5B~1B 모델의 짧은 정상 응답까지 버리게 됩니다. 도구 라운드·`agent_*`는 배치를 전 턴 합산하고(`total_ms`와 짝) 첫 출력 종류는 TTFT를 잡은 턴의 값을 씁니다. 스코어보드·compare·차트는 `null`을 평균에서 뺍니다(0으로 넣지 않음).
 - blended TPS(`output / total_ms`, `tokensPerSecondFromRun`)는 내부 호환·스트레스 `aggregate_tps`용으로 남기고 기본 UI에서는 숨깁니다.
 - 구 런 JSON에는 이미 `ttft_ms`·`total_ms`·`usage_output_tokens`(또는 `output_text` 근사)가 있어 디코드는 SQLite rewrite 없이 읽기 시점에 재계산됩니다.
 - `reasoning_hidden`이면 TTFT가 프리필+숨은 사고를 포함해 두 축이 왜곡됩니다. `agent_*`는 한 런의 `total_ms`가 멀티턴 벽시계라 v1은 같은 산식을 쓰고 툴팁에 턴 합산을 명시합니다(턴별 계측은 후속).
@@ -193,6 +195,7 @@ export function resolveBenchApiRoutes(
 
 - OpenAI는 `usage.prompt_tokens`(없으면 `usage.input_tokens`), Anthropic은 `usage.input_tokens`를 `usagePromptTokens`에 저장합니다. 요청은 이미 `stream_options.include_usage: true`를 보냅니다. 예전 파서는 입력 토큰을 버리고 있었습니다.
 - 산식: `prompt_tokens / (ttft_ms / 1000)` (`prefillTokensPerSecondFromRun`). `prompt_tokens`가 없으면 근사하지 않고 `null`. `prompt_preview`는 잘린 스냅샷이고 비전 이미지 토큰이 없어 쓰지 않습니다.
+- 첫 출력이 도구 호출이고 출력 배치가 1개 이하면 `null`입니다 — TTFT에 호출 전체의 생성 시간이 들어가 프리필이 과소평가됩니다. 배치를 턴 합산하는 멀티턴(도구 라운드·`agent_*`)은 첫 턴만 한 덩어리여도 걸러지지 않는 알려진 한계가 있습니다.
 - 구 런은 프리필 칸 `—`. 재실행한 런만 값이 찹니다. DB 마이그레이션 SQL은 없고 `aggregate_json`에 `usage_prompt_tokens` 키가 추가될 뿐입니다.
 
 ### 추론 채널 분리: `text` vs `assistantText` vs `reasoningText`
@@ -245,6 +248,8 @@ export type OpenAiStreamMetrics = {
   finishReason: string | null;  // "length" => truncated
   repetitionLoopDetected: boolean;
   toolCallArgsCorrupted: boolean;
+  outputDeltaBatches: number;   // reads that carried content/reasoning/tool deltas
+  firstOutputKind: "text" | "reasoning" | "tool_call" | null;
 };
 
 export type AnthropicStreamMetrics = {
@@ -259,6 +264,8 @@ export type AnthropicStreamMetrics = {
   usageOutputTokens: number | null; // message_delta.usage.output_tokens
   usagePromptTokens: number | null; // usage.input_tokens
   stopReason: string | null;    // "max_tokens" => truncated
+  outputDeltaBatches: number;   // reads that carried text/thinking/tool_use events
+  firstOutputKind: "text" | "reasoning" | "tool_call" | null;
 };
 ```
 
@@ -663,7 +670,7 @@ export LLM_JUDGE_MODEL=claude-opus-4-7
 | `apps/server/src/db/persist-stream.ts` | `BenchRunPersistence` — 라이브 벤치 중 `StreamEvent`를 `bench_*` 행으로 접음 |
 | `apps/server/src/db/stress-persist-stream.ts` | `StressRunPersistence` — 스트레스 런에 대한 같은 패턴(`stress_runs` / `stress_stages`) |
 
-설정별 병합은 `bench-config.ts`의 버전 있는 `config_id`를 사용합니다. 추론·샘플링·토큰 한도·프로필 및 프롬프트 번들 버전은 설정에 포함하고 반복 횟수·선택 시나리오·로드 수명은 제외합니다. `database.ts`의 v5 마이그레이션은 기존 메타에서 키를 복원하고 불완전한 구버전은 실행별로 격리합니다. `/stats/model-latest`는 설정별 항목과 `config`, `config_complete`를 반환합니다. `/runs/:runId?profile=merged`는 요청한 런과 같은 설정만 병합하고 `source_run_id`를 유지합니다. `latest-by-model`, scoreboard, 모델 지정 compare는 최신 런의 설정 그룹 하나만 선택합니다. 설정 분리 후 항목 수가 늘거나 커버리지가 줄어드는 것은 다른 조건의 실측을 섞지 않기 때문입니다. 명시 요청 상한(`request_max_tokens`, `profile_max_tokens_override`)도 신규 메타에 보존합니다. 이 정보가 없는 이전 기록은 프로필 권장값과 실제 명시 상한을 구별할 수 없으므로 설정 불완전으로 표시하고 실행별로 분리합니다. `profile_id`가 `unknown`이면 `profile_version` 없이도 설정이 완전해 런 간 `config_id`가 같고, v6 마이그레이션이 저장 키를 그 규칙으로 재계산합니다. 불완전 설정은 갭 커버로 치지 않습니다. 같은 `config_id` 그룹을 갭 채우기에도 씁니다 — 웹의 「빠진 시나리오만」은 선택된 시나리오 중 그 그룹에 실측이 없는 것만 다시 돌리고, 결과는 기존처럼 시나리오×라우트별 최신 실측으로 병합됩니다.
+설정별 병합은 `bench-config.ts`의 버전 있는 `config_id`를 사용합니다. 추론·샘플링·토큰 한도·프로필 및 프롬프트 번들 버전은 설정에 포함하고 반복 횟수·선택 시나리오·로드 수명은 제외합니다. `database.ts`의 v5 마이그레이션은 기존 메타에서 키를 복원하고 불완전한 구버전은 실행별로 격리합니다. `/stats/model-latest`는 설정별 항목과 `config`, `config_complete`를 반환합니다. `/runs/:runId?profile=merged`는 요청한 런과 같은 설정만 병합하고 `source_run_id`를 유지합니다. `latest-by-model`, scoreboard, 모델 지정 compare는 최신 런의 설정 그룹 하나만 선택합니다. 설정 분리 후 항목 수가 늘거나 커버리지가 줄어드는 것은 다른 조건의 실측을 섞지 않기 때문입니다. 명시 요청 상한(`request_max_tokens`, `profile_max_tokens_override`)도 신규 메타에 보존합니다. 이 정보가 없는 이전 기록은 프로필 권장값과 실제 명시 상한을 구별할 수 없으므로 설정 불완전으로 표시하고 실행별로 분리합니다. `profile_id`가 `unknown`이면 `profile_version` 없이도 설정이 완전해 런 간 `config_id`가 같고, v6 마이그레이션이 저장 키를 그 규칙으로 재계산합니다. 불완전 설정은 갭 커버로 치지 않습니다. 같은 `config_id` 그룹을 갭 채우기에도 씁니다 — 웹의 「빠진 시나리오만」은 선택된 시나리오 중 그 그룹에 실측이 없는 것만 다시 돌리고, 결과는 기존처럼 시나리오×라우트별 최신 실측으로 병합됩니다. 런 메타의 `engine`·`engine_version`(예: `apple_fm`의 OS 빌드·모델 에셋)은 `config_id`와 비교 식별자에 들어가지 않으므로, 엔진이나 OS를 올린 뒤에는 갭 채우기 대신 전체를 다시 실행하세요 — 옛 실측이 커버로 쳐지고 같은 행으로 합쳐집니다.
 
 - `database.ts`의 `migrate()`가 만드는 테이블:
 
@@ -778,16 +785,16 @@ export async function consumeOpenAiChatStream(
   opts?: { onDelta?: (d: OpenAiStreamDelta) => void; loopGuard?: boolean; requestStartedAt?: number },
 ): Promise<OpenAiStreamMetrics>; // { ttftMs, totalMs, text, assistantText, reasoningText, toolCalls,
                                  //   streamCompleted, approxOutputTokens, usageOutputTokens, usagePromptTokens, finishReason,
-                                 //   repetitionLoopDetected, toolCallArgsCorrupted }
+                                 //   repetitionLoopDetected, toolCallArgsCorrupted, outputDeltaBatches, firstOutputKind }
 ```
 
 - TTFT는 **첫** content / `reasoning_content` / 도구 호출 델타에서 `markTtft()`가 찍으며, 기준은 `requestStartedAt ?? performance.now()`입니다.
 - 스트림은 세 가지 토큰 수를 반환합니다: `usageOutputTokens` — `usage.completion_tokens`(없으면 `usage.output_tokens`)에서 오는 프로바이더 usage로, `stream_options.include_usage`가 필요하며 없으면 `null` — 항상 계산되는 `text.length / 4` 추정치인 `approxOutputTokens` — 그리고 `usagePromptTokens`(`usage.prompt_tokens` / `input_tokens`, 없으면 `null`). 호출자는 출력 usage를 우선하고 `/ 4` 근사로 폴백하므로, 디코드 TPS는 자신의 출처를 정직하게 밝힙니다(`tps_source: "usage" | "approx"`). 프리필은 근사하지 않습니다.
 - 주석-전용 신호(잘림에 대한 `finishReason === "length"`, 이어붙은-`{}{}` 런타임 버그에 대한 `toolCallArgsCorrupted`)는 채점을 절대 바꾸지 않고 결과에 라벨만 붙입니다.
 
-**프로바이더 추상화 — `detect.ts`.** `detectProvider(rawBaseUrl, opts)`는 base URL을 정규화한 뒤 네이티브 목록 엔드포인트를 순서대로 프로브합니다(LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`). LM Studio·Ollama·Unsloth Studio 히트는 고정 `capabilities`를 받고, OpenAI 호환과 `manual` 폴스루(fall-through)는 `probeCapabilities`를 호출해 `/v1/chat/completions`와 `/v1/messages`에 일회용 `probe-model`을 POST합니다. `/v1/models` 성공 시에는 엔진 힌트만 추가로 채웁니다(SGLang `/server_info` → `/metrics`의 vllm/llamacpp/tgi 게이지 → `DetectResult.engine` / `BenchRunMeta.engine`; `ProviderKind`는 `openai_compatible` 유지). 반환된 `capabilities: { openaiChat, anthropicMessages }`는 모든 하위 러너가 라우트를 고를 때 쓰는 값이므로(`stress-runner.ts`의 `pickRoute()`, 벤치 러너의 `resolveBenchApiRoutes()`), 호출마다 흩어진 분기 대신 하나의 감지 결과를 얻습니다.
+**프로바이더 추상화 — `detect.ts`.** `detectProvider(rawBaseUrl, opts)`는 base URL을 정규화한 뒤 네이티브 목록 엔드포인트를 순서대로 프로브합니다(LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`). LM Studio·Ollama·Unsloth Studio 히트는 고정 `capabilities`를 받고, OpenAI 호환과 `manual` 폴스루(fall-through)는 `probeCapabilities`를 호출해 `/v1/chat/completions`와 `/v1/messages`에 일회용 `probe-model`을 POST합니다. `/v1/models` 성공 시에는 엔진 힌트만 추가로 채웁니다(Apple FM `/health`의 `engine: "apple_fm"` → SGLang `/server_info` → `/metrics`의 vllm/llamacpp/tgi 게이지 → `DetectResult.engine`·`engine_version` / `BenchRunMeta.engine`·`engine_version`; `ProviderKind`는 `openai_compatible` 유지. 스트레스 런 메타에는 엔진 필드를 싣지 않습니다). 반환된 `capabilities: { openaiChat, anthropicMessages }`는 모든 하위 러너가 라우트를 고를 때 쓰는 값이므로(`stress-runner.ts`의 `pickRoute()`, 벤치 러너의 `resolveBenchApiRoutes()`), 호출마다 흩어진 분기 대신 하나의 감지 결과를 얻습니다.
 
-- 라우트 가용성 휴리스틱 `routeLikelyAvailable(status, body)`는 잘못된-모델 `4xx`(또는 JSON 본문이 있는 `404`)를 "라우트 존재"로 취급합니다 — "엔드포인트 없음"과 "엔드포인트는 있지만 내 요청이 틀림"을 구분하려면 이걸 훔쳐 쓰세요.
+- 라우트 가용성 휴리스틱 `routeLikelyAvailable(status, body)`는 잘못된-모델 `4xx`(또는 JSON 본문이 있는 `404`)를 "라우트 존재"로 취급합니다 — "엔드포인트 없음"과 "엔드포인트는 있지만 내 요청이 틀림"을 구분하려면 이걸 훔쳐 쓰세요. `/v1/messages`에는 JSON `404`가 모델을 말하고 메서드+경로를 되풀이하지 않을 때만 참인 `messagesRouteLikelyAvailable`을 씁니다("라우트 없음" JSON 404 오판 방지).
 
 **경합 가드 — `contention-probe.ts`.** 재사용 아이디어는 자기 부하가 경합으로 읽히지 않도록 하는 두 개의 **분리된 샘플링 모드**입니다: `sampleIdle()`(in-flight가 없을 때만 호출; GPU util + `/metrics` + `lms ps`를 신뢰) vs `sampleInFlight(baseline)`(요청 중; GPU 노이즈 무시, `running>=2 / waiting>=1`·모델 로드 churn·Ollama `expires_at` 전진을 감시). 이를 `runIdleGate()`로 구동하는데, 이는 진행 전에 `requiredConsecutiveIdle`회의 깨끗한 폴을 기다리는 `AsyncGenerator<StreamEvent, GateResult>`이며, 백그라운드 감지에는 `startInflightMonitor()`를 씁니다. `/metrics`와 재고 HTTP(Ollama `/api/ps`, LM Studio `/api/v1/models`)는 4xx/5xx에서 런 단위로 래치하고, 게이트 성공 baseline은 `sampleIdle.loaded`를 재사용합니다. `parsePrometheusRunningWaiting()`는 따로 떼어 쓸 수 있는 독립형 vLLM/llama.cpp/TGI 게이지 파서입니다.
 
@@ -819,8 +826,8 @@ export const CompareThresholdsSchema = z.object({
 | 용어 | 설명 |
 |---|---|
 | TTFT | 요청 전송부터 첫 토큰(content / `reasoning_content` / 도구 호출 델타) 도착까지의 ms. |
-| Decode TPS | 디코드 처리량 — `(출력 토큰 − 1) ÷ (총 시간 − TTFT)`. 구 런도 읽기 시점에 재계산 가능. |
-| Prefill TPS | 프리필 처리량 — `prompt_tokens ÷ TTFT`. 구 런은 usage가 없어 재측정 필요. |
+| Decode TPS | 디코드 처리량 — `(출력 토큰 − 1) ÷ (총 시간 − TTFT)`. 구 런도 읽기 시점에 재계산 가능. 단일 버스트(출력 배치 1개 이하 또는 디코드 10ms 미만)는 null. |
+| Prefill TPS | 프리필 처리량 — `prompt_tokens ÷ TTFT`. 구 런은 usage가 없어 재측정 필요. 한 덩어리로 온 도구 호출이 첫 출력이면 null. |
 | TPS (stress) | 스트레스 스테이지: 출력 토큰 ÷ 경과 시간. `aggregate_tps`는 스테이지를 합산하고, `tps_per_user`는 aggregate ÷ 동시성. |
 | `approxOutputTokens` | 서버가 usage 카운트를 생략할 때 쓰는 폴백 토큰 추정치(~길이/4). |
 | p50 / p95 | 스테이지 내 지연(또는 TTFT)의 중앙값 / 95백분위. |

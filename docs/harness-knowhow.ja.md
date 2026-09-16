@@ -103,7 +103,8 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 - `${base}/api/v1/models` → `provider: "lm_studio"`（`{ models: [{ key, type, display_name, publisher, ... }] }` を期待。`publisher` は DetectResult に通し、無い場合は id の `org/` 接頭にフォールバック）。**200 でも本文にネイティブな `models` 配列が無ければ LM Studio と断定せず次の候補へ進みます** — LM Studio は未知のパスにも `200 + {"error": …}` を返すため、ステータスだけを信じると「モデル 0 個の正常な接続」という偽の成功が生まれます
 - `${base}/api/tags` → `provider: "ollama"`（`{ models: [{ name, model, size }] }` を期待。publisher は id の `org/` 接頭のみ）
 - `${base}/api/models/list` → `provider: "unsloth_studio"`（指紋 `{ models: [...], default_models: [...] }`。`is_audio`/`is_diffusion` は除外）。**401 では Unsloth と断定せず** step だけ残して `/v1/models` へ続行します — Studio には `sk-unsloth-…` API キーが必要です
-- `${base}/v1/models` → `provider: "openai_compatible"`（`{ data: [{ id }] }` を期待。publisher は id の `org/` 接頭のみ）。成功直後にエンジンヒントだけを 1 回埋めます（`ProviderKind` は変えません）:
+- `${base}/v1/models` → `provider: "openai_compatible"`（`{ data: [{ id }] }` を期待。publisher は id の `org/` 接頭のみ）。行に空でない文字列の `arch` や正の `context_length` があれば `models[].arch`・`max_context_length` に写します（`arch` はリストフィルタに渡しません — variant 名が `_mtp` などで終わってもモデルが消えないように）。成功直後にエンジンヒントだけを 1 回埋めます（`ProviderKind` は変えません）:
+  - `${base}/health` の本文が `engine: "apple_fm"` なら `engine: "apple_fm"` と、サーバーが自己申告した `engine_version`（サーバーバージョン・OS ビルド・variant など。空白除去・200 文字上限）を載せます。形が違う、またはリクエストが失敗した場合は `apple_fm_health` の失敗 step だけを残して下の順に続行します — `/health` は MTPLX など他のサーバーも使うありふれたパスです
   - `${base}/server_info`（無ければレガシー `${base}/get_server_info`）→ `version` + SGLang ネイティブフィールド（`internal_states`・`mem_fraction_static` など）なら `engine: "sglang"`
   - さもなくば `${base}/metrics` を **1 回** 読み、接頭で分類（優先度 vllm → llamacpp → tgi）: `vllm:num_requests_*` → `"vllm"`、`llamacpp:requests_*` → `"llamacpp"`、`tgi_batch_current_size`/`tgi_queue_size` → `"tgi"`
   - 既知ゲージが無ければ `engine: null` — プローブ失敗は `openai_compatible` の返却を止めません。llama.cpp は `--metrics` 未有効なら意図的に miss
@@ -115,7 +116,7 @@ void runOneBenchModel({ req, detect, onEvent: push }).finally(() => {
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 // "lm_studio" | "ollama" | "unsloth_studio" | "openai_compatible" | "manual"
 
-export type InferenceEngine = "sglang" | "vllm" | "llamacpp" | "tgi"; // DetectResult.engine / BenchRunMeta.engine
+export type InferenceEngine = "sglang" | "vllm" | "llamacpp" | "tgi" | "apple_fm"; // DetectResult.engine / BenchRunMeta.engine
 
 export async function detectProvider(
   rawBaseUrl: string,
@@ -126,7 +127,7 @@ export async function detectProvider(
 
 ### 解決 → capability オブジェクト
 
-検出された各プロバイダーは `capabilities: { openaiChat: boolean; anthropicMessages: boolean }` を持ちます。LM Studio・Ollama・Unsloth Studio は **固定** の capability 定数を使います（偽のモデルでのプローブが誤解を招く `400`/`404` を返すため、プローブは省略）。`openai_compatible` と `manual` は `probeCapabilities()` によりライブでプローブされます。これは `/v1/chat/completions` と `/v1/messages` にダミーリクエストを POST し、`routeLikelyAvailable(status, body)` を呼びます — `2xx`、404 以外の `4xx`、または本文が `{` で始まる `404` を「ルートが存在する」とみなします。
+検出された各プロバイダーは `capabilities: { openaiChat: boolean; anthropicMessages: boolean }` を持ちます。LM Studio・Ollama・Unsloth Studio は **固定** の capability 定数を使います（偽のモデルでのプローブが誤解を招く `400`/`404` を返すため、プローブは省略）。`openai_compatible` と `manual` は `probeCapabilities()` によりライブでプローブされます。これは `/v1/chat/completions` と `/v1/messages` にダミーリクエストを POST し、応答を判定します。chat プローブは `routeLikelyAvailable(status, body)` で、`2xx`、404 以外の `4xx`、または本文が `{` で始まる `404` を「ルートが存在する」とみなします。messages プローブはより厳格な `messagesRouteLikelyAvailable(status, body)` を使います — JSON の `404` は、`JSON.parse`→`JSON.stringify` したテキストが `/model/i` に一致し、かつ `/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\/\S*/`（メソッド+パスの繰り返し）に一致しない場合だけ真です。llama.cpp の `File Not Found`、FastAPI の `{"detail":"Not Found"}`、`fm serve` の `Not found: POST \/v1\/messages` のような「ルートなし」JSON 404 を Anthropic ルートと誤判定しないためで、往復シリアライズは `\/` にエスケープされたスラッシュを戻してパスの正規表現に掛かるようにします。chat 側を緩くしているのは誤判定のコストが非対称だからです — chat を取りこぼすと `no_routes` でラン全体が失敗しますが、messages を取りこぼしてもそのルートが抜けるだけです。
 
 | プロバイダー | caps の出所 | `openaiChat` | `anthropicMessages` |
 |---|---|---|---|
@@ -185,6 +186,7 @@ export function resolveBenchApiRoutes(
 - `approxOutputTokens` はフォールバックの推定値で、`Math.max(0, Math.ceil(outText.length / 4))` — おなじみの約 4 文字/トークンのヒューリスティックです。
 - 両アダプタは、2 つのプロバイダーが比較可能になるよう推定値に推論トークンを算入します。OpenAI の `outText`（= `combined`）はすでに推論を含みますが、Anthropic は推論を `text` の外に保つため、明示的に足し戻します: `Math.ceil((reasoningText.length + outText.length) / 4)`。
 - UI・スコアボードの **デコード TPS** は llama.cpp / oMLX の慣例です。分母 `decode_ms = total_ms − ttft_ms`、分子 `max(0, output_tokens − 1)`（最初のトークンはプリフィル+サンプルに含む）。`ttft` なし / `decode_ms ≤ 0` / 出力トークン ≤ 1 → `null`（表示 `—`）。ソース: `packages/shared/src/tps.ts` の `decodeTokensPerSecondFromRun`。
+- **単一バーストも `null` です。** 両ストリームパーサは、出力デルタ（content・reasoning・tool call）を載せた `reader.read()` のバッチ数 `outputDeltaBatches` と最初の出力の種類 `firstOutputKind`（`text`|`reasoning`|`tool_call`）を記録し、ランナーがそれを `scenario_end.metrics` と `aggregate_json` のランに `output_delta_batches`・`first_output_kind` として載せます。バッチが 1 以下なら出力全体が一塊で届いたということで（引数をストリーミングせず呼び出しを生成の最後にまとめて送る Apple Foundation Models、拡散モデルなど）、`decode_ms` はネットワーク遅延の数 ms にすぎず、デコード TPS は数千〜数百万 tok/s に膨らみます — そうした行 1 つで上限のない速度スコア平均が桁違いに引き上がります。さらに `decode_ms` が `MIN_DECODE_WINDOW_MS`（10ms）未満ならバッチ数に関係なく `null` なので、フィールドの無い旧ランも同じ下限で除外されます。下限は既存 DB の実測で決めました: デコード可能な 7,568 ラン中、10ms 未満の 502 件の 96% が 1,000 tok/s 以上で、600 tok/s 未満は出力 2 トークンの 6 件だけでした。20ms に上げると 0.5B〜1B モデルの短い正常応答まで捨ててしまいます。ツールラウンド・`agent_*` はバッチを全ターン合算し（`total_ms` と対）、最初の出力の種類は TTFT を取ったターンの値を使います。スコアボード・compare・チャートは `null` を平均から外します（0 としては入れません）。
 - blended TPS（`output / total_ms`、`tokensPerSecondFromRun`）は内部互換・ストレス `aggregate_tps` 用に残し、デフォルト UI では隠します。
 - 旧ラン JSON にはすでに `ttft_ms`・`total_ms`・`usage_output_tokens`（または `output_text` 近似）があるので、デコードは SQLite を rewrite せず読み取り時に再計算できます。
 - `reasoning_hidden` だと TTFT がプリフィル+隠れた思考を含み、両軸が歪みます。`agent_*` は 1 ランの `total_ms` がマルチターンの壁時計なので、v1 は同じ式を使いツールチップにターン合算と書きます（ターン別計測は後続）。
@@ -193,6 +195,7 @@ export function resolveBenchApiRoutes(
 
 - OpenAI は `usage.prompt_tokens`（なければ `usage.input_tokens`）、Anthropic は `usage.input_tokens` を `usagePromptTokens` に保存します。リクエストはすでに `stream_options.include_usage: true` を送っています。以前のパーサは入力トークンを捨てていました。
 - 式: `prompt_tokens / (ttft_ms / 1000)`（`prefillTokensPerSecondFromRun`）。`prompt_tokens` が無ければ近似せず `null`。`prompt_preview` は切れたスナップショットでビジョン画像トークンが無いので使いません。
+- 最初の出力がツール呼び出しで、出力バッチが 1 以下なら `null` です — TTFT に呼び出し全体の生成時間が入り、プリフィルが過小評価されるためです。バッチをターン合算するマルチターン（ツールラウンド・`agent_*`）では、最初のターンだけが一塊でも除外されないという既知の制限があります。
 - 旧ランのプリフィル欄は `—`。再実行したランだけ値が入ります。DB マイグレーション SQL は無く、`aggregate_json` に `usage_prompt_tokens` キーが増えるだけです。
 
 ### 推論チャネルの分離: `text` vs `assistantText` vs `reasoningText`
@@ -245,6 +248,8 @@ export type OpenAiStreamMetrics = {
   finishReason: string | null;  // "length" => truncated
   repetitionLoopDetected: boolean;
   toolCallArgsCorrupted: boolean;
+  outputDeltaBatches: number;   // reads that carried content/reasoning/tool deltas
+  firstOutputKind: "text" | "reasoning" | "tool_call" | null;
 };
 
 export type AnthropicStreamMetrics = {
@@ -259,6 +264,8 @@ export type AnthropicStreamMetrics = {
   usageOutputTokens: number | null; // message_delta.usage.output_tokens
   usagePromptTokens: number | null; // usage.input_tokens
   stopReason: string | null;    // "max_tokens" => truncated
+  outputDeltaBatches: number;   // reads that carried text/thinking/tool_use events
+  firstOutputKind: "text" | "reasoning" | "tool_call" | null;
 };
 ```
 
@@ -663,7 +670,7 @@ export LLM_JUDGE_MODEL=claude-opus-4-7
 | `apps/server/src/db/persist-stream.ts` | `BenchRunPersistence` — ライブベンチ中に `StreamEvent` を `bench_*` 行へ畳み込む |
 | `apps/server/src/db/stress-persist-stream.ts` | `StressRunPersistence` — ストレス実行向けの同パターン（`stress_runs` / `stress_stages`） |
 
-設定別の統合は `bench-config.ts` のバージョン付き `config_id` を使用します。推論・サンプリング・トークン上限・プロファイルとプロンプトバンドルのバージョンを含み、反復回数・選択シナリオ・ロード寿命を除外します。`database.ts` の v5 移行は既存メタデータからキーを復元し、不完全な旧記録を実行ごとに分離します。`/stats/model-latest` は設定別の項目と `config`、`config_complete` を返します。`/runs/:runId?profile=merged` は指定実行と同じ設定だけを統合し、`source_run_id` を保持します。`latest-by-model`、scoreboard、モデル指定 compare は最新実行の設定グループだけを選択します。移行後の項目増加やカバレッジ減少は異なる条件の測定を混ぜないためです。 新しいメタデータには明示上限（`request_max_tokens`、`profile_max_tokens_override`）も保持します。この情報がない旧記録は推奨値と明示上限を区別できないため、不完全と表示して実行ごとに分離します。`profile_id` が `unknown` なら `profile_version` がなくても設定は完全でラン間の `config_id` が安定し、v6 マイグレーションがその規則で保存キーを再計算します。不完全設定はギャップのカバーにしません。同じ `config_id` グループをギャップ埋めにも使います — Web の「未測定シナリオのみ」は、そのグループに実測がない選択シナリオだけを再実行し、結果はこれまでどおりシナリオ×ルート別の最新実測として統合されます。
+設定別の統合は `bench-config.ts` のバージョン付き `config_id` を使用します。推論・サンプリング・トークン上限・プロファイルとプロンプトバンドルのバージョンを含み、反復回数・選択シナリオ・ロード寿命を除外します。`database.ts` の v5 移行は既存メタデータからキーを復元し、不完全な旧記録を実行ごとに分離します。`/stats/model-latest` は設定別の項目と `config`、`config_complete` を返します。`/runs/:runId?profile=merged` は指定実行と同じ設定だけを統合し、`source_run_id` を保持します。`latest-by-model`、scoreboard、モデル指定 compare は最新実行の設定グループだけを選択します。移行後の項目増加やカバレッジ減少は異なる条件の測定を混ぜないためです。 新しいメタデータには明示上限（`request_max_tokens`、`profile_max_tokens_override`）も保持します。この情報がない旧記録は推奨値と明示上限を区別できないため、不完全と表示して実行ごとに分離します。`profile_id` が `unknown` なら `profile_version` がなくても設定は完全でラン間の `config_id` が安定し、v6 マイグレーションがその規則で保存キーを再計算します。不完全設定はギャップのカバーにしません。同じ `config_id` グループをギャップ埋めにも使います — Web の「未測定シナリオのみ」は、そのグループに実測がない選択シナリオだけを再実行し、結果はこれまでどおりシナリオ×ルート別の最新実測として統合されます。ランメタの `engine`・`engine_version`（例: `apple_fm` の OS ビルド・モデルアセット）は `config_id` にも比較識別子にも入らないため、エンジンや OS を更新した後はギャップ埋めではなく全体を再実行してください — 古い実測がカバー済みとみなされ、同じ行に統合されてしまいます。
 
 - `database.ts` の `migrate()` が作るテーブル:
 
@@ -774,16 +781,16 @@ export async function consumeOpenAiChatStream(
   opts?: { onDelta?: (d: OpenAiStreamDelta) => void; loopGuard?: boolean; requestStartedAt?: number },
 ): Promise<OpenAiStreamMetrics>; // { ttftMs, totalMs, text, assistantText, reasoningText, toolCalls,
                                  //   streamCompleted, approxOutputTokens, usageOutputTokens, usagePromptTokens, finishReason,
-                                 //   repetitionLoopDetected, toolCallArgsCorrupted }
+                                 //   repetitionLoopDetected, toolCallArgsCorrupted, outputDeltaBatches, firstOutputKind }
 ```
 
 - TTFT は **最初** の content / `reasoning_content` / ツール呼び出しデルタで `markTtft()` により、`requestStartedAt ?? performance.now()` を基準に刻印されます。
 - ストリームは 3 つのトークンカウントを返します: `usageOutputTokens` — `usage.completion_tokens`（なければ `usage.output_tokens`）由来のプロバイダー usage で、`stream_options.include_usage` が必要、なければ `null` — `approxOutputTokens`、常に計算される `text.length / 4` 推定 — と `usagePromptTokens`（`usage.prompt_tokens` / `input_tokens`、なければ `null`）。呼び出し側は出力 usage を優先し `/ 4` 近似にフォールバックするので、デコード TPS はソースについて正直です（`tps_source: "usage" | "approx"`）。プリフィルは近似しません。
 - 注釈専用のシグナル（切り詰めの `finishReason === "length"`、連結 `{}{}` ランタイムバグの `toolCallArgsCorrupted`）は採点を決して変えず、結果にラベルを付けるだけです。
 
-**プロバイダー抽象化 — `detect.ts`。** `detectProvider(rawBaseUrl, opts)` は base URL を正規化し、ネイティブのリストエンドポイントを順にプローブします（LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`）。LM Studio・Ollama・Unsloth Studio のヒットには固定の `capabilities` が付き、OpenAI 互換と `manual` のフォールスルーは `probeCapabilities` を呼び、使い捨ての `probe-model` を `/v1/chat/completions` と `/v1/messages` に POST します。`/v1/models` 成功後はエンジンヒントだけを追加で埋めます（SGLang `/server_info` → `/metrics` の vllm/llamacpp/tgi ゲージ → `DetectResult.engine` / `BenchRunMeta.engine`。`ProviderKind` は `openai_compatible` のまま）。返される `capabilities: { openaiChat, anthropicMessages }` を、下流の全ランナーがルート選択に使うので（`stress-runner.ts` の `pickRoute()`、ベンチランナーの `resolveBenchApiRoutes()`）、呼び出しごとに散らばった分岐ではなく 1 つの検出結果を得られます。
+**プロバイダー抽象化 — `detect.ts`。** `detectProvider(rawBaseUrl, opts)` は base URL を正規化し、ネイティブのリストエンドポイントを順にプローブします（LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`）。LM Studio・Ollama・Unsloth Studio のヒットには固定の `capabilities` が付き、OpenAI 互換と `manual` のフォールスルーは `probeCapabilities` を呼び、使い捨ての `probe-model` を `/v1/chat/completions` と `/v1/messages` に POST します。`/v1/models` 成功後はエンジンヒントだけを追加で埋めます（Apple FM `/health` の `engine: "apple_fm"` → SGLang `/server_info` → `/metrics` の vllm/llamacpp/tgi ゲージ → `DetectResult.engine`・`engine_version` / `BenchRunMeta.engine`・`engine_version`。`ProviderKind` は `openai_compatible` のまま。ストレスランのメタにはエンジンフィールドを載せません）。返される `capabilities: { openaiChat, anthropicMessages }` を、下流の全ランナーがルート選択に使うので（`stress-runner.ts` の `pickRoute()`、ベンチランナーの `resolveBenchApiRoutes()`）、呼び出しごとに散らばった分岐ではなく 1 つの検出結果を得られます。
 
-- ルート可用性のヒューリスティック `routeLikelyAvailable(status, body)` は、不正モデルの `4xx`（または JSON 本文付きの `404`）を「ルートが存在する」と扱います — 「エンドポイント不在」と「エンドポイント存在、リクエストが誤り」を見分けるのに拝借してください。
+- ルート可用性のヒューリスティック `routeLikelyAvailable(status, body)` は、不正モデルの `4xx`（または JSON 本文付きの `404`）を「ルートが存在する」と扱います — 「エンドポイント不在」と「エンドポイント存在、リクエストが誤り」を見分けるのに拝借してください。`/v1/messages` には、JSON の `404` がモデルに言及し、かつメソッド+パスを繰り返さない場合だけ真になる `messagesRouteLikelyAvailable` を使います（「ルートなし」JSON 404 の誤判定防止）。
 
 **競合ガード — `contention-probe.ts`。** 再利用可能な考え方は、自分の負荷が競合として読まれないよう 2 つの **別々のサンプリングモード** を持つことです: `sampleIdle()`（in-flight が何も無いときだけ呼ぶ; GPU util + `/metrics` + `lms ps` を信頼）と `sampleInFlight(baseline)`（自分のリクエスト中; GPU ノイズを無視し、`running>=2 / waiting>=1`、モデルロードの churn、Ollama `expires_at` の前進を監視）。`requiredConsecutiveIdle` 回のクリーンなポーリングを待ってから進む `AsyncGenerator<StreamEvent, GateResult>` の `runIdleGate()` と、バックグラウンド検出用の `startInflightMonitor()` で駆動します。`/metrics` と在庫 HTTP（Ollama `/api/ps`、LM Studio `/api/v1/models`）は 4xx/5xx でラン単位ラッチし、ゲート成功時の baseline は `sampleIdle.loaded` を再利用します。`parsePrometheusRunningWaiting()` は単独で取り出せる vLLM/llama.cpp/TGI ゲージパーサです。
 
@@ -815,8 +822,8 @@ export const CompareThresholdsSchema = z.object({
 | 用語 | 定義 |
 |---|---|
 | TTFT | Time To First Token — 要求送信から最初の content / `reasoning_content` / ツール呼び出しデルタまでの ms。 |
-| Decode TPS | デコードスループット — `(出力トークン − 1) ÷ (総時間 − TTFT)`。旧ランも読み取り時に再計算できる。 |
-| Prefill TPS | プリフィルスループット — `prompt_tokens ÷ TTFT`。旧ランは usage が無く再測定が必要。 |
+| Decode TPS | デコードスループット — `(出力トークン − 1) ÷ (総時間 − TTFT)`。旧ランも読み取り時に再計算できる。単一バースト（出力バッチ 1 以下、またはデコード 10ms 未満）は null。 |
+| Prefill TPS | プリフィルスループット — `prompt_tokens ÷ TTFT`。旧ランは usage が無く再測定が必要。一塊で届いたツール呼び出しが最初の出力なら null。 |
 | TPS (stress) | ストレスステージ: 出力トークン ÷ 経過時間。`aggregate_tps` はステージを合算、`tps_per_user` = aggregate ÷ 同時実行数。 |
 | `approxOutputTokens` | サーバーが usage カウントを省略したときに使うフォールバックのトークン推定（約 len/4）。 |
 | p50 / p95 | ステージ内のレイテンシ（または TTFT）の中央値 / 95 パーセンタイル。 |
