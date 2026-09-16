@@ -1,3 +1,4 @@
+import type { FirstOutputKind } from "@llm-bench/shared";
 import { detectRepetitionLoop } from "./repetition-guard.js";
 
 export type OpenAiToolCallOut = {
@@ -48,6 +49,14 @@ export type OpenAiStreamMetrics = {
    * annotate-only 신호 — 채점 판정은 바꾸지 않는다.
    */
   toolCallArgsCorrupted: boolean;
+  /**
+   * 출력 델타(content·reasoning·tool_calls)를 하나라도 실은 `reader.read()` 배치 수.
+   * 1 이하면 출력 전체가 한 덩어리로 도착한 것이라(도구 호출을 끝에 통째로 보내는 백엔드, 확산 모델 등)
+   * `total − ttft`가 네트워크 지연 수 ms뿐이어서 디코드 TPS가 무의미하다.
+   */
+  outputDeltaBatches: number;
+  /** 처음 도착한 출력 델타의 종류(TTFT를 찍은 델타). 출력이 없으면 null. */
+  firstOutputKind: FirstOutputKind | null;
 };
 
 /** 증분 콜백 — 델타 도착 시마다 호출. stress-runner CCTV fan-out 용. */
@@ -172,6 +181,8 @@ export async function consumeOpenAiChatStream(
       finishReason: null,
       repetitionLoopDetected: false,
       toolCallArgsCorrupted: false,
+      outputDeltaBatches: 0,
+      firstOutputKind: null,
     };
   }
   const reader = body.getReader();
@@ -195,9 +206,16 @@ export async function consumeOpenAiChatStream(
   const loopGuard = opts?.loopGuard === true;
   let repetitionLoopDetected = false;
   let lastGuardCheckLen = 0;
+  let outputDeltaBatches = 0;
+  /** 이번 read 배치에서 출력 델타를 봤는지 — 배치 경계마다 초기화. */
+  let batchHadOutput = false;
+  let firstOutputKind: FirstOutputKind | null = null;
 
-  const markTtft = () => {
+  /** 출력 델타마다 호출: TTFT(첫 델타에서만 래치)·첫 출력 종류·배치 출력 여부를 함께 기록한다. */
+  const markTtft = (kind: FirstOutputKind) => {
     if (ttft === null) ttft = performance.now() - origin;
+    if (firstOutputKind === null) firstOutputKind = kind;
+    batchHadOutput = true;
   };
 
   const handleLine = (line: string) => {
@@ -247,28 +265,28 @@ export async function consumeOpenAiChatStream(
       const delta = j.choices?.[0]?.delta;
       const rc = delta?.reasoning_content;
       if (typeof rc === "string" && rc.length > 0) {
-        markTtft();
+        markTtft("reasoning");
         combined += rc;
         reasoningOnly += rc;
         if (onDelta) onDelta({ kind: "reasoning", text: rc });
       }
       const rsn = delta?.reasoning;
       if (typeof rsn === "string" && rsn.length > 0) {
-        markTtft();
+        markTtft("reasoning");
         combined += rsn;
         reasoningOnly += rsn;
         if (onDelta) onDelta({ kind: "reasoning", text: rsn });
       }
       const c = delta?.content;
       if (c) {
-        markTtft();
+        markTtft("text");
         combined += c;
         contentOnly += c;
         if (onDelta) onDelta({ kind: "content", text: c });
       }
       const tc = delta?.tool_calls;
       if (tc?.length) {
-        markTtft();
+        markTtft("tool_call");
         mergeToolCallDeltas(tc, toolByIndex);
       }
     } catch {
@@ -283,7 +301,9 @@ export async function consumeOpenAiChatStream(
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
+    batchHadOutput = false;
     for (const line of lines) handleLine(line);
+    if (batchHadOutput) outputDeltaBatches += 1;
     // 반복-루프 가드: content가 512자씩 늘 때마다 휴리스틱 검사. 감지 시 다음 read 전에 break해
     // (대기 중 read가 없어 AbortError 미발생) reader.cancel()로 백엔드 연결을 정상 종료한다.
     if (loopGuard && contentOnly.length - lastGuardCheckLen >= 512) {
@@ -330,6 +350,8 @@ export async function consumeOpenAiChatStream(
     usageReasoningTokens,
     repetitionLoopDetected,
     toolCallArgsCorrupted,
+    outputDeltaBatches,
+    firstOutputKind,
   };
 }
 

@@ -79,6 +79,27 @@ describe("computeCompare regression classification", () => {
     expect(res.scenarios[0]!.prefill_tps_aggregate.b).toBe(500);
   });
 
+  it("excludes single-burst runs from both per-user and aggregate decode/prefill TPS", () => {
+    // 정상 런 1개(decode 110 tok/s, prefill 1000 tok/s) + 한 덩어리로 온 도구 호출 런 1개.
+    const burst = run({
+      ttft_ms: 900,
+      total_ms: 902.5,
+      usage_output_tokens: 24,
+      usage_prompt_tokens: 120,
+      output_delta_batches: 1,
+      first_output_kind: "tool_call",
+    });
+    const normal = run({ usage_prompt_tokens: 100, output_delta_batches: 40, first_output_kind: "text" });
+    const res = computeCompare(detail("A", [normal]), detail("B", [normal, burst]));
+    const sc = res.scenarios[0]!;
+    expect(sc.tps_per_user.b).toBeCloseTo(110, 6);
+    expect(sc.tps_aggregate.b).toBeCloseTo(110, 6);
+    expect(sc.prefill_tps_per_user.b).toBe(1000);
+    expect(sc.prefill_tps_aggregate.b).toBe(1000);
+    expect(sc.regressions).not.toContain("tps_regression");
+    expect(sc.regressions).not.toContain("prefill_tps_regression");
+  });
+
   it("prefill delta is null (not protocol_mismatch) when only one side has prompt tokens", () => {
     const res = computeCompare(
       detail("A", [run({ usage_prompt_tokens: 100 })]),

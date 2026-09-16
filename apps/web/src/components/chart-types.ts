@@ -1,4 +1,11 @@
-import { compareScenarioBenchOrder, compareStringsPinned, decodeTokensPerSecondFromRun, prefillTokensPerSecondFromRun, tokensPerSecondFromRun } from "@llm-bench/shared";
+import {
+  compareScenarioBenchOrder,
+  compareStringsPinned,
+  decodeTokensPerSecondFromRun,
+  prefillTokensPerSecondFromRun,
+  tokensPerSecondFromRun,
+  type FirstOutputKind,
+} from "@llm-bench/shared";
 import { truncateChartLabel } from "../lib/chart-theme";
 
 /** 실제 실행 순서(`benchScenarioOrder`) 미전달 시 기본값 — 매 렌더 새 배열 생성으로 인한 참조 불안정 방지용 안정 상수 */
@@ -146,6 +153,9 @@ export function rowsToChartData(
     output_text?: string | null;
     usage_output_tokens?: number | null;
     usage_prompt_tokens?: number | null;
+    /** 단일 버스트 판정 입력 — 한 덩어리로 온 출력은 TPS 막대를 0(값 없음)으로 둔다. */
+    output_delta_batches?: number | null;
+    first_output_kind?: FirstOutputKind | null;
     reasoning_hidden?: boolean;
   }[],
 ): ChartRow[] {
@@ -158,8 +168,13 @@ export function rowsToChartData(
         ttftMs: r.ttft_ms,
         outputText: r.output_text,
         usageTokens: r.usage_output_tokens,
+        outputDeltaBatches: r.output_delta_batches,
       }) ?? 0;
-    const prefillTps = prefillTokensPerSecondFromRun(r.ttft_ms, r.usage_prompt_tokens) ?? 0;
+    const prefillTps =
+      prefillTokensPerSecondFromRun(r.ttft_ms, r.usage_prompt_tokens, {
+        outputDeltaBatches: r.output_delta_batches,
+        firstOutputKind: r.first_output_kind,
+      }) ?? 0;
     return {
       id: r.rowKey ?? (scenarioRowKey(r.scenario, r.api, r.comparison_id ?? r.model_id) + `|${i}`),
       labelShort: truncateChartLabel(fullLabel),

@@ -2,6 +2,7 @@ import type {
   BenchRunMeta,
   BenchTaskMode,
   DetectResult,
+  FirstOutputKind,
   FitPolicy,
   ProviderKind,
   StreamEvent,
@@ -827,6 +828,10 @@ export async function* runBench(
           usage_prompt_tokens: number | null;
           /** #182: provider가 usage로 보고한 사고 토큰 수(chat_completions 전용, 없으면 null). */
           usage_reasoning_tokens: number | null;
+          /** 출력 델타를 실은 read 배치 수(멀티턴 합). 1 이하면 단일 버스트 → 디코드 TPS 제외. */
+          output_delta_batches?: number;
+          /** 첫 출력 델타 종류(멀티턴은 TTFT를 잡은 턴). tool_call + 단일 버스트면 프리필 TPS 제외. */
+          first_output_kind?: FirstOutputKind;
           reasoning_hidden?: boolean;
           anthropic_thinking_rejected?: boolean;
           /** #1922: 스트리밍 tool_call 인자가 연결 손상(`{}{}`)돼 감지된 경우 — LM Studio 엔진 프로토콜 회귀 신호. */
@@ -1051,6 +1056,13 @@ export async function* runBench(
             let sawThinkingBlock = false;
             /** 최종 OpenAI(chat) 스트림 메트릭 — reasoning-누수 판정에 raw assistantText/reasoningText로 사용. */
             let lastOpenAiMetrics: OpenAiStreamMetrics | null = null;
+            /**
+             * 출력 델타를 실은 read 배치 수. 도구 라운드·agent_loop는 `totalMs`처럼 전 라운드 합산.
+             * 스트림을 읽지 못했으면 null(필드 미기록).
+             */
+            let outputDeltaBatches: number | null = null;
+            /** 첫 출력 델타 종류 — `ttft`를 잡은 라운드의 값(`ttft`·`usagePromptTokens`와 짝). */
+            let firstOutputKind: FirstOutputKind | null = null;
             const invokedBenchTools: string[] = [];
             let agentMetrics: AgentLoopMetrics | null = null;
 
@@ -1092,6 +1104,8 @@ export async function* runBench(
               usagePromptTokens = ar.usagePromptTokens;
               reasoningChars = ar.reasoningChars;
               toolArgsCorruptedAny = ar.toolArgsCorruptedAny;
+              outputDeltaBatches = ar.outputDeltaBatches;
+              firstOutputKind = ar.firstOutputKind;
               agentMetrics = ar.metrics;
               // #143: agent_loop 경로에도 non-agent 분기와 동일하게 절단 라벨을 붙인다 —
               // 최종 턴이 max_tokens 로 잘렸으면 budget_v1 처럼 설계상 절단인 시나리오도
@@ -1166,7 +1180,11 @@ export async function* runBench(
                 if (openAiLikelyTruncated(m, scenarioMeta.max_tokens)) truncated = true;
                 if (m.repetitionLoopDetected) repetitionLoopAborted = true;
                 totalMsAcc += m.totalMs;
-                if (ttft === null) ttft = m.ttftMs;
+                outputDeltaBatches = (outputDeltaBatches ?? 0) + m.outputDeltaBatches;
+                if (ttft === null) {
+                  ttft = m.ttftMs;
+                  firstOutputKind = m.firstOutputKind;
+                }
                 streamCompleted = m.streamCompleted;
                 for (const ch of chunkTextForUi(openAiLiveTokenStreamText(m), 24)) {
                   yield {
@@ -1302,7 +1320,11 @@ export async function* runBench(
                 if (m.sawThinkingBlock) sawThinkingBlock = true;
                 if (m.stopReason === "max_tokens") truncated = true;
                 totalMsAcc += m.totalMs;
-                if (ttft === null) ttft = m.ttftMs;
+                outputDeltaBatches = (outputDeltaBatches ?? 0) + m.outputDeltaBatches;
+                if (ttft === null) {
+                  ttft = m.ttftMs;
+                  firstOutputKind = m.firstOutputKind;
+                }
                 streamCompleted = m.streamCompleted;
                 for (const ch of chunkTextForUi(m.assistantText, 24)) {
                   yield {
@@ -1425,6 +1447,8 @@ export async function* runBench(
                 ttft = m.ttftMs;
                 totalMs = m.totalMs;
                 streamCompleted = m.streamCompleted;
+                outputDeltaBatches = m.outputDeltaBatches;
+                firstOutputKind = m.firstOutputKind;
                 usageOutputTokens = m.usageOutputTokens;
                 if (usagePromptTokens == null) usagePromptTokens = m.usagePromptTokens;
                 reasoningChars = m.reasoningText.length;
@@ -1503,6 +1527,8 @@ export async function* runBench(
                 ttft = m.ttftMs;
                 totalMs = m.totalMs;
                 streamCompleted = m.streamCompleted;
+                outputDeltaBatches = m.outputDeltaBatches;
+                firstOutputKind = m.firstOutputKind;
                 usageOutputTokens = m.usageOutputTokens;
                 if (usagePromptTokens == null) usagePromptTokens = m.usagePromptTokens;
                 reasoningChars = m.reasoningText.length;
@@ -1657,6 +1683,8 @@ export async function* runBench(
                 usage_output_tokens: usageOutputTokens,
                 usage_prompt_tokens: usagePromptTokens,
                 usage_reasoning_tokens: usageReasoningTokens,
+                ...(outputDeltaBatches != null ? { output_delta_batches: outputDeltaBatches } : {}),
+                ...(firstOutputKind ? { first_output_kind: firstOutputKind } : {}),
                 ...(reasoningHidden ? { reasoning_hidden: true } : {}),
                 ...(toolArgsCorruptedAny ? { tool_call_args_corrupted: true } : {}),
                 ...(anthropicThinkingRejected ? { anthropic_thinking_rejected: true } : {}),
@@ -1703,6 +1731,9 @@ export async function* runBench(
                 usage_output_tokens: usageOutputTokens,
                 usage_prompt_tokens: usagePromptTokens,
                 stream_completed: streamCompleted,
+                // 단일 버스트 판정 입력 — 한 덩어리로 온 출력(도구 호출 등)의 TPS를 소비자가 버릴 수 있게 한다.
+                ...(outputDeltaBatches != null ? { output_delta_batches: outputDeltaBatches } : {}),
+                ...(firstOutputKind ? { first_output_kind: firstOutputKind } : {}),
                 // #173: 추론이 스트림에 안 실렸다는 신호 — SSE만 보는 소비자가 TTFT의 의미를 알 수 있게 한다.
                 ...(reasoningHidden ? { reasoning_hidden: true } : {}),
                 ...(reasoningChars > 0 ? { reasoning_chars: reasoningChars } : {}),

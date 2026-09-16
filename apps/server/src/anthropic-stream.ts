@@ -1,3 +1,5 @@
+import type { FirstOutputKind } from "@llm-bench/shared";
+
 export type AnthropicToolUseOut = {
   id: string;
   name: string;
@@ -32,6 +34,13 @@ export type AnthropicStreamMetrics = {
    * 일부 호환 서버는 보내지 않으므로 null 가능.
    */
   stopReason: string | null;
+  /**
+   * 출력(텍스트·thinking·redacted_thinking·tool_use) 이벤트를 하나라도 실은 `reader.read()` 배치 수.
+   * OpenAI 소비자의 `outputDeltaBatches`와 같은 의미 — 1 이하면 단일 버스트라 디코드 TPS를 버린다.
+   */
+  outputDeltaBatches: number;
+  /** 처음 도착한 출력 이벤트의 종류(TTFT를 찍은 이벤트). 출력이 없으면 null. */
+  firstOutputKind: FirstOutputKind | null;
 };
 
 export type AnthropicStreamDelta =
@@ -66,6 +75,8 @@ export async function consumeAnthropicMessagesStream(
       usagePromptTokens: null,
       sawThinkingBlock: false,
       stopReason: null,
+      outputDeltaBatches: 0,
+      firstOutputKind: null,
     };
   }
   const reader = body.getReader();
@@ -81,9 +92,16 @@ export async function consumeAnthropicMessagesStream(
   let usagePromptTokens: number | null = null;
   let lastStopReason: string | null = null;
   const onDelta = opts?.onDelta;
+  let outputDeltaBatches = 0;
+  /** 이번 read 배치(또는 종료 후 carry flush)에서 출력 이벤트를 봤는지. */
+  let batchHadOutput = false;
+  let firstOutputKind: FirstOutputKind | null = null;
 
-  const markTtft = () => {
+  /** 출력 이벤트마다 호출: TTFT(첫 이벤트에서만 래치)·첫 출력 종류·배치 출력 여부를 함께 기록한다. */
+  const markTtft = (kind: FirstOutputKind) => {
     if (ttft === null) ttft = performance.now() - origin;
+    if (firstOutputKind === null) firstOutputKind = kind;
+    batchHadOutput = true;
   };
 
   const flushEventBlock = (block: string) => {
@@ -150,7 +168,7 @@ export async function consumeAnthropicMessagesStream(
           sawThinkingBlock = true;
           // redacted_thinking은 델타 없이 블록만 오므로 여기서 찍지 않으면 TTFT를 놓친다.
           // 평문 thinking은 뒤따르는 thinking_delta가 찍으므로 앞당기지 않는다.
-          if (bt === "redacted_thinking") markTtft();
+          if (bt === "redacted_thinking") markTtft("reasoning");
         }
       }
 
@@ -161,7 +179,7 @@ export async function consumeAnthropicMessagesStream(
           id: j.content_block.id,
           inputJson: "",
         });
-        markTtft();
+        markTtft("tool_call");
         return;
       }
 
@@ -170,7 +188,7 @@ export async function consumeAnthropicMessagesStream(
         if (j.delta?.type === "input_json_delta" && j.delta.partial_json != null) {
           // `content_block_start`를 놓쳤거나 index가 어긋나도 생성은 이미 시작된 것이다.
           // 예전엔 markTtft()가 `if (tu)` 안에 갇혀 도구-only 응답의 TTFT가 통째로 null이 됐다.
-          markTtft();
+          markTtft("tool_call");
           let tu = toolUseByIndex.get(idx);
           if (!tu) {
             tu = { name: "", inputJson: "" };
@@ -187,7 +205,7 @@ export async function consumeAnthropicMessagesStream(
           const r = j.delta.thinking ?? j.delta.text;
           if (r) {
             sawThinkingBlock = true;
-            markTtft();
+            markTtft("reasoning");
             reasoningText += r;
             if (onDelta) onDelta({ kind: "reasoning", text: r });
           }
@@ -195,7 +213,7 @@ export async function consumeAnthropicMessagesStream(
         }
         const t = j.delta?.text;
         if (t) {
-          markTtft();
+          markTtft("text");
           text += t;
           if (onDelta) onDelta({ kind: "content", text: t });
         }
@@ -213,11 +231,18 @@ export async function consumeAnthropicMessagesStream(
     carry += decoder.decode(value, { stream: true });
     const parts = carry.split(/\r?\n\r?\n/);
     carry = parts.pop() ?? "";
+    batchHadOutput = false;
     for (const block of parts) {
       if (block.trim()) flushEventBlock(block);
     }
+    if (batchHadOutput) outputDeltaBatches += 1;
   }
-  if (carry.trim()) flushEventBlock(carry);
+  if (carry.trim()) {
+    // 마지막 빈 줄 없이 끝난 블록 — 이미 센 배치와 겹치지 않는 별도 도착분이라 따로 센다.
+    batchHadOutput = false;
+    flushEventBlock(carry);
+    if (batchHadOutput) outputDeltaBatches += 1;
+  }
 
   const totalMs = performance.now() - origin;
   const toolUses: AnthropicToolUseOut[] = [...toolUseByIndex.entries()]
@@ -265,5 +290,7 @@ export async function consumeAnthropicMessagesStream(
     usagePromptTokens,
     sawThinkingBlock,
     stopReason: lastStopReason,
+    outputDeltaBatches,
+    firstOutputKind,
   };
 }

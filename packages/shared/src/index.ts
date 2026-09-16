@@ -9,6 +9,7 @@ import {
 // 아래 요청 바디 스키마에서 로컬로 사용(재-export만으론 로컬 바인딩이 안 생김).
 import { STRESS_WORKLOAD_IDS as STRESS_WORKLOAD_IDS_LOCAL, type StressWorkloadId as StressWorkloadIdLocal } from "./scenarios-preview";
 import { StressRampConfigSchema as StressRampConfigSchemaLocal } from "./stress";
+import { FIRST_OUTPUT_KINDS as FIRST_OUTPUT_KINDS_LOCAL } from "./tps";
 
 export {
   ALL_SCENARIO_IDS,
@@ -144,6 +145,8 @@ export {
 } from "./scenario-request-preview";
 
 export {
+  FIRST_OUTPUT_KINDS,
+  MIN_DECODE_WINDOW_MS,
   approxOutputTokens,
   decodeTokensPerSecondFromRun,
   effectiveOutputTokens,
@@ -152,6 +155,8 @@ export {
   roundTpsDisplay,
   tokensPerSecondFromRun,
   tpsSourceFromUsage,
+  type FirstOutputKind,
+  type OutputBurstInput,
   type TpsKind,
 } from "./tps";
 
@@ -646,6 +651,13 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
       /** #174: 이 시나리오 요청에 실제로 실린 `max_tokens`와 그 출처. */
       max_tokens_effective: z.number().optional(),
       max_tokens_source: MaxTokensSourceSchema.optional(),
+      /**
+       * 출력 델타(content·reasoning·tool call)를 실은 `reader.read()` 배치 수. 멀티턴(도구 라운드·agent_loop)은
+       * 턴 합산. 1 이하면 출력이 한 덩어리로 와서 디코드 TPS를 버린다(`decodeTokensPerSecondFromRun`).
+       */
+      output_delta_batches: z.number().int().nonnegative().optional(),
+      /** 첫 출력 델타의 종류(멀티턴은 첫 턴). `tool_call`이면서 배치 1개 이하면 프리필 TPS를 버린다. */
+      first_output_kind: z.enum(FIRST_OUTPUT_KINDS_LOCAL).optional(),
     }),
     quality: z
       .object({
@@ -821,6 +833,10 @@ export const BenchResultSchema = z.object({
           usage_output_tokens: z.number().nullable().optional(),
           /** provider 보고 입력/프롬프트 토큰 수(없으면 null/미존재). 있으면 프리필 TPS가 이 값을 사용. */
           usage_prompt_tokens: z.number().nullable().optional(),
+          /** `scenario_end.metrics.output_delta_batches`와 동일(구 런은 부재). 단일 버스트 TPS 판정 입력. */
+          output_delta_batches: z.number().int().nonnegative().optional(),
+          /** `scenario_end.metrics.first_output_kind`와 동일(구 런은 부재). */
+          first_output_kind: z.enum(FIRST_OUTPUT_KINDS_LOCAL).optional(),
           /** messages 라우트에서 추론이 숨겨진 채 측정됨 → TTFT 비교 주의(서버 계산). */
           reasoning_hidden: z.boolean().optional(),
           /** #173: 업스트림이 `thinking` 요청을 거절해 빼고 재시도했으면 true. */

@@ -10,6 +10,7 @@ import {
   computeScoreboard,
   scoringRowsFromBenchDetails,
   type DetectResult,
+  type FirstOutputKind,
   type StreamEvent,
 } from "@llm-bench/shared";
 import type { McpConfig } from "./config.js";
@@ -33,6 +34,9 @@ type ScenarioRun = {
   output_text: string;
   usage_output_tokens?: number | null;
   usage_prompt_tokens?: number | null;
+  /** 단일 버스트 TPS 판정 입력(구 런은 부재) — shared 평균 로직이 읽는다. */
+  output_delta_batches?: number | null;
+  first_output_kind?: FirstOutputKind | null;
   quality?: { pass: boolean; score?: number; reason?: string };
 };
 type BenchDetail = {

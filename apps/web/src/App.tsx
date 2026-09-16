@@ -7,6 +7,7 @@ import type {
   BenchQueueStreamEvent,
   BenchRunMeta,
   DetectResult,
+  FirstOutputKind,
   LlmProfileFamily,
   SamplingPresetName,
   StreamEvent,
@@ -192,6 +193,8 @@ type MetricsAgg = {
     usage_output_tokens?: number | null;
     usage_prompt_tokens?: number | null;
     usage_reasoning_tokens?: number | null;
+    output_delta_batches?: number;
+    first_output_kind?: FirstOutputKind;
     reasoning_hidden?: boolean;
     tool_call_args_corrupted?: boolean;
     reasoning_leaked_into_content?: boolean;
@@ -1049,6 +1052,7 @@ export function App() {
               total_ms: last?.total_ms,
               output_text: last?.output_text,
               usage_output_tokens: last?.usage_output_tokens,
+              output_delta_batches: last?.output_delta_batches,
               reasoning_hidden: last?.reasoning_hidden,
             };
           }),
@@ -1213,11 +1217,17 @@ export function App() {
                   ttftMs: last.ttft_ms,
                   outputText: last.output_text,
                   usageTokens: last.usage_output_tokens,
+                  outputDeltaBatches: last.output_delta_batches,
                 }),
               )
             : null,
           prefill_tps: last
-            ? roundTpsDisplay(prefillTokensPerSecondFromRun(last.ttft_ms, last.usage_prompt_tokens))
+            ? roundTpsDisplay(
+                prefillTokensPerSecondFromRun(last.ttft_ms, last.usage_prompt_tokens, {
+                  outputDeltaBatches: last.output_delta_batches,
+                  firstOutputKind: last.first_output_kind,
+                }),
+              )
             : null,
           pass: last?.quality?.pass,
           score: last?.quality?.score,
@@ -1286,6 +1296,8 @@ export function App() {
                 output_text: last.output_text,
                 usage_output_tokens: last.usage_output_tokens,
                 usage_prompt_tokens: last.usage_prompt_tokens,
+                output_delta_batches: last.output_delta_batches,
+                first_output_kind: last.first_output_kind,
                 reasoning_hidden: last.reasoning_hidden,
               },
             ])[0];
@@ -1365,11 +1377,17 @@ export function App() {
                 ttftMs: last.ttft_ms,
                 outputText: last.output_text,
                 usageTokens: last.usage_output_tokens,
+                outputDeltaBatches: last.output_delta_batches,
               }),
             )
           : null,
         prefill_tps: last
-          ? roundTpsDisplay(prefillTokensPerSecondFromRun(last.ttft_ms, last.usage_prompt_tokens))
+          ? roundTpsDisplay(
+              prefillTokensPerSecondFromRun(last.ttft_ms, last.usage_prompt_tokens, {
+                outputDeltaBatches: last.output_delta_batches,
+                firstOutputKind: last.first_output_kind,
+              }),
+            )
           : null,
         pass: last?.quality?.pass,
         score: last?.quality?.score,
@@ -1770,10 +1788,14 @@ export function App() {
             ttftMs: last.ttft_ms,
             outputText: last.output_text,
             usageTokens: last.usage_output_tokens,
+            outputDeltaBatches: last.output_delta_batches,
           }),
         );
         const prefill_tps = roundTpsDisplay(
-          prefillTokensPerSecondFromRun(last.ttft_ms, last.usage_prompt_tokens),
+          prefillTokensPerSecondFromRun(last.ttft_ms, last.usage_prompt_tokens, {
+            outputDeltaBatches: last.output_delta_batches,
+            firstOutputKind: last.first_output_kind,
+          }),
         );
         setRows((prev) => {
           const filtered = prev.filter((x) => x.rowKey !== rowKey);
