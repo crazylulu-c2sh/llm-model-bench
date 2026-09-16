@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MIN_DECODE_WINDOW_MS,
   approxOutputTokens,
   decodeTokensPerSecondFromRun,
   effectiveOutputTokens,
@@ -116,9 +117,63 @@ describe("decodeTokensPerSecondFromRun", () => {
   });
 });
 
+describe("decodeTokensPerSecondFromRun — single burst", () => {
+  // Apple FM tool_weather 형태: 호출 전체(24 tok)가 생성 끝에 한 청크로 와서 total−ttft ≈ 2.5ms.
+  const burst = { totalMs: 902.5, ttftMs: 900, usageTokens: 24 };
+
+  it("returns null when all output arrived in one read batch (outputDeltaBatches ≤ 1)", () => {
+    expect(decodeTokensPerSecondFromRun({ ...burst, outputDeltaBatches: 1 })).toBeNull();
+    // 창이 10ms를 넘어도 배치가 1개면 여전히 단일 버스트다.
+    expect(
+      decodeTokensPerSecondFromRun({ totalMs: 1_200, ttftMs: 900, usageTokens: 24, outputDeltaBatches: 1 }),
+    ).toBeNull();
+    expect(
+      decodeTokensPerSecondFromRun({ totalMs: 1_200, ttftMs: 900, usageTokens: 24, outputDeltaBatches: 0 }),
+    ).toBeNull();
+  });
+
+  it("keeps a normal streamed run when batches > 1", () => {
+    expect(
+      decodeTokensPerSecondFromRun({ totalMs: 1100, ttftMs: 100, usageTokens: 31, outputDeltaBatches: 30 }),
+    ).toBe(30);
+  });
+
+  it("drops a decode window under MIN_DECODE_WINDOW_MS for legacy runs without batches", () => {
+    expect(MIN_DECODE_WINDOW_MS).toBe(10);
+    // 구 런(필드 없음): 2.5ms 창 → 9,200 tok/s 대신 null
+    expect(decodeTokensPerSecondFromRun(burst)).toBeNull();
+    expect(decodeTokensPerSecondFromRun({ totalMs: 909.9, ttftMs: 900, usageTokens: 24 })).toBeNull();
+    // 10ms 이상이면 기존 산식 그대로: 23 / 0.01s = 2300
+    expect(decodeTokensPerSecondFromRun({ totalMs: 910, ttftMs: 900, usageTokens: 24 })).toBeCloseTo(2300, 6);
+  });
+
+  it("also drops a sub-10ms window when batches > 1 (e.g. parallel tool calls in back-to-back reads)", () => {
+    expect(decodeTokensPerSecondFromRun({ ...burst, outputDeltaBatches: 2 })).toBeNull();
+  });
+
+  it("treats null/undefined batches as legacy (window rule only)", () => {
+    const normal = { totalMs: 1100, ttftMs: 100, usageTokens: 31 };
+    expect(decodeTokensPerSecondFromRun({ ...normal, outputDeltaBatches: null })).toBe(30);
+    expect(decodeTokensPerSecondFromRun({ ...normal, outputDeltaBatches: undefined })).toBe(30);
+  });
+});
+
 describe("prefillTokensPerSecondFromRun", () => {
   it("is prompt_tokens / (ttft_ms/1000)", () => {
     expect(prefillTokensPerSecondFromRun(200, 100)).toBe(500);
+  });
+  it("returns null for a tool call that arrived as a single burst (TTFT includes the whole call)", () => {
+    expect(
+      prefillTokensPerSecondFromRun(900, 120, { outputDeltaBatches: 1, firstOutputKind: "tool_call" }),
+    ).toBeNull();
+  });
+  it("keeps prefill for a single-burst text reply, a streamed tool call, and legacy runs", () => {
+    expect(prefillTokensPerSecondFromRun(200, 100, { outputDeltaBatches: 1, firstOutputKind: "text" })).toBe(500);
+    expect(
+      prefillTokensPerSecondFromRun(200, 100, { outputDeltaBatches: 5, firstOutputKind: "tool_call" }),
+    ).toBe(500);
+    expect(prefillTokensPerSecondFromRun(200, 100, { firstOutputKind: "tool_call" })).toBe(500);
+    expect(prefillTokensPerSecondFromRun(200, 100, {})).toBe(500);
   });
   it("returns null without prompt tokens (no preview approx)", () => {
     expect(prefillTokensPerSecondFromRun(200, null)).toBeNull();

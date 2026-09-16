@@ -349,5 +349,86 @@ describe("consumeAnthropicMessagesStream: 프레임 파싱 견고성 (#173)", ()
     );
     expect(m.ttftMs).toBeNull();
     expect(m.usageOutputTokens).toBe(7);
+    expect(m.outputDeltaBatches).toBe(0);
+    expect(m.firstOutputKind).toBeNull();
+  });
+});
+
+describe("consumeAnthropicMessagesStream: 출력 배치 수·첫 출력 종류 (단일 버스트 TPS 가드)", () => {
+  const textDelta = (t: string) => ({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "text_delta", text: t },
+  });
+  const toolStart = block("content_block_start", {
+    type: "content_block_start",
+    index: 0,
+    content_block: { type: "tool_use", id: "toolu_1", name: "get_weather", input: {} },
+  });
+  const toolArgs = block("content_block_delta", {
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "input_json_delta", partial_json: '{"city":"Seoul"}' },
+  });
+
+  it("도구 호출이 한 read에 통째로 오면 배치 1개·첫 종류 tool_call", async () => {
+    const m = await consumeAnthropicMessagesStream(
+      streamFrom([
+        block("message_start", { type: "message_start", message: { usage: { input_tokens: 90 } } }),
+        toolStart + toolArgs + block("message_delta", { type: "message_delta", delta: { stop_reason: "tool_use" } }) +
+          block("message_stop", { type: "message_stop" }),
+      ]),
+    );
+    expect(m.toolUses?.[0]?.name).toBe("get_weather");
+    expect(m.outputDeltaBatches).toBe(1);
+    expect(m.firstOutputKind).toBe("tool_call");
+  });
+
+  it("출력 이벤트를 실은 read마다 센다(thinking → text)", async () => {
+    const m = await consumeAnthropicMessagesStream(
+      streamFrom([
+        block("content_block_delta", {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "thinking_delta", thinking: "hmm" },
+        }),
+        block("content_block_delta", textDelta("a")) + block("content_block_delta", textDelta("b")),
+        block("content_block_delta", textDelta("c")),
+        block("message_stop", { type: "message_stop" }),
+      ]),
+    );
+    expect(m.outputDeltaBatches).toBe(3);
+    expect(m.firstOutputKind).toBe("reasoning");
+  });
+
+  it("redacted_thinking 블록 시작도 첫 출력(reasoning)으로 기록한다", async () => {
+    const m = await consumeAnthropicMessagesStream(
+      streamFrom([
+        block("content_block_start", {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "redacted_thinking" },
+        }),
+        block("content_block_delta", textDelta("ok")),
+      ]),
+    );
+    expect(m.firstOutputKind).toBe("reasoning");
+    expect(m.outputDeltaBatches).toBe(2);
+  });
+
+  it("빈 줄 없이 끝난 마지막 블록(carry)도 별도 배치로 센다", async () => {
+    const tail = `event: content_block_delta\ndata: ${JSON.stringify(textDelta("tail"))}`;
+    const m = await consumeAnthropicMessagesStream(
+      streamFrom([block("content_block_delta", textDelta("head")), tail]),
+    );
+    expect(m.text).toBe("headtail");
+    expect(m.outputDeltaBatches).toBe(2);
+    expect(m.firstOutputKind).toBe("text");
+  });
+
+  it("본문이 없으면 배치 0·종류 null", async () => {
+    const m = await consumeAnthropicMessagesStream(null);
+    expect(m.outputDeltaBatches).toBe(0);
+    expect(m.firstOutputKind).toBeNull();
   });
 });

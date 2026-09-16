@@ -129,6 +129,78 @@ describe("scoreboard agent 카테고리", () => {
   });
 });
 
+describe("single-burst runs are excluded from speed scores", () => {
+  // chat_hello: 정상 스트리밍 — decode (31-1)/1s = 30 tok/s(=1000점), prefill 100/0.1s = 1000 tok/s.
+  const chatRuns: ScoringRunInput[] = [
+    {
+      ttft_ms: 100,
+      total_ms: 1100,
+      output_text: "hi",
+      usage_output_tokens: 31,
+      usage_prompt_tokens: 100,
+      output_delta_batches: 30,
+      first_output_kind: "text",
+      quality: { pass: true, score: 1 },
+    },
+  ];
+  // tool_weather: 호출 전체가 끝에 한 청크로 옴 — 원산식이면 decode (24-1)/0.0025s = 9,200 tok/s.
+  const burstToolRuns: ScoringRunInput[] = [
+    {
+      ttft_ms: 900,
+      total_ms: 902.5,
+      output_text: '{"tool_calls":[]}',
+      usage_output_tokens: 24,
+      usage_prompt_tokens: 120,
+      output_delta_batches: 1,
+      first_output_kind: "tool_call",
+      quality: { pass: true, score: 1 },
+    },
+  ];
+  // 필드 없는 구 런의 같은 형태 — 10ms 미만 디코드 창으로 걸러진다(프리필은 판정 근거가 없어 유지).
+  const legacyBurstRuns: ScoringRunInput[] = [
+    { ttft_ms: 900, total_ms: 902.5, output_text: '{"tool_calls":[]}', usage_output_tokens: 24, quality: { pass: true, score: 1 } },
+  ];
+
+  const board = (toolRuns: ScoringRunInput[]) =>
+    computeScoreboard(
+      scoringRowsFromBenchDetails([
+        {
+          meta: { model_id: "AFM" },
+          scenarios: [
+            { id: "chat_hello", api_route: "chat_completions", runs: chatRuns },
+            { id: "tool_weather", api_route: "chat_completions", runs: toolRuns },
+          ],
+        },
+      ]),
+    )[0]!;
+
+  it("nulls decode and prefill TPS on the burst row itself", () => {
+    const row = averageRunsToScoringRow("AFM", "tool_weather", "chat_completions", burstToolRuns);
+    expect(row.tps).toBeNull();
+    expect(row.tps_source).toBeUndefined();
+    expect(row.prefill_tps).toBeNull();
+    expect(row.ttft_ms).toBe(900); // 지연 열은 그대로 남는다
+    expect(row.score).toBe(1); // 품질은 영향 없음
+  });
+
+  it("text speed score equals the streamed scenarios only (no 26x inflation)", () => {
+    const speed = board(burstToolRuns).speed;
+    expect(speed.text.scoredRows).toBe(1);
+    expect(speed.text.score).toBe(1000);
+    expect(speed.text.tpsMedian).toBe(30);
+    expect(speed.text.tpsMax).toBe(30);
+    expect(speed.text.prefillScoredRows).toBe(1);
+    expect(speed.text.prefillTpsMedian).toBe(1000);
+    expect(speed.total.score).toBe(1000);
+  });
+
+  it("legacy runs without batch fields are excluded by the decode window floor", () => {
+    const speed = board(legacyBurstRuns).speed;
+    expect(speed.text.scoredRows).toBe(1);
+    expect(speed.text.score).toBe(1000);
+  });
+});
+
 // #105: vision 은 `rubricResult()` 가 reason 앞에 `rubric=N | ` 를 붙인다. 예전 `startsWith` 판정으로는
 // **영영 매칭되지 않아** vision 에 judge_capped 경고가 한 번도 뜬 적이 없었다. 실제 포맷으로 고정한다.
 describe("judge_capped — 실제 reason 포맷(vision 접두사)", () => {

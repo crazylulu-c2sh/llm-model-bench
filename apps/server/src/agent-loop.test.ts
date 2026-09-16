@@ -257,6 +257,17 @@ describe("runAgentLoopOpenAi", () => {
     expect(toolMsgs).toContain("SEARCH-RESULT");
   });
 
+  it("output delta batches: sums every turn's batches (paired with totalMs) and keeps turn 1's first kind (paired with ttft)", async () => {
+    const { fetchImpl } = queueFetch([
+      oaToolCall("read_document"), // 1 batch, tool_call
+      oaReasoningText("plan", '{"title":"AES","summary":"s","sources":["aes"]}'), // 2 batches, reasoning
+    ]);
+    const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));
+    expect(result.metrics.completion_reason).toBe("completed");
+    expect(result.outputDeltaBatches).toBe(3);
+    expect(result.firstOutputKind).toBe("tool_call");
+  });
+
   it("stall: empty content + no tool calls → completion_reason=stall, empty_turn_count≥1", async () => {
     const { fetchImpl } = queueFetch([oaToolCall("read_document"), oaEmpty()]);
     const { result } = await drive(runAgentLoopOpenAi(argsBase(fetchImpl)));

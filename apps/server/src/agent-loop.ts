@@ -1,4 +1,12 @@
-import type { AgentLoop, BenchRunMeta, MockArgRule, MockTool, ScenarioDef, StreamEvent } from "@llm-bench/shared";
+import type {
+  AgentLoop,
+  BenchRunMeta,
+  FirstOutputKind,
+  MockArgRule,
+  MockTool,
+  ScenarioDef,
+  StreamEvent,
+} from "@llm-bench/shared";
 import { runtimeToolsToAnthropic, runtimeToolsToOpenAi, stripThinkingBlocks } from "@llm-bench/shared";
 import { openAiChatPostWithUsage } from "./openai-fetch.js";
 import { consumeOpenAiChatStream } from "./openai-stream.js";
@@ -79,6 +87,13 @@ export type AgentLoopResult = {
   usagePromptTokens: number | null;
   reasoningChars: number;
   toolArgsCorruptedAny: boolean;
+  /**
+   * 전 턴의 출력 델타 read 배치 수 합. `totalMs`(전 턴 합)와 짝 — 디코드 TPS 단일 버스트 판정 입력.
+   * 도구 턴이 한 덩어리로 와도 이후 턴이 스트리밍되면 1을 넘으므로 멀티턴 디코드는 유지된다.
+   */
+  outputDeltaBatches: number;
+  /** 첫 턴의 첫 출력 델타 종류. `ttft`·`usagePromptTokens`(첫 턴)와 짝. */
+  firstOutputKind: FirstOutputKind | null;
   metrics: AgentLoopMetrics;
 };
 
@@ -96,6 +111,10 @@ type NormalizedTurn = {
   combinedText: string; // 추론+content(+toolJSON) — output_text 기준
   /** #101: 이 턴의 finish_reason(OpenAI) / stop_reason(Anthropic). "length"/"max_tokens"면 예산 절단. */
   finishReason: string | null;
+  /** 이 턴의 출력 델타 read 배치 수. */
+  outputDeltaBatches: number;
+  /** 이 턴의 첫 출력 델타 종류(출력 없으면 null). */
+  firstOutputKind: FirstOutputKind | null;
 };
 
 type LoopState = {
@@ -111,6 +130,10 @@ type LoopState = {
   usagePromptTokens: number | null;
   reasoningChars: number;
   toolArgsCorruptedAny: boolean;
+  /** 전 턴 출력 델타 read 배치 수 합(`totalMs`와 짝). */
+  outputDeltaBatches: number;
+  /** 첫 턴의 첫 출력 종류(`ttft`와 짝). */
+  firstOutputKind: FirstOutputKind | null;
   streamCompleted: boolean;
   lastVisible: string;
   lastCombined: string;
@@ -233,8 +256,10 @@ function stepAgentLoop(
   if (state.turnsExecuted === 1) {
     state.ttft = turn.ttftMs;
     state.usagePromptTokens = turn.usagePromptTokens;
+    state.firstOutputKind = turn.firstOutputKind;
   }
   state.totalMs += turn.totalMs;
+  state.outputDeltaBatches += turn.outputDeltaBatches;
   if (turn.usageOutputTokens != null) {
     state.usageOutputTokens = (state.usageOutputTokens ?? 0) + turn.usageOutputTokens;
   }
@@ -328,6 +353,8 @@ function initState(): LoopState {
     usagePromptTokens: null,
     reasoningChars: 0,
     toolArgsCorruptedAny: false,
+    outputDeltaBatches: 0,
+    firstOutputKind: null,
     streamCompleted: false,
     lastVisible: "",
     lastCombined: "",
@@ -357,6 +384,8 @@ function finalize(
     usagePromptTokens: state.usagePromptTokens,
     reasoningChars: state.reasoningChars,
     toolArgsCorruptedAny: state.toolArgsCorruptedAny,
+    outputDeltaBatches: state.outputDeltaBatches,
+    firstOutputKind: state.firstOutputKind,
     metrics: {
       turns_to_completion: turnsToCompletion,
       empty_turn_count: state.emptyTurnCount,
@@ -481,6 +510,8 @@ export async function* runAgentLoopOpenAi(
       toolArgsCorrupted: m.toolCallArgsCorrupted,
       combinedText: m.text,
       finishReason: m.finishReason,
+      outputDeltaBatches: m.outputDeltaBatches,
+      firstOutputKind: m.firstOutputKind,
     };
     const decision = stepAgentLoop(turn, def, loop, state, cursor, args.maxTokens);
     if (decision.kind === "final") {
@@ -580,6 +611,8 @@ export async function* runAgentLoopAnthropic(
       toolArgsCorrupted: false,
       combinedText: m.text,
       finishReason: m.stopReason,
+      outputDeltaBatches: m.outputDeltaBatches,
+      firstOutputKind: m.firstOutputKind,
     };
     const decision = stepAgentLoop(turn, def, loop, state, cursor, args.maxTokens);
     if (decision.kind === "final") {

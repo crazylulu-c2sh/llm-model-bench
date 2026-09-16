@@ -1,3 +1,4 @@
+import { BenchStreamBodySchema, StreamEventSchema } from "@llm-bench/shared";
 import { describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
 import { buildOpenApiSpec } from "./openapi/build-spec.js";
@@ -43,5 +44,23 @@ describe("API contracts", () => {
         }
       }
     }
+  });
+  it("keeps the apple_fm engine hint and engine_version through body validation (undeclared keys are stripped)", () => {
+    const parsed = BenchStreamBodySchema.parse({
+      detect: { ...detect, engine: "apple_fm", engine_version: "apple-fm-server/0.1.0; macOS 27.0 (26A428)" },
+      bench,
+    });
+    expect(parsed.detect.engine).toBe("apple_fm");
+    expect(parsed.detect.engine_version).toBe("apple-fm-server/0.1.0; macOS 27.0 (26A428)");
+  });
+  it("accepts single-burst fields on scenario_end metrics and rejects unknown output kinds", () => {
+    const ev = {
+      type: "scenario_end",
+      scenario_id: "tool_weather",
+      metrics: { ttft_ms: 900, total_ms: 902.5, output_chars: 40, stream_completed: true, output_delta_batches: 1, first_output_kind: "tool_call" },
+    };
+    const parsed = StreamEventSchema.parse(ev);
+    expect(parsed).toMatchObject({ metrics: { output_delta_batches: 1, first_output_kind: "tool_call" } });
+    expect(StreamEventSchema.safeParse({ ...ev, metrics: { ...ev.metrics, first_output_kind: "image" } }).success).toBe(false);
   });
 });

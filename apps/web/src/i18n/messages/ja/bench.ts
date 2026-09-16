@@ -374,6 +374,8 @@ export const bench: Messages["bench"] = {
         return "llama.cpp";
       case "tgi":
         return "TGI";
+      case "apple_fm":
+        return "Apple Foundation Models";
     }
   },
 
