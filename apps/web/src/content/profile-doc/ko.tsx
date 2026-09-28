@@ -307,6 +307,11 @@ export const ko: ProfileDocContent = {
         폴백됩니다. 구버전(<code className="font-mono text-xs">Qwen3-8B</code>,{" "}
         <code className="font-mono text-xs">Qwen2.5</code>, <code className="font-mono text-xs">Qwen-7B</code>)은 해당하지 않습니다.
       </li>,
+      <li key="derivatives">
+        id에 <code className="font-mono text-xs">qwen</code> 표기가 없는 Qwen3.8 파생 모델도 별칭으로 정확 매칭합니다 — PrismML
+        Ternary Bonsai 2 27B(<code className="font-mono text-xs">bonsai-2-27b</code>, Qwen3.8-27B 기반). Qwen3-8B 기반인
+        Bonsai v1(<code className="font-mono text-xs">Bonsai-8B</code>)은 해당하지 않습니다.
+      </li>,
       <li key="reasoning_effort">
         <code className="font-mono text-xs">reasoning_effort</code>는 최상위 필드(Ollama)와{" "}
         <code className="font-mono text-xs">extra_body.chat_template_kwargs.reasoning_effort</code>(LM Studio·llama.cpp)에

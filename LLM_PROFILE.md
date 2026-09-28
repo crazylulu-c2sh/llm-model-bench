@@ -112,6 +112,8 @@ preserveThinking `true` 시 `extra_body`에 추가:
 
 `Qwen3.8` 정확 매칭 외에, **아직 정의가 없는 Qwen 신버전**(`qwen3.9`·`qwen4`·`qwen4.1` 등)도 `fallbackMatch`로 이 정의에 폴백합니다. 구버전(`Qwen3-8B`·`Qwen2.5`·`Qwen-7B`)은 대상이 아닙니다 — 대시 뒤 파라미터 수를 버전으로 오인하지 않도록 구분자 없이 붙는 숫자만 버전으로 봅니다. 폴백으로 해석돼도 `profile_id`는 `qwen38`로 기록됩니다.
 
+id에 `qwen` 표기가 없는 **Qwen3.8 파생 모델**도 `match`의 별칭 정규식으로 정확 매칭합니다 — 현재 PrismML Ternary Bonsai 2 27B(`bonsai-2-27b`, Qwen3.8-27B 기반, 예: `prism-ml/ternary-bonsai-2-27b-gguf/ternary-bonsai-2-27b-pq2_0.gguf`)입니다. 크기까지 고정하므로 Qwen3-8B 기반인 Bonsai v1(`Bonsai-8B`)은 대상이 아닙니다.
+
 | 항목 | 값 |
 |------|-----|
 | contextNativeMax | 262144 (YaRN로 ~1000000) |

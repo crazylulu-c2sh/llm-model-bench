@@ -18,6 +18,41 @@ describe("inferLlmProfileFamily — Qwen 정확 매칭", () => {
   });
 });
 
+describe("inferLlmProfileFamily — Qwen3.8 파생 모델 별칭", () => {
+  // LM Studio가 실제로 노출하는 id 그대로.
+  const BONSAI_IDS = [
+    "prism-ml/ternary-bonsai-2-27b-gguf/ternary-bonsai-2-27b-pq2_0.gguf",
+    "prism-ml/ternary-bonsai-2-27b-gguf/ternary-bonsai-2-27b-ptq1_0.gguf",
+    "prism-ml/Ternary-Bonsai-2-27B-GGUF",
+  ];
+
+  it.each(BONSAI_IDS)("%s → qwen38", (modelId) => {
+    expect(inferLlmProfileFamily(modelId)).toBe("qwen38");
+  });
+
+  // Bonsai v1은 Qwen3-8B 기반이라 Qwen3.8 가이드를 받으면 안 된다.
+  it.each(["prism-ml/Bonsai-8B-gguf", "prism-ml/Bonsai-8B-mlx-1bit"])("%s → unknown 유지", (modelId) => {
+    expect(inferLlmProfileFamily(modelId)).toBe("unknown");
+  });
+
+  it.each(
+    (["general", "coding", "tool"] as const).flatMap((taskMode) =>
+      (["on", "off"] as const).map((thinkingIntent) => [taskMode, thinkingIntent] as const),
+    ),
+  )("taskMode=%s thinking=%s — Qwen3.8-27B와 동일한 해석", (taskMode, thinkingIntent) => {
+    const direct = resolveBenchProfile({ modelId: "Qwen/Qwen3.8-27B", taskMode, thinkingIntent });
+    for (const modelId of BONSAI_IDS) {
+      const alias = resolveBenchProfile({ modelId, taskMode, thinkingIntent });
+      expect(alias.family).toBe("qwen38");
+      expect(alias.preset).toBe(direct.preset);
+      expect(alias.sampling).toEqual(direct.sampling);
+      expect(alias.extraBody).toEqual(direct.extraBody);
+      expect(alias.stopSequences).toEqual(direct.stopSequences);
+      expect(alias.maxTokensRecommended).toBe(direct.maxTokensRecommended);
+    }
+  });
+});
+
 describe("inferLlmProfileFamily — 미등록 Qwen 신버전 폴백", () => {
   it.each([
     "Qwen/Qwen3.9-27B",
