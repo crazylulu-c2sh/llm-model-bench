@@ -308,6 +308,11 @@ export const ja: ProfileDocContent = {
         フォールバックします。旧バージョン(<code className="font-mono text-xs">Qwen3-8B</code>・
         <code className="font-mono text-xs">Qwen2.5</code>・<code className="font-mono text-xs">Qwen-7B</code>)は対象外です。
       </li>,
+      <li key="derivatives">
+        id に <code className="font-mono text-xs">qwen</code> 表記のない Qwen3.8 派生モデルもエイリアスで完全一致します —
+        PrismML Ternary Bonsai 2 27B(<code className="font-mono text-xs">bonsai-2-27b</code>、Qwen3.8-27B ベース)。Qwen3-8B
+        ベースの Bonsai v1(<code className="font-mono text-xs">Bonsai-8B</code>)は対象外です。
+      </li>,
       <li key="reasoning_effort">
         <code className="font-mono text-xs">reasoning_effort</code> はトップレベルのフィールド(Ollama)と{" "}
         <code className="font-mono text-xs">extra_body.chat_template_kwargs.reasoning_effort</code>(LM Studio・llama.cpp)の

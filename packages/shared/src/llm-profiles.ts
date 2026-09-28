@@ -164,7 +164,9 @@ export const LLM_PROFILE_DEFINITIONS: LlmProfileDefinition[] = [
     id: "qwen38",
     version: 1,
     // `\.?`만 허용한다 — /qwen3[-_.]?8/로 넓히면 별개 모델인 `Qwen3-8B`를 삼킨다.
-    match: [/qwen3\.?8/i],
+    // PrismML Ternary Bonsai 2 27B는 Qwen3.8-27B 기반인데 id에 qwen 표기가 없어 별칭으로 잡는다.
+    // 크기(27b)까지 고정한다 — Bonsai v1(`Bonsai-8B`)은 Qwen3-8B 기반이라 여기 오면 안 된다.
+    match: [/qwen3\.?8/i, /bonsai[-_.]?2[-_.]?27b/i],
     // 미등록 Qwen 신버전(3.9 · 4 · 4.1 …) 폴백. 구분자 없이 붙는 숫자만 버전으로 본다 —
     // `Qwen-7B`/`Qwen-72B`의 파라미터 수는 대시 뒤에 오므로 걸리지 않는다.
     // 메이저 10 이상이 나오면 이 정규식만 확장하면 된다.

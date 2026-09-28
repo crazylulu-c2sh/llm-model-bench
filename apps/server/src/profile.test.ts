@@ -126,6 +126,32 @@ describe("buildProfileAugmentedMeta", () => {
     expect(meta.max_tokens).toBe(131_072);
   });
 
+  it("sends Qwen3.8 sampling for Bonsai 2 27B (Qwen3.8-27B derivative, no qwen in id)", () => {
+    const modelId = "prism-ml/ternary-bonsai-2-27b-gguf/ternary-bonsai-2-27b-pq2_0.gguf";
+    const meta = buildProfileAugmentedMeta(baseMeta(modelId), {
+      modelId,
+      profile: { profileId: "auto", taskMode: "general", thinkingIntent: "on" },
+      profileMaxTokens: null,
+    });
+    expect(meta.profile_id).toBe("qwen38");
+    expect(meta.profile_preset).toBe("thinking_general");
+    expect(meta.reasoning_effort).toBe("low");
+    expect(meta.extra_body?.chat_template_kwargs).toEqual({
+      reasoning_effort: "low",
+      preserve_thinking: false,
+    });
+    expect(meta.stop).toEqual(["<|im_end|>"]);
+    expect(meta.max_tokens).toBe(81_920);
+    expect(meta.temperature).toBe(1.0);
+
+    const extras = openAiExtrasFromMeta(meta);
+    expect(extras.top_p).toBe(0.95);
+    expect(extras.top_k).toBe(20);
+    expect(extras.min_p).toBe(0);
+    expect(extras.presence_penalty).toBe(0);
+    expect(extras.repetition_penalty).toBe(1.0);
+  });
+
   it("routes an undefined newer Qwen release to the Qwen3.8 guide", () => {
     const meta = buildProfileAugmentedMeta(baseMeta("Qwen4-30B-A3B"), {
       modelId: "Qwen4-30B-A3B",

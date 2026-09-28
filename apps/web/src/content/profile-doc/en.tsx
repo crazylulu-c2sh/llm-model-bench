@@ -315,6 +315,11 @@ export const en: ProfileDocContent = {
         this definition. Older ones (<code className="font-mono text-xs">Qwen3-8B</code>,{" "}
         <code className="font-mono text-xs">Qwen2.5</code>, <code className="font-mono text-xs">Qwen-7B</code>) do not.
       </li>,
+      <li key="derivatives">
+        Qwen3.8 derivatives whose id carries no <code className="font-mono text-xs">qwen</code> are matched exactly via an
+        alias — PrismML Ternary Bonsai 2 27B (<code className="font-mono text-xs">bonsai-2-27b</code>, based on Qwen3.8-27B).
+        Bonsai v1 (<code className="font-mono text-xs">Bonsai-8B</code>) is based on Qwen3-8B and does not match.
+      </li>,
       <li key="reasoning_effort">
         <code className="font-mono text-xs">reasoning_effort</code> is sent on{" "}
         <strong className="text-[var(--foreground)]">both</strong> paths: the top-level field (Ollama) and{" "}
