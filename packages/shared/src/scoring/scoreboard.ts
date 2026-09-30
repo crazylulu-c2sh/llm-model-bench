@@ -1,6 +1,6 @@
 import { modelKey } from "../comparison-identity";
 import { isAgentScenario, isVisionScenario } from "../scenarios-preview";
-import { decodeTokensPerSecondFromRun, prefillTokensPerSecondFromRun } from "../tps";
+import { decodeTokensPerSecondFromRun, prefillTokensPerSecondFromRun, type FirstOutputKind } from "../tps";
 import { compareModelIdAlphanumeric } from "../model-sort";
 import { computeQualityScores, type ModelQualityScore } from "./quality-score";
 import { computeSpeedScores, type ModelSpeedScore } from "./speed-score";
@@ -12,6 +12,9 @@ export type ScoringRunInput = {
   output_text: string;
   usage_output_tokens?: number | null;
   usage_prompt_tokens?: number | null;
+  /** 출력 델타 read 배치 수(구 런은 부재) — 단일 버스트면 TPS 평균에서 빠진다. */
+  output_delta_batches?: number | null;
+  first_output_kind?: FirstOutputKind | null;
   quality?: { pass: boolean; score?: number; reason?: string };
 };
 
@@ -116,14 +119,19 @@ export function averageRunsToScoringRow(
       ttftMs: run.ttft_ms,
       outputText: run.output_text,
       usageTokens: run.usage_output_tokens,
+      outputDeltaBatches: run.output_delta_batches,
     });
+    // 단일 버스트(null)는 평균에서 빠진다 — 0으로 넣으면 속도가 깎이고, 원값을 넣으면 수천 tok/s로 부푼다.
     if (tps != null && tps > 0) {
       tpsSum += tps;
       tpsN += 1;
       anyTps = true;
       if (!(run.usage_output_tokens != null && run.usage_output_tokens > 0)) allUsage = false;
     }
-    const prefill = prefillTokensPerSecondFromRun(run.ttft_ms, run.usage_prompt_tokens);
+    const prefill = prefillTokensPerSecondFromRun(run.ttft_ms, run.usage_prompt_tokens, {
+      outputDeltaBatches: run.output_delta_batches,
+      firstOutputKind: run.first_output_kind,
+    });
     if (prefill != null && prefill > 0) {
       prefillSum += prefill;
       prefillN += 1;

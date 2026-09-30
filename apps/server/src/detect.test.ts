@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { detectProvider } from "./detect.js";
+import {
+  detectProvider,
+  messagesRouteLikelyAvailable,
+  parseAppleFmHealth,
+  routeLikelyAvailable,
+} from "./detect.js";
 
 function jsonResponse(obj: unknown, status = 200) {
   return Promise.resolve(
@@ -708,5 +713,276 @@ describe("detectProvider", () => {
     expect(r.provider).toBe("lm_studio");
     expect(r.models).toEqual([]);
     expect(r.steps.find((s) => s.name === "lm_studio_list")?.detail).toBe("no_benchable_model");
+  });
+});
+
+/** `fm serve`가 모르는 라우트에 돌려주는 JSON 404 — 슬래시가 `\/`로 이스케이프된 원문 그대로. */
+function fmServeNotFound(method: string, path: string): string {
+  return `{"error":{"code":"404","type":"not_found","message":"Not found: ${method} ${path.replace(/\//g, "\\/")}"}}`;
+}
+
+function rawJsonResponse(body: string, status: number) {
+  return Promise.resolve(new Response(body, { status, headers: { "content-type": "application/json" } }));
+}
+
+describe("route probes: per-probe availability table", () => {
+  // [설명, status, body, chat 프로브 기대값, messages 프로브 기대값]
+  const cases: Array<[string, number, string, boolean, boolean]> = [
+    [
+      "Ollama model-not-found (existing fixture)",
+      404,
+      JSON.stringify({ error: { message: "model 'probe-model' not found" } }),
+      true,
+      true,
+    ],
+    [
+      "Ollama model-not-found, try pulling it first",
+      404,
+      JSON.stringify({ error: { message: 'model "probe-model" not found, try pulling it first', type: "api_error" } }),
+      true,
+      true,
+    ],
+    [
+      "OpenAI model_not_found",
+      404,
+      JSON.stringify({
+        error: {
+          message: "The model `probe-model` does not exist or you do not have access to it.",
+          type: "invalid_request_error",
+          param: null,
+          code: "model_not_found",
+        },
+      }),
+      true,
+      true,
+    ],
+    [
+      "vLLM NotFoundError (chat)",
+      404,
+      JSON.stringify({
+        error: { message: "The model `probe-model` does not exist.", type: "NotFoundError", param: "model", code: 404 },
+      }),
+      true,
+      true,
+    ],
+    [
+      "vLLM Anthropic-shaped error (messages)",
+      404,
+      JSON.stringify({ type: "error", error: { type: "not_found_error", message: "The model `probe-model` does not exist." } }),
+      true,
+      true,
+    ],
+    [
+      "llama.cpp unknown route File Not Found",
+      404,
+      JSON.stringify({ error: { message: "File Not Found", type: "not_found_error", code: 404 } }),
+      true,
+      false,
+    ],
+    ["fm serve escaped route echo", 404, fmServeNotFound("POST", "/v1/messages"), true, false],
+    [
+      "route echo that also mentions a model is still a missing route",
+      404,
+      JSON.stringify({ error: { message: "Not found: POST /v1/messages (model router)" } }),
+      true,
+      false,
+    ],
+    ["FastAPI default {detail: Not Found}", 404, JSON.stringify({ detail: "Not Found" }), true, false],
+    ["empty JSON object", 404, "{}", true, false],
+    ["invalid JSON starting with {", 404, "{model", true, false],
+    ["plain-text 404 page not found", 404, "404 page not found", false, false],
+    ["400 bad model", 400, JSON.stringify({ error: "Unknown model probe-model" }), true, true],
+    ["401 unauthorized", 401, "", true, true],
+    ["200 ok", 200, "{}", true, true],
+    ["500 server error", 500, JSON.stringify({ error: "boom" }), false, false],
+  ];
+
+  it.each(cases)("%s", (_label, status, body, chatExpected, messagesExpected) => {
+    expect(routeLikelyAvailable(status, body)).toBe(chatExpected);
+    expect(messagesRouteLikelyAvailable(status, body)).toBe(messagesExpected);
+  });
+
+  it("the raw fm serve body only matches the route echo after a JSON round-trip", () => {
+    const raw = fmServeNotFound("POST", "/v1/messages");
+    expect(raw).toContain("POST \\/v1\\/messages");
+    expect(/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\/\S*/.test(raw)).toBe(false);
+    expect(messagesRouteLikelyAvailable(404, raw)).toBe(false);
+  });
+});
+
+describe("detectProvider: fm serve and Apple Foundation Models server", () => {
+  it("fm serve: keeps chat, rejects the escaped JSON 404 on /v1/messages, and leaves engine null", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      const method = init?.method ?? "GET";
+      const path = new URL(url).pathname;
+      if (path === "/v1/models") {
+        return jsonResponse({ object: "list", data: [{ id: "system", object: "model", owned_by: "apple" }] });
+      }
+      if (path === "/v1/chat/completions") {
+        return jsonResponse(
+          { error: { code: "400", type: "invalid_request_error", message: "Unknown model: probe-model" } },
+          400,
+        );
+      }
+      if (path === "/health") {
+        return jsonResponse({ models: ["system"], status: "fm serve is running" });
+      }
+      return rawJsonResponse(fmServeNotFound(method, path), 404);
+    });
+    const r = await detectProvider("http://127.0.0.1:18080", { fetchImpl });
+    expect(r.provider).toBe("openai_compatible");
+    expect(r.models.map((m) => m.id)).toEqual(["system"]);
+    expect(r.capabilities).toEqual({ openaiChat: true, anthropicMessages: false });
+    expect(r.engine ?? null).toBeNull();
+    expect(r.engine_version).toBeUndefined();
+    expect(r.steps.find((s) => s.name === "apple_fm_health")).toMatchObject({
+      ok: false,
+      status: 200,
+      detail: "/health:unrecognized_shape",
+    });
+  });
+
+  it("apple_fm: /health self-report sets engine + engine_version and skips SGLang/metrics probes", async () => {
+    const engineVersion =
+      "apple-fm-server/0.1.0; macOS 27.0 (26A428); AFM 3 Core Advanced; assets 1a2b3c4d; continuation=sentinel; tool_value_guides=off";
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(requestUrl(input)).pathname;
+      if (path === "/v1/models") {
+        return jsonResponse({
+          object: "list",
+          data: [
+            { id: "apple-afm-3-core-advanced", owned_by: "apple", context_length: 8192, arch: "AFM 3 Core Advanced" },
+          ],
+        });
+      }
+      if (path === "/v1/chat/completions") {
+        return jsonResponse({ error: { message: "model not found", code: "model_not_found" } }, 404);
+      }
+      if (path === "/health") {
+        return jsonResponse({
+          status: "ok",
+          engine: "apple_fm",
+          engine_version: engineVersion,
+          available: true,
+          queue: { active: 0, waiting: 0 },
+        });
+      }
+      return textResponse("Not Found", 404);
+    });
+    const r = await detectProvider("http://127.0.0.1:18976", { fetchImpl });
+    expect(r.provider).toBe("openai_compatible");
+    expect(r.engine).toBe("apple_fm");
+    expect(r.engine_version).toBe(engineVersion);
+    expect(r.capabilities).toEqual({ openaiChat: true, anthropicMessages: false });
+    expect(r.models[0]).toMatchObject({ arch: "AFM 3 Core Advanced", max_context_length: 8192 });
+    expect(r.steps.find((s) => s.name === "apple_fm_health")).toMatchObject({ ok: true, status: 200, detail: "/health" });
+    const probed = fetchImpl.mock.calls.map((c) => new URL(requestUrl(c[0])).pathname);
+    expect(probed).not.toContain("/server_info");
+    expect(probed).not.toContain("/metrics");
+  });
+
+  it("apple_fm: omits engine_version when /health does not report one", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(requestUrl(input)).pathname;
+      if (path === "/v1/models") return jsonResponse({ data: [{ id: "apple-afm-3-core" }] });
+      if (path === "/v1/chat/completions") return jsonResponse({ error: "x" }, 400);
+      if (path === "/health") return jsonResponse({ engine: "apple_fm", engine_version: "   " });
+      return textResponse("Not Found", 404);
+    });
+    const r = await detectProvider("http://127.0.0.1:18976", { fetchImpl });
+    expect(r.engine).toBe("apple_fm");
+    expect(r.engine_version).toBeUndefined();
+    expect("engine_version" in r).toBe(false);
+  });
+
+  it("a non-apple /health (e.g. MTPLX) records a failed apple_fm_health step and still reaches SGLang", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(requestUrl(input)).pathname;
+      if (path === "/v1/models") return jsonResponse({ data: [{ id: "qwen" }] });
+      if (path === "/v1/chat/completions" || path === "/v1/messages") return jsonResponse({ error: "x" }, 400);
+      if (path === "/health") {
+        return jsonResponse({ ok: true, generation_mode: "serial", active_requests: 0 });
+      }
+      if (path === "/server_info") {
+        return jsonResponse({ version: "0.4.1", mem_fraction_static: 0.88, internal_states: [] });
+      }
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:30000", { fetchImpl });
+    expect(r.engine).toBe("sglang");
+    expect(r.engine_version).toBeUndefined();
+    const names = r.steps.map((s) => s.name);
+    expect(names.indexOf("apple_fm_health")).toBeLessThan(names.indexOf("sglang_server_info"));
+    expect(r.steps.find((s) => s.name === "apple_fm_health")).toMatchObject({
+      ok: false,
+      detail: "/health:unrecognized_shape",
+    });
+  });
+
+  it("a throwing /health does not stop the /metrics engine probe", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(requestUrl(input)).pathname;
+      if (path === "/v1/models") return jsonResponse({ data: [{ id: "llama" }] });
+      if (path === "/v1/chat/completions" || path === "/v1/messages") return jsonResponse({ error: "x" }, 400);
+      if (path === "/health") return Promise.reject(new TypeError("fetch failed"));
+      if (path === "/metrics") return textResponse("vllm:num_requests_running 0\nvllm:num_requests_waiting 0\n");
+      return jsonResponse({}, 404);
+    });
+    const r = await detectProvider("http://localhost:8000", { fetchImpl });
+    expect(r.provider).toBe("openai_compatible");
+    expect(r.engine).toBe("vllm");
+    const health = r.steps.find((s) => s.name === "apple_fm_health");
+    expect(health?.ok).toBe(false);
+    expect(health?.detail).toMatch(/^\/health:TypeError: fetch failed/);
+  });
+});
+
+describe("parseAppleFmHealth", () => {
+  it("accepts only a plain object whose engine is apple_fm", () => {
+    expect(parseAppleFmHealth({ engine: "apple_fm", engine_version: "v1" })).toEqual({ engine_version: "v1" });
+    expect(parseAppleFmHealth({ engine: "apple_fm" })).toEqual({});
+    expect(parseAppleFmHealth({ engine: "vllm", engine_version: "v1" })).toBeNull();
+    expect(parseAppleFmHealth({ status: "fm serve is running" })).toBeNull();
+    expect(parseAppleFmHealth([{ engine: "apple_fm" }])).toBeNull();
+    expect(parseAppleFmHealth("apple_fm")).toBeNull();
+    expect(parseAppleFmHealth(null)).toBeNull();
+  });
+
+  it("trims engine_version, drops blank or non-string values and caps the length", () => {
+    expect(parseAppleFmHealth({ engine: "apple_fm", engine_version: "  v2  " })).toEqual({ engine_version: "v2" });
+    expect(parseAppleFmHealth({ engine: "apple_fm", engine_version: 3 })).toEqual({});
+    const long = parseAppleFmHealth({ engine: "apple_fm", engine_version: "x".repeat(500) });
+    expect(long?.engine_version).toHaveLength(200);
+  });
+});
+
+describe("detectProvider: OpenAI-compatible /v1/models row fields", () => {
+  it("maps a non-empty string arch and a positive context_length, ignoring malformed values", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(requestUrl(input)).pathname;
+      if (path === "/v1/models") {
+        return jsonResponse({
+          data: [
+            { id: "good", arch: " AFM 3 Core ", context_length: 8192 },
+            { id: "blank-arch", arch: "   ", context_length: 0 },
+            { id: "wrong-types", arch: 42, context_length: "8192" },
+            { id: "negative", context_length: -1 },
+            // arch가 드래프트 접미사로 끝나도 목록 필터에 넘기지 않으므로 모델이 사라지지 않는다.
+            { id: "draft-looking-arch", arch: "qwen35_mtp" },
+          ],
+        });
+      }
+      if (path === "/v1/chat/completions") return jsonResponse({ error: "x" }, 400);
+      return textResponse("Not Found", 404);
+    });
+    const r = await detectProvider("http://localhost:8000", { fetchImpl });
+    const byId = new Map(r.models.map((m) => [m.id, m]));
+    expect(byId.get("good")).toMatchObject({ arch: "AFM 3 Core", max_context_length: 8192 });
+    for (const id of ["blank-arch", "wrong-types", "negative"]) {
+      expect(byId.get(id)?.arch).toBeUndefined();
+      expect(byId.get(id)?.max_context_length).toBeUndefined();
+    }
+    expect(byId.get("draft-looking-arch")?.arch).toBe("qwen35_mtp");
   });
 });

@@ -181,6 +181,84 @@ describe("consumeOpenAiChatStream", () => {
   });
 });
 
+describe("output delta batches & first output kind (single-burst TPS guard)", () => {
+  const line = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`;
+  const toolCallChunk = line({
+    choices: [
+      {
+        delta: {
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_1",
+              type: "function",
+              function: { name: "get_weather", arguments: '{"city":"Seoul"}' },
+            },
+          ],
+        },
+      },
+    ],
+  });
+
+  it("counts one batch when a tool call, finish and usage all arrive in a single read", async () => {
+    // Apple FM 형태: 호출 전체가 생성 끝에 한 청크로 오고, finish·usage·[DONE]이 같은 read에 붙는다.
+    const stream = sse([
+      line({ choices: [{ delta: { role: "assistant" } }] }),
+      toolCallChunk +
+        line({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }) +
+        line({ choices: [], usage: { prompt_tokens: 120, completion_tokens: 24 } }) +
+        "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.toolCalls?.[0]?.function.name).toBe("get_weather");
+    expect(m.outputDeltaBatches).toBe(1);
+    expect(m.firstOutputKind).toBe("tool_call");
+  });
+
+  it("does not count role-only, ping, finish-only or usage-only reads as output batches", async () => {
+    const stream = sse([
+      line({ choices: [{ delta: { role: "assistant" } }] }),
+      ": ping\n\n",
+      toolCallChunk,
+      line({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }),
+      line({ choices: [], usage: { prompt_tokens: 120, completion_tokens: 24 } }),
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.outputDeltaBatches).toBe(1);
+  });
+
+  it("counts each read that carries content, reasoning or tool deltas", async () => {
+    const stream = sse([
+      line({ choices: [{ delta: { reasoning_content: "think" } }] }),
+      line({ choices: [{ delta: { content: "a" } }] }) + line({ choices: [{ delta: { content: "b" } }] }),
+      line({ choices: [{ delta: { content: "c" } }] }),
+      "data: [DONE]\n\n",
+    ]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.outputDeltaBatches).toBe(3);
+    expect(m.firstOutputKind).toBe("reasoning");
+  });
+
+  it("counts a delta split across reads once, in the read that completes the line", async () => {
+    const full = line({ choices: [{ delta: { content: "hello" } }] });
+    const stream = sse([full.slice(0, 10), full.slice(10), "data: [DONE]\n\n"]);
+    const m = await consumeOpenAiChatStream(stream);
+    expect(m.assistantText).toBe("hello");
+    expect(m.outputDeltaBatches).toBe(1);
+    expect(m.firstOutputKind).toBe("text");
+  });
+
+  it("reports zero batches and a null kind when no output arrives", async () => {
+    const m = await consumeOpenAiChatStream(sse(["data: [DONE]\n\n"]));
+    expect(m.outputDeltaBatches).toBe(0);
+    expect(m.firstOutputKind).toBeNull();
+    const empty = await consumeOpenAiChatStream(null);
+    expect(empty.outputDeltaBatches).toBe(0);
+    expect(empty.firstOutputKind).toBeNull();
+  });
+});
+
 describe("openAiBenchOutputText", () => {
   it("prefers assistantText when non-empty", () => {
     expect(
@@ -199,6 +277,8 @@ describe("openAiBenchOutputText", () => {
         finishReason: null,
         repetitionLoopDetected: false,
         toolCallArgsCorrupted: false,
+        outputDeltaBatches: 1,
+        firstOutputKind: "reasoning",
       }),
     ).toBe("visible");
   });
@@ -220,6 +300,8 @@ describe("openAiBenchOutputText", () => {
         finishReason: null,
         repetitionLoopDetected: false,
         toolCallArgsCorrupted: false,
+        outputDeltaBatches: 1,
+        firstOutputKind: "reasoning",
       }),
     ).toBe("reasoning-only");
   });
@@ -391,6 +473,8 @@ describe("openAiLiveTokenStreamText", () => {
         finishReason: null,
         repetitionLoopDetected: false,
         toolCallArgsCorrupted: false,
+        outputDeltaBatches: 2,
+        firstOutputKind: "reasoning",
       }),
     ).toBe("inout");
   });

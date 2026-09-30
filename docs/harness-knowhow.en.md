@@ -103,7 +103,8 @@ A single benchmark harness can target many locally-hosted or remote LLM servers 
 - `${base}/api/v1/models` → `provider: "lm_studio"` (expects `{ models: [{ key, type, display_name, publisher, ... }] }`; `publisher` is forwarded into DetectResult, falling back to the `org/` prefix of the id when absent). **A 200 whose body carries no native `models` array does not identify LM Studio — detection continues to the next candidate** — because LM Studio answers unknown paths with `200 + {"error": …}` too, so trusting the status alone manufactures a fake "healthy connection with 0 models"
 - `${base}/api/tags` → `provider: "ollama"` (expects `{ models: [{ name, model, size }] }`; publisher from the id's `org/` prefix only)
 - `${base}/api/models/list` → `provider: "unsloth_studio"` (fingerprint `{ models: [...], default_models: [...] }`; excludes `is_audio`/`is_diffusion`). **A 401 does not claim Unsloth** — only the step is recorded and detection continues to `/v1/models`. Studio needs an `sk-unsloth-…` API key
-- `${base}/v1/models` → `provider: "openai_compatible"` (expects `{ data: [{ id }] }`; publisher from the id's `org/` prefix only). Right after success, a one-shot engine hint is filled (`ProviderKind` stays `openai_compatible`):
+- `${base}/v1/models` → `provider: "openai_compatible"` (expects `{ data: [{ id }] }`; publisher from the id's `org/` prefix only). A row's non-empty string `arch` and positive `context_length` are copied into `models[].arch` / `max_context_length` (`arch` is not passed to the list filter — a variant name ending in `_mtp` or similar must not hide the model). Right after success, a one-shot engine hint is filled (`ProviderKind` stays `openai_compatible`):
+  - a `${base}/health` body with `engine: "apple_fm"` ⇒ `engine: "apple_fm"` plus the server's self-reported `engine_version` (server version, OS build, variant, …; trimmed, capped at 200 chars). Any other shape or a failed request only records a failed `apple_fm_health` step and detection continues in the order below — `/health` is a common path that other servers such as MTPLX use too
   - `${base}/server_info` (else legacy `${base}/get_server_info`) → `version` plus an SGLang-native field (`internal_states`, `mem_fraction_static`, …) ⇒ `engine: "sglang"`
   - else a single `${base}/metrics` read classified by prefix (priority vllm → llamacpp → tgi): `vllm:num_requests_*` → `"vllm"`, `llamacpp:requests_*` → `"llamacpp"`, `tgi_batch_current_size`/`tgi_queue_size` → `"tgi"`
   - else `engine: null` — probe failure never blocks the `openai_compatible` return. llama.cpp without `--metrics` misses on purpose
@@ -115,7 +116,7 @@ A single benchmark harness can target many locally-hosted or remote LLM servers 
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 // "lm_studio" | "ollama" | "unsloth_studio" | "openai_compatible" | "manual"
 
-export type InferenceEngine = "sglang" | "vllm" | "llamacpp" | "tgi"; // DetectResult.engine / BenchRunMeta.engine
+export type InferenceEngine = "sglang" | "vllm" | "llamacpp" | "tgi" | "apple_fm"; // DetectResult.engine / BenchRunMeta.engine
 
 export async function detectProvider(
   rawBaseUrl: string,
@@ -126,7 +127,7 @@ export async function detectProvider(
 
 ### Resolve → capability object
 
-Each detected provider carries `capabilities: { openaiChat: boolean; anthropicMessages: boolean }`. LM Studio, Ollama, and Unsloth Studio use **fixed** capability constants (their fake-model probe returns misleading `400`/`404` codes, so probing is skipped); `openai_compatible` and `manual` are probed live by `probeCapabilities()`, which POSTs a dummy request to `/v1/chat/completions` and `/v1/messages` and calls `routeLikelyAvailable(status, body)` — treating `2xx`, non-404 `4xx`, or a `404` whose body starts with `{` as "route exists".
+Each detected provider carries `capabilities: { openaiChat: boolean; anthropicMessages: boolean }`. LM Studio, Ollama, and Unsloth Studio use **fixed** capability constants (their fake-model probe returns misleading `400`/`404` codes, so probing is skipped); `openai_compatible` and `manual` are probed live by `probeCapabilities()`, which POSTs a dummy request to `/v1/chat/completions` and `/v1/messages` and judges each response. The chat probe uses `routeLikelyAvailable(status, body)`, treating `2xx`, non-404 `4xx`, or a `404` whose body starts with `{` as "route exists". The messages probe uses the stricter `messagesRouteLikelyAvailable(status, body)` — a JSON `404` counts only if its `JSON.parse`→`JSON.stringify` text matches `/model/i` and does not match `/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\/\S*/` (an echoed method + path). This keeps "no such route" JSON 404s — llama.cpp `File Not Found`, FastAPI `{"detail":"Not Found"}`, `fm serve`'s `Not found: POST \/v1\/messages` — from being mistaken for an Anthropic route; the round-trip turns the `\/`-escaped slashes back into `/` so the path regex can match. The chat side stays lenient because the cost of a miss is asymmetric — missing chat fails the whole run with `no_routes`, while missing messages only drops that route.
 
 | Provider | Source of caps | `openaiChat` | `anthropicMessages` |
 |---|---|---|---|
@@ -185,6 +186,7 @@ Both provider adapters consume an SSE `ReadableStream` incrementally — `consum
 - `approxOutputTokens` is the fallback estimate, `Math.max(0, Math.ceil(outText.length / 4))` — the classic ~4-chars-per-token heuristic.
 - Both adapters make the estimate count reasoning tokens so the two providers are comparable: OpenAI's `outText` (= `combined`) already contains reasoning, whereas Anthropic keeps reasoning out of `text` and instead adds it back explicitly: `Math.ceil((reasoningText.length + outText.length) / 4)`.
 - UI and scoreboard **decode TPS** follow the llama.cpp / oMLX convention: denominator `decode_ms = total_ms − ttft_ms`, numerator `max(0, output_tokens − 1)` (the first token is counted in prefill+sample). Missing `ttft` / `decode_ms ≤ 0` / output tokens ≤ 1 → `null` (shown as `—`). Source: `decodeTokensPerSecondFromRun` in `packages/shared/src/tps.ts`.
+- **A single burst is `null` too.** Both stream parsers record `outputDeltaBatches`, the number of `reader.read()` batches that carried an output delta (content, reasoning, or tool call), and `firstOutputKind` (`text`|`reasoning`|`tool_call`); the runner puts them on `scenario_end.metrics` and the `aggregate_json` run as `output_delta_batches` / `first_output_kind`. With one batch or fewer the whole output arrived at once (Apple Foundation Models, which sends each tool call whole at the end of generation instead of streaming arguments; diffusion models; …), so `decode_ms` is just a few ms of network latency and decode TPS inflates to thousands or millions of tok/s — one such row pulls the uncapped speed-score mean up by an order of magnitude. A `decode_ms` below `MIN_DECODE_WINDOW_MS` (10 ms) is also `null` regardless of batches, which filters older runs that lack the fields with the same floor. The floor comes from the existing DB: of 7,568 decode-eligible runs, 96% of the 502 under 10 ms were at 1,000 tok/s or more and only 6 (all 2-token outputs) were under 600 tok/s, while a 20 ms floor would also drop short, genuine replies from 0.5B–1B models. Tool rounds and `agent_*` sum batches across turns (paired with `total_ms`) and take the first output kind from the turn whose TTFT was recorded. Scoreboard, compare, and charts leave `null` out of their means (never as 0).
 - Blended TPS (`output / total_ms`, `tokensPerSecondFromRun`) stays for internal compatibility and stress `aggregate_tps`; the default UI hides it.
 - Older run JSON already has `ttft_ms`, `total_ms`, and `usage_output_tokens` (or an `output_text` approximation), so decode TPS is recomputed at read time with no SQLite rewrite.
 - `reasoning_hidden` folds hidden thinking into TTFT, so both axes distort. `agent_*` uses the same formulas on a multi-turn wall clock in v1 and labels that in the tooltip (per-turn metrics come later).
@@ -193,6 +195,7 @@ Both provider adapters consume an SSE `ReadableStream` incrementally — `consum
 
 - OpenAI stores `usage.prompt_tokens` (else `usage.input_tokens`) and Anthropic stores `usage.input_tokens` as `usagePromptTokens`. Requests already send `stream_options.include_usage: true`; older parsers discarded input tokens.
 - Formula: `prompt_tokens / (ttft_ms / 1000)` (`prefillTokensPerSecondFromRun`). No `prompt_tokens` → `null` with no approximation. `prompt_preview` is a truncated snapshot and lacks vision image tokens, so it is not used.
+- If the first output is a tool call and the output came in one batch or fewer → `null`: TTFT then includes generating the whole call, which understates prefill. Multi-turn runs (tool rounds, `agent_*`) sum batches across turns, so a burst confined to the first turn is not filtered — a known limitation.
 - Older runs show `—` in the prefill cell. Only re-measured runs fill in. There is no migration SQL; `aggregate_json` just gains a `usage_prompt_tokens` key.
 
 ### Reasoning-channel separation: `text` vs `assistantText` vs `reasoningText`
@@ -245,6 +248,8 @@ export type OpenAiStreamMetrics = {
   finishReason: string | null;  // "length" => truncated
   repetitionLoopDetected: boolean;
   toolCallArgsCorrupted: boolean;
+  outputDeltaBatches: number;   // reads that carried content/reasoning/tool deltas
+  firstOutputKind: "text" | "reasoning" | "tool_call" | null;
 };
 
 export type AnthropicStreamMetrics = {
@@ -259,6 +264,8 @@ export type AnthropicStreamMetrics = {
   usageOutputTokens: number | null; // message_delta.usage.output_tokens
   usagePromptTokens: number | null; // usage.input_tokens
   stopReason: string | null;    // "max_tokens" => truncated
+  outputDeltaBatches: number;   // reads that carried text/thinking/tool_use events
+  firstOutputKind: "text" | "reasoning" | "tool_call" | null;
 };
 ```
 
@@ -663,7 +670,7 @@ export LLM_JUDGE_MODEL=claude-opus-4-7
 | `apps/server/src/db/persist-stream.ts` | `BenchRunPersistence` — folds `StreamEvent`s into `bench_*` rows during a live bench |
 | `apps/server/src/db/stress-persist-stream.ts` | `StressRunPersistence` — same pattern for stress runs (`stress_runs` / `stress_stages`) |
 
-Settings-scoped merging uses the versioned `config_id` from `bench-config.ts`. Reasoning, sampling, token limits, profile and prompt bundle versions participate; repetition counts, scenario selection and model lifetime do not. The v5 migration in `database.ts` derives keys from stored metadata and isolates incomplete legacy runs individually. `/stats/model-latest` returns settings entries with `config` and `config_complete`. `/runs/:runId?profile=merged` merges only the requested run's settings and preserves `source_run_id`. `latest-by-model`, scoreboard and model-based compare select only the newest run's settings group. More entries or lower coverage after migration reflect the separation of measurements made under different conditions. New metadata also preserves explicit budgets (`request_max_tokens`, `profile_max_tokens_override`). Older records without this information cannot distinguish profile recommendations from explicit request limits, so they are marked incomplete and isolated per run. If `profile_id` is `unknown`, settings are complete without `profile_version` so `config_id` is stable across runs; the v6 migration recomputes stored keys under that rule. Incomplete settings are not treated as gap coverage. The same `config_id` group is used for gap-fill — the web "Missing scenarios only" action re-runs only selected scenarios that have no measurement in that group, and results still merge as the latest measurement per scenario×route.
+Settings-scoped merging uses the versioned `config_id` from `bench-config.ts`. Reasoning, sampling, token limits, profile and prompt bundle versions participate; repetition counts, scenario selection and model lifetime do not. The v5 migration in `database.ts` derives keys from stored metadata and isolates incomplete legacy runs individually. `/stats/model-latest` returns settings entries with `config` and `config_complete`. `/runs/:runId?profile=merged` merges only the requested run's settings and preserves `source_run_id`. `latest-by-model`, scoreboard and model-based compare select only the newest run's settings group. More entries or lower coverage after migration reflect the separation of measurements made under different conditions. New metadata also preserves explicit budgets (`request_max_tokens`, `profile_max_tokens_override`). Older records without this information cannot distinguish profile recommendations from explicit request limits, so they are marked incomplete and isolated per run. If `profile_id` is `unknown`, settings are complete without `profile_version` so `config_id` is stable across runs; the v6 migration recomputes stored keys under that rule. Incomplete settings are not treated as gap coverage. The same `config_id` group is used for gap-fill — the web "Missing scenarios only" action re-runs only selected scenarios that have no measurement in that group, and results still merge as the latest measurement per scenario×route. Run meta `engine` / `engine_version` (e.g. the OS build and model assets behind `apple_fm`) are not part of `config_id` or the comparison identity, so after upgrading the engine or OS run everything again instead of gap-filling — older measurements would count as coverage and merge into the same rows.
 
 - Tables created by `migrate()` in `database.ts`:
 
@@ -778,16 +785,16 @@ export async function consumeOpenAiChatStream(
   opts?: { onDelta?: (d: OpenAiStreamDelta) => void; loopGuard?: boolean; requestStartedAt?: number },
 ): Promise<OpenAiStreamMetrics>; // { ttftMs, totalMs, text, assistantText, reasoningText, toolCalls,
                                  //   streamCompleted, approxOutputTokens, usageOutputTokens, usagePromptTokens, finishReason,
-                                 //   repetitionLoopDetected, toolCallArgsCorrupted }
+                                 //   repetitionLoopDetected, toolCallArgsCorrupted, outputDeltaBatches, firstOutputKind }
 ```
 
 - TTFT is stamped by `markTtft()` on the **first** content / `reasoning_content` / tool-call delta, relative to `requestStartedAt ?? performance.now()`.
 - The stream returns three token counts: `usageOutputTokens` — provider usage from `usage.completion_tokens` (else `usage.output_tokens`), which needs `stream_options.include_usage`, otherwise `null` — `approxOutputTokens`, an always-computed `text.length / 4` estimate — and `usagePromptTokens` (`usage.prompt_tokens` / `input_tokens`, else `null`). Callers prefer output usage and fall back to the `/ 4` approximation, so decode TPS is honest about its source (`tps_source: "usage" | "approx"`). Prefill is never approximated.
 - Annotate-only signals (`finishReason === "length"` for truncation, `toolCallArgsCorrupted` for the concatenated-`{}{}` runtime bug) never change scoring; they just label results.
 
-**Provider abstraction — `detect.ts`.** `detectProvider(rawBaseUrl, opts)` normalizes the base URL, then probes native list endpoints in order (LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`). LM Studio, Ollama, and Unsloth Studio hits get fixed `capabilities`; the OpenAI-compatible and `manual` fall-throughs call `probeCapabilities`, which POSTs a throwaway `probe-model` to `/v1/chat/completions` and `/v1/messages`. After a successful `/v1/models`, a one-shot engine hint is filled (SGLang `/server_info` → `/metrics` vllm/llamacpp/tgi gauges → `DetectResult.engine` / `BenchRunMeta.engine`; `ProviderKind` stays `openai_compatible`). The returned `capabilities: { openaiChat, anthropicMessages }` is what every downstream runner uses to pick a route (`pickRoute()` in `stress-runner.ts`, `resolveBenchApiRoutes()` in the bench runner), so you get one detection result instead of scattered per-call branching.
+**Provider abstraction — `detect.ts`.** `detectProvider(rawBaseUrl, opts)` normalizes the base URL, then probes native list endpoints in order (LM Studio `/api/v1/models` → Ollama `/api/tags` → Unsloth Studio `/api/models/list` → OpenAI `/v1/models`). LM Studio, Ollama, and Unsloth Studio hits get fixed `capabilities`; the OpenAI-compatible and `manual` fall-throughs call `probeCapabilities`, which POSTs a throwaway `probe-model` to `/v1/chat/completions` and `/v1/messages`. After a successful `/v1/models`, a one-shot engine hint is filled (Apple FM `/health` with `engine: "apple_fm"` → SGLang `/server_info` → `/metrics` vllm/llamacpp/tgi gauges → `DetectResult.engine` + `engine_version` / `BenchRunMeta.engine` + `engine_version`; `ProviderKind` stays `openai_compatible`. Stress run meta carries no engine fields). The returned `capabilities: { openaiChat, anthropicMessages }` is what every downstream runner uses to pick a route (`pickRoute()` in `stress-runner.ts`, `resolveBenchApiRoutes()` in the bench runner), so you get one detection result instead of scattered per-call branching.
 
-- The route-availability heuristic `routeLikelyAvailable(status, body)` treats a bad-model `4xx` (or `404` with a JSON body) as "route exists" — steal it to tell "endpoint absent" apart from "endpoint present, my request was wrong".
+- The route-availability heuristic `routeLikelyAvailable(status, body)` treats a bad-model `4xx` (or `404` with a JSON body) as "route exists" — steal it to tell "endpoint absent" apart from "endpoint present, my request was wrong". `/v1/messages` uses `messagesRouteLikelyAvailable`, where a JSON `404` counts only if it mentions a model and does not echo a method + path (so "no such route" JSON 404s are not misread).
 
 **Contention guard — `contention-probe.ts`.** The reusable idea is two **separate sampling modes** so your own load doesn't read as contention: `sampleIdle()` (call only when you have nothing in flight; trusts GPU util + `/metrics` + `lms ps`) vs `sampleInFlight(baseline)` (during your request; ignores GPU noise, watches `running>=2 / waiting>=1`, model-load churn, and Ollama `expires_at` advance). Drive it with `runIdleGate()`, an `AsyncGenerator<StreamEvent, GateResult>` that waits for `requiredConsecutiveIdle` clean polls before proceeding, and `startInflightMonitor()` for background detection. `/metrics` and inventory HTTP (Ollama `/api/ps`, LM Studio `/api/v1/models`) latch for the rest of the run on 4xx/5xx, and a successful gate baseline reuses `sampleIdle.loaded`. `parsePrometheusRunningWaiting()` is a standalone vLLM/llama.cpp/TGI gauge parser you can grab on its own.
 
@@ -819,8 +826,8 @@ Terms used across this document, grouped by the section that explains them in de
 | Term | Definition |
 |---|---|
 | TTFT | Time To First Token — ms from request send to the first content / `reasoning_content` / tool-call delta. |
-| Decode TPS | Decode throughput — `(output tokens − 1) ÷ (total − TTFT)`. Recomputed from older runs at read time. |
-| Prefill TPS | Prefill throughput — `prompt_tokens ÷ TTFT`. Older runs lack usage and need a re-measure. |
+| Decode TPS | Decode throughput — `(output tokens − 1) ÷ (total − TTFT)`. Recomputed from older runs at read time. A single burst (one output batch or fewer, or decode under 10 ms) is null. |
+| Prefill TPS | Prefill throughput — `prompt_tokens ÷ TTFT`. Older runs lack usage and need a re-measure. Null when the first output is a tool call that arrived in one burst. |
 | TPS (stress) | Stress stage: output tokens ÷ elapsed. `aggregate_tps` sums a stage; `tps_per_user` = aggregate ÷ concurrency. |
 | `approxOutputTokens` | Fallback token estimate (~len/4) used when the server omits a usage count. |
 | p50 / p95 | Median / 95th-percentile latency (or TTFT) within a stage. |

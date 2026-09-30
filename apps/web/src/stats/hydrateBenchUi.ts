@@ -75,10 +75,14 @@ export function mergeBenchDetailsToState(details: BenchRunDetailResponse[], scop
           ttftMs: last.ttft_ms,
           outputText: last.output_text,
           usageTokens: last.usage_output_tokens,
+          outputDeltaBatches: last.output_delta_batches,
         }),
       );
       const prefill_tps = roundTpsDisplay(
-        prefillTokensPerSecondFromRun(last.ttft_ms, last.usage_prompt_tokens),
+        prefillTokensPerSecondFromRun(last.ttft_ms, last.usage_prompt_tokens, {
+          outputDeltaBatches: last.output_delta_batches,
+          firstOutputKind: last.first_output_kind,
+        }),
       );
       rows.push({
         rowKey,
@@ -134,6 +138,8 @@ export function buildChartRowsFromBenchState(
           output_text: last?.output_text,
           usage_output_tokens: last?.usage_output_tokens,
           usage_prompt_tokens: last?.usage_prompt_tokens,
+          output_delta_batches: last?.output_delta_batches,
+          first_output_kind: last?.first_output_kind,
           reasoning_hidden: last?.reasoning_hidden,
         };
       }),

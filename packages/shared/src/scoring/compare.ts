@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { decodeTokensPerSecondFromRun, effectiveOutputTokens, prefillTokensPerSecondFromRun } from "../tps";
+import {
+  decodeTokensPerSecondFromRun,
+  effectiveOutputTokens,
+  prefillTokensPerSecondFromRun,
+  type FirstOutputKind,
+} from "../tps";
 import { runHasChannelTagLeak, runIsEmptyTurn, type LeakRunInput } from "./leak-metrics";
 
 /**
@@ -13,6 +18,9 @@ export type CompareRunInput = LeakRunInput & {
   ttft_ms: number | null;
   total_ms: number;
   usage_prompt_tokens?: number | null;
+  /** 출력 델타 read 배치 수(구 런은 부재) — 단일 버스트 런은 TPS per-user·aggregate 양쪽에서 빠진다. */
+  output_delta_batches?: number | null;
+  first_output_kind?: FirstOutputKind | null;
   quality?: { pass: boolean; score?: number; reason?: string };
 };
 
@@ -161,29 +169,25 @@ function sideMetrics(runs: readonly CompareRunInput[]): SideMetrics {
       ttftMs: r.ttft_ms,
       outputText: r.output_text,
       usageTokens: r.usage_output_tokens,
+      outputDeltaBatches: r.output_delta_batches,
     });
     if (tps != null && tps > 0) {
       tpsSum += tps;
       tpsN += 1;
-    }
-    const out = effectiveOutputTokens(r.output_text, r.usage_output_tokens);
-    if (r.ttft_ms != null && r.total_ms > r.ttft_ms && out > 1) {
+      // aggregate도 per-run과 같은 런만 합산한다 — 단일 버스트 런의 토큰이 분모 없이 섞이지 않게.
+      const out = effectiveOutputTokens(r.output_text, r.usage_output_tokens);
       decodeTok += out - 1;
-      decodeSec += (r.total_ms - r.ttft_ms) / 1000;
+      decodeSec += (r.total_ms - (r.ttft_ms ?? 0)) / 1000;
     }
-    const prefill = prefillTokensPerSecondFromRun(r.ttft_ms, r.usage_prompt_tokens);
+    const prefill = prefillTokensPerSecondFromRun(r.ttft_ms, r.usage_prompt_tokens, {
+      outputDeltaBatches: r.output_delta_batches,
+      firstOutputKind: r.first_output_kind,
+    });
     if (prefill != null) {
       prefillSum += prefill;
       prefillN += 1;
-    }
-    if (
-      r.usage_prompt_tokens != null &&
-      r.usage_prompt_tokens > 0 &&
-      r.ttft_ms != null &&
-      r.ttft_ms > 0
-    ) {
-      prefillTok += r.usage_prompt_tokens;
-      prefillSec += r.ttft_ms / 1000;
+      prefillTok += r.usage_prompt_tokens ?? 0;
+      prefillSec += (r.ttft_ms ?? 0) / 1000;
     }
     const s = r.quality?.score;
     if (typeof s === "number" && Number.isFinite(s)) {

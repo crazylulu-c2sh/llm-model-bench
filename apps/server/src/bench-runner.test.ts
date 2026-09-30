@@ -181,6 +181,36 @@ describe("makeBenchRunMeta engine info (#182)", () => {
     expect(meta.compatibility_type).toBeUndefined();
     expect(meta.quantization).toBeUndefined();
     expect(meta.arch).toBeUndefined();
+    expect(meta.engine_version).toBeUndefined();
+  });
+
+  it("copies engine/engine_version and the /v1/models row arch for an Apple FM openai_compatible detect", () => {
+    const engineVersion =
+      "apple-fm-server/0.1.0; macOS 27.0 (26A428); AFM 3 Core Advanced; assets 1a2b3c4d; continuation=sentinel; tool_value_guides=off";
+    const detect: DetectResult = {
+      provider: "openai_compatible",
+      baseUrl: "http://127.0.0.1:18976",
+      models: [
+        { id: "decoy-model", arch: "Decoy" },
+        { id: "apple-afm-3-core-advanced", arch: "AFM 3 Core Advanced", max_context_length: 8192 },
+      ],
+      steps: [],
+      capabilities: { openaiChat: true, anthropicMessages: false },
+      engine: "apple_fm",
+      engine_version: engineVersion,
+    };
+    const meta = makeBenchRunMeta(
+      baseBenchRequest({
+        baseUrl: "http://127.0.0.1:18976",
+        provider: "openai_compatible",
+        modelId: "apple-afm-3-core-advanced",
+      }),
+      detect,
+      "run_engine_3",
+    );
+    expect(meta.engine).toBe("apple_fm");
+    expect(meta.engine_version).toBe(engineVersion);
+    expect(meta.arch).toBe("AFM 3 Core Advanced");
   });
 });
 
@@ -1476,6 +1506,52 @@ describe("runBench chat route — LM Studio engine-protocol regression flags", (
     });
     expect(run?.reasoning_control_ignored).toBe(true);
     expect(run?.usage_reasoning_tokens).toBe(30);
+  });
+
+  it("records output_delta_batches/first_output_kind in both scenario_end.metrics and the aggregate run", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith("/v1/chat/completions")) {
+        return sseChatDeltas([{ reasoning_content: "think" }, { content: "po" }, { content: "ng" }]);
+      }
+      return jsonResponse({ error: "unexpected " + url }, 404);
+    });
+    let endMetrics: Record<string, unknown> | undefined;
+    let run: Record<string, unknown> | undefined;
+    for await (const ev of runBench(
+      baseBenchRequest({ skipModelLoad: true, scenarioIds: ["chat_ping"] }),
+      lmStudioDetect(),
+      { fetchImpl },
+    )) {
+      if (ev.type === "scenario_end") endMetrics = ev.metrics as Record<string, unknown>;
+      if (ev.type === "metrics_update") {
+        const agg = ev.aggregate as { runs?: Record<string, unknown>[] };
+        run = agg.runs?.[agg.runs.length - 1];
+      }
+    }
+    expect(endMetrics?.output_delta_batches).toBe(3);
+    expect(endMetrics?.first_output_kind).toBe("reasoning");
+    expect(run?.output_delta_batches).toBe(3);
+    expect(run?.first_output_kind).toBe("reasoning");
+  });
+
+  it("marks a tool call delivered in one read as a single tool_call burst", async () => {
+    const enc = new TextEncoder();
+    const burst =
+      `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "get_weather", arguments: '{"city":"Seoul"}' } }] } }] })}\n\n` +
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "tool_calls" }] })}\n\n` +
+      "data: [DONE]\n\n";
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { role: "assistant" } }] })}\n\n`));
+        controller.enqueue(enc.encode(burst));
+        controller.close();
+      },
+    });
+    const resp = new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+    const run = await lastRunFor("tool_weather", resp);
+    expect(run?.output_delta_batches).toBe(1);
+    expect(run?.first_output_kind).toBe("tool_call");
   });
 });
 

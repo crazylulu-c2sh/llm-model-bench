@@ -456,17 +456,25 @@ export async function detectProvider(
       if (Array.isArray(arr) && arr.length > 0) {
         const models = arr
           .map((m) => {
-            const row = m as { id: string; size?: number };
+            const row = m as { id: string; size?: number; arch?: unknown; context_length?: unknown };
             return {
               id: row.id,
               label: row.id,
               publisher: resolvePublisher(row.id),
               size_bytes: typeof row.size === "number" && row.size > 0 ? row.size : undefined,
+              ...openAiModelRowExtras(row),
             };
           })
+          // arch는 넘기지 않는다 — variant 표시명이 `_mtp`·`-assistant`로 끝나면 진짜 모델이 걸러진다.
           .filter((m) => !isBenchExcludedModelArtifact(m.id, m.label));
         const caps = await probeCapabilities(fetchImpl, baseUrl, opts.apiKey, timeoutMs);
-        const engine = await probeInferenceEngine(fetchImpl, baseUrl, opts.apiKey, timeoutMs, steps);
+        const { engine, engine_version } = await probeInferenceEngine(
+          fetchImpl,
+          baseUrl,
+          opts.apiKey,
+          timeoutMs,
+          steps,
+        );
         return {
           provider: "openai_compatible",
           baseUrl,
@@ -475,6 +483,7 @@ export async function detectProvider(
           capabilities: caps,
           reachability: reachOk,
           engine,
+          ...(engine_version ? { engine_version } : {}),
         };
       }
     }
@@ -496,12 +505,73 @@ export async function detectProvider(
   };
 }
 
-/** 엔드포인트 존재 여부 — 2xx 또는 bad-model 4xx/404+JSON. plain 404 route는 false. */
-function routeLikelyAvailable(status: number, body: string): boolean {
+/**
+ * OpenAI 호환 `/v1/models` 행의 선택 필드. 표준 OpenAI 응답에는 없고, 일부 서버(예: Apple Foundation
+ * Models 서버)가 variant 표시명(`arch`)과 컨텍스트 길이(`context_length`)를 싣는다. 형태가 틀리면 버린다.
+ */
+function openAiModelRowExtras(row: { arch?: unknown; context_length?: unknown }): {
+  arch?: string;
+  max_context_length?: number;
+} {
+  const out: { arch?: string; max_context_length?: number } = {};
+  if (typeof row.arch === "string" && row.arch.trim()) out.arch = row.arch.trim();
+  if (
+    typeof row.context_length === "number" &&
+    Number.isFinite(row.context_length) &&
+    row.context_length > 0
+  ) {
+    out.max_context_length = row.context_length;
+  }
+  return out;
+}
+
+/**
+ * chat 프로브용 엔드포인트 존재 여부 — 2xx 또는 bad-model 4xx/404+JSON. plain 404 route는 false.
+ * 일부러 느슨하다: `/v1/models`가 이미 모델을 돌려준 서버에서 chat을 놓치면 `no_routes`로 런 전체가 실패한다.
+ */
+export function routeLikelyAvailable(status: number, body: string): boolean {
   if (status >= 200 && status < 300) return true;
   if (status >= 400 && status < 500 && status !== 404) return true;
   if (status === 404 && body.trimStart().startsWith("{")) return true;
   return false;
+}
+
+/** 404 본문이 요청 메서드·경로를 되풀이하면 "라우트 없음" 응답이다(예: `Not found: POST /v1/messages`). */
+const ROUTE_ECHO_RE = /\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\/\S*/;
+
+/**
+ * `/v1/messages` 프로브 전용 판정 — chat 프로브보다 엄격하다. JSON 404는 본문이 모델을 말하고
+ * (Ollama·OpenAI·vLLM의 model-not-found) 메서드+경로를 되풀이하지 않을 때만 "라우트 존재"로 본다.
+ * llama.cpp `File Not Found`, FastAPI `{"detail":"Not Found"}`, `fm serve`의 `Not found: POST \/v1\/messages`
+ * 같은 JSON 404가 Anthropic 라우트로 오판되던 문제를 막는다. messages를 놓쳐도 chat이 남아 런은 돈다.
+ * 비교는 `JSON.parse`→`JSON.stringify` 후 텍스트로 한다 — 원문은 `\/`로 이스케이프돼 경로 정규식에 안 걸린다.
+ */
+export function messagesRouteLikelyAvailable(status: number, body: string): boolean {
+  if (status >= 200 && status < 300) return true;
+  if (status >= 400 && status < 500 && status !== 404) return true;
+  if (status !== 404 || !body.trimStart().startsWith("{")) return false;
+  let text: string;
+  try {
+    text = JSON.stringify(JSON.parse(body));
+  } catch {
+    return false;
+  }
+  return /model/i.test(text) && !ROUTE_ECHO_RE.test(text);
+}
+
+/** `engine_version` 상한 — 서버가 보낸 문자열을 그대로 런 메타에 싣기 전에 자른다. */
+const ENGINE_VERSION_MAX_CHARS = 200;
+
+/**
+ * Apple Foundation Models 서버 `/health` 지문. 평범한 객체이고 `engine === "apple_fm"`이어야 한다.
+ * `engine_version`은 선택(공백 제거·길이 상한). 일치하지 않으면 null.
+ */
+export function parseAppleFmHealth(body: unknown): { engine_version?: string } | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const obj = body as Record<string, unknown>;
+  if (obj.engine !== "apple_fm") return null;
+  const raw = typeof obj.engine_version === "string" ? obj.engine_version.trim() : "";
+  return raw ? { engine_version: raw.slice(0, ENGINE_VERSION_MAX_CHARS) } : {};
 }
 
 /** SGLang `/server_info`·`/get_server_info` 본문 지문 — 일반 OpenAI `/v1`과 겹치지 않는 네이티브 필드. */
@@ -539,6 +609,8 @@ export function classifyMetricsEngine(text: string): InferenceEngine | null {
   return null;
 }
 
+type EngineProbeResult = { engine: InferenceEngine | null; engine_version?: string };
+
 /**
  * `openai_compatible` 확정 후 엔진 힌트만 채운다(연결 시 1회).
  * 실패해도 null — 목록 성공을 뒤집지 않는다. LIST_STEP_NAMES에는 넣지 않음.
@@ -549,8 +621,38 @@ async function probeInferenceEngine(
   apiKey: string | undefined,
   timeoutMs: number,
   steps: DetectStep[],
-): Promise<InferenceEngine | null> {
+): Promise<EngineProbeResult> {
   const h = headers(apiKey);
+
+  // 0) Apple Foundation Models 서버: /health 자기 신고. 불일치·실패는 step만 남기고 기존 순서로 계속한다
+  //    (/health는 MTPLX 등 다른 서버도 쓰는 흔한 경로라 여기서 끊지 않는다).
+  try {
+    const r = await fetchImpl(`${baseUrl}/health`, {
+      headers: h,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    let body: unknown = null;
+    if (r.ok) {
+      try {
+        body = await r.json();
+      } catch {
+        body = null;
+      }
+    }
+    const fm = r.ok ? parseAppleFmHealth(body) : null;
+    if (fm) {
+      steps.push({ name: "apple_fm_health", ok: true, status: r.status, detail: "/health" });
+      return { engine: "apple_fm", ...fm };
+    }
+    steps.push({
+      name: "apple_fm_health",
+      ok: false,
+      status: r.status,
+      detail: r.ok ? "/health:unrecognized_shape" : "/health",
+    });
+  } catch (e) {
+    steps.push({ name: "apple_fm_health", ok: false, detail: `/health:${describeFetchError(e)}` });
+  }
 
   // 1) SGLang: /server_info (정본) → /get_server_info (레거시)
   for (const path of ["/server_info", "/get_server_info"] as const) {
@@ -577,7 +679,7 @@ async function probeInferenceEngine(
       }
       if (isSglangServerInfoBody(body)) {
         steps.push({ name: "sglang_server_info", ok: true, status: r.status, detail: path });
-        return "sglang";
+        return { engine: "sglang" };
       }
       steps.push({
         name: "sglang_server_info",
@@ -604,19 +706,19 @@ async function probeInferenceEngine(
     });
     if (!r.ok) {
       steps.push({ name: "vllm_metrics", ok: false, status: r.status });
-      return null;
+      return { engine: null };
     }
     const text = await r.text().catch(() => "");
     const engine = classifyMetricsEngine(text);
     if (engine) {
       steps.push({ name: "vllm_metrics", ok: true, status: r.status, detail: engine });
-      return engine;
+      return { engine };
     }
     steps.push({ name: "vllm_metrics", ok: false, status: r.status, detail: "no_known_gauges" });
   } catch (e) {
     steps.push({ name: "vllm_metrics", ok: false, detail: describeFetchError(e) });
   }
-  return null;
+  return { engine: null };
 }
 
 /** Ollama·OpenAI 호환·manual 프로바이더용. LM Studio·Ollama는 네이티브 목록으로 식별 시 고정 caps를 씁니다. */
@@ -664,7 +766,7 @@ async function probeCapabilities(
       }),
     });
     const body = await r.text().catch(() => "");
-    anthropicMessages = routeLikelyAvailable(r.status, body);
+    anthropicMessages = messagesRouteLikelyAvailable(r.status, body);
   } catch {
     anthropicMessages = false;
   }
