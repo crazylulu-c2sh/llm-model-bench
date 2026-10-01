@@ -3,8 +3,10 @@
  * LAN 송신 프록시 (폴백) — macOS 로컬 네트워크 차단 우회용.
  *
  * macOS는 로그인 세션이 죽은 프로세스의 LAN 접근을 막는다(루프백은 대상 아님).
- * pm2 데몬 아래의 서버가 여기에 걸리므로, 컨테이너(Linux VM, 정책 미적용) 안의
- * 이 프록시를 루프백으로 경유해 LAN에 나간다.
+ * pm2 데몬 아래의 서버가 여기에 걸리므로, 게이트가 없는 맥락에서 도는 이 프록시를
+ * 루프백으로 경유해 LAN에 나간다. 그 맥락은 두 가지다(의존성 없는 단일 파일이라 둘 다 같은 코드):
+ *   - launchd 에이전트 + osascript (`scripts/lan-proxy-agent.sh`) — 권장, 메모리 ~70MB
+ *   - Docker 컨테이너(Linux VM, 정책 미적용) — Docker Desktop 상주 ~1GB
  *
  * 공유 프록시(127.0.0.1:3128)와 **동일한 상대 경로 규약**을 구현한다 — 드롭인 대체가
  * 되어야 ecosystem.config.cjs의 선택 로직이 한 가지 형태만 알면 된다.
@@ -17,6 +19,14 @@ const http = require("node:http");
 const net = require("node:net");
 
 const PORT = Number(process.env.PORT || 3129);
+
+/**
+ * 기본은 루프백이다. 호스트(launchd)에서 0.0.0.0으로 열면 **LAN 오픈 프록시**가 되어
+ * 같은 망의 누구나 이 맥을 경유해 나갈 수 있다. 컨테이너만 0.0.0.0이 필요하고
+ * (포트 publish가 컨테이너 eth0로 들어온다), 그쪽 노출 범위는 compose의
+ * `127.0.0.1:3129:3129`가 정한다 — 그래서 docker-compose.yml에서만 덮는다.
+ */
+const HOST = process.env.PROXY_HOST || "127.0.0.1";
 
 /**
  * 유휴(idle) 타임아웃 — 수명 상한이 아니라 **무응답 구간**만 자른다.
@@ -146,6 +156,6 @@ server.on("connect", (req, clientSock, head) => {
   }
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  log("listening", { port: PORT, idleMs: IDLE_MS });
+server.listen(PORT, HOST, () => {
+  log("listening", { host: HOST, port: PORT, idleMs: IDLE_MS });
 });

@@ -152,21 +152,31 @@ git fetch && git pull && pnpm ci && pnpm build && pm2 reload ecosystem.config.cj
 
 macOS는 **로그인 세션이 죽은 프로세스의 LAN(비루프백) 접근을 막습니다.** PM2 God Daemon 아래의 프로세스가 정확히 그 상태라, 원격 LM Studio/Ollama 호출이 `fetch failed (EHOSTUNREACH)`로 실패합니다. 루프백 baseUrl은 영향이 없고, `/usr/bin/curl`은 Apple 서명 바이너리라 통과하므로 "curl은 되는데 서버만 안 되는" 모습으로 보입니다.
 
-[`ecosystem.config.cjs`](ecosystem.config.cjs)가 기동 시 **Docker 송신 프록시**를 자동 선택해 우회합니다(컨테이너는 Linux VM 안이라 이 정책이 적용되지 않습니다). 선택 순서는 `BENCH_LAN_PROXY` → 공유 프록시 `127.0.0.1:3128` → 폴백 `127.0.0.1:3129` → 없으면 경고 후 프록시 없이 기동입니다.
+[`ecosystem.config.cjs`](ecosystem.config.cjs)가 기동 시 **루프백 송신 프록시**를 자동 선택해 우회합니다(프록시는 게이트가 없는 맥락에서 돌고, 서버→프록시 구간은 루프백이라 게이트 대상이 아닙니다). 선택 순서는 `BENCH_LAN_PROXY` → 공유 프록시 `127.0.0.1:3128` → 폴백 `127.0.0.1:3129` → 없으면 경고 후 프록시 없이 기동입니다.
 
 **이 동작은 macOS(`darwin`)에서만 일어납니다.** Linux/Windows 호스트에는 게이트가 없으므로 프로브도 돌지 않고 경고도 나오지 않습니다. macOS이지만 루프백 프로바이더만 쓴다면 `BENCH_LAN_PROXY=off`로 조용히 끌 수 있습니다.
 
 프록시는 **존재가 아니라 능력**으로 고릅니다 — `/__health`의 `idleMs`가 서버의 `MAX_REQUEST_TIMEOUT_MS`보다 커야 채택됩니다. 그보다 짧으면 "요청이 너무 느리다"를 프록시가 판단하게 되어, 긴 JIT 모델 로드가 소비자 타임아웃 대신 `UND_ERR_SOCKET`으로 끊깁니다.
 
-공유 프록시가 없으면 저장소 폴백을 띄웁니다:
+공유 프록시가 없으면 저장소 폴백을 띄웁니다. 같은 [`proxy.js`](docker/lan-proxy/proxy.js)·같은 `127.0.0.1:3129`라 어느 쪽이든 선택 로직은 같습니다.
+
+| 폴백 | 상주 메모리 | 비고 |
+|---|---|---|
+| **launchd 에이전트** (`scripts/lan-proxy-agent.sh`) — 권장 | node+osascript **~70MB** | sudo 불필요. GUI 로그인 세션 필요(pm2 `startup`과 같은 수명) |
+| Docker 컨테이너 (`docker compose --profile lan-proxy`) | Docker Desktop **~1GB** (VM 한도 별도) | 이미 Docker를 상주시키는 호스트라면 무난 |
 
 ```bash
-docker compose --profile lan-proxy up -d lan-proxy-fallback   # 127.0.0.1:3129, opt-in
-pm2 reload ecosystem.config.cjs --update-env                   # 프록시 재선택은 여기서만 일어난다
-ps eww -p $(pm2 pid llm-bench) | tr ' ' '\n' | grep -E '^(HTTP_PROXY|NO_PROXY|NODE_USE_ENV_PROXY)='
+scripts/lan-proxy-agent.sh install                                # 또는: docker compose --profile lan-proxy up -d lan-proxy-fallback
+scripts/lan-proxy-agent.sh status http://<LAN호스트:포트>/v1/models  # 프록시 경유 LAN 왕복 확인
+pm2 reload ecosystem.config.cjs --update-env && pm2 save          # 프록시 재선택은 여기서만 일어난다
+pm2 env $(pm2 id llm-bench | tr -dc '0-9') | grep -E '^(HTTP_PROXY|NO_PROXY|NODE_USE_ENV_PROXY):'
 ```
 
-세 번째 줄을 반드시 확인하십시오 — `pm2 reload`가 성공해도 `--update-env` 없이는 옛 환경이 남습니다. `pm2 restart`는 저장된 env를 재사용하므로 **재선택되지 않습니다.**
+마지막 줄을 반드시 확인하십시오 — `pm2 reload`가 성공해도 `--update-env` 없이는 옛 환경이 남습니다. `pm2 restart`는 저장된 env를 재사용하므로 **재선택되지 않습니다.** `pm2 save`를 빼면 재부팅·`pm2 resurrect` 때 프록시 없는 옛 스냅숏이 되살아납니다.
+
+launchd 에이전트가 **osascript로 감싸는 이유**: 에이전트로 띄운 node도 pm2 아래와 똑같이 막힙니다(LaunchAgent는 daemon 예외 대상이 아님, [TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)). launchd가 직접 띄운 `/usr/bin/osascript`의 `do shell script` 자식은 Apple 플랫폼 바이너리가 책임 프로세스가 되어 통과합니다. pm2가 osascript를 띄우면 책임 프로세스가 pm2에서 상속돼 **통과하지 못하므로**, 프록시를 pm2 앱으로 넣을 수는 없습니다. 저장소의 `proxy.js`를 고쳤거나 Node를 바꿨다면 `install`을 다시 실행하십시오(설치본은 복사본입니다 — `status`가 불일치를 알려 줍니다).
+
+Docker 폴백에서 launchd로 옮길 때는 포트가 같으므로 `docker compose --profile lan-proxy stop lan-proxy-fallback` 후 `install`하면 됩니다 — 이미 `HTTP_PROXY=http://127.0.0.1:3129`로 떠 있는 서버는 재선택 없이 이어서 동작합니다. Docker를 이것 때문에만 썼다면 Docker Desktop의 로그인 시 자동 실행도 끄십시오.
 
 > Docker compose 배포에는 이 프록시가 **불필요합니다.** 컨테이너가 이미 Linux VM 안이라 게이트가 없고, 넣으면 불필요한 홉만 생깁니다. macOS 호스트에서 PM2로 돌릴 때만 해당됩니다.
 
