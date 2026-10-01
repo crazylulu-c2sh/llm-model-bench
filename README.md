@@ -176,6 +176,15 @@ pm2 env $(pm2 id llm-bench | tr -dc '0-9') | grep -E '^(HTTP_PROXY|NO_PROXY|NODE
 
 launchd 에이전트가 **osascript로 감싸는 이유**: 에이전트로 띄운 node도 pm2 아래와 똑같이 막힙니다(LaunchAgent는 daemon 예외 대상이 아님, [TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)). launchd가 직접 띄운 `/usr/bin/osascript`의 `do shell script` 자식은 Apple 플랫폼 바이너리가 책임 프로세스가 되어 통과합니다. pm2가 osascript를 띄우면 책임 프로세스가 pm2에서 상속돼 **통과하지 못하므로**, 프록시를 pm2 앱으로 넣을 수는 없습니다. 저장소의 `proxy.js`를 고쳤거나 Node를 바꿨다면 `install`을 다시 실행하십시오(설치본은 복사본입니다 — `status`가 불일치를 알려 줍니다).
 
+> **node 바이너리는 Developer ID 서명이어야 합니다.** 같은 머신·같은 osascript 경로에서 nodejs.org 공식 node는 통과하고 **Homebrew node(ad-hoc 서명)는 `EHOSTUNREACH`**였습니다(macOS 27.0.1 실측). 후자는 `/__health`가 200이라 기동 확인만으로는 놓치므로 `install` 뒤에 `status <LAN URL>`로 LAN 왕복을 반드시 확인하십시오. Homebrew node뿐이라면 공식 빌드를 받아 안정적인 경로에 두고 지정합니다.
+>
+> ```bash
+> codesign -dv "$NODE_BIN" 2>&1 | grep TeamIdentifier   # TeamIdentifier=<10자리> 여야 함 ("not set"이면 ad-hoc)
+> NODE_BIN="$HOME/Library/Application Support/llm-model-bench/node/node" scripts/lan-proxy-agent.sh install
+> ```
+>
+> `install`은 서명이 없으면 경고합니다. 에이전트는 `NODE_BIN` 경로를 고정하므로 그 파일을 지우거나 업그레이드하면 `install`을 다시 실행해야 합니다.
+
 Docker 폴백에서 launchd로 옮길 때는 포트가 같으므로 `docker compose --profile lan-proxy stop lan-proxy-fallback` 후 `install`하면 됩니다 — 이미 `HTTP_PROXY=http://127.0.0.1:3129`로 떠 있는 서버는 재선택 없이 이어서 동작합니다. Docker를 이것 때문에만 썼다면 Docker Desktop의 로그인 시 자동 실행도 끄십시오.
 
 > Docker compose 배포에는 이 프록시가 **불필요합니다.** 컨테이너가 이미 Linux VM 안이라 게이트가 없고, 넣으면 불필요한 홉만 생깁니다. macOS 호스트에서 PM2로 돌릴 때만 해당됩니다.
