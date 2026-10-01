@@ -15,6 +15,12 @@
 # 되어 로컬 네트워크 프라이버시 예외를 받는다. LaunchDaemon은 UserName(일반 사용자)이면 예외가
 # 아니고(Apple DTS), root면 예외지만 sudo가 필요하고 프록시를 root로 돌리게 된다.
 #
+# node 바이너리도 조건이다 — 같은 머신·같은 osascript 경로에서 실측(macOS 27.0.1):
+#   nodejs.org 공식 node (Developer ID 서명)   OK
+#   Homebrew node (ad-hoc 서명)                EHOSTUNREACH
+# 후자는 /__health 가 200 이라 기동 확인만으로는 놓친다. install 이 서명을 보고 경고하며,
+# 반드시 `status <LAN URL>` 로 LAN 왕복을 확인할 것.
+#
 # 사용법:
 #   scripts/lan-proxy-agent.sh install      # 설치·(재)기동. 저장소 proxy.js나 Node를 바꾼 뒤에도 다시 실행
 #   scripts/lan-proxy-agent.sh status [URL] # URL을 주면 프록시 경유 LAN 왕복까지 확인
@@ -54,6 +60,13 @@ cmd_install() {
   # launchd는 셸 초기화 없이 빈 환경으로 실행한다 — 버전 매니저 shim이면 거기서 깨진다.
   env -i "$node_bin" -e 0 >/dev/null 2>&1 ||
     die "$node_bin 이 빈 환경에서 실행되지 않습니다(shim?). 실제 바이너리를 NODE_BIN 으로 지정하십시오."
+  # 파이프 없이 변수로 받는다 — pipefail 아래서 grep -q 의 조기 종료(SIGPIPE)가 판정을 뒤집는다.
+  local sig; sig="$(codesign -dv "$node_bin" 2>&1 || true)"
+  if ! grep -q '^TeamIdentifier=[A-Z0-9]\{10\}$' <<<"$sig"; then
+    say "경고: $node_bin 은 Developer ID 서명이 아닙니다(ad-hoc/미서명 — Homebrew node 등)."
+    say "  이런 node는 osascript를 거쳐도 LAN이 EHOSTUNREACH로 막힐 수 있습니다(/__health는 200이라 기동만으론 모릅니다)."
+    say "  nodejs.org 공식 node를 받아 NODE_BIN=/절대/경로/node 로 지정하고, 설치 후 status <LAN URL> 로 확인하십시오."
+  fi
 
   if loaded; then
     launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
@@ -119,7 +132,8 @@ EOF
   cat <<EOF
 
 다음 단계:
-  1) LAN 왕복 확인:  scripts/lan-proxy-agent.sh status http://<LAN호스트:포트>/v1/models
+  1) LAN 왕복 확인(필수 — 위 health 200은 LAN 도달을 보장하지 않는다):
+       scripts/lan-proxy-agent.sh status http://<LAN호스트:포트>/v1/models
   2) pm2 서버가 이 프록시를 물도록 재선택 후 스냅숏 저장:
        pm2 reload ecosystem.config.cjs --update-env && pm2 save
      (이미 HTTP_PROXY=http://127.0.0.1:$PORT 로 떠 있었다면 재선택 없이도 이어서 동작한다)
