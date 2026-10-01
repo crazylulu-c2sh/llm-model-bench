@@ -53,6 +53,8 @@ services:
   # LAN 송신 프록시(폴백) — macOS 전용 문제의 우회로. **compose 배포에는 불필요하다**
   # (컨테이너가 이미 Linux VM 안이라 로컬 네트워크 게이트가 없다). 호스트에서 pm2로
   # 서버를 돌릴 때, 공유 프록시(127.0.0.1:3128)가 없거나 유휴 한도가 부족한 경우에만 쓴다.
+  # Docker Desktop을 이것 때문에만 띄운다면 launchd 에이전트가 더 가볍다(같은 proxy.js, ~70MB):
+  #   scripts/lan-proxy-agent.sh install
   #   docker compose --profile lan-proxy up -d lan-proxy-fallback
   lan-proxy-fallback:
     build:
@@ -60,6 +62,10 @@ services:
       dockerfile: docker/lan-proxy/Dockerfile
     # PROXY_IDLE_MS 를 여기에 두지 않는다 — 기본값의 단일 출처는 docker/lan-proxy/proxy.js 다.
     # 두 곳에 적으면 서버의 MAX_REQUEST_TIMEOUT_MS 를 올릴 때 한쪽만 고쳐져 조용히 어긋난다.
+    environment:
+      # proxy.js 기본 바인딩은 루프백이다(호스트 실행 시 LAN 오픈 프록시 방지). 컨테이너 안에서는
+      # 포트 publish가 eth0로 들어오므로 전체 인터페이스로 받아야 한다 — 노출 범위는 아래 ports가 정한다.
+      PROXY_HOST: "0.0.0.0"
     ports:
       - "127.0.0.1:3129:3129"   # 루프백 전용. 0.0.0.0 으로 열면 LAN 오픈 프록시가 된다.
     profiles: ["lan-proxy"]     # opt-in — 기본 `docker compose up` 에는 뜨지 않는다

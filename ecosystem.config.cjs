@@ -12,15 +12,15 @@ const { execFileSync } = require("node:child_process");
 //
 // macOS는 로그인 세션이 죽은 프로세스의 LAN 접근을 막는다(루프백은 대상 아님).
 // pm2 God Daemon 아래의 이 서버가 정확히 그 상태라, LAN LM Studio 호출이
-// EHOSTUNREACH로 실패한다. Docker VM 안은 이 정책이 적용되지 않으므로
-// 루프백으로 컨테이너 프록시를 경유해 나간다.
+// EHOSTUNREACH로 실패한다. 게이트가 없는 맥락에서 도는 프록시를 루프백으로 경유해
+// 나간다 — launchd 에이전트(osascript 경유) 또는 Docker 컨테이너(Linux VM).
 //
 // HTTP_PROXY는 **프로세스 기동 시점에만** 읽히므로(런타임 변경은 무시된다)
 // 선택은 여기서, pm2가 이 파일을 평가할 때 끝나야 한다. 재선택은
 // `pm2 reload ecosystem.config.cjs --update-env` 로만 일어난다.
 
 const SHARED_PROXY_PORT = 3128; // 다른 팀 세션이 소유. 읽기만 한다.
-const FALLBACK_PROXY_PORT = 3129; // 이 저장소 소유: docker/lan-proxy/
+const FALLBACK_PROXY_PORT = 3129; // 이 저장소 소유: scripts/lan-proxy-agent.sh 또는 docker compose
 
 /**
  * 프록시가 감당해야 할 최소 유휴 한도 = 이 저장소의 가장 긴 요청 타임아웃.
@@ -114,8 +114,10 @@ function selectLanProxy() {
   console.warn(
     "[lan-proxy] 쓸 수 있는 프록시가 없습니다 — " + seen.join(", ") + "\n" +
       "  macOS에서 pm2로 띄우면 LAN(비루프백) 프로바이더 호출이 EHOSTUNREACH로 실패합니다.\n" +
-      "  루프백 baseUrl은 영향이 없습니다. 폴백을 띄우려면:\n" +
-      "    docker compose --profile lan-proxy up -d lan-proxy-fallback",
+      "  루프백 baseUrl은 영향이 없습니다. 폴백을 띄우려면(둘 중 하나, 같은 127.0.0.1:3129):\n" +
+      "    scripts/lan-proxy-agent.sh install                            # launchd, ~70MB\n" +
+      "    docker compose --profile lan-proxy up -d lan-proxy-fallback   # Docker Desktop 필요\n" +
+      "  그다음 pm2 reload ecosystem.config.cjs --update-env && pm2 save",
   );
   return null;
 }
