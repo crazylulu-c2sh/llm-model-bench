@@ -38,7 +38,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version-file: .nvmrc # 24.12.0 정확히 핀 (engine-strict 충족)
+          node-version-file: .nvmrc # 24.22.1 정확히 핀 (engine-strict 충족)
           cache: pnpm
 
       # frozen install: root postinstall이 @llm-bench/shared를 dist로 빌드, sharp/esbuild 스크립트 실행.
